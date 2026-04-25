@@ -2,7 +2,9 @@
   "name": "@cacp/server",
   "version": "0.1.0",
   "type": "module",
-  "exports": { ".": "./src/server.ts" },
+  "exports": {
+    ".": "./src/server.ts"
+  },
   "scripts": {
     "build": "tsc --noEmit -p tsconfig.json",
     "dev": "tsx src/index.ts",
@@ -11,7 +13,7 @@
   "dependencies": {
     "@cacp/protocol": "workspace:*",
     "@fastify/websocket": "^11.0.1",
-    "better-sqlite3": "^11.8.1",
+    "better-sqlite3": "^12.9.0",
     "fastify": "^5.2.1",
     "zod": "^3.24.1"
   },
