@@ -1,18 +1,17 @@
 #!/usr/bin/env node
 import WebSocket from "ws";
 import { CacpEventSchema } from "@cacp/protocol";
-import { loadConfig } from "./config.js";
+import { loadRuntimeConfigFromArgs } from "./config.js";
 import { runCommandForTask } from "./runner.js";
 import { taskReportForExitCode } from "./task-result.js";
 import { appendTurnOutput, turnCompleteBody } from "./turn-result.js";
 
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
-  console.log("Usage: cacp-cli-adapter [config.json]\n\nRuns a trusted local CLI command for assigned CACP tasks.");
+  console.log("Usage: cacp-cli-adapter [config.json]\n       cacp-cli-adapter --server http://127.0.0.1:3737 --pair <pairing_token>\n\nRuns a trusted local CLI command for assigned CACP tasks or paired agent turns.");
   process.exit(0);
 }
 
-const configPath = process.argv[2] ?? "docs/examples/generic-cli-agent.json";
-const config = loadConfig(configPath);
+const config = await loadRuntimeConfigFromArgs(process.argv.slice(2));
 
 async function postJson<T>(path: string, participantToken: string, body: unknown): Promise<T> {
   const response = await fetch(`${config.server_url}${path}`, {
@@ -24,7 +23,7 @@ async function postJson<T>(path: string, participantToken: string, body: unknown
   return (await response.json()) as T;
 }
 
-const registered = await postJson<{ agent_id: string; agent_token: string }>(`/rooms/${config.room_id}/agents/register`, config.token, {
+const registered = config.registered_agent ?? await postJson<{ agent_id: string; agent_token: string }>(`/rooms/${config.room_id}/agents/register`, config.token!, {
   name: config.agent.name,
   capabilities: config.agent.capabilities
 });
