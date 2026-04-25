@@ -37,6 +37,10 @@ describe("CACP event schema", () => {
     for (const type of [
       "room.configured",
       "room.agent_selected",
+      "agent.pairing_created",
+      "agent.status_changed",
+      "agent.action_approval_requested",
+      "agent.action_approval_resolved",
       "agent.turn.requested",
       "agent.turn.followup_queued",
       "agent.turn.started",
