@@ -47,6 +47,10 @@ export class EventStore {
     this.db.close();
   }
 
+  transaction<T>(fn: () => T): T {
+    return this.db.transaction(fn)();
+  }
+
   appendEvent(input: CacpEvent): CacpEvent {
     const event = CacpEventSchema.parse(input);
     this.db.prepare(`

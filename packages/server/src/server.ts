@@ -1,7 +1,7 @@
 import Fastify, { type FastifyReply } from "fastify";
 import websocket from "@fastify/websocket";
 import { z } from "zod";
-import { evaluatePolicy, PolicySchema, VoteRecordSchema, type CacpEvent, type Policy, type VoteRecord } from "@cacp/protocol";
+import { evaluatePolicy, PolicySchema, VoteRecordSchema, type CacpEvent, type Participant, type Policy, type VoteRecord } from "@cacp/protocol";
 import { requireParticipant, hasAnyRole } from "./auth.js";
 import { EventBus } from "./event-bus.js";
 import { EventStore } from "./event-store.js";
@@ -23,10 +23,8 @@ const TaskFailedSchema = z.object({ error: z.string().min(1), exit_code: z.numbe
 export interface BuildServerOptions { dbPath?: string }
 
 type Invite = { room_id: string; role: "admin" | "member" | "observer"; display_name: string };
-
-const invites = new Map<string, Invite>();
-const proposalVotes = new Map<string, VoteRecord[]>();
-const proposalPolicies = new Map<string, Policy>();
+type ProposalState = { room_id: string; policy: Policy; votes: VoteRecord[] };
+type TaskState = { room_id: string; target_agent_id: string };
 
 function deny(reply: FastifyReply, error: string, status = 401) {
   return reply.code(status).send({ error });
@@ -36,13 +34,37 @@ export async function buildServer(options: BuildServerOptions = {}) {
   const app = Fastify({ logger: false });
   const store = new EventStore(options.dbPath ?? "cacp.db");
   const bus = new EventBus();
+  const invites = new Map<string, Invite>();
+  const proposalState = new Map<string, ProposalState>();
+  const taskState = new Map<string, TaskState>();
   await app.register(websocket);
   app.addHook("onClose", async () => store.close());
+
+  function publishEvents(events: CacpEvent[]): void {
+    for (const stored of events) bus.publish(stored);
+  }
 
   function appendAndPublish(input: CacpEvent): CacpEvent {
     const stored = store.appendEvent(input);
     bus.publish(stored);
     return stored;
+  }
+
+  function requireAssignedAgentTask(roomId: string, taskId: string, participant: Participant, reply: FastifyReply): TaskState | undefined {
+    if (participant.role !== "agent") {
+      deny(reply, "forbidden", 403);
+      return undefined;
+    }
+    const task = taskState.get(taskId);
+    if (!task || task.room_id !== roomId) {
+      deny(reply, "unknown_task", 404);
+      return undefined;
+    }
+    if (task.target_agent_id !== participant.id) {
+      deny(reply, "forbidden", 403);
+      return undefined;
+    }
+    return task;
   }
 
   app.get("/health", async () => ({ ok: true, protocol: "cacp", version: "0.1.0" }));
@@ -52,9 +74,14 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const roomId = prefixedId("room");
     const ownerId = prefixedId("user");
     const ownerToken = token();
-    const owner = store.addParticipant({ room_id: roomId, id: ownerId, token: ownerToken, display_name: body.display_name, type: "human", role: "owner" });
-    appendAndPublish(event(roomId, "room.created", ownerId, { name: body.name, created_by: ownerId }));
-    appendAndPublish(event(roomId, "participant.joined", ownerId, { participant: publicParticipant(owner) }));
+    const storedEvents = store.transaction(() => {
+      const owner = store.addParticipant({ room_id: roomId, id: ownerId, token: ownerToken, display_name: body.display_name, type: "human", role: "owner" });
+      return [
+        store.appendEvent(event(roomId, "room.created", ownerId, { name: body.name, created_by: ownerId })),
+        store.appendEvent(event(roomId, "participant.joined", ownerId, { participant: publicParticipant(owner) }))
+      ];
+    });
+    publishEvents(storedEvents);
     return reply.code(201).send({ room_id: roomId, owner_id: ownerId, owner_token: ownerToken });
   });
 
@@ -93,8 +120,11 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!invite || invite.room_id !== request.params.roomId) return deny(reply, "invalid_invite");
     const participantId = prefixedId("user");
     const participantToken = token();
-    const participant = store.addParticipant({ room_id: request.params.roomId, id: participantId, token: participantToken, display_name: invite.display_name, type: invite.role === "observer" ? "observer" : "human", role: invite.role });
-    appendAndPublish(event(request.params.roomId, "participant.joined", participant.id, { participant: publicParticipant(participant) }));
+    const storedEvents = store.transaction(() => {
+      const participant = store.addParticipant({ room_id: request.params.roomId, id: participantId, token: participantToken, display_name: invite.display_name, type: invite.role === "observer" ? "observer" : "human", role: invite.role });
+      return [store.appendEvent(event(request.params.roomId, "participant.joined", participant.id, { participant: publicParticipant(participant) }))];
+    });
+    publishEvents(storedEvents);
     return reply.code(201).send({ participant_id: participantId, participant_token: participantToken, role: invite.role });
   });
 
@@ -128,8 +158,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (participant.role === "observer") return deny(reply, "forbidden", 403);
     const body = ProposalSchema.parse(request.body);
     const proposalId = prefixedId("prop");
-    proposalPolicies.set(proposalId, body.policy);
-    proposalVotes.set(proposalId, []);
+    proposalState.set(proposalId, { room_id: request.params.roomId, policy: body.policy, votes: [] });
     appendAndPublish(event(request.params.roomId, "proposal.created", participant.id, { proposal_id: proposalId, ...body }));
     return reply.code(201).send({ proposal_id: proposalId });
   });
@@ -138,13 +167,13 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
     if (participant.role === "observer") return deny(reply, "forbidden", 403);
-    const policy = proposalPolicies.get(request.params.proposalId);
-    if (!policy) return deny(reply, "unknown_proposal", 404);
+    const state = proposalState.get(request.params.proposalId);
+    if (!state || state.room_id !== request.params.roomId) return deny(reply, "unknown_proposal", 404);
     const vote = VoteRecordSchema.parse({ ...(request.body as object), voter_id: participant.id });
-    const votes = [...(proposalVotes.get(request.params.proposalId) ?? []), vote];
-    proposalVotes.set(request.params.proposalId, votes);
+    const votes = [...state.votes, vote];
+    state.votes = votes;
     appendAndPublish(event(request.params.roomId, "proposal.vote_cast", participant.id, { proposal_id: request.params.proposalId, ...vote }));
-    const evaluation = evaluatePolicy(policy, store.getParticipants(request.params.roomId), votes);
+    const evaluation = evaluatePolicy(state.policy, store.getParticipants(request.params.roomId), votes);
     if (evaluation.status === "approved") appendAndPublish(event(request.params.roomId, "proposal.approved", participant.id, { proposal_id: request.params.proposalId, evaluation }));
     if (evaluation.status === "rejected") appendAndPublish(event(request.params.roomId, "proposal.rejected", participant.id, { proposal_id: request.params.proposalId, evaluation }));
     if (evaluation.status === "expired") appendAndPublish(event(request.params.roomId, "proposal.expired", participant.id, { proposal_id: request.params.proposalId, evaluation }));
@@ -158,8 +187,11 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const body = AgentRegisterSchema.parse(request.body);
     const agentId = prefixedId("agent");
     const agentToken = token();
-    store.addParticipant({ room_id: request.params.roomId, id: agentId, token: agentToken, display_name: body.name, type: "agent", role: "agent" });
-    appendAndPublish(event(request.params.roomId, "agent.registered", participant.id, { agent_id: agentId, name: body.name, capabilities: body.capabilities }));
+    const storedEvents = store.transaction(() => {
+      store.addParticipant({ room_id: request.params.roomId, id: agentId, token: agentToken, display_name: body.name, type: "agent", role: "agent" });
+      return [store.appendEvent(event(request.params.roomId, "agent.registered", participant.id, { agent_id: agentId, name: body.name, capabilities: body.capabilities }))];
+    });
+    publishEvents(storedEvents);
     return reply.code(201).send({ agent_id: agentId, agent_token: agentToken });
   });
 
@@ -169,6 +201,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!hasAnyRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
     const body = TaskCreateSchema.parse(request.body);
     const taskId = prefixedId("task");
+    taskState.set(taskId, { room_id: request.params.roomId, target_agent_id: body.target_agent_id });
     appendAndPublish(event(request.params.roomId, "task.created", participant.id, { task_id: taskId, created_by: participant.id, ...body }));
     return reply.code(201).send({ task_id: taskId });
   });
@@ -176,7 +209,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.post<{ Params: { roomId: string; taskId: string } }>("/rooms/:roomId/tasks/:taskId/start", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (participant.role !== "agent") return deny(reply, "forbidden", 403);
+    if (!requireAssignedAgentTask(request.params.roomId, request.params.taskId, participant, reply)) return;
     appendAndPublish(event(request.params.roomId, "task.started", participant.id, { task_id: request.params.taskId, agent_id: participant.id }));
     return reply.code(201).send({ ok: true });
   });
@@ -184,7 +217,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.post<{ Params: { roomId: string; taskId: string } }>("/rooms/:roomId/tasks/:taskId/output", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (participant.role !== "agent") return deny(reply, "forbidden", 403);
+    if (!requireAssignedAgentTask(request.params.roomId, request.params.taskId, participant, reply)) return;
     appendAndPublish(event(request.params.roomId, "task.output", participant.id, { task_id: request.params.taskId, agent_id: participant.id, ...TaskOutputSchema.parse(request.body) }));
     return reply.code(201).send({ ok: true });
   });
@@ -192,7 +225,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.post<{ Params: { roomId: string; taskId: string } }>("/rooms/:roomId/tasks/:taskId/complete", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (participant.role !== "agent") return deny(reply, "forbidden", 403);
+    if (!requireAssignedAgentTask(request.params.roomId, request.params.taskId, participant, reply)) return;
     appendAndPublish(event(request.params.roomId, "task.completed", participant.id, { task_id: request.params.taskId, agent_id: participant.id, ...TaskCompleteSchema.parse(request.body) }));
     return reply.code(201).send({ ok: true });
   });
@@ -200,7 +233,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.post<{ Params: { roomId: string; taskId: string } }>("/rooms/:roomId/tasks/:taskId/fail", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (participant.role !== "agent") return deny(reply, "forbidden", 403);
+    if (!requireAssignedAgentTask(request.params.roomId, request.params.taskId, participant, reply)) return;
     appendAndPublish(event(request.params.roomId, "task.failed", participant.id, { task_id: request.params.taskId, agent_id: participant.id, ...TaskFailedSchema.parse(request.body) }));
     return reply.code(201).send({ ok: true });
   });
