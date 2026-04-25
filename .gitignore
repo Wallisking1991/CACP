@@ -1,2 +1,9 @@
-
 .worktrees/
+node_modules/
+dist/
+.vite/
+*.db
+*.db-shm
+*.db-wal
+.env
+.DS_Store
