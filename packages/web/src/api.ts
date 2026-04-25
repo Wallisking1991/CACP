@@ -32,14 +32,23 @@ export async function createTask(session: RoomSession, targetAgentId: string, pr
   await postJson(`/rooms/${session.room_id}/tasks`, session.token, { target_agent_id: targetAgentId, prompt, mode: "oneshot" });
 }
 
+export function parseCacpEventMessage(data: string): CacpEvent | undefined {
+  try {
+    const parsed = CacpEventSchema.safeParse(JSON.parse(data));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function connectEvents(session: RoomSession, onEvent: (event: CacpEvent) => void): WebSocket {
   const url = new URL(`/rooms/${session.room_id}/stream`, window.location.origin);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.searchParams.set("token", session.token);
   const socket = new WebSocket(url);
   socket.addEventListener("message", (message) => {
-    const parsed = CacpEventSchema.safeParse(JSON.parse(message.data));
-    if (parsed.success) onEvent(parsed.data);
+    const parsed = parseCacpEventMessage(message.data);
+    if (parsed) onEvent(parsed);
   });
   return socket;
 }
