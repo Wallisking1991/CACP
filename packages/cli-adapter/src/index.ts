@@ -30,8 +30,8 @@ streamUrl.searchParams.set("token", registered.agent_token);
 const ws = new WebSocket(streamUrl);
 const runningTasks = new Set<string>();
 
-ws.on("message", (raw) => {
-  void (async () => {
+async function handleMessage(raw: WebSocket.RawData): Promise<void> {
+  try {
     const parsed = CacpEventSchema.safeParse(JSON.parse(raw.toString()));
     if (!parsed.success || parsed.data.type !== "task.created") return;
     const payload = parsed.data.payload as { task_id?: string; target_agent_id?: string; prompt?: string };
@@ -50,13 +50,26 @@ ws.on("message", (raw) => {
       });
       await postJson(`/rooms/${config.room_id}/tasks/${payload.task_id}/complete`, registered.agent_token, result);
     } catch (error) {
-      await postJson(`/rooms/${config.room_id}/tasks/${payload.task_id}/fail`, registered.agent_token, {
-        error: error instanceof Error ? error.message : String(error)
-      });
+      console.error("Adapter task failed", error);
+      try {
+        await postJson(`/rooms/${config.room_id}/tasks/${payload.task_id}/fail`, registered.agent_token, {
+          error: error instanceof Error ? error.message : String(error)
+        });
+      } catch (reportError) {
+        console.error("Adapter failed to report task failure", reportError);
+      }
     } finally {
       runningTasks.delete(payload.task_id);
     }
-  })();
+  } catch (error) {
+    console.error("Ignoring malformed adapter stream message", error);
+  }
+}
+
+ws.on("message", (raw) => {
+  void handleMessage(raw).catch((error) => {
+    console.error("Adapter message handling failed", error);
+  });
 });
 
 ws.on("open", () => console.log(`Connected adapter stream for room ${config.room_id}`));
