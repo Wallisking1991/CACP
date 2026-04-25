@@ -23,7 +23,8 @@ const TaskFailedSchema = z.object({ error: z.string().min(1), exit_code: z.numbe
 export interface BuildServerOptions { dbPath?: string }
 
 type Invite = { room_id: string; role: "admin" | "member" | "observer"; display_name: string };
-type ProposalState = { policy: Policy; votes: VoteRecord[] };
+type ProposalTerminalStatus = "approved" | "rejected" | "expired";
+type ProposalState = { policy: Policy; votes: VoteRecord[]; terminal_status?: ProposalTerminalStatus };
 type TaskState = { target_agent_id: string };
 
 function deny(reply: FastifyReply, error: string, status = 401) {
@@ -50,20 +51,25 @@ export async function buildServer(options: BuildServerOptions = {}) {
 
   function findProposalState(roomId: string, proposalId: string): ProposalState | undefined {
     let policy: Policy | undefined;
+    let terminalStatus: ProposalTerminalStatus | undefined;
     const votes: VoteRecord[] = [];
     for (const storedEvent of store.listEvents(roomId)) {
-      if (storedEvent.type === "proposal.created" && storedEvent.payload.proposal_id === proposalId) {
+      if (storedEvent.payload.proposal_id !== proposalId) continue;
+      if (storedEvent.type === "proposal.created") {
         policy = PolicySchema.parse(storedEvent.payload.policy);
       }
-      if (storedEvent.type === "proposal.vote_cast" && storedEvent.payload.proposal_id === proposalId) {
+      if (storedEvent.type === "proposal.vote_cast") {
         votes.push(VoteRecordSchema.parse({
           voter_id: storedEvent.payload.voter_id,
           vote: storedEvent.payload.vote,
           comment: storedEvent.payload.comment
         }));
       }
+      if (storedEvent.type === "proposal.approved") terminalStatus = "approved";
+      if (storedEvent.type === "proposal.rejected") terminalStatus = "rejected";
+      if (storedEvent.type === "proposal.expired") terminalStatus = "expired";
     }
-    return policy ? { policy, votes } : undefined;
+    return policy ? { policy, votes, terminal_status: terminalStatus } : undefined;
   }
 
   function findTaskState(roomId: string, taskId: string): TaskState | undefined {
@@ -197,6 +203,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (participant.role === "observer") return deny(reply, "forbidden", 403);
     const state = findProposalState(request.params.roomId, request.params.proposalId);
     if (!state) return deny(reply, "unknown_proposal", 404);
+    if (state.terminal_status) return deny(reply, "proposal_closed", 409);
     const vote = VoteRecordSchema.parse({ ...(request.body as object), voter_id: participant.id });
     const votes = [...state.votes, vote];
     const evaluation = evaluatePolicy(state.policy, store.getParticipants(request.params.roomId), votes);

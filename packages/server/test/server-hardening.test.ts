@@ -52,6 +52,21 @@ async function registerAgent(app: Awaited<ReturnType<typeof buildServer>>, roomI
   return response.json() as { agent_id: string; agent_token: string };
 }
 
+
+
+async function createProposal(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerAuth: { authorization: string }) {
+  const response = await app.inject({ method: "POST", url: `/rooms/${roomId}/proposals`, headers: ownerAuth, payload: { title: "Close once", proposal_type: "decision", policy: { type: "owner_approval" } } });
+  expect(response.statusCode).toBe(201);
+  return response.json() as { proposal_id: string };
+}
+
+async function approveProposal(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, proposalId: string, ownerAuth: { authorization: string }) {
+  const response = await app.inject({ method: "POST", url: `/rooms/${roomId}/proposals/${proposalId}/votes`, headers: ownerAuth, payload: { vote: "approve" } });
+  expect(response.statusCode).toBe(201);
+  expect(response.json().evaluation.status).toBe("approved");
+  return response;
+}
+
 async function createTask(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerAuth: { authorization: string }, targetAgentId: string) {
   const response = await app.inject({ method: "POST", url: `/rooms/${roomId}/tasks`, headers: ownerAuth, payload: { target_agent_id: targetAgentId, prompt: "Do work", mode: "oneshot" } });
   expect(response.statusCode).toBe(201);
@@ -59,6 +74,39 @@ async function createTask(app: Awaited<ReturnType<typeof buildServer>>, roomId: 
 }
 
 describe("CACP server hardening", () => {
+
+  it("rejects additional votes on a terminal proposal without appending duplicate events", async () => {
+    const { app, room, ownerAuth } = await createRoom();
+    const proposal = await createProposal(app, room.room_id, ownerAuth);
+    await approveProposal(app, room.room_id, proposal.proposal_id, ownerAuth);
+
+    const secondVote = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/proposals/${proposal.proposal_id}/votes`, headers: ownerAuth, payload: { vote: "reject" } });
+
+    expect(secondVote.statusCode).toBe(409);
+    expect(secondVote.json()).toEqual({ error: "proposal_closed" });
+    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: { proposal_id?: string } }>;
+    const proposalEvents = events.filter((event) => event.payload.proposal_id === proposal.proposal_id);
+    expect(proposalEvents.filter((event) => event.type === "proposal.vote_cast")).toHaveLength(1);
+    expect(proposalEvents.filter((event) => event.type === "proposal.approved")).toHaveLength(1);
+  });
+
+  it("rejects additional votes on a terminal proposal after restart", async () => {
+    const dbPath = tempDbPath();
+    const first = await trackedServer(dbPath);
+    const { room, ownerAuth } = await createRoom(first, "Closed Proposal Owner");
+    const proposal = await createProposal(first, room.room_id, ownerAuth);
+    await approveProposal(first, room.room_id, proposal.proposal_id, ownerAuth);
+
+    await first.close();
+    untrack(first);
+
+    const second = await trackedServer(dbPath);
+    const secondVote = await second.inject({ method: "POST", url: `/rooms/${room.room_id}/proposals/${proposal.proposal_id}/votes`, headers: ownerAuth, payload: { vote: "reject" } });
+
+    expect(secondVote.statusCode).toBe(409);
+    expect(secondVote.json()).toEqual({ error: "proposal_closed" });
+  });
+
   it("does not share invite state across buildServer instances but recovers persisted proposal state", async () => {
     const dbPath = tempDbPath();
     const first = await trackedServer(dbPath);
