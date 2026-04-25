@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import type { CacpEvent } from "@cacp/protocol";
 import { connectEvents, createQuestion, createRoom, createTask, sendMessage, type RoomSession } from "./api.js";
 import { mergeEvent } from "./event-log.js";
+import { clearStoredSession, loadStoredSession, saveStoredSession } from "./session-storage.js";
 import "./App.css";
 
 export default function App() {
   const [displayName, setDisplayName] = useState("Alice");
   const [roomName, setRoomName] = useState("CACP MVP Room");
-  const [session, setSession] = useState<RoomSession>();
+  const [session, setSession] = useState<RoomSession | undefined>(() => loadStoredSession(window.localStorage));
   const [events, setEvents] = useState<CacpEvent[]>([]);
   const [message, setMessage] = useState("");
   const [question, setQuestion] = useState("");
@@ -28,18 +29,30 @@ export default function App() {
     try { await action(); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
   }
 
+  function activateSession(nextSession: RoomSession): void {
+    saveStoredSession(window.localStorage, nextSession);
+    setSession(nextSession);
+  }
+
+  function leaveRoom(): void {
+    clearStoredSession(window.localStorage);
+    setSession(undefined);
+    setEvents([]);
+    setAgentId("");
+  }
+
   const canCreateRoom = roomName.trim().length > 0 && displayName.trim().length > 0;
   const canSendMessage = message.trim().length > 0;
   const canCreateQuestion = question.trim().length > 0;
   const canCreateTask = agentId.trim().length > 0 && taskPrompt.trim().length > 0;
 
   if (!session) {
-    return <main className="shell"><h1>CACP Web Room</h1><section className="card"><label htmlFor="room-name">Room name</label><input id="room-name" required value={roomName} onChange={(event) => setRoomName(event.target.value)} /><label htmlFor="display-name">Your name</label><input id="display-name" required value={displayName} onChange={(event) => setDisplayName(event.target.value)} /><button disabled={!canCreateRoom} onClick={() => run(async () => setSession(await createRoom(roomName.trim(), displayName.trim())))}>Create room</button></section>{error && <p className="error">{error}</p>}</main>;
+    return <main className="shell"><h1>CACP Web Room</h1><section className="card"><label htmlFor="room-name">Room name</label><input id="room-name" required value={roomName} onChange={(event) => setRoomName(event.target.value)} /><label htmlFor="display-name">Your name</label><input id="display-name" required value={displayName} onChange={(event) => setDisplayName(event.target.value)} /><button disabled={!canCreateRoom} onClick={() => run(async () => activateSession(await createRoom(roomName.trim(), displayName.trim())))}>Create room</button></section>{error && <p className="error">{error}</p>}</main>;
   }
 
   return (
     <main className="shell">
-      <header><h1>CACP Room</h1><p><strong>Room:</strong> {session.room_id}</p><p><strong>Token (local demo secret):</strong> {session.token}</p></header>
+      <header><h1>CACP Room</h1><p><strong>Room:</strong> {session.room_id}</p><p><strong>Token (local demo secret):</strong> {session.token}</p><button type="button" onClick={leaveRoom}>Leave room</button></header>
       <section className="grid">
         <form className="card" onSubmit={(event) => { event.preventDefault(); void run(async () => { await sendMessage(session, message.trim()); setMessage(""); }); }}><h2>Message</h2><label htmlFor="message-text">Message</label><textarea id="message-text" required value={message} onChange={(event) => setMessage(event.target.value)} /><button disabled={!canSendMessage}>Send</button></form>
         <form className="card" onSubmit={(event) => { event.preventDefault(); void run(async () => { await createQuestion(session, question.trim()); setQuestion(""); }); }}><h2>Question</h2><label htmlFor="question-text">Question</label><textarea id="question-text" required value={question} onChange={(event) => setQuestion(event.target.value)} /><button disabled={!canCreateQuestion}>Create question</button></form>

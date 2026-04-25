@@ -1,12 +1,19 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+const cacpServer = "http://127.0.0.1:3737";
+
 export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      "/rooms": "http://127.0.0.1:3737",
-      "/health": "http://127.0.0.1:3737"
+      "/rooms": {
+        target: cacpServer,
+        ws: true
+      },
+      "/health": {
+        target: cacpServer
+      }
     }
   }
 });
