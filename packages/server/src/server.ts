@@ -7,15 +7,19 @@ import { buildAgentContextPrompt, extractCacpQuestions, findActiveAgentId, findO
 import { EventBus } from "./event-bus.js";
 import { EventStore } from "./event-store.js";
 import { event, prefixedId, token } from "./ids.js";
+import { evaluateQuestionPolicy, type QuestionResponseRecord } from "./policies.js";
+import { AgentTypeValues, PermissionLevelValues, buildAgentProfile, type AgentType, type PermissionLevel } from "./pairing.js";
 
-const CreateRoomSchema = z.object({ name: z.string().min(1), display_name: z.string().min(1).default("Owner") });
-const CreateInviteSchema = z.object({ role: z.enum(["admin", "member", "observer"]).default("member") });
+const CreateRoomSchema = z.object({ name: z.string().min(1), display_name: z.string().min(1).default("Owner"), default_policy: z.enum(["owner_approval", "majority", "unanimous"]).default("owner_approval") });
+const CreateInviteSchema = z.object({ role: z.enum(["member", "observer"]).default("member"), expires_in_seconds: z.number().int().positive().max(60 * 60 * 24 * 7).default(60 * 60 * 24) });
 const JoinSchema = z.object({ invite_token: z.string().min(1), display_name: z.string().min(1) });
 const MessageSchema = z.object({ text: z.string().min(1) });
 const QuestionSchema = z.object({ question: z.string().min(1), expected_response: z.enum(["free_text", "single_choice", "multiple_choice"]).default("free_text"), options: z.array(z.string()).default([]) });
 const QuestionResponseSchema = z.object({ response: z.unknown(), comment: z.string().optional() });
 const ProposalSchema = z.object({ title: z.string().min(1), proposal_type: z.string().min(1), policy: PolicySchema });
 const AgentRegisterSchema = z.object({ name: z.string().min(1), capabilities: z.array(z.string()).default([]) });
+const AgentPairingCreateSchema = z.object({ agent_type: z.enum(AgentTypeValues).default("claude-code"), permission_level: z.enum(PermissionLevelValues).default("read_only"), working_dir: z.string().default(".") });
+const AgentActionApprovalSchema = z.object({ tool_name: z.string().min(1), tool_input: z.unknown().optional(), description: z.string().optional() });
 const SelectAgentSchema = z.object({ agent_id: z.string().min(1) });
 const TaskCreateSchema = z.object({ target_agent_id: z.string().min(1), prompt: z.string().min(1), mode: z.literal("oneshot").default("oneshot"), requires_approval: z.boolean().default(false) });
 const TaskOutputSchema = z.object({ stream: z.enum(["stdout", "stderr"]), chunk: z.string() });
@@ -27,7 +31,8 @@ const TurnFailedSchema = z.object({ error: z.string().min(1), exit_code: z.numbe
 
 export interface BuildServerOptions { dbPath?: string }
 
-type Invite = { room_id: string; role: "admin" | "member" | "observer" };
+type Invite = { room_id: string; role: "member" | "observer"; expires_at: string };
+type Pairing = { room_id: string; created_by: string; agent_type: AgentType; permission_level: PermissionLevel; working_dir: string; expires_at: string; claimed?: boolean };
 type ProposalTerminalStatus = "approved" | "rejected" | "expired";
 type ProposalState = { policy: Policy; votes: VoteRecord[]; terminal_status?: ProposalTerminalStatus };
 type TaskTerminalStatus = "completed" | "failed" | "cancelled";
@@ -44,6 +49,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   const store = new EventStore(options.dbPath ?? "cacp.db");
   const bus = new EventBus();
   const invites = new Map<string, Invite>();
+  const pairings = new Map<string, Pairing>();
   await app.register(websocket);
   app.addHook("onClose", async () => store.close());
 
@@ -112,6 +118,46 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return turn;
   }
 
+  function roomPolicy(roomId: string): Policy {
+    const configured = [...store.listEvents(roomId)].reverse().find((storedEvent) => storedEvent.type === "room.configured");
+    const parsed = PolicySchema.safeParse(configured?.payload.default_policy);
+    return parsed.success ? parsed.data : { type: "owner_approval" };
+  }
+
+  function isQuestionClosed(roomId: string, questionId: string): boolean {
+    return store.listEvents(roomId).some((storedEvent) => storedEvent.type === "question.closed" && storedEvent.payload.question_id === questionId);
+  }
+
+  function questionResponses(roomId: string, questionId: string): QuestionResponseRecord[] {
+    return store.listEvents(roomId)
+      .filter((storedEvent) => storedEvent.type === "question.response_submitted" && storedEvent.payload.question_id === questionId)
+      .map((storedEvent) => ({ respondent_id: String(storedEvent.payload.respondent_id), response: storedEvent.payload.response }));
+  }
+
+  function questionExists(roomId: string, questionId: string): boolean {
+    return store.listEvents(roomId).some((storedEvent) => storedEvent.type === "question.created" && storedEvent.payload.question_id === questionId);
+  }
+
+  function questionPayload(roomId: string, questionId: string): Record<string, unknown> | undefined {
+    return store.listEvents(roomId).find((storedEvent) => storedEvent.type === "question.created" && storedEvent.payload.question_id === questionId)?.payload;
+  }
+
+  function isAgentOnline(events: CacpEvent[], agentId: string): boolean {
+    for (const storedEvent of [...events].reverse()) {
+      if (storedEvent.type === "agent.status_changed" && storedEvent.payload.agent_id === agentId) {
+        return storedEvent.payload.status === "online";
+      }
+    }
+    return true;
+  }
+
+  function isOpenTurnStale(events: CacpEvent[], turnId: string, agentId: string): boolean {
+    const requested = events.find((storedEvent) => storedEvent.type === "agent.turn.requested" && storedEvent.payload.turn_id === turnId);
+    if (!requested) return false;
+    const ageMs = Date.now() - Date.parse(requested.created_at);
+    return ageMs > 2 * 60 * 1000 || !isAgentOnline(events, agentId);
+  }
+
   function findParticipant(roomId: string, participantId: string): Participant | undefined {
     return store.getParticipants(roomId).find((participant) => participant.id === participantId);
   }
@@ -169,8 +215,24 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!activeAgentId) return [];
     const activeAgent = findParticipant(roomId, activeAgentId);
     if (!activeAgent || activeAgent.role !== "agent" || activeAgent.type !== "agent") return [];
+    if (!isAgentOnline(events, activeAgentId)) {
+      const openTurn = findOpenTurn(events, activeAgentId);
+      return openTurn ? [event(roomId, "agent.turn.failed", actorId, { turn_id: openTurn.turn_id, agent_id: activeAgentId, error: "active_agent_offline" })] : [];
+    }
     const openTurn = findOpenTurn(events, activeAgentId);
     if (openTurn) {
+      if (isOpenTurnStale(events, openTurn.turn_id, activeAgentId)) {
+        const turnId = prefixedId("turn");
+        return [
+          event(roomId, "agent.turn.failed", actorId, { turn_id: openTurn.turn_id, agent_id: activeAgentId, error: "stale_turn_recovered" }),
+          event(roomId, "agent.turn.requested", actorId, {
+            turn_id: turnId,
+            agent_id: activeAgentId,
+            reason,
+            context_prompt: buildContextPrompt(roomId, activeAgentId)
+          })
+        ];
+      }
       if (hasQueuedFollowup(events, openTurn.turn_id)) return [];
       return [event(roomId, "agent.turn.followup_queued", actorId, { turn_id: openTurn.turn_id, agent_id: activeAgentId })];
     }
@@ -194,7 +256,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       const owner = store.addParticipant({ room_id: roomId, id: ownerId, token: ownerToken, display_name: body.display_name, type: "human", role: "owner" });
       return [
         store.appendEvent(event(roomId, "room.created", ownerId, { name: body.name, created_by: ownerId })),
-        store.appendEvent(event(roomId, "room.configured", ownerId, { default_policy: { type: "owner_approval" } })),
+        store.appendEvent(event(roomId, "room.configured", ownerId, { default_policy: { type: body.default_policy } })),
         store.appendEvent(event(roomId, "participant.joined", ownerId, { participant: publicParticipant(owner) }))
       ];
     });
@@ -215,9 +277,17 @@ export async function buildServer(options: BuildServerOptions = {}) {
       socket.close();
       return;
     }
+    if (participant.role === "agent") {
+      appendAndPublish(event(request.params.roomId, "agent.status_changed", participant.id, { agent_id: participant.id, status: "online" }));
+    }
     for (const existingEvent of store.listEvents(request.params.roomId)) socket.send(JSON.stringify(existingEvent));
     const unsubscribe = bus.subscribe(request.params.roomId, (nextEvent) => socket.send(JSON.stringify(nextEvent)));
-    socket.on("close", unsubscribe);
+    socket.on("close", () => {
+      unsubscribe();
+      if (participant.role === "agent") {
+        appendAndPublish(event(request.params.roomId, "agent.status_changed", participant.id, { agent_id: participant.id, status: "offline" }));
+      }
+    });
   });
 
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/invites", async (request, reply) => {
@@ -226,15 +296,17 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!hasAnyRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
     const body = CreateInviteSchema.parse(request.body);
     const inviteToken = token();
-    invites.set(inviteToken, { room_id: request.params.roomId, role: body.role });
-    appendAndPublish(event(request.params.roomId, "invite.created", participant.id, { role: body.role }));
-    return reply.code(201).send({ invite_token: inviteToken, role: body.role });
+    const expiresAt = new Date(Date.now() + body.expires_in_seconds * 1000).toISOString();
+    invites.set(inviteToken, { room_id: request.params.roomId, role: body.role, expires_at: expiresAt });
+    appendAndPublish(event(request.params.roomId, "invite.created", participant.id, { role: body.role, expires_at: expiresAt }));
+    return reply.code(201).send({ invite_token: inviteToken, role: body.role, expires_at: expiresAt });
   });
 
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/join", async (request, reply) => {
     const body = JoinSchema.parse(request.body);
     const invite = invites.get(body.invite_token);
     if (!invite || invite.room_id !== request.params.roomId) return deny(reply, "invalid_invite");
+    if (Date.parse(invite.expires_at) <= Date.now()) return deny(reply, "invite_expired");
     const participantId = prefixedId("user");
     const participantToken = token();
     const storedEvents = store.transaction(() => {
@@ -275,8 +347,32 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
     if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
-    appendAndPublish(event(request.params.roomId, "question.response_submitted", participant.id, { question_id: request.params.questionId, respondent_id: participant.id, ...QuestionResponseSchema.parse(request.body) }));
-    return reply.code(201).send({ ok: true });
+    if (!questionExists(request.params.roomId, request.params.questionId)) return deny(reply, "unknown_question", 404);
+    if (isQuestionClosed(request.params.roomId, request.params.questionId)) return deny(reply, "question_closed", 409);
+    const body = QuestionResponseSchema.parse(request.body);
+    const storedEvents = store.transaction(() => {
+      const submitted = store.appendEvent(event(request.params.roomId, "question.response_submitted", participant.id, { question_id: request.params.questionId, respondent_id: participant.id, ...body }));
+      const evaluation = evaluateQuestionPolicy({
+        policy: roomPolicy(request.params.roomId),
+        participants: store.getParticipants(request.params.roomId).map(publicParticipant),
+        responses: [...questionResponses(request.params.roomId, request.params.questionId), { respondent_id: participant.id, response: body.response }]
+      });
+      const closed: CacpEvent[] = [];
+      if (evaluation.status === "closed") {
+        const payload = questionPayload(request.params.roomId, request.params.questionId);
+        closed.push(store.appendEvent(event(request.params.roomId, "question.closed", participant.id, { question_id: request.params.questionId, evaluation })));
+        if (typeof payload?.action_id === "string") {
+          closed.push(store.appendEvent(event(request.params.roomId, "agent.action_approval_resolved", participant.id, {
+            action_id: payload.action_id,
+            question_id: request.params.questionId,
+            decision: evaluation.selected_response
+          })));
+        }
+      }
+      return [submitted, ...closed];
+    });
+    publishEvents(storedEvents);
+    return reply.code(201).send({ ok: true, closed: storedEvents.some((storedEvent) => storedEvent.type === "question.closed") });
   });
 
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/proposals", async (request, reply) => {
@@ -323,6 +419,64 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return reply.code(201).send({ agent_id: agentId, agent_token: agentToken });
   });
 
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/agent-pairings", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
+    const body = AgentPairingCreateSchema.parse(request.body);
+    const pairingToken = token();
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    pairings.set(pairingToken, {
+      room_id: request.params.roomId,
+      created_by: participant.id,
+      agent_type: body.agent_type,
+      permission_level: body.permission_level,
+      working_dir: body.working_dir,
+      expires_at: expiresAt
+    });
+    appendAndPublish(event(request.params.roomId, "agent.pairing_created", participant.id, {
+      agent_type: body.agent_type,
+      permission_level: body.permission_level,
+      expires_at: expiresAt
+    }));
+    const serverUrl = `${request.protocol}://${request.headers.host}`;
+    const command = `corepack pnpm --filter @cacp/cli-adapter dev -- --server ${serverUrl} --pair ${pairingToken}`;
+    return reply.code(201).send({ pairing_token: pairingToken, expires_at: expiresAt, command });
+  });
+
+  app.post<{ Params: { pairingToken: string }; Body: { adapter_name?: string }; Querystring: { server_url?: string } }>("/agent-pairings/:pairingToken/claim", async (request, reply) => {
+    const pairing = pairings.get(request.params.pairingToken);
+    if (!pairing) return deny(reply, "invalid_pairing");
+    if (pairing.claimed) return deny(reply, "pairing_claimed", 409);
+    if (Date.parse(pairing.expires_at) <= Date.now()) return deny(reply, "pairing_expired");
+    const agentId = prefixedId("agent");
+    const agentToken = token();
+    const serverUrl = request.query.server_url ?? `${request.protocol}://${request.headers.host}`;
+    const hookUrl = `${serverUrl}/rooms/${pairing.room_id}/agent-action-approvals?token=${encodeURIComponent(agentToken)}`;
+    const profile = buildAgentProfile({
+      agentType: pairing.agent_type,
+      permissionLevel: pairing.permission_level,
+      workingDir: pairing.working_dir,
+      hookUrl
+    });
+    const storedEvents = store.transaction(() => {
+      pairing.claimed = true;
+      store.addParticipant({ room_id: pairing.room_id, id: agentId, token: agentToken, display_name: request.body?.adapter_name ?? profile.name, type: "agent", role: "agent" });
+      return [
+        store.appendEvent(event(pairing.room_id, "agent.registered", pairing.created_by, {
+          agent_id: agentId,
+          name: request.body?.adapter_name ?? profile.name,
+          capabilities: profile.capabilities,
+          agent_type: pairing.agent_type,
+          permission_level: pairing.permission_level
+        })),
+        store.appendEvent(event(pairing.room_id, "agent.status_changed", agentId, { agent_id: agentId, status: "online" }))
+      ];
+    });
+    publishEvents(storedEvents);
+    return reply.code(201).send({ room_id: pairing.room_id, agent_id: agentId, agent_token: agentToken, agent: profile, agent_type: pairing.agent_type, permission_level: pairing.permission_level, hook_url: hookUrl });
+  });
+
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/agents/select", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
@@ -332,6 +486,36 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!targetAgent || targetAgent.type !== "agent" || targetAgent.role !== "agent") return deny(reply, "invalid_target_agent", 400);
     appendAndPublish(event(request.params.roomId, "room.agent_selected", participant.id, { agent_id: body.agent_id }));
     return reply.code(201).send({ ok: true, agent_id: body.agent_id });
+  });
+
+  app.post<{ Params: { roomId: string }; Querystring: { token?: string } }>("/rooms/:roomId/agent-action-approvals", async (request, reply) => {
+    const participant = request.query.token ? store.getParticipantByToken(request.params.roomId, request.query.token) : requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    if (participant.role !== "agent" || participant.type !== "agent") return deny(reply, "forbidden", 403);
+    const body = AgentActionApprovalSchema.parse(request.body);
+    const actionId = prefixedId("action");
+    const questionId = prefixedId("q");
+    const storedEvents = store.transaction(() => [
+      store.appendEvent(event(request.params.roomId, "agent.action_approval_requested", participant.id, {
+        action_id: actionId,
+        agent_id: participant.id,
+        tool_name: body.tool_name,
+        tool_input: body.tool_input,
+        description: body.description
+      })),
+      store.appendEvent(event(request.params.roomId, "question.created", participant.id, {
+        question_id: questionId,
+        action_id: actionId,
+        question: body.description ?? `允许 Agent 执行 ${body.tool_name} 吗？`,
+        expected_response: "single_choice",
+        options: ["approve", "reject"],
+        blocking: true,
+        policy: roomPolicy(request.params.roomId),
+        question_type: "agent_action_approval"
+      }))
+    ]);
+    publishEvents(storedEvents);
+    return reply.code(201).send({ action_id: actionId, question_id: questionId, status: "pending" });
   });
 
   app.post<{ Params: { roomId: string; turnId: string } }>("/rooms/:roomId/agent-turns/:turnId/start", async (request, reply) => {
@@ -383,7 +567,9 @@ export async function buildServer(options: BuildServerOptions = {}) {
         question_id: prefixedId("q"),
         question: question.question,
         expected_response: "single_choice",
-        options: question.options
+        options: question.options,
+        blocking: true,
+        policy: roomPolicy(request.params.roomId)
       })));
       const followupEvents = hasQueuedFollowup(store.listEvents(request.params.roomId), request.params.turnId)
         ? createAgentTurnRequestEvents(request.params.roomId, participant.id, "queued_followup").map((nextEvent) => store.appendEvent(nextEvent))
