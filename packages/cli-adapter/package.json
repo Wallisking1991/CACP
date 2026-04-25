@@ -1,0 +1,21 @@
+{
+  "name": "@cacp/cli-adapter",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": { "cacp-cli-adapter": "./src/index.ts" },
+  "scripts": {
+    "build": "tsc --noEmit -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@cacp/protocol": "workspace:*",
+    "ws": "^8.18.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}
