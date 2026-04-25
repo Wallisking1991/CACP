@@ -7,9 +7,9 @@
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",
-    "dev:server": "pnpm --filter @cacp/server dev",
-    "dev:web": "pnpm --filter @cacp/web dev",
-    "dev:adapter": "pnpm --filter @cacp/cli-adapter dev docs/examples/generic-cli-agent.json",
+    "dev:server": "corepack pnpm --filter @cacp/server dev",
+    "dev:web": "corepack pnpm --filter @cacp/web dev",
+    "dev:adapter": "corepack pnpm --filter @cacp/cli-adapter dev ../../docs/examples/generic-cli-agent.local.json",
     "check": "pnpm test && pnpm build"
   },
   "devDependencies": {
