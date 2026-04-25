@@ -12,7 +12,7 @@
 
 ## Scope Check
 
-The approved spec contains four integrated components: protocol, server, web room, and CLI adapter. They are implemented in one MVP plan because the first useful validation is an integrated vertical slice: shared room → collaborative discussion → decision/proposal → CLI agent task → streamed output.
+The approved spec contains four integrated components: protocol, server, web room, and CLI adapter. They are implemented in one MVP plan because the first useful validation is an integrated vertical slice: shared room Ã¢â€ â€™ collaborative discussion Ã¢â€ â€™ decision/proposal Ã¢â€ â€™ CLI agent task Ã¢â€ â€™ streamed output.
 
 ## File Structure Map
 
@@ -94,12 +94,12 @@ Create `package.json`:
   "type": "module",
   "packageManager": "pnpm@9.15.4",
   "scripts": {
-    "build": "pnpm -r build",
-    "test": "pnpm -r test",
-    "dev:server": "pnpm --filter @cacp/server dev",
-    "dev:web": "pnpm --filter @cacp/web dev",
-    "dev:adapter": "pnpm --filter @cacp/cli-adapter dev docs/examples/generic-cli-agent.json",
-    "check": "pnpm test && pnpm build"
+    "build": "corepack pnpm -r build",
+    "test": "corepack pnpm -r test",
+    "dev:server": "corepack pnpm --filter @cacp/server dev",
+    "dev:web": "corepack pnpm --filter @cacp/web dev",
+    "dev:adapter": "corepack pnpm --filter @cacp/cli-adapter dev ../../docs/examples/generic-cli-agent.local.json",
+    "check": "corepack pnpm test && corepack pnpm build"
   },
   "devDependencies": {
     "@types/node": "^22.10.7",
@@ -1566,12 +1566,12 @@ Create room named "CACP MVP Room"
 Copy the displayed room_id and token
 ```
 
-Edit `docs/examples/generic-cli-agent.json` so `room_id` and `token` match the browser values.
+Copy `docs/examples/generic-cli-agent.json` to ignored `docs/examples/generic-cli-agent.local.json`, then edit the `.local.json` so `room_id` and `token` match the browser values.
 
 Terminal C:
 
 ```powershell
-pnpm dev:adapter
+corepack pnpm dev:adapter
 ```
 
 Expected: adapter prints `Registered Echo CLI Agent as agent_...` and `Connected adapter stream for room ...`.
