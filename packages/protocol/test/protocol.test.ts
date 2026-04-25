@@ -47,6 +47,79 @@ describe("policy engine", () => {
     expect(evaluatePolicy({ type: "no_approval" }, participants, []).status).toBe("approved");
   });
 
+  it("does not count agent type votes even when role is admin", () => {
+    const mixedParticipants: Participant[] = [
+      { id: "u_owner", type: "human", display_name: "Owner", role: "owner" },
+      { id: "agent_admin", type: "agent", display_name: "Agent Admin", role: "admin" }
+    ];
+
+    const result = evaluatePolicy({ type: "majority" }, mixedParticipants, [
+      { voter_id: "agent_admin", vote: "approve" }
+    ]);
+
+    expect(result.status).toBe("pending");
+    expect(result.approvals).toBe(0);
+    expect(result.eligible_voters).toBe(1);
+  });
+
+  it("does not count observer type votes even when role is member", () => {
+    const mixedParticipants: Participant[] = [
+      { id: "u_owner", type: "human", display_name: "Owner", role: "owner" },
+      { id: "observer_member", type: "observer", display_name: "Observer Member", role: "member" }
+    ];
+
+    const result = evaluatePolicy({ type: "majority" }, mixedParticipants, [
+      { voter_id: "observer_member", vote: "approve" }
+    ]);
+
+    expect(result.status).toBe("pending");
+    expect(result.approvals).toBe(0);
+    expect(result.eligible_voters).toBe(1);
+  });
+
+  it("uses the latest vote from each eligible voter", () => {
+    const result = evaluatePolicy({ type: "majority" }, participants, [
+      { voter_id: "u_owner", vote: "reject" },
+      { voter_id: "u_admin", vote: "approve" },
+      { voter_id: "u_owner", vote: "approve" }
+    ]);
+
+    expect(result.status).toBe("approved");
+    expect(result.approvals).toBe(2);
+    expect(result.rejections).toBe(0);
+  });
+
+  it("rejects majority policies when rejection threshold is reached", () => {
+    const result = evaluatePolicy({ type: "majority" }, participants, [
+      { voter_id: "u_owner", vote: "reject" },
+      { voter_id: "u_admin", vote: "reject" }
+    ]);
+
+    expect(result.status).toBe("rejected");
+    expect(result.rejections).toBe(2);
+  });
+
+  it("ignores votes from roles outside a role quorum policy", () => {
+    const result = evaluatePolicy({ type: "role_quorum", required_roles: ["owner"], min_approvals: 1 }, participants, [
+      { voter_id: "u_admin", vote: "approve" }
+    ]);
+
+    expect(result.status).toBe("pending");
+    expect(result.approvals).toBe(0);
+    expect(result.eligible_voters).toBe(1);
+  });
+
+  it("expires policies at the exact expiration boundary", () => {
+    const expiresAt = "2026-04-25T00:00:00.000Z";
+
+    expect(evaluatePolicy(
+      { type: "majority", expires_at: expiresAt },
+      participants,
+      [],
+      new Date(expiresAt)
+    ).status).toBe("expired");
+  });
+
   it("rejects unanimous on rejection and expires old policies", () => {
     const votes: VoteRecord[] = [
       { voter_id: "u_owner", vote: "approve" },

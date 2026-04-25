@@ -10,7 +10,7 @@ export interface PolicyEvaluation {
 }
 
 function canVote(participant: Participant): boolean {
-  return participant.role !== "observer" && participant.role !== "agent";
+  return participant.type === "human" && participant.role !== "observer" && participant.role !== "agent";
 }
 
 function latestVote(votes: VoteRecord[], participantId: string): VoteRecord | undefined {
@@ -37,9 +37,9 @@ export function evaluatePolicy(policy: Policy, participants: Participant[], vote
   if (policy.type === "owner_approval") {
     const owners = participants.filter((participant) => participant.role === "owner");
     const result = count(owners, votes);
-    if (result.approvals >= 1) return { status: "approved", reason: "owner approved", approvals: result.approvals, rejections: result.rejections, eligible_voters: owners.length };
-    if (result.rejections >= 1) return { status: "rejected", reason: "owner rejected", approvals: result.approvals, rejections: result.rejections, eligible_voters: owners.length };
-    return { status: "pending", reason: "waiting for owner approval", approvals: result.approvals, rejections: result.rejections, eligible_voters: owners.length };
+    if (result.approvals >= 1) return { status: "approved", reason: "owner approved", approvals: result.approvals, rejections: result.rejections, eligible_voters: result.eligible.length };
+    if (result.rejections >= 1) return { status: "rejected", reason: "owner rejected", approvals: result.approvals, rejections: result.rejections, eligible_voters: result.eligible.length };
+    return { status: "pending", reason: "waiting for owner approval", approvals: result.approvals, rejections: result.rejections, eligible_voters: result.eligible.length };
   }
   if (policy.type === "majority") {
     const result = count(participants, votes);
