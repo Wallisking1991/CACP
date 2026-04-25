@@ -32,6 +32,30 @@ describe("CACP event schema", () => {
       payload: {}
     })).toThrow();
   });
+
+  it("accepts room agent selection and agent turn events", () => {
+    for (const type of [
+      "room.configured",
+      "room.agent_selected",
+      "agent.turn.requested",
+      "agent.turn.followup_queued",
+      "agent.turn.started",
+      "agent.output.delta",
+      "agent.turn.completed",
+      "agent.turn.failed"
+    ] as const) {
+      expect(CacpEventSchema.parse({
+        protocol: "cacp",
+        version: "0.1.0",
+        event_id: `evt_${type}`,
+        room_id: "room_1",
+        type,
+        actor_id: "user_1",
+        created_at: "2026-04-25T00:00:00.000Z",
+        payload: {}
+      }).type).toBe(type);
+    }
+  });
 });
 
 describe("policy engine", () => {

@@ -20,14 +20,14 @@ describe("CACP server", () => {
       method: "POST",
       url: `/rooms/${created.room_id}/invites`,
       headers: ownerAuth,
-      payload: { role: "member", display_name: "Bob" }
+      payload: { role: "member" }
     });
     expect(inviteResponse.statusCode).toBe(201);
 
     const joinResponse = await app.inject({
       method: "POST",
       url: `/rooms/${created.room_id}/join`,
-      payload: { invite_token: inviteResponse.json().invite_token }
+      payload: { invite_token: inviteResponse.json().invite_token, display_name: "Bob" }
     });
     expect(joinResponse.statusCode).toBe(201);
     const bob = joinResponse.json();
@@ -49,7 +49,7 @@ describe("CACP server", () => {
     const eventsResponse = await app.inject({ method: "GET", url: `/rooms/${created.room_id}/events`, headers: ownerAuth });
     const eventTypes = eventsResponse.json().events.map((event: { type: string }) => event.type);
     expect(eventTypes).toEqual(expect.arrayContaining([
-      "room.created", "participant.joined", "invite.created", "message.created",
+      "room.created", "room.configured", "participant.joined", "invite.created", "message.created",
       "question.created", "question.response_submitted", "proposal.created", "proposal.vote_cast", "proposal.approved",
       "agent.registered", "task.created", "task.started", "task.output", "task.completed"
     ]));

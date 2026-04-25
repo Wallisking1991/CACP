@@ -4,6 +4,7 @@ import { CacpEventSchema } from "@cacp/protocol";
 import { loadConfig } from "./config.js";
 import { runCommandForTask } from "./runner.js";
 import { taskReportForExitCode } from "./task-result.js";
+import { appendTurnOutput, turnCompleteBody } from "./turn-result.js";
 
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
   console.log("Usage: cacp-cli-adapter [config.json]\n\nRuns a trusted local CLI command for assigned CACP tasks.");
@@ -39,34 +40,76 @@ const runningTasks = new Set<string>();
 async function handleMessage(raw: WebSocket.RawData): Promise<void> {
   try {
     const parsed = CacpEventSchema.safeParse(JSON.parse(raw.toString()));
-    if (!parsed.success || parsed.data.type !== "task.created") return;
-    const payload = parsed.data.payload as { task_id?: string; target_agent_id?: string; prompt?: string };
-    if (!payload.task_id || !payload.prompt || payload.target_agent_id !== registered.agent_id || runningTasks.has(payload.task_id)) return;
-    runningTasks.add(payload.task_id);
-    try {
-      await postJson(`/rooms/${config.room_id}/tasks/${payload.task_id}/start`, registered.agent_token, {});
-      const result = await runCommandForTask({
-        command: config.agent.command,
-        args: config.agent.args,
-        working_dir: config.agent.working_dir,
-        prompt: payload.prompt,
-        onOutput: async (output) => {
-          await postJson(`/rooms/${config.room_id}/tasks/${payload.task_id}/output`, registered.agent_token, output);
-        }
-      });
-      const report = taskReportForExitCode(result);
-      await postJson(`/rooms/${config.room_id}/tasks/${payload.task_id}/${report.action}`, registered.agent_token, report.body);
-    } catch (error) {
-      console.error("Adapter task failed", error);
+    if (!parsed.success) return;
+    if (parsed.data.type === "task.created") {
+      const payload = parsed.data.payload as { task_id?: string; target_agent_id?: string; prompt?: string };
+      if (!payload.task_id || !payload.prompt || payload.target_agent_id !== registered.agent_id || runningTasks.has(payload.task_id)) return;
+      runningTasks.add(payload.task_id);
       try {
-        await postJson(`/rooms/${config.room_id}/tasks/${payload.task_id}/fail`, registered.agent_token, {
-          error: error instanceof Error ? error.message : String(error)
+        await postJson(`/rooms/${config.room_id}/tasks/${payload.task_id}/start`, registered.agent_token, {});
+        const result = await runCommandForTask({
+          command: config.agent.command,
+          args: config.agent.args,
+          working_dir: config.agent.working_dir,
+          prompt: payload.prompt,
+          onOutput: async (output) => {
+            await postJson(`/rooms/${config.room_id}/tasks/${payload.task_id}/output`, registered.agent_token, output);
+          }
         });
-      } catch (reportError) {
-        console.error("Adapter failed to report task failure", reportError);
+        const report = taskReportForExitCode(result);
+        await postJson(`/rooms/${config.room_id}/tasks/${payload.task_id}/${report.action}`, registered.agent_token, report.body);
+      } catch (error) {
+        console.error("Adapter task failed", error);
+        try {
+          await postJson(`/rooms/${config.room_id}/tasks/${payload.task_id}/fail`, registered.agent_token, {
+            error: error instanceof Error ? error.message : String(error)
+          });
+        } catch (reportError) {
+          console.error("Adapter failed to report task failure", reportError);
+        }
+      } finally {
+        runningTasks.delete(payload.task_id);
       }
-    } finally {
-      runningTasks.delete(payload.task_id);
+      return;
+    }
+
+    if (parsed.data.type === "agent.turn.requested") {
+      const payload = parsed.data.payload as { turn_id?: string; agent_id?: string; context_prompt?: string };
+      if (!payload.turn_id || !payload.context_prompt || payload.agent_id !== registered.agent_id || runningTasks.has(payload.turn_id)) return;
+      runningTasks.add(payload.turn_id);
+      let finalText = "";
+      try {
+        await postJson(`/rooms/${config.room_id}/agent-turns/${payload.turn_id}/start`, registered.agent_token, {});
+        const result = await runCommandForTask({
+          command: config.agent.command,
+          args: config.agent.args,
+          working_dir: config.agent.working_dir,
+          prompt: payload.context_prompt,
+          onOutput: async (output) => {
+            finalText = appendTurnOutput(finalText, output);
+            await postJson(`/rooms/${config.room_id}/agent-turns/${payload.turn_id}/delta`, registered.agent_token, { chunk: output.chunk });
+          }
+        });
+        if (result.exit_code === 0) {
+          await postJson(`/rooms/${config.room_id}/agent-turns/${payload.turn_id}/complete`, registered.agent_token, turnCompleteBody(finalText, result.exit_code));
+        } else {
+          await postJson(`/rooms/${config.room_id}/agent-turns/${payload.turn_id}/fail`, registered.agent_token, {
+            error: `command exited with code ${result.exit_code}`,
+            exit_code: result.exit_code
+          });
+        }
+      } catch (error) {
+        console.error("Adapter turn failed", error);
+        try {
+          await postJson(`/rooms/${config.room_id}/agent-turns/${payload.turn_id}/fail`, registered.agent_token, {
+            error: error instanceof Error ? error.message : String(error)
+          });
+        } catch (reportError) {
+          console.error("Adapter failed to report turn failure", reportError);
+        }
+      } finally {
+        runningTasks.delete(payload.turn_id);
+      }
     }
   } catch (error) {
     console.error("Ignoring malformed adapter stream message", error);
