@@ -7,8 +7,8 @@
   },
   "scripts": {
     "build": "tsc --noEmit -p tsconfig.json",
-    "dev": "tsx src/index.ts",
-    "test": "vitest run"
+    "dev": "corepack pnpm --filter @cacp/protocol build && tsx src/index.ts",
+    "test": "corepack pnpm --filter @cacp/protocol build && vitest run"
   },
   "dependencies": {
     "@cacp/protocol": "workspace:*",

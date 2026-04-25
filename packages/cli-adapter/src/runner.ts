@@ -12,15 +12,29 @@ export interface RunCommandResult {
   exit_code: number;
 }
 
+export function spawnOptionsForPlatform(platform: NodeJS.Platform): { shell: boolean } {
+  return { shell: platform === "win32" };
+}
+
+function quoteForCmd(value: string): string {
+  return `"${value.replace(/"/g, '\\"')}"`;
+}
+
 export async function runCommandForTask(options: RunCommandOptions): Promise<RunCommandResult> {
   return await new Promise((resolve, reject) => {
     const pendingOutputs: Promise<void>[] = [];
     let hasOutputError = false;
     let firstOutputError: unknown;
+    const spawnOptions = spawnOptionsForPlatform(process.platform);
+    const command = spawnOptions.shell
+      ? [quoteForCmd(options.command), ...options.args.map(quoteForCmd)].join(" ")
+      : options.command;
+    const args = spawnOptions.shell ? [] : options.args;
 
-    const child = spawn(options.command, options.args, {
+    const child = spawn(command, args, {
       cwd: options.working_dir,
-      stdio: ["pipe", "pipe", "pipe"]
+      stdio: ["pipe", "pipe", "pipe"],
+      ...spawnOptions
     });
 
     const captureOutput = (output: { stream: "stdout" | "stderr"; chunk: string }) => {

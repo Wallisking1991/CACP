@@ -15,3 +15,7 @@ export function requireParticipant(store: EventStore, roomId: string, request: F
 export function hasAnyRole(participant: StoredParticipant, roles: ParticipantRole[]): boolean {
   return roles.includes(participant.role);
 }
+
+export function hasHumanRole(participant: StoredParticipant, roles: ParticipantRole[]): boolean {
+  return participant.type === "human" && roles.includes(participant.role);
+}

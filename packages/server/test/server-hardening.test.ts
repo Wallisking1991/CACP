@@ -174,6 +174,7 @@ describe("CACP server hardening", () => {
     }
 
     const failTask = await createTask(app, room.room_id, ownerAuth, assigned.agent_id);
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/tasks/${failTask.task_id}/start`, headers: assignedAuth, payload: {} })).statusCode).toBe(201);
     expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/tasks/${failTask.task_id}/fail`, headers: assignedAuth, payload: { error: "expected failure", exit_code: 1 } })).statusCode).toBe(201);
   });
 
@@ -219,5 +220,84 @@ describe("CACP server hardening", () => {
 
     const responses = await Promise.all(attempts);
     expect(responses.map((response) => response.statusCode)).toEqual([403, 403, 403, 403]);
+  });
+
+  it("prevents registered agent tokens from creating human collaboration content", async () => {
+    const { app, room, ownerAuth } = await createRoom();
+    const agent = await registerAgent(app, room.room_id, ownerAuth, "Collaboration Blocked Agent");
+    const agentAuth = { authorization: `Bearer ${agent.agent_token}` };
+    const question = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/questions`, headers: ownerAuth, payload: { question: "Human-only question?" } });
+    expect(question.statusCode).toBe(201);
+    const proposal = await createProposal(app, room.room_id, ownerAuth);
+
+    const attempts = [
+      app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: agentAuth, payload: { text: "agent message" } }),
+      app.inject({ method: "POST", url: `/rooms/${room.room_id}/questions`, headers: agentAuth, payload: { question: "agent question?" } }),
+      app.inject({ method: "POST", url: `/rooms/${room.room_id}/questions/${question.json().question_id}/responses`, headers: agentAuth, payload: { response: "agent answer" } }),
+      app.inject({ method: "POST", url: `/rooms/${room.room_id}/proposals`, headers: agentAuth, payload: { title: "Agent proposal", proposal_type: "decision", policy: { type: "owner_approval" } } }),
+      app.inject({ method: "POST", url: `/rooms/${room.room_id}/proposals/${proposal.proposal_id}/votes`, headers: agentAuth, payload: { vote: "approve" } }),
+      app.inject({ method: "POST", url: `/rooms/${room.room_id}/tasks`, headers: agentAuth, payload: { target_agent_id: agent.agent_id, prompt: "self assign", mode: "oneshot" } }),
+      app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/register`, headers: agentAuth, payload: { name: "Nested Agent", capabilities: [] } })
+    ];
+
+    const responses = await Promise.all(attempts);
+    expect(responses.map((response) => response.statusCode)).toEqual([403, 403, 403, 403, 403, 403, 403]);
+  });
+
+  it("enforces task lifecycle ordering and terminal state", async () => {
+    const { app, room, ownerAuth } = await createRoom();
+    const agent = await registerAgent(app, room.room_id, ownerAuth, "Lifecycle Agent");
+    const agentAuth = { authorization: `Bearer ${agent.agent_token}` };
+
+    const beforeStartTask = await createTask(app, room.room_id, ownerAuth, agent.agent_id);
+    const outputBeforeStart = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/tasks/${beforeStartTask.task_id}/output`, headers: agentAuth, payload: { stream: "stdout", chunk: "too early" } });
+    expect(outputBeforeStart.statusCode).toBe(409);
+    expect(outputBeforeStart.json()).toEqual({ error: "task_not_started" });
+    const completeBeforeStart = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/tasks/${beforeStartTask.task_id}/complete`, headers: agentAuth, payload: { exit_code: 0 } });
+    expect(completeBeforeStart.statusCode).toBe(409);
+    expect(completeBeforeStart.json()).toEqual({ error: "task_not_started" });
+
+    const task = await createTask(app, room.room_id, ownerAuth, agent.agent_id);
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/tasks/${task.task_id}/start`, headers: agentAuth, payload: {} })).statusCode).toBe(201);
+    const duplicateStart = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/tasks/${task.task_id}/start`, headers: agentAuth, payload: {} });
+    expect(duplicateStart.statusCode).toBe(409);
+    expect(duplicateStart.json()).toEqual({ error: "task_already_started" });
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/tasks/${task.task_id}/output`, headers: agentAuth, payload: { stream: "stdout", chunk: "ok" } })).statusCode).toBe(201);
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/tasks/${task.task_id}/complete`, headers: agentAuth, payload: { exit_code: 0 } })).statusCode).toBe(201);
+
+    for (const [action, payload] of [
+      ["complete", { exit_code: 0 }],
+      ["output", { stream: "stdout", chunk: "too late" }],
+      ["fail", { error: "too late", exit_code: 1 }]
+    ] as const) {
+      const response = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/tasks/${task.task_id}/${action}`, headers: agentAuth, payload });
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toEqual({ error: "task_closed" });
+    }
+  });
+
+  it("recovers completed task terminal state after restart", async () => {
+    const dbPath = tempDbPath();
+    const first = await trackedServer(dbPath);
+    const { room, ownerAuth } = await createRoom(first, "Restarted Task Owner");
+    const agent = await registerAgent(first, room.room_id, ownerAuth, "Restarted Lifecycle Agent");
+    const agentAuth = { authorization: `Bearer ${agent.agent_token}` };
+    const task = await createTask(first, room.room_id, ownerAuth, agent.agent_id);
+    expect((await first.inject({ method: "POST", url: `/rooms/${room.room_id}/tasks/${task.task_id}/start`, headers: agentAuth, payload: {} })).statusCode).toBe(201);
+    expect((await first.inject({ method: "POST", url: `/rooms/${room.room_id}/tasks/${task.task_id}/complete`, headers: agentAuth, payload: { exit_code: 0 } })).statusCode).toBe(201);
+
+    await first.close();
+    untrack(first);
+
+    const second = await trackedServer(dbPath);
+    for (const [action, payload] of [
+      ["output", { stream: "stdout", chunk: "after restart" }],
+      ["complete", { exit_code: 0 }],
+      ["fail", { error: "after restart", exit_code: 1 }]
+    ] as const) {
+      const response = await second.inject({ method: "POST", url: `/rooms/${room.room_id}/tasks/${task.task_id}/${action}`, headers: agentAuth, payload });
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toEqual({ error: "task_closed" });
+    }
   });
 });

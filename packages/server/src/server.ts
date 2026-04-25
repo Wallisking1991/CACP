@@ -2,7 +2,7 @@ import Fastify, { type FastifyReply } from "fastify";
 import websocket from "@fastify/websocket";
 import { z } from "zod";
 import { evaluatePolicy, PolicySchema, VoteRecordSchema, type CacpEvent, type Participant, type Policy, type VoteRecord } from "@cacp/protocol";
-import { requireParticipant, hasAnyRole } from "./auth.js";
+import { requireParticipant, hasAnyRole, hasHumanRole } from "./auth.js";
 import { EventBus } from "./event-bus.js";
 import { EventStore } from "./event-store.js";
 import { event, prefixedId, token } from "./ids.js";
@@ -25,7 +25,8 @@ export interface BuildServerOptions { dbPath?: string }
 type Invite = { room_id: string; role: "admin" | "member" | "observer"; display_name: string };
 type ProposalTerminalStatus = "approved" | "rejected" | "expired";
 type ProposalState = { policy: Policy; votes: VoteRecord[]; terminal_status?: ProposalTerminalStatus };
-type TaskState = { target_agent_id: string };
+type TaskTerminalStatus = "completed" | "failed" | "cancelled";
+type TaskState = { target_agent_id: string; started: boolean; terminal_status?: TaskTerminalStatus };
 
 function deny(reply: FastifyReply, error: string, status = 401) {
   return reply.code(status).send({ error });
@@ -73,12 +74,19 @@ export async function buildServer(options: BuildServerOptions = {}) {
   }
 
   function findTaskState(roomId: string, taskId: string): TaskState | undefined {
+    let task: TaskState | undefined;
     for (const storedEvent of store.listEvents(roomId)) {
       if (storedEvent.type === "task.created" && storedEvent.payload.task_id === taskId && typeof storedEvent.payload.target_agent_id === "string") {
-        return { target_agent_id: storedEvent.payload.target_agent_id };
+        task = { target_agent_id: storedEvent.payload.target_agent_id, started: false };
+        continue;
       }
+      if (!task || storedEvent.payload.task_id !== taskId) continue;
+      if (storedEvent.type === "task.started") task.started = true;
+      if (storedEvent.type === "task.completed") task.terminal_status = "completed";
+      if (storedEvent.type === "task.failed") task.terminal_status = "failed";
+      if (storedEvent.type === "task.cancelled") task.terminal_status = "cancelled";
     }
-    return undefined;
+    return task;
   }
 
   function findParticipant(roomId: string, participantId: string): Participant | undefined {
@@ -166,14 +174,14 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/messages", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (participant.role === "observer") return deny(reply, "forbidden", 403);
+    if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
     return reply.code(201).send(appendAndPublish(event(request.params.roomId, "message.created", participant.id, MessageSchema.parse(request.body))));
   });
 
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/questions", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (participant.role === "observer") return deny(reply, "forbidden", 403);
+    if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
     const questionId = prefixedId("q");
     appendAndPublish(event(request.params.roomId, "question.created", participant.id, { question_id: questionId, ...QuestionSchema.parse(request.body) }));
     return reply.code(201).send({ question_id: questionId });
@@ -182,7 +190,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.post<{ Params: { roomId: string; questionId: string } }>("/rooms/:roomId/questions/:questionId/responses", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (participant.role === "observer") return deny(reply, "forbidden", 403);
+    if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
     appendAndPublish(event(request.params.roomId, "question.response_submitted", participant.id, { question_id: request.params.questionId, respondent_id: participant.id, ...QuestionResponseSchema.parse(request.body) }));
     return reply.code(201).send({ ok: true });
   });
@@ -190,7 +198,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/proposals", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (participant.role === "observer") return deny(reply, "forbidden", 403);
+    if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
     const body = ProposalSchema.parse(request.body);
     const proposalId = prefixedId("prop");
     appendAndPublish(event(request.params.roomId, "proposal.created", participant.id, { proposal_id: proposalId, ...body }));
@@ -200,7 +208,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.post<{ Params: { roomId: string; proposalId: string } }>("/rooms/:roomId/proposals/:proposalId/votes", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (participant.role === "observer") return deny(reply, "forbidden", 403);
+    if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
     const state = findProposalState(request.params.roomId, request.params.proposalId);
     if (!state) return deny(reply, "unknown_proposal", 404);
     if (state.terminal_status) return deny(reply, "proposal_closed", 409);
@@ -219,7 +227,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/agents/register", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (!hasAnyRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
+    if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
     const body = AgentRegisterSchema.parse(request.body);
     const agentId = prefixedId("agent");
     const agentToken = token();
@@ -234,7 +242,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/tasks", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (!hasAnyRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
+    if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
     const body = TaskCreateSchema.parse(request.body);
     const targetAgent = findParticipant(request.params.roomId, body.target_agent_id);
     if (!targetAgent || targetAgent.type !== "agent" || targetAgent.role !== "agent") return deny(reply, "invalid_target_agent", 400);
@@ -246,7 +254,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.post<{ Params: { roomId: string; taskId: string } }>("/rooms/:roomId/tasks/:taskId/start", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (!requireAssignedAgentTask(request.params.roomId, request.params.taskId, participant, reply)) return;
+    const task = requireAssignedAgentTask(request.params.roomId, request.params.taskId, participant, reply);
+    if (!task) return;
+    if (task.terminal_status) return deny(reply, "task_closed", 409);
+    if (task.started) return deny(reply, "task_already_started", 409);
     appendAndPublish(event(request.params.roomId, "task.started", participant.id, { task_id: request.params.taskId, agent_id: participant.id }));
     return reply.code(201).send({ ok: true });
   });
@@ -254,7 +265,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.post<{ Params: { roomId: string; taskId: string } }>("/rooms/:roomId/tasks/:taskId/output", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (!requireAssignedAgentTask(request.params.roomId, request.params.taskId, participant, reply)) return;
+    const task = requireAssignedAgentTask(request.params.roomId, request.params.taskId, participant, reply);
+    if (!task) return;
+    if (task.terminal_status) return deny(reply, "task_closed", 409);
+    if (!task.started) return deny(reply, "task_not_started", 409);
     appendAndPublish(event(request.params.roomId, "task.output", participant.id, { task_id: request.params.taskId, agent_id: participant.id, ...TaskOutputSchema.parse(request.body) }));
     return reply.code(201).send({ ok: true });
   });
@@ -262,7 +276,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.post<{ Params: { roomId: string; taskId: string } }>("/rooms/:roomId/tasks/:taskId/complete", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (!requireAssignedAgentTask(request.params.roomId, request.params.taskId, participant, reply)) return;
+    const task = requireAssignedAgentTask(request.params.roomId, request.params.taskId, participant, reply);
+    if (!task) return;
+    if (task.terminal_status) return deny(reply, "task_closed", 409);
+    if (!task.started) return deny(reply, "task_not_started", 409);
     appendAndPublish(event(request.params.roomId, "task.completed", participant.id, { task_id: request.params.taskId, agent_id: participant.id, ...TaskCompleteSchema.parse(request.body) }));
     return reply.code(201).send({ ok: true });
   });
@@ -270,7 +287,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.post<{ Params: { roomId: string; taskId: string } }>("/rooms/:roomId/tasks/:taskId/fail", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (!requireAssignedAgentTask(request.params.roomId, request.params.taskId, participant, reply)) return;
+    const task = requireAssignedAgentTask(request.params.roomId, request.params.taskId, participant, reply);
+    if (!task) return;
+    if (task.terminal_status) return deny(reply, "task_closed", 409);
+    if (!task.started) return deny(reply, "task_not_started", 409);
     appendAndPublish(event(request.params.roomId, "task.failed", participant.id, { task_id: request.params.taskId, agent_id: participant.id, ...TaskFailedSchema.parse(request.body) }));
     return reply.code(201).send({ ok: true });
   });

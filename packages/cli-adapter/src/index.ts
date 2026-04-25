@@ -3,6 +3,12 @@ import WebSocket from "ws";
 import { CacpEventSchema } from "@cacp/protocol";
 import { loadConfig } from "./config.js";
 import { runCommandForTask } from "./runner.js";
+import { taskReportForExitCode } from "./task-result.js";
+
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
+  console.log("Usage: cacp-cli-adapter [config.json]\n\nRuns a trusted local CLI command for assigned CACP tasks.");
+  process.exit(0);
+}
 
 const configPath = process.argv[2] ?? "docs/examples/generic-cli-agent.json";
 const config = loadConfig(configPath);
@@ -48,7 +54,8 @@ async function handleMessage(raw: WebSocket.RawData): Promise<void> {
           await postJson(`/rooms/${config.room_id}/tasks/${payload.task_id}/output`, registered.agent_token, output);
         }
       });
-      await postJson(`/rooms/${config.room_id}/tasks/${payload.task_id}/complete`, registered.agent_token, result);
+      const report = taskReportForExitCode(result);
+      await postJson(`/rooms/${config.room_id}/tasks/${payload.task_id}/${report.action}`, registered.agent_token, report.body);
     } catch (error) {
       console.error("Adapter task failed", error);
       try {

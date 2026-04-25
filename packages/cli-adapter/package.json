@@ -4,9 +4,9 @@
   "type": "module",
   "bin": { "cacp-cli-adapter": "./dist/index.js" },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "dev": "tsx src/index.ts",
-    "test": "vitest run"
+    "build": "corepack pnpm --filter @cacp/protocol build && tsc -p tsconfig.json",
+    "dev": "corepack pnpm --filter @cacp/protocol build && tsx src/index.ts",
+    "test": "corepack pnpm --filter @cacp/protocol build && vitest run"
   },
   "dependencies": {
     "@cacp/protocol": "workspace:*",

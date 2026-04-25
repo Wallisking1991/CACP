@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "build": "vite build",
-    "dev": "vite --host 127.0.0.1 --port 5173",
-    "test": "vitest run"
+    "build": "corepack pnpm --filter @cacp/protocol build && vite build",
+    "dev": "corepack pnpm --filter @cacp/protocol build && vite --host 127.0.0.1 --port 5173",
+    "test": "corepack pnpm --filter @cacp/protocol build && vitest run"
   },
   "dependencies": {
     "@cacp/protocol": "workspace:*",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { runCommandForTask } from "../src/runner.js";
+import { runCommandForTask, spawnOptionsForPlatform } from "../src/runner.js";
 
 const nodeEchoScript = "process.stdin.on('data', d => process.stdout.write('echo:' + d.toString()))";
 
@@ -77,5 +77,10 @@ describe("CLI runner", () => {
     });
 
     expect(result.exit_code).toBe(7);
+  });
+
+  it("uses a shell on Windows so trusted npm/pnpm/cmd shims can run", () => {
+    expect(spawnOptionsForPlatform("win32").shell).toBe(true);
+    expect(spawnOptionsForPlatform("linux").shell).toBe(false);
   });
 });
