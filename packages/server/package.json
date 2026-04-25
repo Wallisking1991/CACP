@@ -1,0 +1,23 @@
+{
+  "name": "@cacp/server",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": { ".": "./src/server.ts" },
+  "scripts": {
+    "build": "tsc --noEmit -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@cacp/protocol": "workspace:*",
+    "@fastify/websocket": "^11.0.1",
+    "better-sqlite3": "^11.8.1",
+    "fastify": "^5.2.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}
