@@ -10,12 +10,13 @@ export const ParticipantSchema = z.object({
 });
 
 export const EventTypeSchema = z.enum([
-  "room.created", "participant.joined", "participant.left", "participant.role_updated", "invite.created",
+  "room.created", "room.configured", "room.agent_selected", "participant.joined", "participant.left", "participant.role_updated", "invite.created",
   "message.created",
   "question.created", "question.response_submitted", "question.closed",
   "decision.created", "decision.finalized",
   "proposal.created", "proposal.vote_cast", "proposal.approved", "proposal.rejected", "proposal.expired",
   "agent.registered", "agent.unregistered", "agent.disconnected",
+  "agent.turn.requested", "agent.turn.followup_queued", "agent.turn.started", "agent.output.delta", "agent.turn.completed", "agent.turn.failed",
   "task.created", "task.started", "task.output", "task.completed", "task.failed", "task.cancelled",
   "artifact.created", "context.updated"
 ]);

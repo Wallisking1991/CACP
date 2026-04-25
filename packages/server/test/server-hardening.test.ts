@@ -112,7 +112,7 @@ describe("CACP server hardening", () => {
     const first = await trackedServer(dbPath);
     const { room, ownerAuth } = await createRoom(first, "First Owner");
 
-    const invite = await first.inject({ method: "POST", url: `/rooms/${room.room_id}/invites`, headers: ownerAuth, payload: { role: "member", display_name: "Bob" } });
+    const invite = await first.inject({ method: "POST", url: `/rooms/${room.room_id}/invites`, headers: ownerAuth, payload: { role: "member" } });
     expect(invite.statusCode).toBe(201);
     const proposal = await first.inject({ method: "POST", url: `/rooms/${room.room_id}/proposals`, headers: ownerAuth, payload: { title: "Persisted proposal", proposal_type: "decision", policy: { type: "owner_approval" } } });
     expect(proposal.statusCode).toBe(201);
@@ -121,7 +121,7 @@ describe("CACP server hardening", () => {
     untrack(first);
 
     const second = await trackedServer(dbPath);
-    expect((await second.inject({ method: "POST", url: `/rooms/${room.room_id}/join`, payload: { invite_token: invite.json().invite_token } })).statusCode).toBe(401);
+    expect((await second.inject({ method: "POST", url: `/rooms/${room.room_id}/join`, payload: { invite_token: invite.json().invite_token, display_name: "Bob" } })).statusCode).toBe(401);
     const vote = await second.inject({ method: "POST", url: `/rooms/${room.room_id}/proposals/${proposal.json().proposal_id}/votes`, headers: ownerAuth, payload: { vote: "approve" } });
     expect(vote.statusCode).toBe(201);
     expect(vote.json().evaluation.status).toBe("approved");
@@ -183,8 +183,8 @@ describe("CACP server hardening", () => {
     const roomA = await createRoom(app, "A Owner");
     const roomB = await createRoom(app, "B Owner");
     const roomBAgent = await registerAgent(app, roomB.room.room_id, roomB.ownerAuth, "Room B Agent");
-    const observerInvite = await app.inject({ method: "POST", url: `/rooms/${roomA.room.room_id}/invites`, headers: roomA.ownerAuth, payload: { role: "observer", display_name: "Watcher" } });
-    const observerJoin = await app.inject({ method: "POST", url: `/rooms/${roomA.room.room_id}/join`, payload: { invite_token: observerInvite.json().invite_token } });
+    const observerInvite = await app.inject({ method: "POST", url: `/rooms/${roomA.room.room_id}/invites`, headers: roomA.ownerAuth, payload: { role: "observer" } });
+    const observerJoin = await app.inject({ method: "POST", url: `/rooms/${roomA.room.room_id}/join`, payload: { invite_token: observerInvite.json().invite_token, display_name: "Watcher" } });
     expect(observerJoin.statusCode).toBe(201);
 
     const targetIds = ["agent_missing", roomA.room.owner_id, observerJoin.json().participant_id, roomBAgent.agent_id];
@@ -206,8 +206,8 @@ describe("CACP server hardening", () => {
 
   it("prevents observers from creating collaborative content or tasks", async () => {
     const { app, room, ownerAuth } = await createRoom();
-    const invite = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/invites`, headers: ownerAuth, payload: { role: "observer", display_name: "Watcher" } });
-    const join = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/join`, payload: { invite_token: invite.json().invite_token } });
+    const invite = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/invites`, headers: ownerAuth, payload: { role: "observer" } });
+    const join = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/join`, payload: { invite_token: invite.json().invite_token, display_name: "Bob" } });
     expect(join.statusCode).toBe(201);
     const observerAuth = { authorization: `Bearer ${join.json().participant_token}` };
 
@@ -242,6 +242,48 @@ describe("CACP server hardening", () => {
 
     const responses = await Promise.all(attempts);
     expect(responses.map((response) => response.statusCode)).toEqual([403, 403, 403, 403, 403, 403, 403]);
+  });
+
+  it("restricts room active agent selection to human collaborators and same-room agents", async () => {
+    const app = await trackedServer();
+    const roomA = await createRoom(app, "A Owner");
+    const roomB = await createRoom(app, "B Owner");
+    const roomAAgent = await registerAgent(app, roomA.room.room_id, roomA.ownerAuth, "Room A Agent");
+    const roomBAgent = await registerAgent(app, roomB.room.room_id, roomB.ownerAuth, "Room B Agent");
+    const observerInvite = await app.inject({ method: "POST", url: `/rooms/${roomA.room.room_id}/invites`, headers: roomA.ownerAuth, payload: { role: "observer" } });
+    const observerJoin = await app.inject({ method: "POST", url: `/rooms/${roomA.room.room_id}/join`, payload: { invite_token: observerInvite.json().invite_token, display_name: "Watcher" } });
+    expect(observerJoin.statusCode).toBe(201);
+
+    expect((await app.inject({ method: "POST", url: `/rooms/${roomA.room.room_id}/agents/select`, headers: roomA.ownerAuth, payload: { agent_id: roomAAgent.agent_id } })).statusCode).toBe(201);
+    expect((await app.inject({ method: "POST", url: `/rooms/${roomA.room.room_id}/agents/select`, headers: { authorization: `Bearer ${observerJoin.json().participant_token}` }, payload: { agent_id: roomAAgent.agent_id } })).statusCode).toBe(403);
+    expect((await app.inject({ method: "POST", url: `/rooms/${roomA.room.room_id}/agents/select`, headers: { authorization: `Bearer ${roomAAgent.agent_token}` }, payload: { agent_id: roomAAgent.agent_id } })).statusCode).toBe(403);
+    expect((await app.inject({ method: "POST", url: `/rooms/${roomA.room.room_id}/agents/select`, headers: roomA.ownerAuth, payload: { agent_id: roomBAgent.agent_id } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "POST", url: `/rooms/${roomA.room.room_id}/agents/select`, headers: roomA.ownerAuth, payload: { agent_id: "agent_missing" } })).statusCode).toBe(400);
+  });
+
+  it("allows only the assigned agent to emit turn lifecycle events and enforces ordering", async () => {
+    const { app, room, ownerAuth } = await createRoom();
+    const assigned = await registerAgent(app, room.room_id, ownerAuth, "Assigned Turn Agent");
+    const other = await registerAgent(app, room.room_id, ownerAuth, "Other Turn Agent");
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/select`, headers: ownerAuth, payload: { agent_id: assigned.agent_id } })).statusCode).toBe(201);
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "Trigger turn" } })).statusCode).toBe(201);
+    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: { turn_id?: string } }>;
+    const turnId = events.find((event) => event.type === "agent.turn.requested")?.payload.turn_id;
+    expect(turnId).toBeTruthy();
+
+    const assignedAuth = { authorization: `Bearer ${assigned.agent_token}` };
+    const otherAuth = { authorization: `Bearer ${other.agent_token}` };
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${turnId}/start`, headers: ownerAuth, payload: {} })).statusCode).toBe(403);
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${turnId}/start`, headers: otherAuth, payload: {} })).statusCode).toBe(403);
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${turnId}/delta`, headers: assignedAuth, payload: { chunk: "too early" } })).statusCode).toBe(409);
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${turnId}/complete`, headers: assignedAuth, payload: { final_text: "too early", exit_code: 0 } })).statusCode).toBe(409);
+
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${turnId}/start`, headers: assignedAuth, payload: {} })).statusCode).toBe(201);
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${turnId}/start`, headers: assignedAuth, payload: {} })).statusCode).toBe(409);
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${turnId}/delta`, headers: assignedAuth, payload: { chunk: "ok" } })).statusCode).toBe(201);
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${turnId}/complete`, headers: assignedAuth, payload: { final_text: "done", exit_code: 0 } })).statusCode).toBe(201);
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${turnId}/delta`, headers: assignedAuth, payload: { chunk: "too late" } })).statusCode).toBe(409);
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${turnId}/fail`, headers: assignedAuth, payload: { error: "too late" } })).statusCode).toBe(409);
   });
 
   it("enforces task lifecycle ordering and terminal state", async () => {

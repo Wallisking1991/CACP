@@ -20,6 +20,15 @@ export async function createRoom(name: string, displayName: string): Promise<Roo
   return { room_id: result.room_id, token: result.owner_token };
 }
 
+export async function createInvite(session: RoomSession, role: "admin" | "member" | "observer"): Promise<{ invite_token: string; role: string }> {
+  return await postJson(`/rooms/${session.room_id}/invites`, session.token, { role });
+}
+
+export async function joinRoom(roomId: string, inviteToken: string, displayName: string): Promise<RoomSession> {
+  const result = await postJson<{ participant_token: string }>(`/rooms/${roomId}/join`, undefined, { invite_token: inviteToken, display_name: displayName });
+  return { room_id: roomId, token: result.participant_token };
+}
+
 export async function sendMessage(session: RoomSession, text: string): Promise<void> {
   await postJson(`/rooms/${session.room_id}/messages`, session.token, { text });
 }
@@ -30,6 +39,10 @@ export async function createQuestion(session: RoomSession, question: string): Pr
 
 export async function createTask(session: RoomSession, targetAgentId: string, prompt: string): Promise<void> {
   await postJson(`/rooms/${session.room_id}/tasks`, session.token, { target_agent_id: targetAgentId, prompt, mode: "oneshot" });
+}
+
+export async function selectAgent(session: RoomSession, agentId: string): Promise<void> {
+  await postJson(`/rooms/${session.room_id}/agents/select`, session.token, { agent_id: agentId });
 }
 
 export function parseCacpEventMessage(data: string): CacpEvent | undefined {

@@ -1,0 +1,25 @@
+{
+  "server_url": "http://127.0.0.1:3737",
+  "room_id": "replace_with_room_id",
+  "token": "replace_with_owner_or_member_token",
+  "agent": {
+    "name": "Claude Code Agent",
+    "command": "claude",
+    "args": [
+      "-p",
+      "--output-format",
+      "text",
+      "--no-session-persistence",
+      "--max-budget-usd",
+      "0.10",
+      "--tools",
+      "Read,LS,Grep,Glob",
+      "--permission-mode",
+      "dontAsk",
+      "--append-system-prompt",
+      "你是通过 CACP 多人协作房间调用的 Claude Code CLI Agent。请优先给出简洁、可读的中文结果。除非任务明确要求，否则不要修改文件；当前测试阶段只做只读分析。"
+    ],
+    "working_dir": "D:\\Development\\2",
+    "capabilities": ["claude-code.print", "repo.read", "analysis"]
+  }
+}
