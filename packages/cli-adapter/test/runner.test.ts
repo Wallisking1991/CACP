@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { runCommandForTask, spawnOptionsForPlatform } from "../src/runner.js";
 
 const nodeEchoScript = "process.stdin.on('data', d => process.stdout.write('echo:' + d.toString()))";
@@ -38,22 +41,41 @@ describe("CLI runner", () => {
   });
 
   it("delivers output chunks before the command exits", async () => {
-    const received: Array<{ chunk: string; at: number }> = [];
-    const startedAt = Date.now();
-    const result = await runCommandForTask({
-      command: process.execPath,
-      args: [
-        "-e",
-        "process.stdout.write('first'); setTimeout(() => { process.stdout.write('second'); process.exit(0); }, 250);"
-      ],
-      working_dir: process.cwd(),
-      prompt: "",
-      onOutput: (output) => received.push({ chunk: output.chunk, at: Date.now() - startedAt })
-    });
+    const tempDir = mkdtempSync(join(tmpdir(), "cacp-stream-"));
+    const markerPath = join(tempDir, "first-output-seen");
+    const received: string[] = [];
 
-    expect(result.exit_code).toBe(0);
-    expect(received.map((item) => item.chunk).join("")).toContain("first");
-    expect(received[0]?.at).toBeLessThan(200);
+    try {
+      const result = await runCommandForTask({
+        command: process.execPath,
+        args: [
+          "-e",
+          [
+            "const { existsSync } = require('node:fs');",
+            "const markerPath = process.argv[1];",
+            "process.stdout.write('first');",
+            "setTimeout(() => {",
+            "  process.stdout.write(existsSync(markerPath) ? 'seen-before-exit' : 'missed-before-exit');",
+            "  process.exit(0);",
+            "}, 500);"
+          ].join(" "),
+          markerPath
+        ],
+        working_dir: process.cwd(),
+        prompt: "",
+        onOutput: (output) => {
+          received.push(output.chunk);
+          if (output.chunk.includes("first") && !existsSync(markerPath)) writeFileSync(markerPath, "seen", "utf8");
+        }
+      });
+
+      const joined = received.join("");
+      expect(result.exit_code).toBe(0);
+      expect(joined).toContain("first");
+      expect(joined).toContain("seen-before-exit");
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("rejects when an async output callback rejects", async () => {
