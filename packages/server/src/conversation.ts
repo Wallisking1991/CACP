@@ -63,8 +63,18 @@ export function hasQueuedFollowup(events: CacpEvent[], turnId: string): boolean 
   return events.some((storedEvent) => storedEvent.type === "agent.turn.followup_queued" && storedEvent.payload.turn_id === turnId);
 }
 
+export function eventsAfterLastHistoryClear(events: CacpEvent[]): CacpEvent[] {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const storedEvent = events[index];
+    if (storedEvent.type === "room.history_cleared" && storedEvent.payload.scope === "messages_and_decisions") {
+      return events.slice(index + 1);
+    }
+  }
+  return events;
+}
+
 export function recentConversationMessages(events: CacpEvent[], limit = 20): ConversationMessage[] {
-  return events
+  return eventsAfterLastHistoryClear(events)
     .filter((storedEvent) => storedEvent.type === "message.created" && typeof storedEvent.payload.text === "string")
     .slice(-limit)
     .map((storedEvent) => ({

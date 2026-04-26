@@ -3,7 +3,7 @@ import websocket from "@fastify/websocket";
 import { z } from "zod";
 import { evaluatePolicy, PolicySchema, VoteRecordSchema, type CacpEvent, type Participant, type Policy, type VoteRecord } from "@cacp/protocol";
 import { requireParticipant, hasAnyRole, hasHumanRole } from "./auth.js";
-import { buildAgentContextPrompt, findActiveAgentId, findOpenTurn, hasQueuedFollowup, recentConversationMessages } from "./conversation.js";
+import { buildAgentContextPrompt, eventsAfterLastHistoryClear, findActiveAgentId, findOpenTurn, hasQueuedFollowup, recentConversationMessages } from "./conversation.js";
 import { deriveDecisionStates, evaluateDecisionPolicy, extractCacpDecisions, interpretDecisionResponse } from "./decisions.js";
 import { EventBus } from "./event-bus.js";
 import { EventStore } from "./event-store.js";
@@ -175,7 +175,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   }
 
   function decisionStatesFor(roomId: string) {
-    return deriveDecisionStates(store.listEvents(roomId));
+    return deriveDecisionStates(eventsAfterLastHistoryClear(store.listEvents(roomId)));
   }
 
   function activeBlockingDecisionFor(roomId: string) {
@@ -426,6 +426,18 @@ export async function buildServer(options: BuildServerOptions = {}) {
         appendAndPublish(event(request.params.roomId, "agent.status_changed", participant.id, { agent_id: participant.id, status: "offline" }));
       }
     });
+  });
+
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/history/clear", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    if (!hasAnyRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
+    appendAndPublish(event(request.params.roomId, "room.history_cleared", participant.id, {
+      cleared_by: participant.id,
+      cleared_at: new Date().toISOString(),
+      scope: "messages_and_decisions"
+    }));
+    return reply.code(201).send({ ok: true });
   });
 
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/invites", async (request, reply) => {

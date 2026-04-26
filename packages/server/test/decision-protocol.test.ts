@@ -165,6 +165,110 @@ describe("CACP decision protocol integration", () => {
     await app.close();
   });
 
+  it("allows owner to clear room history and rejects member clear", async () => {
+    const { app, room, ownerAuth } = await createRoom();
+    const bob = await inviteMember(app, room.room_id, ownerAuth);
+
+    const memberClear = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/history/clear`,
+      headers: bob.auth,
+      payload: {}
+    });
+    expect(memberClear.statusCode).toBe(403);
+
+    const ownerClear = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/history/clear`,
+      headers: ownerAuth,
+      payload: {}
+    });
+    expect(ownerClear.statusCode).toBe(201);
+    expect(ownerClear.json()).toEqual({ ok: true });
+
+    const events = await listEvents(app, room.room_id, ownerAuth);
+    const cleared = events.find((event) => event.type === "room.history_cleared");
+    expect(cleared?.actor_id).toBe(room.owner_id);
+    expect(cleared?.payload).toMatchObject({
+      scope: "messages_and_decisions",
+      cleared_by: room.owner_id
+    });
+    expect(typeof cleared?.payload.cleared_at).toBe("string");
+    expect(Number.isNaN(Date.parse(String(cleared?.payload.cleared_at)))).toBe(false);
+
+    await app.close();
+  });
+
+  it("builds agent context from messages after the latest history clear boundary", async () => {
+    const { app, room, ownerAuth } = await createRoom();
+    const agent = await registerAndSelectAgent(app, room.room_id, ownerAuth);
+
+    const beforeMessage = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/messages`,
+      headers: ownerAuth,
+      payload: { text: "before clear secret" }
+    });
+    expect(beforeMessage.statusCode).toBe(201);
+    let events = await listEvents(app, room.room_id, ownerAuth);
+    const firstTurnId = String(events.find((event) => event.type === "agent.turn.requested")?.payload.turn_id);
+    expect(firstTurnId).toMatch(/^turn_/);
+
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${firstTurnId}/start`, headers: agent.agentAuth, payload: {} })).statusCode).toBe(201);
+    expect((await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-turns/${firstTurnId}/complete`,
+      headers: agent.agentAuth,
+      payload: { final_text: "Acknowledged before clear.", exit_code: 0 }
+    })).statusCode).toBe(201);
+
+    const clear = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/history/clear`,
+      headers: ownerAuth,
+      payload: {}
+    });
+    expect(clear.statusCode).toBe(201);
+
+    const afterMessage = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/messages`,
+      headers: ownerAuth,
+      payload: { text: "after clear visible" }
+    });
+    expect(afterMessage.statusCode).toBe(201);
+
+    events = await listEvents(app, room.room_id, ownerAuth);
+    const requestedTurns = events.filter((event) => event.type === "agent.turn.requested");
+    expect(requestedTurns).toHaveLength(2);
+    const contextPrompt = String(requestedTurns[requestedTurns.length - 1].payload.context_prompt);
+    expect(contextPrompt).toContain("after clear visible");
+    expect(contextPrompt).not.toContain("before clear secret");
+    expect(contextPrompt).not.toContain("Acknowledged before clear.");
+
+    await app.close();
+  });
+
+  it("clears active decision history so old decisions no longer block new decisions", async () => {
+    const { app, room, ownerAuth } = await createRoom();
+    const agent = await registerAndSelectAgent(app, room.room_id, ownerAuth);
+    const first = await createDecision(app, room.room_id, agent.agentAuth);
+    expect(first.statusCode).toBe(201);
+
+    const clear = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/history/clear`,
+      headers: ownerAuth,
+      payload: {}
+    });
+    expect(clear.statusCode).toBe(201);
+
+    const next = await createDecision(app, room.room_id, agent.agentAuth);
+    expect(next.statusCode).toBe(201);
+
+    await app.close();
+  });
+
   it("allows a new decision after cancellation", async () => {
     const { app, room, ownerAuth } = await createRoom();
     const agent = await registerAndSelectAgent(app, room.room_id, ownerAuth);
