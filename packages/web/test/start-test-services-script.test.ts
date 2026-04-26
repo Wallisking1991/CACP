@@ -23,4 +23,28 @@ describe("start-test-services.ps1", () => {
     expect(existsSync(cmdWrapperPath)).toBe(true);
     expect(cmd).toContain("-Foreground");
   });
+
+  it("guards the whole foreground lifecycle with cleanup", () => {
+    const script = readFileSync(scriptPath, "utf8");
+    const lifecycleStart = script.indexOf("function Invoke-ForegroundLifecycle");
+    const lifecycleEnd = script.indexOf("if ($Foreground)", lifecycleStart);
+
+    expect(lifecycleStart).toBeGreaterThanOrEqual(0);
+    expect(lifecycleEnd).toBeGreaterThan(lifecycleStart);
+
+    const lifecycle = script.slice(lifecycleStart, lifecycleEnd);
+    const tryIndex = lifecycle.indexOf("try {");
+    const waitIndex = lifecycle.indexOf("Wait-Until");
+    const openIndex = lifecycle.indexOf("Start-Process $WebUrl");
+    const tailIndex = lifecycle.indexOf("Get-Content");
+    const finallyIndex = lifecycle.indexOf("finally {");
+    const stopIndex = lifecycle.indexOf("Stop-TestServices", finallyIndex);
+
+    expect(tryIndex).toBeGreaterThanOrEqual(0);
+    expect(waitIndex).toBeGreaterThan(tryIndex);
+    expect(openIndex).toBeGreaterThan(waitIndex);
+    expect(tailIndex).toBeGreaterThan(openIndex);
+    expect(finallyIndex).toBeGreaterThan(tailIndex);
+    expect(stopIndex).toBeGreaterThan(finallyIndex);
+  });
 });
