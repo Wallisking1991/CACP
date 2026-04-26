@@ -97,6 +97,35 @@ describe("CACP server pairing and governance", () => {
     await app.close();
   });
 
+  it("rejects action approval decisions while another blocking decision is active", async () => {
+    const { app, room, ownerAuth } = await createRoom("owner_approval");
+    const agent = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/register`, headers: ownerAuth, payload: { name: "Claude", capabilities: [] } });
+    const agentToken = agent.json().agent_token;
+
+    const activeDecision = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/decisions`,
+      headers: ownerAuth,
+      payload: {
+        title: "Approve plan",
+        description: "An existing blocking decision.",
+        kind: "approval",
+        blocking: true
+      }
+    });
+    expect(activeDecision.statusCode).toBe(201);
+
+    const approval = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-action-approvals?token=${encodeURIComponent(agentToken)}`, payload: { tool_name: "Write", description: "Allow Write?" } });
+
+    expect(approval.statusCode).toBe(409);
+    expect(approval.json()).toEqual({ error: "active_decision_exists" });
+
+    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
+    expect(events.filter((event) => event.type === "decision.requested")).toHaveLength(1);
+
+    await app.close();
+  });
+
   it("uses an explicit adapter server URL when creating a pairing behind the web dev proxy", async () => {
     const { app, room, ownerAuth } = await createRoom();
 

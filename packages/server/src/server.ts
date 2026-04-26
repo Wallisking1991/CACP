@@ -691,6 +691,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const participant = query.token ? store.getParticipantByToken(request.params.roomId, query.token) : requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
     if (participant.role !== "agent" || participant.type !== "agent") return deny(reply, "forbidden", 403);
+    if (activeBlockingDecisionFor(request.params.roomId)) return deny(reply, "active_decision_exists", 409);
     const body = AgentActionApprovalSchema.parse(request.body);
     const actionId = prefixedId("action");
     const decisionId = prefixedId("dec");
