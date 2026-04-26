@@ -61,4 +61,61 @@ describe("room state", () => {
     expect(state.questions[0].responses).toEqual([{ respondent_id: "user_1", response: "approve", comment: "ok" }]);
   });
 
+  it("derives decisions and excludes messages and decisions before the last history clear", () => {
+    const state = deriveRoomState([
+      event("message.created", { message_id: "msg_old", text: "old message", kind: "human" }, 1, "user_1"),
+      event("decision.requested", {
+        decision_id: "dec_old",
+        title: "Old decision",
+        description: "Ignored after clear",
+        kind: "single_choice",
+        options: [{ id: "old", label: "Old option" }],
+        policy: { type: "majority" },
+        blocking: true
+      }, 2, "agent_1"),
+      event("room.history_cleared", { cleared_by: "user_1", cleared_at: "2026-04-25T00:00:03.000Z", scope: "messages_and_decisions" }, 3, "user_1"),
+      event("message.created", { message_id: "msg_new", text: "new message", kind: "human" }, 4, "user_1"),
+      event("decision.requested", {
+        decision_id: "dec_1",
+        title: "Choose agent",
+        description: "Which agent should continue?",
+        kind: "single_choice",
+        options: [{ id: "A", label: "Claude Code CLI" }, { id: "B", label: "Codex CLI" }],
+        policy: { type: "majority" },
+        blocking: true
+      }, 5, "agent_1"),
+      event("decision.response_recorded", {
+        decision_id: "dec_1",
+        respondent_id: "user_1",
+        response: "B",
+        response_label: "Codex CLI",
+        source_message_id: "msg_response_1",
+        interpretation: { method: "manual", confidence: 1 }
+      }, 6, "user_1"),
+      event("decision.response_recorded", {
+        decision_id: "dec_1",
+        respondent_id: "user_1",
+        response: "A",
+        response_label: "Claude Code CLI",
+        source_message_id: "msg_response_2",
+        interpretation: { method: "manual", confidence: 1 }
+      }, 7, "user_1"),
+      event("decision.resolved", {
+        decision_id: "dec_1",
+        result: "A",
+        result_label: "Claude Code CLI",
+        decided_by: ["user_1"],
+        policy_evaluation: { status: "resolved", reason: "majority policy satisfied" }
+      }, 8, "user_1")
+    ]);
+
+    expect(state.lastHistoryClearedAt).toBe("2026-04-25T00:00:03.000Z");
+    expect(state.messages).toEqual([{ message_id: "msg_new", actor_id: "user_1", text: "new message", kind: "human", created_at: "2026-04-25T00:00:04.000Z" }]);
+    expect(state.currentDecision).toBeUndefined();
+    expect(state.decisionHistory).toHaveLength(1);
+    expect(state.decisionHistory.map((decision) => decision.decision_id)).not.toContain("dec_old");
+    expect(state.decisionHistory[0]).toMatchObject({ decision_id: "dec_1", terminal_status: "resolved", result_label: "Claude Code CLI" });
+    expect(state.decisionHistory[0].responses.find((response) => response.respondent_id === "user_1")?.response).toBe("A");
+  });
+
 });
