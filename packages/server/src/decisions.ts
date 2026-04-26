@@ -1,6 +1,8 @@
-﻿import {
+import { z } from "zod";
+import {
   DecisionCancelledPayloadSchema,
   DecisionRequestedPayloadSchema,
+  PolicySchema,
   DecisionResolvedPayloadSchema,
   DecisionResponseRecordedPayloadSchema,
   type CacpEvent,
@@ -20,6 +22,8 @@ export interface DecisionState {
   cancelled_reason?: string;
 }
 
+export type CacpDecisionDraft = Omit<DecisionRequestedPayload, "decision_id"> & { decision_id?: string };
+
 export interface InterpretedDecisionResponse {
   response: unknown;
   response_label?: string;
@@ -31,18 +35,21 @@ export type DecisionPolicyResult =
 
 const decisionBlockPattern = /```cacp-decision[ \t]*\r?\n([\s\S]*?)```/g;
 const eligibleRoles = new Set(["owner", "admin", "member"]);
+const CacpDecisionDraftBlockSchema = DecisionRequestedPayloadSchema.omit({ decision_id: true, policy: true }).extend({
+  decision_id: z.string().min(1).optional(),
+  policy: z.union([PolicySchema, z.literal("room_default")])
+});
 
-export function extractCacpDecisions(text: string, roomDefaultPolicy: Policy): DecisionRequestedPayload[] {
-  const decisions: DecisionRequestedPayload[] = [];
+export function extractCacpDecisions(text: string, roomDefaultPolicy: Policy): CacpDecisionDraft[] {
+  const decisions: CacpDecisionDraft[] = [];
   for (const match of text.matchAll(decisionBlockPattern)) {
     try {
-      const raw = JSON.parse(match[1].trim()) as Record<string, unknown>;
-      const candidate = {
-        ...raw,
-        policy: raw.policy === "room_default" ? roomDefaultPolicy : raw.policy
-      };
-      const parsed = DecisionRequestedPayloadSchema.safeParse(candidate);
-      if (parsed.success) decisions.push(parsed.data);
+      const parsed = CacpDecisionDraftBlockSchema.safeParse(JSON.parse(match[1].trim()));
+      if (!parsed.success) continue;
+      decisions.push({
+        ...parsed.data,
+        policy: parsed.data.policy === "room_default" ? roomDefaultPolicy : parsed.data.policy
+      });
     } catch {
       // Ignore malformed AI-emitted decision blocks; the final message is still preserved.
     }
@@ -132,8 +139,9 @@ export function interpretDecisionResponse(input: { decision: DecisionRequestedPa
       if (patterns.some((pattern) => pattern.test(normalizedText))) return { response: option.id, response_label: option.label };
     }
 
-    const labelMatch = input.decision.options.find((option) => normalizedText.includes(option.label.toLowerCase()));
-    if (labelMatch) return { response: labelMatch.id, response_label: labelMatch.label };
+    for (const option of input.decision.options) {
+      if (matchesOptionLabelChoice(normalizedText, option.label)) return { response: option.id, response_label: option.label };
+    }
   }
 
   if (input.decision.kind === "approval") {
@@ -176,10 +184,12 @@ export function evaluateDecisionPolicy(input: { decision: DecisionState; partici
   }
 
   if (policyType === "owner_approval") {
-    const owner = eligible.find((participant) => participant.role === "owner");
-    const response = owner ? latest.get(owner.id) : undefined;
-    if (!response) return openResult("waiting for owner approval");
-    return resolvedFromResponses([response], response, "owner approval received");
+    const ownerIds = new Set(eligible.filter((participant) => participant.role === "owner").map((participant) => participant.id));
+    const latestOwnerResponse = [...latest.values()]
+      .filter((response) => ownerIds.has(response.respondent_id))
+      .sort((left, right) => right.created_at.localeCompare(left.created_at))[0];
+    if (!latestOwnerResponse) return openResult("waiting for owner approval");
+    return resolvedFromResponses([latestOwnerResponse], latestOwnerResponse, "owner approval received");
   }
 
   if (policyType === "unanimous") {
@@ -220,6 +230,23 @@ function resolvedFromResponses(responses: DecisionState["responses"], selected =
 
 function stableKey(value: unknown): string {
   return JSON.stringify(value);
+}
+
+function matchesOptionLabelChoice(normalizedText: string, label: string): boolean {
+  const normalizedLabel = label.trim().toLowerCase();
+  if (!normalizedLabel) return false;
+  if (normalizedText === normalizedLabel) return true;
+  const escapedLabel = escapeRegExp(normalizedLabel);
+  const englishPatterns = [
+    new RegExp(`^choose\\s+${escapedLabel}$`, "i"),
+    new RegExp(`^i\\s+choose\\s+${escapedLabel}$`, "i"),
+    new RegExp(`^select\\s+${escapedLabel}$`, "i")
+  ];
+  if (englishPatterns.some((pattern) => pattern.test(normalizedText))) return true;
+  return ["\u9009\u62e9", "\u6211\u9009", "\u5148\u505a"].some((prefix) => {
+    if (!normalizedText.startsWith(prefix)) return false;
+    return normalizedText.slice(prefix.length).trimStart() === normalizedLabel;
+  });
 }
 
 function escapeRegExp(value: string): string {

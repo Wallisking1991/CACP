@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { CacpEvent, DecisionRequestedPayload, Participant } from "@cacp/protocol";
 import {
   deriveDecisionStates,
@@ -75,10 +75,74 @@ describe("decision helpers", () => {
     });
   });
 
+  it("extracts decision drafts without requiring an AI-provided decision_id", () => {
+    const textWithDraftDecisionBlock = [
+      "Decision needed:",
+      "```cacp-decision",
+      JSON.stringify({
+        title: "Choose CLI",
+        description: "Choose which CLI should handle the implementation.",
+        kind: "single_choice",
+        options: singleChoiceDecision.options,
+        policy: "room_default",
+        blocking: true
+      }),
+      "```"
+    ].join("\n");
+
+    const decisions = extractCacpDecisions(textWithDraftDecisionBlock, { type: "majority" });
+    expect(decisions[0]).toMatchObject({
+      title: "Choose CLI",
+      policy: { type: "majority" }
+    });
+    expect(decisions[0]).not.toHaveProperty("decision_id");
+  });
+
+  it("ignores malformed decision blocks while extracting valid adjacent drafts", () => {
+    const text = [
+      "```cacp-decision",
+      "{not valid json",
+      "```",
+      "```cacp-decision",
+      JSON.stringify({
+        title: "Approve plan",
+        description: "Approve the proposed implementation plan.",
+        kind: "approval",
+        options: approvalDecision.options,
+        policy: { type: "owner_approval" },
+        blocking: true
+      }),
+      "```"
+    ].join("\n");
+
+    expect(extractCacpDecisions(text, { type: "majority" })).toHaveLength(1);
+    expect(extractCacpDecisions(text, { type: "majority" })[0]).toMatchObject({
+      title: "Approve plan",
+      policy: { type: "owner_approval" }
+    });
+  });
+
   it("interprets single-choice responses by explicit choice", () => {
     expect(interpretDecisionResponse({ decision: singleChoiceDecision, text: "I choose A" })).toMatchObject({
       response: "A",
       response_label: "Claude Code CLI"
+    });
+  });
+
+  it("does not match single-choice labels as arbitrary substrings", () => {
+    const yesNoDecision: DecisionRequestedPayload = {
+      ...singleChoiceDecision,
+      decision_id: "decision_yes_no",
+      options: [
+        { id: "Y", label: "Yes" },
+        { id: "N", label: "No" }
+      ]
+    };
+
+    expect(interpretDecisionResponse({ decision: yesNoDecision, text: "no need to decide yet" })).toBeUndefined();
+    expect(interpretDecisionResponse({ decision: yesNoDecision, text: "choose No" })).toMatchObject({
+      response: "N",
+      response_label: "No"
     });
   });
 
@@ -183,6 +247,32 @@ describe("decision helpers", () => {
     expect(evaluateDecisionPolicy({ decision: state, participants })).toMatchObject({
       status: "open",
       reason: "unsupported decision policy: no_approval"
+    });
+  });
+
+  it("resolves owner_approval using any owner and the latest owner response", () => {
+    const multiOwnerParticipants: Participant[] = [
+      { id: "alice", type: "human", display_name: "Alice", role: "owner" },
+      { id: "bob", type: "human", display_name: "Bob", role: "owner" },
+      { id: "agent_1", type: "agent", display_name: "Claude", role: "agent" }
+    ];
+    const state = deriveDecisionStates([
+      event("decision.requested", approvalDecision, 1),
+      event("decision.response_recorded", {
+        decision_id: "decision_approval",
+        respondent_id: "bob",
+        response: "approve",
+        response_label: "Approve",
+        source_message_id: "msg_1",
+        interpretation: { method: "deterministic", confidence: 1 }
+      }, 2, "bob")
+    ])[0];
+
+    expect(evaluateDecisionPolicy({ decision: state, participants: multiOwnerParticipants })).toMatchObject({
+      status: "resolved",
+      result: "approve",
+      result_label: "Approve",
+      decided_by: ["bob"]
     });
   });
 
