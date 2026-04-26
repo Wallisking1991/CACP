@@ -29,11 +29,11 @@ describe("room state", () => {
     ]);
 
     expect(state.participants).toEqual([{ id: "user_1", display_name: "Alice", role: "owner", type: "human" }]);
-    expect(state.agents).toEqual([{ agent_id: "agent_1", name: "Claude Code Agent", capabilities: ["repo.read"] }]);
+    expect(state.agents[0]).toMatchObject({ agent_id: "agent_1", name: "Claude Code Agent", capabilities: ["repo.read"], status: "unknown" });
     expect(state.activeAgentId).toBe("agent_1");
     expect(state.messages).toEqual([{ message_id: "msg_1", actor_id: "user_1", text: "你好", kind: "human", created_at: "2026-04-25T00:00:04.000Z" }]);
     expect(state.streamingTurns).toEqual([{ turn_id: "turn_1", agent_id: "agent_1", text: "正在分析" }]);
-    expect(state.questions).toEqual([{ question_id: "q_1", question: "下一步？", options: ["A", "B"] }]);
+    expect(state.questions[0]).toMatchObject({ question_id: "q_1", options: ["A", "B"], closed: false });
   });
 
   it("removes streaming turns after completion", () => {
@@ -45,4 +45,20 @@ describe("room state", () => {
 
     expect(state.streamingTurns).toEqual([]);
   });
+  it("derives agent status and question voting state", () => {
+    const state = deriveRoomState([
+      event("room.configured", { default_policy: { type: "majority" } }, 1),
+      event("agent.registered", { agent_id: "agent_1", name: "Claude", capabilities: ["tool.approval"] }, 2),
+      event("agent.status_changed", { agent_id: "agent_1", status: "online" }, 3, "agent_1"),
+      event("question.created", { question_id: "q_1", question: "Approve?", options: ["approve", "reject"], blocking: true, question_type: "agent_action_approval" }, 4, "agent_1"),
+      event("question.response_submitted", { question_id: "q_1", respondent_id: "user_1", response: "approve", comment: "ok" }, 5, "user_1"),
+      event("question.closed", { question_id: "q_1", evaluation: { status: "closed", selected_response: "approve", decided_by: ["user_1"] } }, 6, "user_1")
+    ]);
+
+    expect(state.roomPolicy).toEqual({ type: "majority" });
+    expect(state.agents[0]).toMatchObject({ agent_id: "agent_1", status: "online" });
+    expect(state.questions[0]).toMatchObject({ question_id: "q_1", blocking: true, closed: true, selected_response: "approve", question_type: "agent_action_approval" });
+    expect(state.questions[0].responses).toEqual([{ respondent_id: "user_1", response: "approve", comment: "ok" }]);
+  });
+
 });

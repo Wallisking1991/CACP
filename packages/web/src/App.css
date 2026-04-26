@@ -142,6 +142,17 @@ h1, h2 { margin: 0; }
   background: rgba(0,0,0,0.20);
 }
 .invite-box span { color: #9fb0ce; font-size: 12px; font-weight: 800; text-transform: uppercase; }
+.command-box {
+  display: block;
+  margin-top: 12px;
+  padding: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  border: 1px solid rgba(125,247,220,0.20);
+  border-radius: 16px;
+  background: rgba(0,0,0,0.24);
+  color: #dbeafe;
+}
 .question-card {
   border: 1px solid rgba(125,247,220,0.2);
   border-radius: 18px;
@@ -150,6 +161,7 @@ h1, h2 { margin: 0; }
   margin-top: 10px;
 }
 .question-card ul { margin: 10px 0 0; padding-left: 18px; color: #c9d6eb; }
+.vote-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .error { color: #ff8da1; font-weight: 800; }
 .banner { max-width: 780px; }
 

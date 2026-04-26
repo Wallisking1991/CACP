@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RoomSession } from "../src/api.js";
-import { clearStoredSession, loadStoredSession, saveStoredSession } from "../src/session-storage.js";
+import { clearStoredSession, loadInitialSession, loadStoredSession, saveStoredSession } from "../src/session-storage.js";
 
 class MemoryStorage implements Pick<Storage, "getItem" | "removeItem" | "setItem"> {
   readonly values = new Map<string, string>();
@@ -43,5 +43,13 @@ describe("room session storage", () => {
     clearStoredSession(storage);
 
     expect(loadStoredSession(storage)).toBeUndefined();
+  });
+
+  it("ignores stored host sessions when opening an invite link", () => {
+    const storage = new MemoryStorage();
+    saveStoredSession(storage, { room_id: "room_host", token: "host_token" });
+
+    expect(loadInitialSession(storage, { room_id: "room_invited", invite_token: "invite_token" })).toBeUndefined();
+    expect(loadInitialSession(storage, undefined)).toEqual({ room_id: "room_host", token: "host_token" });
   });
 });

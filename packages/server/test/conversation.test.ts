@@ -94,4 +94,28 @@ describe("conversation helpers", () => {
       { question: "下一步优先做什么？", options: ["主聊天框", "邀请加入"] }
     ]);
   });
+
+  it("extracts a later question block even when prior echoed prompts mention the question fence syntax", () => {
+    const priorEcho = buildAgentContextPrompt({
+      participants: [{ id: "agent_1", type: "agent", display_name: "Echo", role: "agent" }],
+      messages: [],
+      agentName: "Echo"
+    });
+    const nextPrompt = buildAgentContextPrompt({
+      participants: [
+        { id: "user_1", type: "human", display_name: "Alice", role: "owner" },
+        { id: "agent_1", type: "agent", display_name: "Echo", role: "agent" }
+      ],
+      messages: [
+        { actorName: "Echo", kind: "agent", text: `agent:${priorEcho}` },
+        { actorName: "Alice", kind: "human", text: "```cacp-question\n{\"question\":\"Continue?\",\"options\":[\"Yes\",\"No\"]}\n```" }
+      ],
+      agentName: "Echo"
+    });
+
+    expect(extractCacpQuestions(`agent:${nextPrompt}`)).toEqual([
+      { question: "Continue?", options: ["Yes", "No"] }
+    ]);
+  });
+
 });

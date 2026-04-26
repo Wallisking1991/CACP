@@ -15,7 +15,7 @@ export const EventTypeSchema = z.enum([
   "question.created", "question.response_submitted", "question.closed",
   "decision.created", "decision.finalized",
   "proposal.created", "proposal.vote_cast", "proposal.approved", "proposal.rejected", "proposal.expired",
-  "agent.registered", "agent.unregistered", "agent.disconnected",
+  "agent.registered", "agent.unregistered", "agent.disconnected", "agent.pairing_created", "agent.status_changed", "agent.action_approval_requested", "agent.action_approval_resolved",
   "agent.turn.requested", "agent.turn.followup_queued", "agent.turn.started", "agent.output.delta", "agent.turn.completed", "agent.turn.failed",
   "task.created", "task.started", "task.output", "task.completed", "task.failed", "task.cancelled",
   "artifact.created", "context.updated"

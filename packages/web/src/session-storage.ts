@@ -3,6 +3,7 @@ import type { RoomSession } from "./api.js";
 const SESSION_STORAGE_KEY = "cacp.roomSession";
 
 type SessionStorageLike = Pick<Storage, "getItem" | "removeItem" | "setItem">;
+type InviteTarget = { room_id: string; invite_token: string } | undefined;
 
 function isRoomSession(value: unknown): value is RoomSession {
   if (!value || typeof value !== "object") return false;
@@ -22,6 +23,11 @@ export function loadStoredSession(storage: SessionStorageLike): RoomSession | un
   }
   clearStoredSession(storage);
   return undefined;
+}
+
+export function loadInitialSession(storage: SessionStorageLike, inviteTarget: InviteTarget): RoomSession | undefined {
+  if (inviteTarget) return undefined;
+  return loadStoredSession(storage);
 }
 
 export function saveStoredSession(storage: SessionStorageLike, session: RoomSession): void {
