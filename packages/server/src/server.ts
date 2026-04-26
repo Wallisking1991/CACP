@@ -18,8 +18,14 @@ const QuestionSchema = z.object({ question: z.string().min(1), expected_response
 const QuestionResponseSchema = z.object({ response: z.unknown(), comment: z.string().optional() });
 const ProposalSchema = z.object({ title: z.string().min(1), proposal_type: z.string().min(1), policy: PolicySchema });
 const AgentRegisterSchema = z.object({ name: z.string().min(1), capabilities: z.array(z.string()).default([]) });
-const AgentPairingCreateSchema = z.object({ agent_type: z.enum(AgentTypeValues).default("claude-code"), permission_level: z.enum(PermissionLevelValues).default("read_only"), working_dir: z.string().default(".") });
+const AgentPairingCreateSchema = z.object({
+  agent_type: z.enum(AgentTypeValues).default("claude-code"),
+  permission_level: z.enum(PermissionLevelValues).default("read_only"),
+  working_dir: z.string().default("."),
+  server_url: z.string().url().optional()
+});
 const AgentActionApprovalSchema = z.object({ tool_name: z.string().min(1), tool_input: z.unknown().optional(), description: z.string().optional() });
+const AgentActionApprovalQuerySchema = z.object({ token: z.string().optional(), wait_ms: z.coerce.number().int().min(0).max(5 * 60 * 1000).default(0) });
 const SelectAgentSchema = z.object({ agent_id: z.string().min(1) });
 const TaskCreateSchema = z.object({ target_agent_id: z.string().min(1), prompt: z.string().min(1), mode: z.literal("oneshot").default("oneshot"), requires_approval: z.boolean().default(false) });
 const TaskOutputSchema = z.object({ stream: z.enum(["stdout", "stderr"]), chunk: z.string() });
@@ -140,6 +146,60 @@ export async function buildServer(options: BuildServerOptions = {}) {
 
   function questionPayload(roomId: string, questionId: string): Record<string, unknown> | undefined {
     return store.listEvents(roomId).find((storedEvent) => storedEvent.type === "question.created" && storedEvent.payload.question_id === questionId)?.payload;
+  }
+
+  function normalizeActionDecision(value: unknown): "approve" | "reject" {
+    if (typeof value === "object" && value !== null && "choice" in value) return normalizeActionDecision((value as { choice: unknown }).choice);
+    if (typeof value === "object" && value !== null && "decision" in value) return normalizeActionDecision((value as { decision: unknown }).decision);
+    return value === "approve" ? "approve" : "reject";
+  }
+
+  function findActionApprovalStatus(roomId: string, actionId: string): { status: "pending"; question_id?: string } | { status: "resolved"; question_id?: string; decision: "approve" | "reject"; raw_decision: unknown } | undefined {
+    let questionId: string | undefined;
+    for (const storedEvent of store.listEvents(roomId)) {
+      if (storedEvent.type === "question.created" && storedEvent.payload.action_id === actionId && typeof storedEvent.payload.question_id === "string") {
+        questionId = storedEvent.payload.question_id;
+      }
+      if (storedEvent.type === "agent.action_approval_resolved" && storedEvent.payload.action_id === actionId) {
+        if (typeof storedEvent.payload.question_id === "string") questionId = storedEvent.payload.question_id;
+        return {
+          status: "resolved",
+          question_id: questionId,
+          decision: normalizeActionDecision(storedEvent.payload.decision),
+          raw_decision: storedEvent.payload.decision
+        };
+      }
+    }
+    return questionId ? { status: "pending", question_id: questionId } : undefined;
+  }
+
+  async function waitForActionApprovalResolution(roomId: string, actionId: string, timeoutMs: number): Promise<{ status: "resolved"; question_id?: string; decision: "approve" | "reject"; raw_decision: unknown } | undefined> {
+    const current = findActionApprovalStatus(roomId, actionId);
+    if (current?.status === "resolved") return current;
+    if (timeoutMs <= 0) return undefined;
+    return await new Promise((resolve) => {
+      let settled = false;
+      const settle = (value: { status: "resolved"; question_id?: string; decision: "approve" | "reject"; raw_decision: unknown } | undefined) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        unsubscribe();
+        resolve(value);
+      };
+      const unsubscribe = bus.subscribe(roomId, (nextEvent) => {
+        if (nextEvent.type !== "agent.action_approval_resolved" || nextEvent.payload.action_id !== actionId) return;
+        const resolved = findActionApprovalStatus(roomId, actionId);
+        settle(resolved?.status === "resolved" ? resolved : {
+          status: "resolved",
+          question_id: typeof nextEvent.payload.question_id === "string" ? nextEvent.payload.question_id : undefined,
+          decision: normalizeActionDecision(nextEvent.payload.decision),
+          raw_decision: nextEvent.payload.decision
+        });
+      });
+      const timer = setTimeout(() => settle(undefined), timeoutMs);
+      const afterSubscribe = findActionApprovalStatus(roomId, actionId);
+      if (afterSubscribe?.status === "resolved") settle(afterSubscribe);
+    });
   }
 
   function isAgentOnline(events: CacpEvent[], agentId: string): boolean {
@@ -439,7 +499,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       permission_level: body.permission_level,
       expires_at: expiresAt
     }));
-    const serverUrl = `${request.protocol}://${request.headers.host}`;
+    const serverUrl = body.server_url ?? `${request.protocol}://${request.headers.host}`;
     const command = `corepack pnpm --filter @cacp/cli-adapter dev -- --server ${serverUrl} --pair ${pairingToken}`;
     return reply.code(201).send({ pairing_token: pairingToken, expires_at: expiresAt, command });
   });
@@ -488,8 +548,9 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return reply.code(201).send({ ok: true, agent_id: body.agent_id });
   });
 
-  app.post<{ Params: { roomId: string }; Querystring: { token?: string } }>("/rooms/:roomId/agent-action-approvals", async (request, reply) => {
-    const participant = request.query.token ? store.getParticipantByToken(request.params.roomId, request.query.token) : requireParticipant(store, request.params.roomId, request);
+  app.post<{ Params: { roomId: string }; Querystring: { token?: string; wait_ms?: string | number } }>("/rooms/:roomId/agent-action-approvals", async (request, reply) => {
+    const query = AgentActionApprovalQuerySchema.parse(request.query);
+    const participant = query.token ? store.getParticipantByToken(request.params.roomId, query.token) : requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
     if (participant.role !== "agent" || participant.type !== "agent") return deny(reply, "forbidden", 403);
     const body = AgentActionApprovalSchema.parse(request.body);
@@ -515,6 +576,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
       }))
     ]);
     publishEvents(storedEvents);
+    const resolved = await waitForActionApprovalResolution(request.params.roomId, actionId, query.wait_ms);
+    if (resolved) {
+      return reply.code(201).send({ action_id: actionId, question_id: resolved.question_id ?? questionId, status: "resolved", decision: resolved.decision, raw_decision: resolved.raw_decision });
+    }
     return reply.code(201).send({ action_id: actionId, question_id: questionId, status: "pending" });
   });
 

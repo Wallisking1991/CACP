@@ -1,35 +1,39 @@
 # CACP v0.1 Experimental Protocol
 
-CACP v0.1 is an experimental event-stream protocol for collaborative AI and agent rooms. The MVP server exposes HTTP endpoints for room actions and agent lifecycle updates, plus a WebSocket stream for append-only room events.
+CACP v0.1 is an experimental event-stream protocol for collaborative AI/agent rooms. The reference implementation exposes HTTP endpoints for room actions and agent lifecycle updates, plus a WebSocket stream for append-only room events.
 
-This version focuses on a shared multi-user AI conversation room:
+This draft currently focuses on a local MVP flow:
 
-- multiple humans can join the same room;
-- one room-level active agent can be selected;
-- human messages automatically request an agent turn on the server;
-- agent output streams as deltas and is persisted as a final `message.created` event;
-- legacy `task.created` flows remain available for compatibility.
+1. a host creates a governed room;
+2. the host creates a local CLI agent pairing command;
+3. an adapter claims the pairing token and registers as an online agent;
+4. the host selects the active agent;
+5. invitees join by link and display name;
+6. humans and agents share one room event stream;
+7. structured AI questions and tool approvals are resolved by room policy.
 
 ---
 
 ## Core concepts
 
-- **Room**: a shared collaboration space with participants, agents, messages, questions, proposals, tasks, and artifacts.
+- **Room**: a shared collaboration space containing participants, agents, messages, questions, approvals, tasks, and artifacts.
 - **Participant**: a human, agent, system actor, or observer.
-- **Event**: an append-only record of room activity.
+- **Event**: an append-only activity record. Room state is derived from events.
 - **Message**: a durable human or agent utterance in the shared conversation timeline.
 - **Active agent**: the room-level agent selected to answer new human messages.
 - **Agent turn**: a server-orchestrated conversational invocation of the active agent.
+- **Invite**: an expiring token that allows a new `member` or `observer` to join a room.
+- **Pairing**: an expiring token that allows a local CLI adapter to register a configured agent without manually editing config files.
 - **Question**: a structured decision prompt directed at room participants.
-- **Proposal**: a formal decision item that can receive votes and policy evaluation.
-- **Task**: a legacy explicit request for an agent to perform work.
-- **Artifact**: a durable result produced from discussion or agent work.
+- **Policy**: a room governance rule used to close questions or approvals.
+- **Action approval**: a tool/action gate requested by an agent and resolved through a blocking question.
+- **Task**: a legacy explicit request for an agent to perform work. Kept for compatibility.
 
 ---
 
 ## Event envelope
 
-Every room activity record is sent as a CACP event with this envelope:
+Every room activity record is sent as a CACP event:
 
 ```json
 {
@@ -44,13 +48,13 @@ Every room activity record is sent as a CACP event with this envelope:
 }
 ```
 
-Envelope fields:
+Fields:
 
 - `protocol`: always `cacp`.
-- `version`: always `0.1.0` for this draft.
+- `version`: currently `0.1.0`.
 - `event_id`: unique event id.
 - `room_id`: owning room id.
-- `type`: one of the supported event names.
+- `type`: supported event name.
 - `actor_id`: participant or system actor that caused the event.
 - `created_at`: ISO 8601 timestamp.
 - `payload`: event-type-specific JSON object.
@@ -61,24 +65,42 @@ Envelope fields:
 
 CACP v0.1 uses bearer-style room tokens. Tokens are scoped to one room participant and currently act as shared secrets.
 
-- HTTP endpoints that require room membership use `Authorization: Bearer <token>`.
-- The WebSocket stream uses a token query parameter: `GET /rooms/:roomId/stream?token=<token>`.
-- `POST /rooms` is public and returns the owner token for the new room.
-- Owner/admin users create invite tokens. The invite defines the target role only.
+- HTTP endpoints that require membership use `Authorization: Bearer <token>`.
+- The WebSocket stream uses `GET /rooms/:roomId/stream?token=<token>`.
+- `POST /rooms` is public and returns the owner token.
+- Owner/admin users create expiring invite tokens.
 - A participant joins with `{ invite_token, display_name }` and receives an individual participant token.
-- Agents register with an owner/admin/member token and receive an `agent_token`.
-- The adapter must use the `agent_token` for WebSocket stream and agent lifecycle endpoints.
-- Tokens should never be committed. Local demos should copy examples to ignored `*.local.json` files.
+- Pairing tokens are created by room members and claimed by local adapters.
+- Agents use `agent_token` for stream and lifecycle endpoints.
+- Tokens should never be committed. The local pairing flow avoids storing tokens in config files.
 
 Participant roles:
 
 | Role | Purpose | MVP capabilities |
 | --- | --- | --- |
-| `owner` | Room creator and primary controller. | Read/stream events, create invites, create messages/questions/proposals/tasks, vote, register/select agents. |
-| `admin` | Delegated room administrator. | Read/stream events, create invites, create messages/questions/proposals/tasks, vote, register/select agents. |
-| `member` | Normal collaborator. | Read/stream events, create messages/questions/proposals/tasks, vote, register/select agents. |
-| `observer` | Read-only room participant. | Read and stream events only. |
-| `agent` | Registered local or remote worker. | Read/stream room events and report task/turn lifecycle for work assigned to that agent. |
+| `owner` | Room creator and primary controller. | Read/stream events, create invites, create messages/questions/proposals/tasks, vote, register/select agents, create pairings. |
+| `admin` | Delegated room administrator. | Same as owner except ownership semantics are not yet separated. |
+| `member` | Normal collaborator. | Read/stream events, create messages/questions/proposals/tasks, vote, register/select agents, create pairings. |
+| `observer` | Read-only room participant. | Read and stream events only. Cannot vote. |
+| `agent` | Registered local or remote worker. | Read/stream room events and report assigned task/turn lifecycle. Can request action approvals. |
+
+---
+
+## Policies
+
+Room creation accepts a `default_policy`:
+
+```json
+{ "default_policy": "majority" }
+```
+
+Supported default policies in the MVP:
+
+- `owner_approval`: the room owner response closes the question.
+- `majority`: any option with more than half of eligible human voters closes the question.
+- `unanimous`: all eligible human voters must choose the same option.
+
+Eligible voters are human participants with role `owner`, `admin`, or `member`. Observers and agents are excluded. If a voter responds multiple times before closure, the latest response wins.
 
 ---
 
@@ -87,73 +109,72 @@ Participant roles:
 | Method | Path | Auth requirement | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/health` | None | Health check and protocol/version discovery. |
-| `POST` | `/rooms` | None | Create a room. Returns `room_id`, `owner_id`, and `owner_token`. |
-| `GET` | `/rooms/:roomId/events` | Bearer room participant token | List room events and return caller participant summary. |
-| `GET` | `/rooms/:roomId/stream?token=...` | Token query parameter | Open WebSocket stream. Existing events are replayed first, then live events are sent. |
-| `POST` | `/rooms/:roomId/invites` | Bearer owner/admin token | Create an invite for `admin`, `member`, or `observer`. Body: `{ "role": "member" }`. |
+| `POST` | `/rooms` | None | Create a room. Body includes `name`, `display_name`, optional `default_policy`. Returns `room_id`, `owner_id`, `owner_token`. |
+| `GET` | `/rooms/:roomId/events` | Bearer participant token | List room events and caller participant summary. |
+| `GET` | `/rooms/:roomId/stream?token=...` | Token query parameter | Open WebSocket stream. Existing events are replayed first, then live events. Agent streams emit online/offline status. |
+| `POST` | `/rooms/:roomId/invites` | Bearer owner/admin token | Create expiring invite. Body: `{ "role": "member", "expires_in_seconds": 86400 }`. |
 | `POST` | `/rooms/:roomId/join` | Invite token in JSON body | Join with `{ "invite_token": "...", "display_name": "Bob" }`. |
-| `POST` | `/rooms/:roomId/messages` | Bearer owner/admin/member token | Append human `message.created`; server may also append `agent.turn.requested` or `agent.turn.followup_queued`. |
+| `POST` | `/rooms/:roomId/messages` | Bearer owner/admin/member token | Append human `message.created`; server may append `agent.turn.requested` or `agent.turn.followup_queued`. |
 | `POST` | `/rooms/:roomId/questions` | Bearer owner/admin/member token | Append `question.created`. |
-| `POST` | `/rooms/:roomId/questions/:questionId/responses` | Bearer owner/admin/member token | Append `question.response_submitted`. |
-| `POST` | `/rooms/:roomId/proposals` | Bearer owner/admin/member token | Append `proposal.created`. |
-| `POST` | `/rooms/:roomId/proposals/:proposalId/votes` | Bearer owner/admin/member token | Append `proposal.vote_cast` and a terminal proposal event when policy evaluation completes. |
-| `POST` | `/rooms/:roomId/agents/register` | Bearer owner/admin/member token | Register an agent participant. Returns `agent_id` and `agent_token`; appends `agent.registered`. |
-| `POST` | `/rooms/:roomId/agents/select` | Bearer owner/admin/member token | Select room-level active agent. Body: `{ "agent_id": "agent_123" }`; appends `room.agent_selected`. |
-| `POST` | `/rooms/:roomId/agent-turns/:turnId/start` | Bearer token for assigned agent | Mark an assigned turn as started; appends `agent.turn.started`. |
-| `POST` | `/rooms/:roomId/agent-turns/:turnId/delta` | Bearer token for assigned agent | Append streaming turn output; appends `agent.output.delta`. Body: `{ "chunk": "..." }`. |
-| `POST` | `/rooms/:roomId/agent-turns/:turnId/complete` | Bearer token for assigned agent | Complete a turn; appends `agent.turn.completed`, final agent `message.created`, parsed `question.created`, and possibly follow-up turn request. |
-| `POST` | `/rooms/:roomId/agent-turns/:turnId/fail` | Bearer token for assigned agent | Fail a turn; appends `agent.turn.failed`. |
-| `POST` | `/rooms/:roomId/tasks` | Bearer owner/admin/member token | Legacy explicit task creation for an existing agent; appends `task.created`. |
-| `POST` | `/rooms/:roomId/tasks/:taskId/start` | Bearer token for assigned agent | Legacy task start; appends `task.started`. |
-| `POST` | `/rooms/:roomId/tasks/:taskId/output` | Bearer token for assigned agent | Legacy task output; appends `task.output`. |
-| `POST` | `/rooms/:roomId/tasks/:taskId/complete` | Bearer token for assigned agent | Legacy task complete; appends `task.completed`. |
-| `POST` | `/rooms/:roomId/tasks/:taskId/fail` | Bearer token for assigned agent | Legacy task failure; appends `task.failed`. |
+| `POST` | `/rooms/:roomId/questions/:questionId/responses` | Bearer owner/admin/member token | Append `question.response_submitted`; may append `question.closed` and approval resolution. |
+| `POST` | `/rooms/:roomId/agent-pairings` | Bearer owner/admin/member token | Create pairing token and a copyable local adapter command. |
+| `POST` | `/agent-pairings/:pairingToken/claim` | Pairing token | Adapter claims pairing, registers an agent, returns agent token/profile. |
+| `POST` | `/rooms/:roomId/agents/register` | Bearer owner/admin/member token | Legacy/manual agent registration. |
+| `POST` | `/rooms/:roomId/agents/select` | Bearer owner/admin/member token | Select room-level active agent. |
+| `POST` | `/rooms/:roomId/agent-action-approvals?token=...&wait_ms=...` | Agent token | Create an action approval question. With `wait_ms`, hold the request until policy resolves or timeout. |
+| `POST` | `/rooms/:roomId/agent-turns/:turnId/start` | Bearer token for assigned agent | Mark an assigned turn as started. |
+| `POST` | `/rooms/:roomId/agent-turns/:turnId/delta` | Bearer token for assigned agent | Append streaming turn output. |
+| `POST` | `/rooms/:roomId/agent-turns/:turnId/complete` | Bearer token for assigned agent | Complete a turn, persist final message, parse `cacp-question` blocks, and possibly create follow-up turn. |
+| `POST` | `/rooms/:roomId/agent-turns/:turnId/fail` | Bearer token for assigned agent | Fail a turn. |
+| `POST` | `/rooms/:roomId/tasks` | Bearer owner/admin/member token | Legacy explicit task creation. |
+| `POST` | `/rooms/:roomId/tasks/:taskId/start` | Bearer token for assigned agent | Legacy task start. |
+| `POST` | `/rooms/:roomId/tasks/:taskId/output` | Bearer token for assigned agent | Legacy task output. |
+| `POST` | `/rooms/:roomId/tasks/:taskId/complete` | Bearer token for assigned agent | Legacy task complete. |
+| `POST` | `/rooms/:roomId/tasks/:taskId/fail` | Bearer token for assigned agent | Legacy task failure. |
 
 ---
 
 ## Supported event types
 
-Room events:
+Room/invite:
 
 - `room.created`
 - `room.configured`
 - `room.agent_selected`
 - `invite.created`
 
-Participant events:
+Participant:
 
 - `participant.joined`
 - `participant.left`
 - `participant.role_updated`
 
-Message events:
+Message:
 
 - `message.created`
 
-Question events:
+Question/governance:
 
 - `question.created`
 - `question.response_submitted`
 - `question.closed`
-
-Decision events:
-
 - `decision.created`
 - `decision.finalized`
-
-Proposal events:
-
 - `proposal.created`
 - `proposal.vote_cast`
 - `proposal.approved`
 - `proposal.rejected`
 - `proposal.expired`
 
-Agent events:
+Agent:
 
 - `agent.registered`
 - `agent.unregistered`
 - `agent.disconnected`
+- `agent.pairing_created`
+- `agent.status_changed`
+- `agent.action_approval_requested`
+- `agent.action_approval_resolved`
 - `agent.turn.requested`
 - `agent.turn.followup_queued`
 - `agent.turn.started`
@@ -161,7 +182,7 @@ Agent events:
 - `agent.turn.completed`
 - `agent.turn.failed`
 
-Legacy task events:
+Legacy task:
 
 - `task.created`
 - `task.started`
@@ -179,42 +200,13 @@ Other extension events:
 
 ## Key payload examples
 
-### `room.created`
-
-```json
-{
-  "type": "room.created",
-  "actor_id": "user_owner",
-  "payload": {
-    "name": "CACP AI Room",
-    "created_by": "user_owner"
-  }
-}
-```
-
 ### `room.configured`
 
 ```json
 {
   "type": "room.configured",
   "payload": {
-    "default_policy": { "type": "owner_approval" }
-  }
-}
-```
-
-### `participant.joined`
-
-```json
-{
-  "type": "participant.joined",
-  "payload": {
-    "participant": {
-      "id": "user_123",
-      "type": "human",
-      "display_name": "Alice",
-      "role": "owner"
-    }
+    "default_policy": { "type": "majority" }
   }
 }
 ```
@@ -225,12 +217,32 @@ Other extension events:
 {
   "type": "invite.created",
   "payload": {
-    "role": "member"
+    "role": "member",
+    "expires_at": "2026-04-26T08:00:00.000Z"
   }
 }
 ```
 
 The actual invite token is returned by HTTP response and is not stored in the event payload.
+
+### `agent.pairing_created`
+
+```json
+{
+  "type": "agent.pairing_created",
+  "payload": {
+    "agent_type": "claude-code",
+    "permission_level": "read_only",
+    "expires_at": "2026-04-26T08:00:00.000Z"
+  }
+}
+```
+
+The HTTP response contains a command similar to:
+
+```powershell
+corepack pnpm --filter @cacp/cli-adapter dev -- --server http://127.0.0.1:3737 --pair <pairing_token>
+```
 
 ### `agent.registered`
 
@@ -240,18 +252,22 @@ The actual invite token is returned by HTTP response and is not stored in the ev
   "payload": {
     "agent_id": "agent_123",
     "name": "Claude Code Agent",
-    "capabilities": ["claude-code.print", "repo.read", "analysis"]
+    "capabilities": ["claude-code", "read_only", "repo.read"],
+    "agent_type": "claude-code",
+    "permission_level": "read_only"
   }
 }
 ```
 
-### `room.agent_selected`
+### `agent.status_changed`
 
 ```json
 {
-  "type": "room.agent_selected",
+  "type": "agent.status_changed",
+  "actor_id": "agent_123",
   "payload": {
-    "agent_id": "agent_123"
+    "agent_id": "agent_123",
+    "status": "online"
   }
 }
 ```
@@ -287,33 +303,6 @@ The actual invite token is returned by HTTP response and is not stored in the ev
 
 `reason` is currently `human_message` or `queued_followup`.
 
-### `agent.turn.followup_queued`
-
-```json
-{
-  "type": "agent.turn.followup_queued",
-  "payload": {
-    "turn_id": "turn_current",
-    "agent_id": "agent_123"
-  }
-}
-```
-
-This means a new human message arrived while the same active agent already had an open turn. The server will request one follow-up turn after the current one completes.
-
-### `agent.turn.started`
-
-```json
-{
-  "type": "agent.turn.started",
-  "actor_id": "agent_123",
-  "payload": {
-    "turn_id": "turn_123",
-    "agent_id": "agent_123"
-  }
-}
-```
-
 ### `agent.output.delta`
 
 ```json
@@ -328,22 +317,7 @@ This means a new human message arrived while the same active agent already had a
 }
 ```
 
-Deltas are for live display. The durable conversation context uses final `message.created` events.
-
-### `agent.turn.completed`
-
-```json
-{
-  "type": "agent.turn.completed",
-  "actor_id": "agent_123",
-  "payload": {
-    "turn_id": "turn_123",
-    "agent_id": "agent_123",
-    "message_id": "msg_456",
-    "exit_code": 0
-  }
-}
-```
+Deltas are for live display. Durable conversation context uses final `message.created` events.
 
 ### Agent final `message.created`
 
@@ -360,21 +334,6 @@ Deltas are for live display. The durable conversation context uses final `messag
 }
 ```
 
-### `agent.turn.failed`
-
-```json
-{
-  "type": "agent.turn.failed",
-  "actor_id": "agent_123",
-  "payload": {
-    "turn_id": "turn_123",
-    "agent_id": "agent_123",
-    "error": "command exited with code 1",
-    "exit_code": 1
-  }
-}
-```
-
 ### `question.created`
 
 ```json
@@ -384,7 +343,9 @@ Deltas are for live display. The durable conversation context uses final `messag
     "question_id": "q_123",
     "question": "Should we continue with option A?",
     "expected_response": "single_choice",
-    "options": ["Yes", "No"]
+    "options": ["Yes", "No"],
+    "blocking": true,
+    "policy": { "type": "majority" }
   }
 }
 ```
@@ -397,20 +358,64 @@ An agent can request a structured question by emitting:
 ```
 ````
 
-The server parses valid blocks during turn completion and appends `question.created` events. Malformed blocks are ignored while the final agent message is still preserved.
+The server parses valid blocks during turn completion and appends `question.created` events.
 
-### Legacy `task.created`
+### `question.response_submitted`
 
 ```json
 {
-  "type": "task.created",
+  "type": "question.response_submitted",
   "payload": {
-    "task_id": "task_123",
-    "created_by": "user_123",
-    "target_agent_id": "agent_123",
-    "prompt": "Run a one-shot analysis.",
-    "mode": "oneshot",
-    "requires_approval": false
+    "question_id": "q_123",
+    "respondent_id": "user_123",
+    "response": "Yes",
+    "comment": "Ship it"
+  }
+}
+```
+
+### `question.closed`
+
+```json
+{
+  "type": "question.closed",
+  "payload": {
+    "question_id": "q_123",
+    "evaluation": {
+      "status": "closed",
+      "selected_response": "Yes",
+      "decided_by": ["user_123", "user_456"]
+    }
+  }
+}
+```
+
+### Action approval events
+
+Request:
+
+```json
+{
+  "type": "agent.action_approval_requested",
+  "payload": {
+    "action_id": "action_123",
+    "agent_id": "agent_123",
+    "tool_name": "Write",
+    "tool_input": { "file_path": "README.md" },
+    "description": "Allow the agent to update README.md?"
+  }
+}
+```
+
+Resolution:
+
+```json
+{
+  "type": "agent.action_approval_resolved",
+  "payload": {
+    "action_id": "action_123",
+    "question_id": "q_123",
+    "decision": "approve"
   }
 }
 ```
@@ -424,7 +429,7 @@ Human client                   Server                         Adapter / Agent
      | POST /messages             |                                  |
      |--------------------------->| append human message.created     |
      |                            | find active agent                |
-     |                            | build context from latest 20 msgs|
+     |                            | build context from latest msgs   |
      |                            | append agent.turn.requested      |
      |                            |--------------------------------->| receives stream event
      |                            |<---------------------------------| POST /agent-turns/:id/start
@@ -437,11 +442,13 @@ Human client                   Server                         Adapter / Agent
      | WebSocket events to all humans and agents                         |
 ```
 
-If a turn is open for the active agent when a new human message is created:
+If a turn is already open for the active agent when a new human message is created:
 
-1. the server appends `agent.turn.followup_queued` once for that open turn;
-2. the current turn continues normally;
-3. when the current turn completes, the server creates one new `agent.turn.requested` with `reason: "queued_followup"` and a fresh context prompt.
+1. the server appends `agent.turn.followup_queued` once;
+2. the current turn continues;
+3. when the current turn completes, the server creates one follow-up turn.
+
+If the open turn is stale or the active agent is offline, the server appends `agent.turn.failed` to recover the room.
 
 ---
 
@@ -449,62 +456,27 @@ If a turn is open for the active agent when a new human message is created:
 
 A compliant CLI adapter for this MVP should:
 
-1. register itself through `POST /rooms/:roomId/agents/register`;
+1. claim a pairing token through `POST /agent-pairings/:pairingToken/claim`, or register manually through `POST /rooms/:roomId/agents/register`;
 2. open `/rooms/:roomId/stream?token=<agent_token>`;
 3. ignore events not assigned to its `agent_id`;
 4. for `agent.turn.requested`:
    - call `/agent-turns/:turnId/start`;
    - run the configured local command;
    - pass `context_prompt` through stdin;
-   - post stdout/stderr chunks to `/agent-turns/:turnId/delta` as `{ "chunk": "..." }`;
-   - accumulate stdout as the final agent response;
-   - call `/agent-turns/:turnId/complete` with `{ "final_text": "...", "exit_code": 0 }`, or `/fail` on errors;
-5. optionally keep supporting legacy `task.created` events.
+   - post output chunks to `/agent-turns/:turnId/delta`;
+   - call `/agent-turns/:turnId/complete` with final text, or `/fail` on errors;
+5. optionally call `/agent-action-approvals?wait_ms=...` before risky actions;
+6. optionally keep supporting legacy `task.created` events.
 
-The reference `@cacp/cli-adapter` implements both the legacy task path and the new conversational turn path.
-
----
-
-## Local MVP demo workflow
-
-1. Start server:
-
-```powershell
-corepack pnpm dev:server
-```
-
-2. Start web:
-
-```powershell
-corepack pnpm dev:web
-```
-
-3. Create a room at `http://127.0.0.1:5173/`.
-
-4. Copy an adapter config template to an ignored local config and fill `room_id` and token:
-
-```powershell
-Copy-Item docs\examples\generic-cli-agent.json docs\examples\generic-cli-agent.local.json
-```
-
-5. Start adapter:
-
-```powershell
-corepack pnpm --filter @cacp/cli-adapter dev ../../docs/examples/generic-cli-agent.local.json
-```
-
-6. Select the registered agent in Web and send a message.
-
-7. Open another browser session, create an invite, join as another display name, and verify both clients see the same timeline.
-
-For Claude Code CLI testing, use `docs/examples/claude-code-agent.json` as the source template and copy it to `docs/examples/claude-code-agent.local.json`.
+The reference `@cacp/cli-adapter` implements pairing mode, the legacy task path, and the conversational turn path.
 
 ---
 
 ## Compatibility notes
 
 - The old explicit task API remains available and is still supported by the reference CLI adapter.
-- The Web reference UI no longer uses manual task creation as its main path.
+- The Web reference UI no longer exposes manual task creation as the main path.
 - Agent turn deltas are live-display events; final context is derived from durable messages.
-- The current Web UI shows decision cards but does not yet implement a complete multi-person approval gate before continuing.
-- This draft intentionally avoids production account management, global identity, deployment security, and long-term memory compression.
+- Invite and pairing state are in-memory in the MVP and are lost when the server restarts.
+- Claude Code hooks/settings automatic installation is not yet part of the reference implementation.
+- Codex/opencode pairing profiles exist but require further real-CLI validation.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CacpEvent } from "@cacp/protocol";
-import { parseCacpEventMessage } from "../src/api.js";
+import { pairingServerUrlFor, parseCacpEventMessage } from "../src/api.js";
 
 const validEvent = {
   protocol: "cacp",
@@ -25,5 +25,11 @@ describe("API event parsing", () => {
 
   it("returns undefined for JSON that is not a CACP event", () => {
     expect(parseCacpEventMessage(JSON.stringify({ hello: "world" }))).toBeUndefined();
+  });
+
+  it("points generated local adapter commands at the API server when running through Vite dev server", () => {
+    expect(pairingServerUrlFor("http://127.0.0.1:5173")).toBe("http://127.0.0.1:3737");
+    expect(pairingServerUrlFor("http://localhost:5173")).toBe("http://localhost:3737");
+    expect(pairingServerUrlFor("https://cacp.example.com")).toBe("https://cacp.example.com");
   });
 });

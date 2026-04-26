@@ -3,7 +3,7 @@ import type { CacpEvent } from "@cacp/protocol";
 import { connectEvents, createAgentPairing, createInvite, createRoom, inviteUrlFor, joinRoom, parseInviteUrl, selectAgent, sendMessage, submitQuestionResponse, type RoomSession } from "./api.js";
 import { mergeEvent } from "./event-log.js";
 import { deriveRoomState } from "./room-state.js";
-import { clearStoredSession, loadStoredSession, saveStoredSession } from "./session-storage.js";
+import { clearStoredSession, loadInitialSession, saveStoredSession } from "./session-storage.js";
 import "./App.css";
 
 type InviteRole = "member" | "observer";
@@ -28,7 +28,7 @@ export default function App() {
   const [defaultPolicy, setDefaultPolicy] = useState("majority");
   const [joinRoomId, setJoinRoomId] = useState(inviteTarget?.room_id ?? "");
   const [inviteToken, setInviteToken] = useState(inviteTarget?.invite_token ?? "");
-  const [session, setSession] = useState<RoomSession | undefined>(() => loadStoredSession(window.localStorage));
+  const [session, setSession] = useState<RoomSession | undefined>(() => loadInitialSession(window.localStorage, inviteTarget));
   const [events, setEvents] = useState<CacpEvent[]>([]);
   const [message, setMessage] = useState("");
   const [inviteRole, setInviteRole] = useState<InviteRole>("member");

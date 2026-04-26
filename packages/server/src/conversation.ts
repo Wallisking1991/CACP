@@ -27,6 +27,7 @@ const QuestionBlockSchema = z.object({
   question: z.string().min(1),
   options: z.array(z.string().min(1)).default([])
 });
+const questionBlockPattern = /```cacp-question[ \t]*\r?\n([\s\S]*?)```/g;
 
 export function findActiveAgentId(events: CacpEvent[]): string | undefined {
   for (const storedEvent of [...events].reverse()) {
@@ -90,14 +91,13 @@ export function buildAgentContextPrompt(input: { participants: Participant[]; me
     messages || "暂无历史对话。",
     "",
     "请基于以上多人共享上下文，用简洁、可执行的中文回复下一条消息。除非明确要求，不要修改文件。",
-    "如果你需要多人做结构化决策，请输出 fenced code block：```cacp-question，内容为 JSON，包含 question 和 options。"
+    "如果你需要多人做结构化决策，请输出一个独立的 fenced code block，信息标记为 `cacp-question`，内容为 JSON，包含 question 和 options。"
   ].join("\n");
 }
 
 export function extractCacpQuestions(text: string): CacpQuestion[] {
   const questions: CacpQuestion[] = [];
-  const pattern = /```cacp-question\s*([\s\S]*?)```/g;
-  for (const match of text.matchAll(pattern)) {
+  for (const match of text.matchAll(questionBlockPattern)) {
     try {
       const parsed = QuestionBlockSchema.safeParse(JSON.parse(match[1].trim()));
       if (parsed.success) questions.push(parsed.data);

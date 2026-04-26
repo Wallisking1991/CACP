@@ -38,8 +38,16 @@ export async function selectAgent(session: RoomSession, agentId: string): Promis
   await postJson(`/rooms/${session.room_id}/agents/select`, session.token, { agent_id: agentId });
 }
 
+export function pairingServerUrlFor(origin: string): string {
+  const url = new URL(origin);
+  if ((url.hostname === "127.0.0.1" || url.hostname === "localhost") && url.port === "5173") {
+    url.port = "3737";
+  }
+  return url.toString().replace(/\/$/, "");
+}
+
 export async function createAgentPairing(session: RoomSession, input: { agent_type: string; permission_level: string; working_dir: string }): Promise<{ pairing_token: string; expires_at: string; command: string }> {
-  return await postJson(`/rooms/${session.room_id}/agent-pairings`, session.token, input);
+  return await postJson(`/rooms/${session.room_id}/agent-pairings`, session.token, { ...input, server_url: pairingServerUrlFor(window.location.origin) });
 }
 
 export async function submitQuestionResponse(session: RoomSession, questionId: string, response: unknown, comment?: string): Promise<void> {
