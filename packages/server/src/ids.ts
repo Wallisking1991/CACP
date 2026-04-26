@@ -10,5 +10,5 @@ export function token(): string {
 }
 
 export function event(roomId: string, type: EventType, actorId: string, payload: Record<string, unknown>): CacpEvent {
-  return { protocol: "cacp", version: "0.1.0", event_id: prefixedId("evt"), room_id: roomId, type, actor_id: actorId, created_at: new Date().toISOString(), payload };
+  return { protocol: "cacp", version: "0.2.0", event_id: prefixedId("evt"), room_id: roomId, type, actor_id: actorId, created_at: new Date().toISOString(), payload };
 }

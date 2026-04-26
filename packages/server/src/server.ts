@@ -3,7 +3,8 @@ import websocket from "@fastify/websocket";
 import { z } from "zod";
 import { evaluatePolicy, PolicySchema, VoteRecordSchema, type CacpEvent, type Participant, type Policy, type VoteRecord } from "@cacp/protocol";
 import { requireParticipant, hasAnyRole, hasHumanRole } from "./auth.js";
-import { buildAgentContextPrompt, extractCacpQuestions, findActiveAgentId, findOpenTurn, hasQueuedFollowup, recentConversationMessages } from "./conversation.js";
+import { buildAgentContextPrompt, findActiveAgentId, findOpenTurn, hasQueuedFollowup, recentConversationMessages } from "./conversation.js";
+import { deriveDecisionStates, evaluateDecisionPolicy, extractCacpDecisions, findActiveDecision, interpretDecisionResponse } from "./decisions.js";
 import { EventBus } from "./event-bus.js";
 import { EventStore } from "./event-store.js";
 import { event, prefixedId, token } from "./ids.js";
@@ -16,6 +17,19 @@ const JoinSchema = z.object({ invite_token: z.string().min(1), display_name: z.s
 const MessageSchema = z.object({ text: z.string().min(1) });
 const QuestionSchema = z.object({ question: z.string().min(1), expected_response: z.enum(["free_text", "single_choice", "multiple_choice"]).default("free_text"), options: z.array(z.string()).default([]) });
 const QuestionResponseSchema = z.object({ response: z.unknown(), comment: z.string().optional() });
+const DecisionCreateSchema = z.object({
+  title: z.string().min(1),
+  description: z.string().min(1),
+  kind: z.enum(["single_choice", "approval"]),
+  options: z.array(z.object({ id: z.string().min(1), label: z.string().min(1) })).default([]),
+  policy: z.union([PolicySchema, z.literal("room_default")]).default("room_default"),
+  blocking: z.boolean().default(true),
+  decision_type: z.string().optional(),
+  action_id: z.string().optional(),
+  source_turn_id: z.string().optional(),
+  source_message_id: z.string().optional()
+});
+const DecisionCancelSchema = z.object({ reason: z.string().min(1).default("Cancelled by owner") });
 const ProposalSchema = z.object({ title: z.string().min(1), proposal_type: z.string().min(1), policy: PolicySchema });
 const AgentRegisterSchema = z.object({ name: z.string().min(1), capabilities: z.array(z.string()).default([]) });
 const AgentPairingCreateSchema = z.object({
@@ -128,6 +142,32 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const configured = [...store.listEvents(roomId)].reverse().find((storedEvent) => storedEvent.type === "room.configured");
     const parsed = PolicySchema.safeParse(configured?.payload.default_policy);
     return parsed.success ? parsed.data : { type: "owner_approval" };
+  }
+
+  function decisionStatesFor(roomId: string) {
+    return deriveDecisionStates(store.listEvents(roomId));
+  }
+
+  function activeDecisionFor(roomId: string) {
+    return findActiveDecision(decisionStatesFor(roomId));
+  }
+
+  function resolveDecisionPolicyEvents(roomId: string, actorId: string, decisionId: string): CacpEvent[] {
+    const state = decisionStatesFor(roomId).find((item) => item.request.decision_id === decisionId);
+    if (!state || state.terminal_status) return [];
+    const evaluation = evaluateDecisionPolicy({ decision: state, participants: store.getParticipants(roomId).map(publicParticipant) });
+    if (evaluation.status !== "resolved") return [];
+    const resolved = event(roomId, "decision.resolved", actorId, {
+      decision_id: decisionId,
+      result: evaluation.result,
+      result_label: evaluation.result_label,
+      decided_by: evaluation.decided_by,
+      policy_evaluation: { status: "approved", reason: evaluation.reason }
+    });
+    const actionId = state.request.action_id;
+    return typeof actionId === "string"
+      ? [resolved, event(roomId, "agent.action_approval_resolved", actorId, { action_id: actionId, decision_id: decisionId, decision: evaluation.result })]
+      : [resolved];
   }
 
   function isQuestionClosed(roomId: string, questionId: string): boolean {
@@ -382,16 +422,74 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!participant) return deny(reply, "invalid_token");
     if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
     const body = MessageSchema.parse(request.body);
+    const activeDecision = activeDecisionFor(request.params.roomId);
     const storedEvents = store.transaction(() => {
+      const messageId = prefixedId("msg");
       const message = store.appendEvent(event(request.params.roomId, "message.created", participant.id, {
-        message_id: prefixedId("msg"),
+        message_id: messageId,
         text: body.text,
         kind: "human"
       }));
+
+      if (activeDecision) {
+        const interpreted = interpretDecisionResponse({ decision: activeDecision.request, text: body.text });
+        if (!interpreted) {
+          const allowedAnswers = activeDecision.request.options.map((option) => option.id).join(", ");
+          const systemMessage = store.appendEvent(event(request.params.roomId, "message.created", participant.id, {
+            message_id: prefixedId("msg"),
+            text: `Current decision is still open. Please answer with one of: ${allowedAnswers}.`,
+            kind: "system"
+          }));
+          return [message, systemMessage];
+        }
+
+        const responseRecorded = store.appendEvent(event(request.params.roomId, "decision.response_recorded", participant.id, {
+          decision_id: activeDecision.request.decision_id,
+          respondent_id: participant.id,
+          response: interpreted.response,
+          response_label: interpreted.response_label,
+          source_message_id: messageId,
+          interpretation: { method: "deterministic", confidence: 1 }
+        }));
+        const resolvedEvents = resolveDecisionPolicyEvents(request.params.roomId, participant.id, activeDecision.request.decision_id).map((nextEvent) => store.appendEvent(nextEvent));
+        const followupEvents = resolvedEvents.some((storedEvent) => storedEvent.type === "decision.resolved")
+          ? createAgentTurnRequestEvents(request.params.roomId, participant.id, "human_message").map((nextEvent) => store.appendEvent(nextEvent))
+          : [];
+        return [message, responseRecorded, ...resolvedEvents, ...followupEvents];
+      }
+
       return [message, ...createAgentTurnRequestEvents(request.params.roomId, participant.id, "human_message").map((nextEvent) => store.appendEvent(nextEvent))];
     });
     publishEvents(storedEvents);
     return reply.code(201).send(storedEvents[0]);
+  });
+
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/decisions", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    if (!hasAnyRole(participant, ["owner", "admin", "agent"])) return deny(reply, "forbidden", 403);
+    if (activeDecisionFor(request.params.roomId)) return deny(reply, "active_decision_exists", 409);
+    const body = DecisionCreateSchema.parse(request.body);
+    const decisionId = prefixedId("dec");
+    const policy = body.policy === "room_default" ? roomPolicy(request.params.roomId) : body.policy;
+    appendAndPublish(event(request.params.roomId, "decision.requested", participant.id, {
+      ...body,
+      decision_id: decisionId,
+      policy
+    }));
+    return reply.code(201).send({ decision_id: decisionId });
+  });
+
+  app.post<{ Params: { roomId: string; decisionId: string } }>("/rooms/:roomId/decisions/:decisionId/cancel", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    if (!hasAnyRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
+    const state = decisionStatesFor(request.params.roomId).find((item) => item.request.decision_id === request.params.decisionId);
+    if (!state) return deny(reply, "unknown_decision", 404);
+    if (state.terminal_status) return deny(reply, "decision_closed", 409);
+    const body = DecisionCancelSchema.parse(request.body ?? {});
+    appendAndPublish(event(request.params.roomId, "decision.cancelled", participant.id, { decision_id: request.params.decisionId, reason: body.reason, cancelled_by: participant.id }));
+    return reply.code(201).send({ ok: true });
   });
 
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/questions", async (request, reply) => {
@@ -628,18 +726,27 @@ export async function buildServer(options: BuildServerOptions = {}) {
         kind: "agent",
         turn_id: request.params.turnId
       }));
-      const questionEvents = extractCacpQuestions(body.final_text).map((question) => store.appendEvent(event(request.params.roomId, "question.created", participant.id, {
-        question_id: prefixedId("q"),
-        question: question.question,
-        expected_response: "single_choice",
-        options: question.options,
-        blocking: true,
-        policy: roomPolicy(request.params.roomId)
-      })));
+      const decisionEvents: CacpEvent[] = [];
+      for (const draft of extractCacpDecisions(body.final_text, roomPolicy(request.params.roomId))) {
+        if (activeDecisionFor(request.params.roomId)) {
+          decisionEvents.push(store.appendEvent(event(request.params.roomId, "message.created", participant.id, {
+            message_id: prefixedId("msg"),
+            text: "A decision is already active. Resolve or cancel it before creating another decision.",
+            kind: "system"
+          })));
+          continue;
+        }
+        decisionEvents.push(store.appendEvent(event(request.params.roomId, "decision.requested", participant.id, {
+          ...draft,
+          decision_id: prefixedId("dec"),
+          source_turn_id: request.params.turnId,
+          source_message_id: messageId
+        })));
+      }
       const followupEvents = hasQueuedFollowup(store.listEvents(request.params.roomId), request.params.turnId)
         ? createAgentTurnRequestEvents(request.params.roomId, participant.id, "queued_followup").map((nextEvent) => store.appendEvent(nextEvent))
         : [];
-      return [completed, finalMessage, ...questionEvents, ...followupEvents];
+      return [completed, finalMessage, ...decisionEvents, ...followupEvents];
     });
     publishEvents(storedEvents);
     return reply.code(201).send({ ok: true, message_id: messageId });
