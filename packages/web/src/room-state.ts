@@ -184,3 +184,28 @@ export function deriveRoomState(events: CacpEvent[]): RoomViewState {
     inviteCount
   };
 }
+
+export function isCollectionActive(events: CacpEvent[]): boolean {
+  let active = false;
+  for (const event of events) {
+    if (event.type === "ai.collection.started") active = true;
+    if (event.type === "ai.collection.submitted" || event.type === "ai.collection.cancelled") active = false;
+  }
+  return active;
+}
+
+export function isTurnInFlight(events: CacpEvent[]): boolean {
+  let started = false;
+  for (const event of events) {
+    if (event.type === "agent.turn.started") started = true;
+    if (event.type === "agent.turn.completed" || event.type === "agent.turn.failed") started = false;
+  }
+  return started;
+}
+
+export function collectedMessageIds(events: CacpEvent[], collectionId: string): string[] {
+  return events
+    .filter((event) => event.type === "message.created" && (event.payload as Record<string, unknown>).collection_id === collectionId)
+    .map((event) => typeof (event.payload as Record<string, unknown>).message_id === "string" ? (event.payload as Record<string, unknown>).message_id as string : "")
+    .filter(Boolean);
+}
