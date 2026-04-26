@@ -54,6 +54,7 @@ export const PolicySchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("no_approval"), expires_at: z.string().datetime().optional() })
 ]);
 
+export const RequiredUnknownSchema = z.unknown().refine((value) => value !== undefined, "Required");
 export const DecisionOptionSchema = z.object({ id: z.string().min(1), label: z.string().min(1) });
 export const DecisionKindSchema = z.enum(["single_choice", "approval", "multiple_choice", "ranking", "free_text_confirmation"]);
 export const DecisionRequestedPayloadSchema = z.object({
@@ -72,14 +73,14 @@ export const DecisionRequestedPayloadSchema = z.object({
 export const DecisionResponseRecordedPayloadSchema = z.object({
   decision_id: z.string().min(1),
   respondent_id: z.string().min(1),
-  response: z.unknown(),
+  response: RequiredUnknownSchema,
   response_label: z.string().optional(),
   source_message_id: z.string().min(1),
   interpretation: z.object({ method: z.enum(["deterministic", "agent", "manual"]), confidence: z.number().min(0).max(1) })
 });
 export const DecisionResolvedPayloadSchema = z.object({
   decision_id: z.string().min(1),
-  result: z.unknown(),
+  result: RequiredUnknownSchema,
   result_label: z.string().optional(),
   decided_by: z.array(z.string().min(1)),
   policy_evaluation: z.object({ status: z.enum(["approved", "rejected", "resolved"]), reason: z.string().min(1) })
@@ -104,6 +105,7 @@ export type CacpEvent = z.infer<typeof CacpEventSchema>;
 export type VoteValue = z.infer<typeof VoteValueSchema>;
 export type VoteRecord = z.infer<typeof VoteRecordSchema>;
 export type Policy = z.infer<typeof PolicySchema>;
+export type RequiredUnknown = z.infer<typeof RequiredUnknownSchema>;
 export type DecisionOption = z.infer<typeof DecisionOptionSchema>;
 export type DecisionKind = z.infer<typeof DecisionKindSchema>;
 export type DecisionRequestedPayload = z.infer<typeof DecisionRequestedPayloadSchema>;

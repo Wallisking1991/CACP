@@ -125,6 +125,46 @@ describe("CACP event schema", () => {
     }).reason).toBe("Skipped by owner");
   });
 
+  it("accepts all v0.2 decision event types", () => {
+    for (const type of [
+      "decision.requested",
+      "decision.response_recorded",
+      "decision.resolved",
+      "decision.cancelled",
+      "room.history_cleared"
+    ] as const) {
+      expect(CacpEventSchema.parse({
+        protocol: "cacp",
+        version: "0.2.0",
+        event_id: `evt_${type}`,
+        room_id: "room_1",
+        type,
+        actor_id: "user_1",
+        created_at: "2026-04-26T00:00:00.000Z",
+        payload: {}
+      }).type).toBe(type);
+    }
+  });
+
+  it("requires response values when recording decision responses", () => {
+    expect(() => DecisionResponseRecordedPayloadSchema.parse({
+      decision_id: "dec_1",
+      respondent_id: "user_1",
+      response_label: "Approve",
+      source_message_id: "msg_1",
+      interpretation: { method: "deterministic", confidence: 1 }
+    })).toThrow();
+  });
+
+  it("requires result values when resolving decisions", () => {
+    expect(() => DecisionResolvedPayloadSchema.parse({
+      decision_id: "dec_1",
+      result_label: "Approve",
+      decided_by: ["user_1"],
+      policy_evaluation: { status: "approved", reason: "owner selected approve" }
+    })).toThrow();
+  });
+
 });
 
 describe("policy engine", () => {
