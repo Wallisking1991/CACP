@@ -199,7 +199,12 @@ export async function buildServer(options: BuildServerOptions = {}) {
       decided_by: evaluation.decided_by,
       policy_evaluation: { status: "approved", reason: evaluation.reason }
     });
-    return [resolved];
+    if (state.request.decision_type !== "agent_action_approval" || typeof state.request.action_id !== "string") return [resolved];
+    return [resolved, event(roomId, "agent.action_approval_resolved", actorId, {
+      action_id: state.request.action_id,
+      decision_id: decisionId,
+      decision: evaluation.result
+    })];
   }
 
   function isQuestionClosed(roomId: string, questionId: string): boolean {
@@ -226,32 +231,32 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return value === "approve" ? "approve" : "reject";
   }
 
-  function findActionApprovalStatus(roomId: string, actionId: string): { status: "pending"; question_id?: string } | { status: "resolved"; question_id?: string; decision: "approve" | "reject"; raw_decision: unknown } | undefined {
-    let questionId: string | undefined;
+  function findActionApprovalStatus(roomId: string, actionId: string): { status: "pending"; decision_id?: string } | { status: "resolved"; decision_id?: string; decision: "approve" | "reject"; raw_decision: unknown } | undefined {
+    let decisionId: string | undefined;
     for (const storedEvent of store.listEvents(roomId)) {
-      if (storedEvent.type === "question.created" && storedEvent.payload.action_id === actionId && typeof storedEvent.payload.question_id === "string") {
-        questionId = storedEvent.payload.question_id;
+      if (storedEvent.type === "decision.requested" && storedEvent.payload.action_id === actionId && typeof storedEvent.payload.decision_id === "string") {
+        decisionId = storedEvent.payload.decision_id;
       }
       if (storedEvent.type === "agent.action_approval_resolved" && storedEvent.payload.action_id === actionId) {
-        if (typeof storedEvent.payload.question_id === "string") questionId = storedEvent.payload.question_id;
+        if (typeof storedEvent.payload.decision_id === "string") decisionId = storedEvent.payload.decision_id;
         return {
           status: "resolved",
-          question_id: questionId,
+          decision_id: decisionId,
           decision: normalizeActionDecision(storedEvent.payload.decision),
           raw_decision: storedEvent.payload.decision
         };
       }
     }
-    return questionId ? { status: "pending", question_id: questionId } : undefined;
+    return decisionId ? { status: "pending", decision_id: decisionId } : undefined;
   }
 
-  async function waitForActionApprovalResolution(roomId: string, actionId: string, timeoutMs: number): Promise<{ status: "resolved"; question_id?: string; decision: "approve" | "reject"; raw_decision: unknown } | undefined> {
+  async function waitForActionApprovalResolution(roomId: string, actionId: string, timeoutMs: number): Promise<{ status: "resolved"; decision_id?: string; decision: "approve" | "reject"; raw_decision: unknown } | undefined> {
     const current = findActionApprovalStatus(roomId, actionId);
     if (current?.status === "resolved") return current;
     if (timeoutMs <= 0) return undefined;
     return await new Promise((resolve) => {
       let settled = false;
-      const settle = (value: { status: "resolved"; question_id?: string; decision: "approve" | "reject"; raw_decision: unknown } | undefined) => {
+      const settle = (value: { status: "resolved"; decision_id?: string; decision: "approve" | "reject"; raw_decision: unknown } | undefined) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
@@ -263,7 +268,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
         const resolved = findActionApprovalStatus(roomId, actionId);
         settle(resolved?.status === "resolved" ? resolved : {
           status: "resolved",
-          question_id: typeof nextEvent.payload.question_id === "string" ? nextEvent.payload.question_id : undefined,
+          decision_id: typeof nextEvent.payload.decision_id === "string" ? nextEvent.payload.decision_id : undefined,
           decision: normalizeActionDecision(nextEvent.payload.decision),
           raw_decision: nextEvent.payload.decision
         });
@@ -688,7 +693,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (participant.role !== "agent" || participant.type !== "agent") return deny(reply, "forbidden", 403);
     const body = AgentActionApprovalSchema.parse(request.body);
     const actionId = prefixedId("action");
-    const questionId = prefixedId("q");
+    const decisionId = prefixedId("dec");
     const storedEvents = store.transaction(() => [
       store.appendEvent(event(request.params.roomId, "agent.action_approval_requested", participant.id, {
         action_id: actionId,
@@ -697,23 +702,24 @@ export async function buildServer(options: BuildServerOptions = {}) {
         tool_input: body.tool_input,
         description: body.description
       })),
-      store.appendEvent(event(request.params.roomId, "question.created", participant.id, {
-        question_id: questionId,
+      store.appendEvent(event(request.params.roomId, "decision.requested", participant.id, {
+        decision_id: decisionId,
         action_id: actionId,
-        question: body.description ?? `允许 Agent 执行 ${body.tool_name} 吗？`,
-        expected_response: "single_choice",
-        options: ["approve", "reject"],
+        decision_type: "agent_action_approval",
+        title: `Approve ${body.tool_name}`,
+        description: body.description ?? `Allow agent to run ${body.tool_name}?`,
+        kind: "approval",
+        options: [{ id: "approve", label: "Approve" }, { id: "reject", label: "Reject" }],
         blocking: true,
-        policy: roomPolicy(request.params.roomId),
-        question_type: "agent_action_approval"
+        policy: roomPolicy(request.params.roomId)
       }))
     ]);
     publishEvents(storedEvents);
     const resolved = await waitForActionApprovalResolution(request.params.roomId, actionId, query.wait_ms);
     if (resolved) {
-      return reply.code(201).send({ action_id: actionId, question_id: resolved.question_id ?? questionId, status: "resolved", decision: resolved.decision, raw_decision: resolved.raw_decision });
+      return reply.code(201).send({ action_id: actionId, decision_id: resolved.decision_id ?? decisionId, status: "resolved", decision: resolved.decision, raw_decision: resolved.raw_decision });
     }
-    return reply.code(201).send({ action_id: actionId, question_id: questionId, status: "pending" });
+    return reply.code(201).send({ action_id: actionId, decision_id: decisionId, status: "pending" });
   });
 
   app.post<{ Params: { roomId: string; turnId: string } }>("/rooms/:roomId/agent-turns/:turnId/start", async (request, reply) => {

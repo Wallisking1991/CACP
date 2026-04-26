@@ -53,21 +53,46 @@ describe("CACP server pairing and governance", () => {
     await app.close();
   });
 
-  it("closes blocking questions by room policy and emits action approval resolution", async () => {
+  it("closes blocking action approval decisions by room policy and emits action approval resolution", async () => {
     const { app, room, ownerAuth } = await createRoom("owner_approval");
     const agent = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/register`, headers: ownerAuth, payload: { name: "Claude", capabilities: [] } });
     const agentToken = agent.json().agent_token;
 
     const approval = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-action-approvals?token=${encodeURIComponent(agentToken)}`, payload: { tool_name: "Write", description: "Allow Write?" } });
     expect(approval.statusCode).toBe(201);
+    const decisionId = approval.json().decision_id as string;
+    expect(decisionId).toMatch(/^dec_/);
 
-    const vote = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/questions/${approval.json().question_id}/responses`, headers: ownerAuth, payload: { response: "approve", comment: "ok" } });
+    const vote = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "approve" } });
     expect(vote.statusCode).toBe(201);
-    expect(vote.json().closed).toBe(true);
 
     const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
-    expect(events.map((event) => event.type)).toEqual(expect.arrayContaining(["question.created", "question.response_submitted", "question.closed", "agent.action_approval_resolved"]));
-    expect(events.find((event) => event.type === "agent.action_approval_resolved")?.payload.decision).toBe("approve");
+    const eventTypes = events.map((event) => event.type);
+    expect(eventTypes).toEqual(expect.arrayContaining([
+      "agent.action_approval_requested",
+      "decision.requested",
+      "decision.response_recorded",
+      "decision.resolved",
+      "agent.action_approval_resolved"
+    ]));
+    expect(eventTypes).not.toContain("question.created");
+    expect(events.find((event) => event.type === "decision.requested")?.payload).toMatchObject({
+      decision_id: decisionId,
+      action_id: approval.json().action_id,
+      decision_type: "agent_action_approval",
+      title: "Approve Write",
+      description: "Allow Write?",
+      kind: "approval",
+      blocking: true
+    });
+    expect(events.find((event) => event.type === "decision.response_recorded")?.payload).toMatchObject({ decision_id: decisionId, response: "approve" });
+    expect(events.find((event) => event.type === "decision.resolved")?.payload).toMatchObject({ decision_id: decisionId, result: "approve" });
+    expect(events.find((event) => event.type === "agent.action_approval_resolved")?.payload).toMatchObject({
+      action_id: approval.json().action_id,
+      decision_id: decisionId,
+      decision: "approve"
+    });
+    expect(eventTypes.indexOf("agent.action_approval_resolved")).toBeGreaterThan(eventTypes.indexOf("decision.resolved"));
 
     await app.close();
   });
@@ -100,20 +125,20 @@ describe("CACP server pairing and governance", () => {
       payload: { tool_name: "Write", description: "Allow Write?" }
     });
 
-    let questionId: string | undefined;
-    for (let attempt = 0; attempt < 20 && !questionId; attempt += 1) {
+    let decisionId: string | undefined;
+    for (let attempt = 0; attempt < 20 && !decisionId; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 25));
       const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
-      questionId = events.find((event) => event.type === "question.created" && event.payload.question_type === "agent_action_approval")?.payload.question_id as string | undefined;
+      decisionId = events.find((event) => event.type === "decision.requested" && event.payload.decision_type === "agent_action_approval")?.payload.decision_id as string | undefined;
     }
-    expect(questionId).toBeTruthy();
+    expect(decisionId).toBeTruthy();
 
-    const vote = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/questions/${questionId}/responses`, headers: ownerAuth, payload: { response: "approve", comment: "ok" } });
+    const vote = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "approve" } });
     expect(vote.statusCode).toBe(201);
 
     const approvalResult = await waitingApproval;
     expect(approvalResult.statusCode).toBe(201);
-    expect(approvalResult.json()).toMatchObject({ status: "resolved", decision: "approve", question_id: questionId });
+    expect(approvalResult.json()).toMatchObject({ status: "resolved", decision: "approve", decision_id: decisionId });
 
     await app.close();
   });
