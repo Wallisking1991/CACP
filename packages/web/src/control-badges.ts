@@ -2,14 +2,14 @@ export interface ControlCounts {
   agents: number;
   invites: number;
   participants: number;
-  decisions: number;
+  flow: number;
 }
 
 export interface ControlBadges {
   agent: number;
   invite: number;
   participants: number;
-  decisions: number;
+  flow: number;
 }
 
 export function badgeChangesForCollapsedControls(input: {
@@ -24,7 +24,7 @@ export function badgeChangesForCollapsedControls(input: {
     agent: input.existing.agent + positiveDelta(input.current.agents, input.previous.agents),
     invite: input.existing.invite + positiveDelta(input.current.invites, input.previous.invites),
     participants: input.existing.participants + positiveDelta(input.current.participants, input.previous.participants),
-    decisions: input.existing.decisions + positiveDelta(input.current.decisions, input.previous.decisions)
+    flow: input.existing.flow + positiveDelta(input.current.flow, input.previous.flow)
   };
 }
 
@@ -33,5 +33,5 @@ function positiveDelta(current: number, previous: number): number {
 }
 
 function zeroBadges(): ControlBadges {
-  return { agent: 0, invite: 0, participants: 0, decisions: 0 };
+  return { agent: 0, invite: 0, participants: 0, flow: 0 };
 }

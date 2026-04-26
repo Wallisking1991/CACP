@@ -2,51 +2,18 @@ import type { CacpEvent } from "@cacp/protocol";
 
 export interface ParticipantView { id: string; display_name: string; role: string; type: string }
 export interface AgentView { agent_id: string; name: string; capabilities: string[]; status: "online" | "offline" | "unknown"; last_status_at?: string }
-export interface MessageView { message_id?: string; actor_id: string; text: string; kind: string; created_at: string }
+export interface MessageView { message_id?: string; actor_id: string; text: string; kind: string; created_at: string; collection_id?: string }
 export interface StreamingTurnView { turn_id: string; agent_id: string; text: string }
-export interface QuestionResponseView { respondent_id: string; response: unknown; comment?: string }
-export interface DecisionOptionView { id: string; label: string }
-export interface DecisionResponseView {
-  respondent_id: string;
-  response: unknown;
-  response_label?: string;
-  source_message_id?: string;
-  interpretation?: unknown;
-  created_at: string;
-}
-export interface DecisionView {
-  decision_id: string;
-  title: string;
-  description: string;
-  kind: string;
-  options: DecisionOptionView[];
-  policy?: unknown;
-  blocking: boolean;
-  decision_type?: string;
-  action_id?: string;
-  source_turn_id?: string;
-  source_message_id?: string;
-  responses: DecisionResponseView[];
-  created_at: string;
-  terminal_status?: "resolved" | "cancelled";
-  result?: unknown;
-  result_label?: string;
-  decided_by?: string[];
-  resolved_at?: string;
+export interface AiCollectionView {
+  collection_id: string;
+  started_by: string;
+  started_at: string;
+  messages: MessageView[];
+  submitted_by?: string;
+  submitted_at?: string;
   cancelled_by?: string;
-  cancelled_reason?: string;
   cancelled_at?: string;
-}
-export interface QuestionView {
-  question_id: string;
-  question: string;
-  options: string[];
-  blocking: boolean;
-  question_type?: string;
-  action_id?: string;
-  responses: QuestionResponseView[];
-  closed: boolean;
-  selected_response?: unknown;
+  message_ids?: string[];
 }
 export interface RoomViewState {
   participants: ParticipantView[];
@@ -54,12 +21,24 @@ export interface RoomViewState {
   activeAgentId?: string;
   messages: MessageView[];
   streamingTurns: StreamingTurnView[];
-  questions: QuestionView[];
-  currentDecision?: DecisionView;
-  decisionHistory: DecisionView[];
+  activeCollection?: AiCollectionView;
+  collectionHistory: AiCollectionView[];
   lastHistoryClearedAt?: string;
   inviteCount: number;
-  roomPolicy?: unknown;
+}
+
+function failedTurnMessage(event: CacpEvent, streamedText: string | undefined): MessageView | undefined {
+  if (typeof event.payload.turn_id !== "string") return undefined;
+  const error = typeof event.payload.error === "string" ? event.payload.error : "unknown error";
+  const exitCode = typeof event.payload.exit_code === "number" ? ` (exit code ${event.payload.exit_code})` : "";
+  const output = streamedText?.trim();
+  return {
+    message_id: `failed-${event.payload.turn_id}`,
+    actor_id: typeof event.payload.agent_id === "string" ? event.payload.agent_id : event.actor_id,
+    text: `Agent turn failed${exitCode}: ${error}${output ? `\n\nOutput before failure:\n${output}` : ""}`,
+    kind: "system",
+    created_at: event.created_at
+  };
 }
 
 function isParticipant(value: unknown): value is ParticipantView {
@@ -68,26 +47,21 @@ function isParticipant(value: unknown): value is ParticipantView {
   return typeof participant.id === "string" && typeof participant.display_name === "string" && typeof participant.role === "string" && typeof participant.type === "string";
 }
 
-function decisionOptions(value: unknown): DecisionOptionView[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((item): item is DecisionOptionView => {
-    if (!item || typeof item !== "object") return false;
-    const option = item as Partial<DecisionOptionView>;
-    return typeof option.id === "string" && typeof option.label === "string";
-  });
-}
-
 function stringArray(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const items = value.filter((item): item is string => typeof item === "string");
   return items.length === value.length ? items : undefined;
 }
 
+function isHistoryClearScope(value: unknown): boolean {
+  return value === undefined || value === "messages" || value === "messages_and_decisions";
+}
+
 function lastHistoryClear(events: CacpEvent[]): { index: number; clearedAt?: string } {
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const storedEvent = events[index];
     if (storedEvent.type !== "room.history_cleared") continue;
-    if (storedEvent.payload.scope !== undefined && storedEvent.payload.scope !== "messages_and_decisions") continue;
+    if (!isHistoryClearScope(storedEvent.payload.scope)) continue;
     return {
       index,
       clearedAt: typeof storedEvent.payload.cleared_at === "string" ? storedEvent.payload.cleared_at : storedEvent.created_at
@@ -101,17 +75,13 @@ export function deriveRoomState(events: CacpEvent[]): RoomViewState {
   const agents = new Map<string, AgentView>();
   const messages: MessageView[] = [];
   const streamingTurns = new Map<string, StreamingTurnView>();
-  const questions = new Map<string, QuestionView>();
-  const decisions = new Map<string, DecisionView>();
-  const responseMaps = new Map<string, Map<string, DecisionResponseView>>();
+  const collections = new Map<string, AiCollectionView>();
   let activeAgentId: string | undefined;
-  let roomPolicy: unknown;
   let inviteCount = 0;
   const historyClear = lastHistoryClear(events);
   const scopedEvents = events.slice(historyClear.index + 1);
 
   for (const event of events) {
-    if (event.type === "room.configured") roomPolicy = event.payload.default_policy;
     if (event.type === "participant.joined" && isParticipant(event.payload.participant)) participants.set(event.payload.participant.id, event.payload.participant);
     if (event.type === "participant.left" && typeof event.payload.participant_id === "string") participants.delete(event.payload.participant_id);
     if (event.type === "participant.role_updated" && typeof event.payload.participant_id === "string" && typeof event.payload.role === "string") {
@@ -141,107 +111,66 @@ export function deriveRoomState(events: CacpEvent[]): RoomViewState {
   }
 
   for (const event of scopedEvents) {
+    if (event.type === "ai.collection.started" && typeof event.payload.collection_id === "string") {
+      collections.set(event.payload.collection_id, {
+        collection_id: event.payload.collection_id,
+        started_by: typeof event.payload.started_by === "string" ? event.payload.started_by : event.actor_id,
+        started_at: event.created_at,
+        messages: []
+      });
+    }
     if (event.type === "message.created" && typeof event.payload.text === "string") {
-      messages.push({ message_id: typeof event.payload.message_id === "string" ? event.payload.message_id : undefined, actor_id: event.actor_id, text: event.payload.text, kind: typeof event.payload.kind === "string" ? event.payload.kind : "human", created_at: event.created_at });
+      const message: MessageView = {
+        message_id: typeof event.payload.message_id === "string" ? event.payload.message_id : undefined,
+        actor_id: event.actor_id,
+        text: event.payload.text,
+        kind: typeof event.payload.kind === "string" ? event.payload.kind : "human",
+        created_at: event.created_at,
+        ...(typeof event.payload.collection_id === "string" ? { collection_id: event.payload.collection_id } : {})
+      };
+      messages.push(message);
+      if (message.collection_id) {
+        const collection = collections.get(message.collection_id);
+        if (collection) collections.set(message.collection_id, { ...collection, messages: [...collection.messages, message] });
+      }
+    }
+    if (event.type === "ai.collection.submitted" && typeof event.payload.collection_id === "string") {
+      const collection = collections.get(event.payload.collection_id);
+      if (collection) {
+        collections.set(event.payload.collection_id, {
+          ...collection,
+          submitted_by: typeof event.payload.submitted_by === "string" ? event.payload.submitted_by : event.actor_id,
+          submitted_at: event.created_at,
+          message_ids: stringArray(event.payload.message_ids) ?? []
+        });
+      }
+    }
+    if (event.type === "ai.collection.cancelled" && typeof event.payload.collection_id === "string") {
+      const collection = collections.get(event.payload.collection_id);
+      if (collection) {
+        collections.set(event.payload.collection_id, {
+          ...collection,
+          cancelled_by: typeof event.payload.cancelled_by === "string" ? event.payload.cancelled_by : event.actor_id,
+          cancelled_at: event.created_at
+        });
+      }
     }
     if (event.type === "agent.turn.started" && typeof event.payload.turn_id === "string" && typeof event.payload.agent_id === "string") streamingTurns.set(event.payload.turn_id, { turn_id: event.payload.turn_id, agent_id: event.payload.agent_id, text: "" });
     if (event.type === "agent.output.delta" && typeof event.payload.turn_id === "string" && typeof event.payload.agent_id === "string" && typeof event.payload.chunk === "string") {
       const current = streamingTurns.get(event.payload.turn_id) ?? { turn_id: event.payload.turn_id, agent_id: event.payload.agent_id, text: "" };
       streamingTurns.set(event.payload.turn_id, { ...current, text: current.text + event.payload.chunk });
     }
-    if ((event.type === "agent.turn.completed" || event.type === "agent.turn.failed") && typeof event.payload.turn_id === "string") streamingTurns.delete(event.payload.turn_id);
-    if (event.type === "question.created" && typeof event.payload.question_id === "string" && typeof event.payload.question === "string") {
-      questions.set(event.payload.question_id, {
-        question_id: event.payload.question_id,
-        question: event.payload.question,
-        options: Array.isArray(event.payload.options) ? event.payload.options.filter((item): item is string => typeof item === "string") : [],
-        blocking: event.payload.blocking === true,
-        question_type: typeof event.payload.question_type === "string" ? event.payload.question_type : undefined,
-        action_id: typeof event.payload.action_id === "string" ? event.payload.action_id : undefined,
-        responses: [],
-        closed: false
-      });
-    }
-    if (event.type === "question.response_submitted" && typeof event.payload.question_id === "string" && typeof event.payload.respondent_id === "string") {
-      const question = questions.get(event.payload.question_id);
-      if (question) {
-        const nextResponses = question.responses.filter((response) => response.respondent_id !== event.payload.respondent_id);
-        nextResponses.push({ respondent_id: event.payload.respondent_id, response: event.payload.response, comment: typeof event.payload.comment === "string" ? event.payload.comment : undefined });
-        questions.set(event.payload.question_id, { ...question, responses: nextResponses });
-      }
-    }
-    if (event.type === "question.closed" && typeof event.payload.question_id === "string") {
-      const question = questions.get(event.payload.question_id);
-      if (question) {
-        const evaluation = event.payload.evaluation as { selected_response?: unknown } | undefined;
-        questions.set(event.payload.question_id, { ...question, closed: true, selected_response: evaluation?.selected_response });
-      }
-    }
-    if (event.type === "decision.requested" && typeof event.payload.decision_id === "string" && typeof event.payload.title === "string" && typeof event.payload.description === "string" && typeof event.payload.kind === "string") {
-      const existingResponses = responseMaps.get(event.payload.decision_id) ?? new Map<string, DecisionResponseView>();
-      decisions.set(event.payload.decision_id, {
-        decision_id: event.payload.decision_id,
-        title: event.payload.title,
-        description: event.payload.description,
-        kind: event.payload.kind,
-        options: decisionOptions(event.payload.options),
-        policy: event.payload.policy,
-        blocking: event.payload.blocking !== false,
-        decision_type: typeof event.payload.decision_type === "string" ? event.payload.decision_type : undefined,
-        action_id: typeof event.payload.action_id === "string" ? event.payload.action_id : undefined,
-        source_turn_id: typeof event.payload.source_turn_id === "string" ? event.payload.source_turn_id : undefined,
-        source_message_id: typeof event.payload.source_message_id === "string" ? event.payload.source_message_id : undefined,
-        responses: [...existingResponses.values()],
-        created_at: event.created_at
-      });
-      responseMaps.set(event.payload.decision_id, existingResponses);
-    }
-    if (event.type === "decision.response_recorded" && typeof event.payload.decision_id === "string" && typeof event.payload.respondent_id === "string" && event.payload.response !== undefined) {
-      const decision = decisions.get(event.payload.decision_id);
-      if (decision) {
-        const byRespondent = responseMaps.get(event.payload.decision_id) ?? new Map<string, DecisionResponseView>();
-        byRespondent.set(event.payload.respondent_id, {
-          respondent_id: event.payload.respondent_id,
-          response: event.payload.response,
-          response_label: typeof event.payload.response_label === "string" ? event.payload.response_label : undefined,
-          source_message_id: typeof event.payload.source_message_id === "string" ? event.payload.source_message_id : undefined,
-          interpretation: event.payload.interpretation,
-          created_at: event.created_at
-        });
-        responseMaps.set(event.payload.decision_id, byRespondent);
-        decisions.set(event.payload.decision_id, { ...decision, responses: [...byRespondent.values()] });
-      }
-    }
-    if (event.type === "decision.resolved" && typeof event.payload.decision_id === "string" && event.payload.result !== undefined) {
-      const decision = decisions.get(event.payload.decision_id);
-      if (decision) {
-        decisions.set(event.payload.decision_id, {
-          ...decision,
-          terminal_status: "resolved",
-          result: event.payload.result,
-          result_label: typeof event.payload.result_label === "string" ? event.payload.result_label : undefined,
-          decided_by: stringArray(event.payload.decided_by) ?? [],
-          resolved_at: event.created_at
-        });
-      }
-    }
-    if (event.type === "decision.cancelled" && typeof event.payload.decision_id === "string") {
-      const decision = decisions.get(event.payload.decision_id);
-      if (decision) {
-        decisions.set(event.payload.decision_id, {
-          ...decision,
-          terminal_status: "cancelled",
-          cancelled_by: typeof event.payload.cancelled_by === "string" ? event.payload.cancelled_by : undefined,
-          cancelled_reason: typeof event.payload.reason === "string" ? event.payload.reason : undefined,
-          cancelled_at: event.created_at
-        });
-      }
+    if (event.type === "agent.turn.completed" && typeof event.payload.turn_id === "string") streamingTurns.delete(event.payload.turn_id);
+    if (event.type === "agent.turn.failed" && typeof event.payload.turn_id === "string") {
+      const failedMessage = failedTurnMessage(event, streamingTurns.get(event.payload.turn_id)?.text);
+      if (failedMessage) messages.push(failedMessage);
+      streamingTurns.delete(event.payload.turn_id);
     }
   }
 
-  const decisionViews = [...decisions.values()];
-  const currentDecision = [...decisionViews].reverse().find((decision) => !decision.terminal_status);
-  const decisionHistory = decisionViews.filter((decision) => Boolean(decision.terminal_status));
+  const collectionViews = [...collections.values()];
+  const activeCollection = [...collectionViews].reverse().find((collection) => !collection.submitted_at && !collection.cancelled_at);
+  const collectionHistory = collectionViews.filter((collection) => Boolean(collection.submitted_at || collection.cancelled_at));
 
   return {
     participants: [...participants.values()],
@@ -249,11 +178,9 @@ export function deriveRoomState(events: CacpEvent[]): RoomViewState {
     activeAgentId,
     messages,
     streamingTurns: [...streamingTurns.values()],
-    questions: [...questions.values()],
-    currentDecision,
-    decisionHistory,
+    activeCollection,
+    collectionHistory,
     lastHistoryClearedAt: historyClear.clearedAt,
-    inviteCount,
-    roomPolicy
+    inviteCount
   };
 }

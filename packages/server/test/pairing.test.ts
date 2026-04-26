@@ -2,7 +2,34 @@ import { describe, expect, it } from "vitest";
 import { buildAgentProfile } from "../src/pairing.js";
 
 describe("agent pairing profiles", () => {
-  it("generates a readable Claude Code system prompt with the CACP approval URL", () => {
+  it("uses Claude Code CLI permission modes supported by the installed CLI", () => {
+    const allowedModes = new Set(["acceptEdits", "auto", "bypassPermissions", "default", "dontAsk", "plan"]);
+
+    for (const permissionLevel of ["read_only", "limited_write", "full_access"] as const) {
+      const profile = buildAgentProfile({
+        agentType: "claude-code",
+        permissionLevel,
+        workingDir: "D:\\Development\\2",
+        hookUrl: "http://127.0.0.1:3737/rooms/room_1/agent-action-approvals?token=agent_token"
+      });
+      const mode = profile.args[profile.args.indexOf("--permission-mode") + 1];
+
+      expect(mode, `${permissionLevel} should not generate an invalid Claude permission mode`).not.toBe("ask");
+      expect(allowedModes.has(mode)).toBe(true);
+    }
+  });
+
+  it("does not impose a Claude Code CLI USD budget cap", () => {
+    const profile = buildAgentProfile({
+      agentType: "claude-code",
+      permissionLevel: "read_only",
+      workingDir: "D:\\Development\\2"
+    });
+
+    expect(profile.args).not.toContain("--max-budget-usd");
+  });
+
+  it("generates a readable Claude Code system prompt that uses AI Flow Control instead of structured decisions", () => {
     const profile = buildAgentProfile({
       agentType: "claude-code",
       permissionLevel: "limited_write",
@@ -12,8 +39,9 @@ describe("agent pairing profiles", () => {
     const prompt = profile.args[profile.args.indexOf("--append-system-prompt") + 1];
 
     expect(prompt).toContain("CACP");
-    expect(prompt).toContain("审批");
-    expect(prompt).toContain("http://127.0.0.1:3737/rooms/room_1/agent-action-approvals?token=agent_token");
+    expect(prompt).toContain("AI Flow Control");
+    expect(prompt).not.toContain("cacp-decision");
+    expect(prompt).not.toContain("agent-action-approvals");
     expect(prompt).not.toContain("???");
   });
 });

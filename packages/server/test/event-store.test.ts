@@ -20,7 +20,7 @@ describe("EventStore", () => {
     const store = new EventStore(":memory:");
 
     store.appendEvent(testEvent("evt_z", "message.created"));
-    store.appendEvent(testEvent("evt_a", "question.created"));
+    store.appendEvent(testEvent("evt_a", "ai.collection.started"));
     store.appendEvent(testEvent("evt_m", "proposal.created"));
 
     expect(store.listEvents("room_order").map((event) => event.event_id)).toEqual(["evt_z", "evt_a", "evt_m"]);

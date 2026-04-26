@@ -33,10 +33,11 @@ describe("CACP server", () => {
     const bob = joinResponse.json();
 
     expect((await app.inject({ method: "POST", url: `/rooms/${created.room_id}/messages`, headers: { authorization: `Bearer ${bob.participant_token}` }, payload: { text: "Protocol first." } })).statusCode).toBe(201);
-    const question = (await app.inject({ method: "POST", url: `/rooms/${created.room_id}/questions`, headers: ownerAuth, payload: { question: "Which MVP path?", expected_response: "single_choice", options: ["API", "Web"] } })).json();
-    expect((await app.inject({ method: "POST", url: `/rooms/${created.room_id}/questions/${question.question_id}/responses`, headers: { authorization: `Bearer ${bob.participant_token}` }, payload: { response: "API", comment: "Standard first." } })).statusCode).toBe(201);
+    expect((await app.inject({ method: "POST", url: `/rooms/${created.room_id}/ai-collection/start`, headers: ownerAuth, payload: {} })).statusCode).toBe(201);
+    expect((await app.inject({ method: "POST", url: `/rooms/${created.room_id}/messages`, headers: ownerAuth, payload: { text: "Collect owner input." } })).statusCode).toBe(201);
+    expect((await app.inject({ method: "POST", url: `/rooms/${created.room_id}/ai-collection/cancel`, headers: ownerAuth, payload: {} })).statusCode).toBe(201);
 
-    const proposal = (await app.inject({ method: "POST", url: `/rooms/${created.room_id}/proposals`, headers: ownerAuth, payload: { title: "Adopt protocol-first MVP", proposal_type: "decision", policy: { type: "owner_approval" } } })).json();
+    const proposal = (await app.inject({ method: "POST", url: `/rooms/${created.room_id}/proposals`, headers: ownerAuth, payload: { title: "Adopt protocol-first MVP", proposal_type: "proposal", policy: { type: "owner_approval" } } })).json();
     const voteResponse = await app.inject({ method: "POST", url: `/rooms/${created.room_id}/proposals/${proposal.proposal_id}/votes`, headers: ownerAuth, payload: { vote: "approve", comment: "Approved." } });
     expect(voteResponse.json().evaluation.status).toBe("approved");
 
@@ -49,10 +50,11 @@ describe("CACP server", () => {
     const eventsResponse = await app.inject({ method: "GET", url: `/rooms/${created.room_id}/events`, headers: ownerAuth });
     const eventTypes = eventsResponse.json().events.map((event: { type: string }) => event.type);
     expect(eventTypes).toEqual(expect.arrayContaining([
-      "room.created", "room.configured", "participant.joined", "invite.created", "message.created",
-      "question.created", "question.response_submitted", "proposal.created", "proposal.vote_cast", "proposal.approved",
+      "room.created", "participant.joined", "invite.created", "message.created",
+      "ai.collection.started", "ai.collection.cancelled", "proposal.created", "proposal.vote_cast", "proposal.approved",
       "agent.registered", "task.created", "task.started", "task.output", "task.completed"
     ]));
+    expect(eventTypes.some((type: string) => type.startsWith("decision.") || type.startsWith("question."))).toBe(false);
 
     await app.close();
   });

@@ -10,8 +10,6 @@
       "--output-format",
       "text",
       "--no-session-persistence",
-      "--max-budget-usd",
-      "0.10",
       "--tools",
       "Read,LS,Grep,Glob",
       "--permission-mode",

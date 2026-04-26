@@ -7,6 +7,17 @@ export interface RoomSession {
   role: "owner" | "admin" | "member" | "observer" | "agent";
 }
 
+export interface LocalAgentLaunch {
+  launch_id: string;
+  pairing_token?: string;
+  expires_at?: string;
+  command: string;
+  status: "starting";
+  pid?: number;
+  out_log?: string;
+  err_log?: string;
+}
+
 async function postJson<T>(path: string, token: string | undefined, body: unknown): Promise<T> {
   const response = await fetch(path, {
     method: "POST",
@@ -17,8 +28,8 @@ async function postJson<T>(path: string, token: string | undefined, body: unknow
   return (await response.json()) as T;
 }
 
-export async function createRoom(name: string, displayName: string, defaultPolicy = "owner_approval"): Promise<RoomSession> {
-  const result = await postJson<{ room_id: string; owner_id: string; owner_token: string }>("/rooms", undefined, { name, display_name: displayName, default_policy: defaultPolicy });
+export async function createRoom(name: string, displayName: string): Promise<RoomSession> {
+  const result = await postJson<{ room_id: string; owner_id: string; owner_token: string }>("/rooms", undefined, { name, display_name: displayName });
   return { room_id: result.room_id, token: result.owner_token, participant_id: result.owner_id, role: "owner" };
 }
 
@@ -39,8 +50,16 @@ export async function clearRoom(session: RoomSession): Promise<void> {
   await postJson(`/rooms/${session.room_id}/history/clear`, session.token, {});
 }
 
-export async function cancelDecision(session: RoomSession, decisionId: string, reason: string): Promise<void> {
-  await postJson(`/rooms/${session.room_id}/decisions/${decisionId}/cancel`, session.token, { reason });
+export async function startAiCollection(session: RoomSession): Promise<{ collection_id: string }> {
+  return await postJson(`/rooms/${session.room_id}/ai-collection/start`, session.token, {});
+}
+
+export async function submitAiCollection(session: RoomSession): Promise<void> {
+  await postJson(`/rooms/${session.room_id}/ai-collection/submit`, session.token, {});
+}
+
+export async function cancelAiCollection(session: RoomSession): Promise<void> {
+  await postJson(`/rooms/${session.room_id}/ai-collection/cancel`, session.token, {});
 }
 
 
@@ -56,12 +75,16 @@ export function pairingServerUrlFor(origin: string): string {
   return url.toString().replace(/\/$/, "");
 }
 
-export async function createAgentPairing(session: RoomSession, input: { agent_type: string; permission_level: string; working_dir: string }): Promise<{ pairing_token: string; expires_at: string; command: string }> {
-  return await postJson(`/rooms/${session.room_id}/agent-pairings`, session.token, { ...input, server_url: pairingServerUrlFor(window.location.origin) });
+function currentBrowserOrigin(): string {
+  return typeof window === "undefined" ? "http://localhost:3737" : window.location.origin;
 }
 
-export async function submitQuestionResponse(session: RoomSession, questionId: string, response: unknown, comment?: string): Promise<void> {
-  await postJson(`/rooms/${session.room_id}/questions/${questionId}/responses`, session.token, { response, comment });
+export async function createAgentPairing(session: RoomSession, input: { agent_type: string; permission_level: string; working_dir: string }): Promise<{ pairing_token: string; expires_at: string; command: string }> {
+  return await postJson(`/rooms/${session.room_id}/agent-pairings`, session.token, { ...input, server_url: pairingServerUrlFor(currentBrowserOrigin()) });
+}
+
+export async function createLocalAgentLaunch(session: RoomSession, input: { agent_type: string; permission_level: string; working_dir: string }): Promise<LocalAgentLaunch> {
+  return await postJson(`/rooms/${session.room_id}/agent-pairings/start-local`, session.token, { ...input, server_url: pairingServerUrlFor(currentBrowserOrigin()) });
 }
 
 export function inviteUrlFor(origin: string, roomId: string, inviteToken: string): string {
@@ -85,6 +108,14 @@ export function parseCacpEventMessage(data: string): CacpEvent | undefined {
   } catch {
     return undefined;
   }
+}
+
+export function clearEventSocket(socket: WebSocket): void {
+  if (socket.readyState === 0) {
+    socket.addEventListener("open", () => socket.close(), { once: true });
+    return;
+  }
+  if (socket.readyState === 1) socket.close();
 }
 
 export function connectEvents(session: RoomSession, onEvent: (event: CacpEvent) => void): WebSocket {

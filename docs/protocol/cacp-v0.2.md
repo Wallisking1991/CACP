@@ -1,227 +1,213 @@
-# CACP v0.2 Decision Protocol
+# CACP v0.2：多人 AI 房间与 AI Flow Control
 
-CACP v0.2 把协作房间里的“需要大家做决定”从旧的 `question.*` 概念升级为一组一等协议事件：`decision.*`。它的目标是让 AI/CLI Agent 可以在主聊天中提出明确决策点，所有成员在主聊天中自然回复，服务器用房间策略自动收敛结果，并把当前决策与历史决策保留为可审计记录。
+CACP v0.2 当前实现聚焦于多人共享房间、Agent pairing、实时事件流和房主控制的 **AI Flow Control**。旧的结构化 Decision/Question 流程已经从当前主实现中移除：服务端不再解析 `cacp-decision`，Web 不再展示 Decisions 面板，创建房间也不再包含 `default_policy`。
 
-> v0.2 仍保留 v0.1 的事件信封、房间、成员、Agent pairing、Active Agent、消息流等基础能力；本文只聚焦决策协议与清空房间边界。
+## 核心事件
 
----
+### 房间与参与者
 
-## `decision.*` 的用途
+- `room.created`
+- `participant.joined`
+- `participant.left`
+- `participant.role_updated`
+- `invite.created`
+- `room.agent_selected`
 
-`decision.*` 用于表达会阻塞协作流程的选择、审批或确认，例如：
+### 消息与 Agent turn
 
-- 选择下一步优先做哪个方案；
-- 批准 Agent 执行某个敏感动作；
-- 在多个实现路径之间达成一致；
-- 记录谁在何时如何响应，以及策略为什么认为决策已完成。
+- `message.created`
+- `agent.turn.requested`
+- `agent.turn.followup_queued`
+- `agent.turn.started`
+- `agent.output.delta`
+- `agent.turn.completed`
+- `agent.turn.failed`
 
-Web UI 的 `Decisions` 面板不是主要输入入口，而是审计与状态视图：
+### Agent pairing/status
 
-- `Current Decision` 显示当前仍在等待响应或策略收敛的决策；
-- `Decision History` 显示已经 resolved/cancelled 的决策；
-- 用户通过主聊天输入答案，服务器把可识别答案记录为 `decision.response_recorded`。
+- `agent.pairing_created`
+- `agent.registered`
+- `agent.unregistered`
+- `agent.disconnected`
+- `agent.status_changed`
+- `agent.action_approval_requested`
+- `agent.action_approval_resolved`
 
----
+当前 action approval 不再转换为结构化 decision。为了避免误执行高风险动作，服务端会记录请求并返回 rejected，实际协作确认应通过普通聊天和 AI Flow Control 完成。
 
-## 事件列表
+### AI Flow Control
 
-### `decision.requested`
+- `ai.collection.started`
+- `ai.collection.submitted`
+- `ai.collection.cancelled`
 
-当 Agent 或系统明确提出一个决策时创建。典型 payload：
+### 清空当前上下文
 
-```json
-{
-  "decision_id": "dec_123",
-  "title": "Choose first CLI integration",
-  "description": "We need to decide which CLI agent to validate first.",
-  "kind": "single_choice",
-  "options": [
-    { "id": "A", "label": "Claude Code CLI" },
-    { "id": "B", "label": "Codex CLI" },
-    { "id": "C", "label": "opencode CLI" }
-  ],
-  "policy": { "type": "majority" },
-  "blocking": true,
-  "source_turn_id": "turn_123",
-  "source_message_id": "msg_456"
-}
-```
+- `room.history_cleared`
 
-当前实现重点支持：
-
-- `kind: "single_choice"`
-- `kind: "approval"`
-
-协议 schema 还为未来的 `multiple_choice`、`ranking`、`free_text_confirmation` 预留了扩展空间。
-
-### `decision.response_recorded`
-
-当 eligible participant 在主聊天中回答当前决策，且服务器可以保守地解释该回答时创建。典型 payload：
+当前新事件使用：
 
 ```json
 {
-  "decision_id": "dec_123",
-  "respondent_id": "pt_alice",
-  "response": "A",
-  "response_label": "Claude Code CLI",
-  "source_message_id": "msg_789",
-  "interpretation": {
-    "method": "deterministic",
-    "confidence": 1
-  }
+  "scope": "messages"
 }
 ```
 
-同一参与者可以修改答案：服务器追加新的 `decision.response_recorded`，派生状态以该参与者的最新答案为准。
+实现仍兼容旧运行数据中的 `messages_and_decisions` 边界，用于避免旧本地数据库影响当前 UI 派生状态。
 
-### `decision.resolved`
-
-当房间策略满足后自动创建。典型 payload：
-
-```json
-{
-  "decision_id": "dec_123",
-  "result": "A",
-  "result_label": "Claude Code CLI",
-  "decided_by": ["pt_alice", "pt_bob"],
-  "policy_evaluation": {
-    "status": "approved",
-    "reason": "majority policy satisfied"
-  }
-}
-```
-
-当前策略主要包括：
-
-- `owner_approval`：owner 的有效响应即可关闭；
-- `majority`：eligible voters 中超过半数选择同一响应；
-- `unanimous`：所有 eligible voters 给出同一响应。
-
-Eligible voters 是 human participant 中的 `owner`、`admin`、`member`。`observer` 和 `agent` 不参与投票。
-
-### `decision.cancelled`
-
-owner/admin 可以取消卡住或不再需要的当前决策。典型 payload：
-
-```json
-{
-  "decision_id": "dec_123",
-  "reason": "Cancelled from the web room controls",
-  "cancelled_by": "pt_owner"
-}
-```
-
-取消后的决策进入 Decision History。
-
-### `room.history_cleared`
-
-owner/admin 清空房间消息与决策历史时创建。典型 payload：
-
-```json
-{
-  "cleared_by": "pt_owner",
-  "cleared_at": "2026-04-26T00:00:00.000Z",
-  "scope": "messages_and_decisions"
-}
-```
-
-这是一个边界事件：边界之前的消息、streaming turn 和 decision 不再用于当前 UI 派生状态，也不再进入后续 Agent 上下文；参与者、Agent、Invite 等房间结构信息不因该边界被清除。
-
----
-
-## 单一 Active Decision Gate
-
-一个房间同一时间只能有一个 open 且 `blocking: true` 的 active decision。
-
-规则：
-
-1. 没有 active decision 时，Agent 可以通过 `cacp-decision` block 或 action approval API 创建新决策。
-2. 已存在 active decision 时，服务器拒绝新的阻塞决策请求（`409 active_decision_exists`），并保留 Agent 原始消息。
-3. 用户仍可继续围绕当前决策聊天、解释、补充意见。
-4. Agent 可以解释选项、提醒缺失响应者、总结当前状态，但不应越过当前决策进入下一项。
-5. 当前决策 resolved 或 cancelled 后，才允许创建下一个阻塞决策。
-6. owner/admin 可以直接 cancel/skip 卡住的决策，不需要再发起一个决策来批准取消。
-
----
-
-## `cacp-decision` fenced block
-
-Agent 在最终回复中需要显式决策时，应输出独立的 fenced block：
-
-````text
-```cacp-decision
-{
-  "title": "Choose first CLI integration",
-  "description": "We need to decide which CLI agent should be the first real validation target.",
-  "kind": "single_choice",
-  "options": [
-    { "id": "A", "label": "Claude Code CLI" },
-    { "id": "B", "label": "Codex CLI" },
-    { "id": "C", "label": "opencode CLI" }
-  ],
-  "policy": "room_default",
-  "blocking": true
-}
-```
-````
-
-服务器在 Agent turn complete 时解析该 block：
-
-- 合法 block 会生成 `decision.requested`；
-- `policy: "room_default"` 会展开为房间默认策略；
-- malformed block 不会阻断消息保存；
-- 已有 active decision 时不会创建第二个阻塞决策。
-
-旧的 `cacp-question` block 属于 v0.1/question-centric 流程，新 Agent prompt 应使用 `cacp-decision`。
-
----
-
-## 主聊天响应规则
-
-用户不在 Decisions panel 里点击答案，而是在主聊天 composer 中回答。
-
-当前实现采用保守的 deterministic interpretation：
-
-- `single_choice`：识别 option id（如 `A`）、常见英文短语（如 `choose A`、`I choose A`）、中文短语（如 `选 A`）以及明确匹配的 option label。
-- `approval`：识别 `approve`、`yes`、`agree`、`同意`、`可以` 为 approve；识别 `reject`、`no`、`disagree`、`不同意`、`不可以` 为 reject。
-- 无法明确解释时，仍保留普通聊天消息，但不记录 `decision.response_recorded`；服务器会追加系统提醒，例如 `Current decision is still open. Please answer with one of: ...`。
-
-主聊天消息本身仍以 `message.created` 保留；若它同时能回答当前决策，服务器会额外追加 `decision.response_recorded`，并在策略满足时追加 `decision.resolved`。
-
----
-
-## Action approval as decisions
-
-Agent 工具/动作审批不再作为特殊 question UI 处理，而是转换为 `kind: "approval"` 的 decision。
-
-Agent 可调用：
+## 创建房间
 
 ```http
-POST /rooms/:roomId/agent-action-approvals?token=<agent_token>&wait_ms=60000
+POST /rooms
 ```
 
-服务器会：
+请求：
 
-1. 创建 `decision.requested`，通常带有 `decision_type: "agent_action_approval"` 与 `action_id`；
-2. 等待房间成员在主聊天中回复 `approve` / `reject` 等可识别答案；
-3. 满足策略后创建 `decision.resolved`；
-4. 追加 `agent.action_approval_resolved`，让等待中的 Agent 请求获得审批结果；
-5. 如果 `wait_ms` 到期且没有 resolution，则请求按未完成/超时处理。
+```json
+{
+  "name": "CACP AI Room",
+  "display_name": "Alice"
+}
+```
 
-这使工具审批、方案选择、人工确认都走同一套决策审计与策略评估路径。
+响应：
 
----
+```json
+{
+  "room_id": "room_xxx",
+  "owner_id": "user_xxx",
+  "owner_token": "cacp_xxx"
+}
+```
 
-## Clear-room 边界行为
+说明：
 
-`POST /rooms/:roomId/history/clear` 由 owner/admin 触发，并追加 `room.history_cleared`。
+- 不再接受或需要 `default_policy`。
+- owner 会作为第一个 human participant 加入房间。
 
-边界之后：
+## AI Flow Control
 
-- 所有客户端同步隐藏边界之前的 messages、decision history、current decision 和 streaming turns；
-- 后续 Agent context 只包含边界之后的新消息；
-- 边界之前仍未完成的 Agent turn 不能再写入当前房间上下文；
-- 边界之前的 active decision 不再阻塞新决策；
-- participants、agents、agent selection、invites 等房间结构信息继续保留。
+### 开始收集
 
-因此 Clear room 是“清空当前对话与决策上下文”的协作边界，而不是销毁房间或重置成员/Agent 连接。
+```http
+POST /rooms/:roomId/ai-collection/start
+Authorization: Bearer <owner_or_admin_token>
+```
+
+响应：
+
+```json
+{
+  "collection_id": "collection_xxx"
+}
+```
+
+效果：
+
+- 后续 human `message.created` 会带上 `collection_id`。
+- 消息仍广播给所有客户端。
+- 不会触发新的 `agent.turn.requested`。
+
+### 提交收集结果
+
+```http
+POST /rooms/:roomId/ai-collection/submit
+Authorization: Bearer <owner_or_admin_token>
+```
+
+响应：
+
+```json
+{
+  "ok": true,
+  "collection_id": "collection_xxx",
+  "message_ids": ["msg_1", "msg_2"]
+}
+```
+
+效果：
+
+- 追加 `ai.collection.submitted`。
+- 如果有 Active Agent，则创建一次 `agent.turn.requested`。
+- `context_prompt` 会包含本轮收集到的多人回答。
+
+### 取消收集
+
+```http
+POST /rooms/:roomId/ai-collection/cancel
+Authorization: Bearer <owner_or_admin_token>
+```
+
+响应：
+
+```json
+{
+  "ok": true,
+  "collection_id": "collection_xxx"
+}
+```
+
+效果：
+
+- 追加 `ai.collection.cancelled`。
+- 不触发 Agent turn。
+
+## 普通消息触发 Agent
+
+```http
+POST /rooms/:roomId/messages
+Authorization: Bearer <human_token>
+```
+
+请求：
+
+```json
+{
+  "text": "我们下一步怎么设计多人协作？"
+}
+```
+
+Live mode 下：
+
+1. 追加 `message.created`；
+2. 如果房间有 online Active Agent，则创建 `agent.turn.requested`；
+3. 如果已有未完成 turn，则追加 `agent.turn.followup_queued`，避免并发重复 turn。
+
+收集模式下：
+
+1. 追加带 `collection_id` 的 `message.created`；
+2. 不创建 Agent turn；
+3. 等 owner/admin 提交收集结果后再合并触发。
+
+## Agent pairing
+
+Host 可创建 pairing token：
+
+```http
+POST /rooms/:roomId/agent-pairings
+Authorization: Bearer <owner_or_member_token>
+```
+
+浏览器本地一键启动使用：
+
+```http
+POST /rooms/:roomId/agent-pairings/start-local
+Authorization: Bearer <owner_or_admin_token>
+```
+
+服务端会生成本地 adapter 启动命令，并在 Windows 上打开一个新的 PowerShell console。该 console 是本地 Agent bridge，关闭它会断开本地 CLI Agent。
+
+## 已移除的当前主流程
+
+当前 v0.2 demo 不再使用：
+
+- 创建房间时的 `default_policy`
+- `room_default`
+- `decision.*`
+- `question.*`
+- `cacp-decision`
+- `cacp-question`
+- Web Decisions 面板
+- AI 自动生成结构化决策并由服务器自动收敛的流程
+
+如果后续重新引入治理/审批能力，建议基于 AI Flow Control 的稳定体验重新设计，而不是恢复旧的自动 Decision 判断逻辑。

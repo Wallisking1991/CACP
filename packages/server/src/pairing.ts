@@ -33,14 +33,12 @@ export function buildAgentProfile(input: { agentType: AgentType; permissionLevel
     "-p",
     "--output-format",
     "text",
-    "--no-session-persistence",
-    "--max-budget-usd",
-    "0.10"
+    "--no-session-persistence"
   ];
   if (input.permissionLevel === "read_only") {
     args.push("--tools", "Read,LS,Grep,Glob", "--permission-mode", "dontAsk");
   } else {
-    args.push("--permission-mode", "ask");
+    args.push("--permission-mode", "default");
   }
   args.push("--append-system-prompt", claudeSystemPrompt(input.permissionLevel, input.hookUrl));
   return {
@@ -48,20 +46,19 @@ export function buildAgentProfile(input: { agentType: AgentType; permissionLevel
     command: "claude",
     args,
     working_dir: workingDir,
-    capabilities: ["claude-code", input.permissionLevel, ...(input.permissionLevel === "read_only" ? ["repo.read"] : ["tool.approval"])]
+    capabilities: ["claude-code", input.permissionLevel, ...(input.permissionLevel === "read_only" ? ["repo.read"] : ["manual_flow_control"])]
   };
 }
 
-function claudeSystemPrompt(permissionLevel: PermissionLevel, hookUrl?: string): string {
+function claudeSystemPrompt(permissionLevel: PermissionLevel, _hookUrl?: string): string {
   const approval = permissionLevel === "read_only"
     ? "当前权限为只读：不要修改文件，不要执行写入、删除、安装依赖或其他会改变环境的操作。"
-    : `当前权限允许受控执行：在修改文件、运行可能改变环境的命令、安装依赖、访问网络或执行其他高风险动作前，必须先调用 CACP 审批 API 并等待结果：${hookUrl ?? "由 Adapter 提供"}。只有明确返回 approve 才能继续；reject、pending 超时或无法确认时都必须停止。`;
+    : "当前权限允许受控执行，但不要自行推进高风险动作。涉及修改文件、运行可能改变环境的命令、安装依赖、访问网络或其他高风险操作时，请先在普通聊天中说明风险，并等待房主通过 AI Flow Control 收集共识后再继续。";
   return [
     "你是连接到 CACP 多人协作 AI 房间的 Claude Code CLI Agent。",
     "请基于房间共享上下文帮助所有参与者讨论和推进任务。",
-    "When an explicit room decision is required, output a separate fenced code block tagged `cacp-decision`.",
-    "The block must contain JSON with title, description, kind, options, policy, and blocking.",
-    "Only create a decision when the humans must choose, judge, approve, or confirm something.",
+    "如果需要多人分别回答或形成共识，请提醒房主使用 AI Flow Control 收集回答。",
+    "不要输出结构化治理代码块；当前平台演示只使用普通聊天与 AI Flow Control。",
     approval
   ].join("\n");
 }

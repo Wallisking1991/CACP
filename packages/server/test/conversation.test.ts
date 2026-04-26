@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CacpEvent, Participant } from "@cacp/protocol";
 import {
   buildAgentContextPrompt,
-  extractCacpQuestions,
+  eventsAfterLastHistoryClear,
   findActiveAgentId,
   findOpenTurn,
   hasQueuedFollowup,
@@ -12,7 +12,7 @@ import {
 function event(type: CacpEvent["type"], payload: Record<string, unknown>, sequence: number, actor_id = "user_1"): CacpEvent {
   return {
     protocol: "cacp",
-    version: "0.1.0",
+    version: "0.2.0",
     event_id: `evt_${sequence}`,
     room_id: "room_1",
     type,
@@ -45,6 +45,16 @@ describe("conversation helpers", () => {
     ], "agent_1")).toBeUndefined();
   });
 
+  it("scopes context after the latest history clear", () => {
+    const scoped = eventsAfterLastHistoryClear([
+      event("message.created", { message_id: "msg_old", text: "old" }, 1),
+      event("room.history_cleared", { scope: "messages", cleared_by: "user_1", cleared_at: "2026-04-25T00:00:02.000Z" }, 2),
+      event("message.created", { message_id: "msg_new", text: "new" }, 3)
+    ]);
+
+    expect(scoped.map((item) => item.payload.message_id)).toEqual(["msg_new"]);
+  });
+
   it("returns only the latest durable conversation messages", () => {
     const events = Array.from({ length: 25 }, (_, index) => event("message.created", {
       message_id: `msg_${index + 1}`,
@@ -59,7 +69,7 @@ describe("conversation helpers", () => {
     expect(recent[19].text).toBe("message 25");
   });
 
-  it("builds a readable prompt from participants and recent messages", () => {
+  it("builds a readable prompt from participants and recent messages without structured governance blocks", () => {
     const participants: Participant[] = [
       { id: "user_1", type: "human", display_name: "Alice", role: "owner" },
       { id: "user_2", type: "human", display_name: "Bob", role: "member" },
@@ -69,8 +79,8 @@ describe("conversation helpers", () => {
     const prompt = buildAgentContextPrompt({
       participants,
       messages: [
-        { actorName: "Alice", kind: "human", text: "我们下一步做什么？" },
-        { actorName: "Bob", kind: "human", text: "先做多人上下文。" }
+        { actorName: "Alice", kind: "human", text: "What should we do next?" },
+        { actorName: "Bob", kind: "human", text: "Build shared context first." }
       ],
       agentName: "Claude Code Agent"
     });
@@ -78,44 +88,10 @@ describe("conversation helpers", () => {
     expect(prompt).toContain("Claude Code Agent");
     expect(prompt).toContain("Alice(owner)");
     expect(prompt).toContain("Bob(member)");
-    expect(prompt).toContain("Alice: 我们下一步做什么？");
-    expect(prompt).toContain("Bob: 先做多人上下文。");
+    expect(prompt).toContain("Alice: What should we do next?");
+    expect(prompt).toContain("Bob: Build shared context first.");
+    expect(prompt).toContain("AI Flow Control");
+    expect(prompt).not.toContain("cacp-decision");
+    expect(prompt).not.toContain("cacp-question");
   });
-
-  it("extracts structured CACP question blocks", () => {
-    const text = [
-      "我需要大家决定：",
-      "```cacp-question",
-      "{\"question\":\"下一步优先做什么？\",\"options\":[\"主聊天框\",\"邀请加入\"]}",
-      "```"
-    ].join("\n");
-
-    expect(extractCacpQuestions(text)).toEqual([
-      { question: "下一步优先做什么？", options: ["主聊天框", "邀请加入"] }
-    ]);
-  });
-
-  it("extracts a later question block even when prior echoed prompts mention the question fence syntax", () => {
-    const priorEcho = buildAgentContextPrompt({
-      participants: [{ id: "agent_1", type: "agent", display_name: "Echo", role: "agent" }],
-      messages: [],
-      agentName: "Echo"
-    });
-    const nextPrompt = buildAgentContextPrompt({
-      participants: [
-        { id: "user_1", type: "human", display_name: "Alice", role: "owner" },
-        { id: "agent_1", type: "agent", display_name: "Echo", role: "agent" }
-      ],
-      messages: [
-        { actorName: "Echo", kind: "agent", text: `agent:${priorEcho}` },
-        { actorName: "Alice", kind: "human", text: "```cacp-question\n{\"question\":\"Continue?\",\"options\":[\"Yes\",\"No\"]}\n```" }
-      ],
-      agentName: "Echo"
-    });
-
-    expect(extractCacpQuestions(`agent:${nextPrompt}`)).toEqual([
-      { question: "Continue?", options: ["Yes", "No"] }
-    ]);
-  });
-
 });

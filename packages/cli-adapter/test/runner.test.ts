@@ -120,6 +120,23 @@ describe("CLI runner", () => {
     expect(result.exit_code).toBe(7);
   });
 
+  it("rejects and stops commands that exceed the timeout", async () => {
+    const startedAt = Date.now();
+
+    await expect(
+      runCommandForTask({
+        command: process.execPath,
+        args: ["-e", "setInterval(() => {}, 1000)"],
+        working_dir: process.cwd(),
+        prompt: "",
+        timeout_ms: 200,
+        onOutput: () => undefined
+      })
+    ).rejects.toThrow("command timed out after 200ms");
+
+    expect(Date.now() - startedAt).toBeLessThan(5000);
+  });
+
   it("uses a shell on Windows so trusted npm/pnpm/cmd shims can run", () => {
     expect(spawnOptionsForPlatform("win32").shell).toBe(true);
     expect(spawnOptionsForPlatform("linux").shell).toBe(false);

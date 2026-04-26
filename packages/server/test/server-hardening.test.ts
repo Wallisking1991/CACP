@@ -55,7 +55,7 @@ async function registerAgent(app: Awaited<ReturnType<typeof buildServer>>, roomI
 
 
 async function createProposal(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerAuth: { authorization: string }) {
-  const response = await app.inject({ method: "POST", url: `/rooms/${roomId}/proposals`, headers: ownerAuth, payload: { title: "Close once", proposal_type: "decision", policy: { type: "owner_approval" } } });
+  const response = await app.inject({ method: "POST", url: `/rooms/${roomId}/proposals`, headers: ownerAuth, payload: { title: "Close once", proposal_type: "proposal", policy: { type: "owner_approval" } } });
   expect(response.statusCode).toBe(201);
   return response.json() as { proposal_id: string };
 }
@@ -114,7 +114,7 @@ describe("CACP server hardening", () => {
 
     const invite = await first.inject({ method: "POST", url: `/rooms/${room.room_id}/invites`, headers: ownerAuth, payload: { role: "member" } });
     expect(invite.statusCode).toBe(201);
-    const proposal = await first.inject({ method: "POST", url: `/rooms/${room.room_id}/proposals`, headers: ownerAuth, payload: { title: "Persisted proposal", proposal_type: "decision", policy: { type: "owner_approval" } } });
+    const proposal = await first.inject({ method: "POST", url: `/rooms/${room.room_id}/proposals`, headers: ownerAuth, payload: { title: "Persisted proposal", proposal_type: "proposal", policy: { type: "owner_approval" } } });
     expect(proposal.statusCode).toBe(201);
 
     await first.close();
@@ -147,7 +147,7 @@ describe("CACP server hardening", () => {
     const app = await trackedServer();
     const roomA = await createRoom(app, "A Owner");
     const roomB = await createRoom(app, "B Owner");
-    const proposal = await app.inject({ method: "POST", url: `/rooms/${roomA.room.room_id}/proposals`, headers: roomA.ownerAuth, payload: { title: "Room A only", proposal_type: "decision", policy: { type: "owner_approval" } } });
+    const proposal = await app.inject({ method: "POST", url: `/rooms/${roomA.room.room_id}/proposals`, headers: roomA.ownerAuth, payload: { title: "Room A only", proposal_type: "proposal", policy: { type: "owner_approval" } } });
     expect(proposal.statusCode).toBe(201);
 
     const wrongRoomVote = await app.inject({ method: "POST", url: `/rooms/${roomB.room.room_id}/proposals/${proposal.json().proposal_id}/votes`, headers: roomB.ownerAuth, payload: { vote: "approve" } });
@@ -213,35 +213,30 @@ describe("CACP server hardening", () => {
 
     const attempts = [
       app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: observerAuth, payload: { text: "hi" } }),
-      app.inject({ method: "POST", url: `/rooms/${room.room_id}/questions`, headers: observerAuth, payload: { question: "Q?" } }),
-      app.inject({ method: "POST", url: `/rooms/${room.room_id}/proposals`, headers: observerAuth, payload: { title: "No", proposal_type: "decision", policy: { type: "owner_approval" } } }),
+      app.inject({ method: "POST", url: `/rooms/${room.room_id}/proposals`, headers: observerAuth, payload: { title: "No", proposal_type: "proposal", policy: { type: "owner_approval" } } }),
       app.inject({ method: "POST", url: `/rooms/${room.room_id}/tasks`, headers: observerAuth, payload: { target_agent_id: "agent_missing", prompt: "No", mode: "oneshot" } })
     ];
 
     const responses = await Promise.all(attempts);
-    expect(responses.map((response) => response.statusCode)).toEqual([403, 403, 403, 403]);
+    expect(responses.map((response) => response.statusCode)).toEqual([403, 403, 403]);
   });
 
   it("prevents registered agent tokens from creating human collaboration content", async () => {
     const { app, room, ownerAuth } = await createRoom();
     const agent = await registerAgent(app, room.room_id, ownerAuth, "Collaboration Blocked Agent");
     const agentAuth = { authorization: `Bearer ${agent.agent_token}` };
-    const question = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/questions`, headers: ownerAuth, payload: { question: "Human-only question?" } });
-    expect(question.statusCode).toBe(201);
     const proposal = await createProposal(app, room.room_id, ownerAuth);
 
     const attempts = [
       app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: agentAuth, payload: { text: "agent message" } }),
-      app.inject({ method: "POST", url: `/rooms/${room.room_id}/questions`, headers: agentAuth, payload: { question: "agent question?" } }),
-      app.inject({ method: "POST", url: `/rooms/${room.room_id}/questions/${question.json().question_id}/responses`, headers: agentAuth, payload: { response: "agent answer" } }),
-      app.inject({ method: "POST", url: `/rooms/${room.room_id}/proposals`, headers: agentAuth, payload: { title: "Agent proposal", proposal_type: "decision", policy: { type: "owner_approval" } } }),
+      app.inject({ method: "POST", url: `/rooms/${room.room_id}/proposals`, headers: agentAuth, payload: { title: "Agent proposal", proposal_type: "proposal", policy: { type: "owner_approval" } } }),
       app.inject({ method: "POST", url: `/rooms/${room.room_id}/proposals/${proposal.proposal_id}/votes`, headers: agentAuth, payload: { vote: "approve" } }),
       app.inject({ method: "POST", url: `/rooms/${room.room_id}/tasks`, headers: agentAuth, payload: { target_agent_id: agent.agent_id, prompt: "self assign", mode: "oneshot" } }),
       app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/register`, headers: agentAuth, payload: { name: "Nested Agent", capabilities: [] } })
     ];
 
     const responses = await Promise.all(attempts);
-    expect(responses.map((response) => response.statusCode)).toEqual([403, 403, 403, 403, 403, 403, 403]);
+    expect(responses.map((response) => response.statusCode)).toEqual([403, 403, 403, 403, 403]);
   });
 
   it("restricts room active agent selection to human collaborators and same-room agents", async () => {

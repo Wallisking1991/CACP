@@ -1,4 +1,3 @@
-import { z } from "zod";
 import type { CacpEvent, Participant } from "@cacp/protocol";
 
 export interface OpenTurn {
@@ -17,17 +16,6 @@ export interface PromptMessage {
   kind: string;
   text: string;
 }
-
-export interface CacpQuestion {
-  question: string;
-  options: string[];
-}
-
-const QuestionBlockSchema = z.object({
-  question: z.string().min(1),
-  options: z.array(z.string().min(1)).default([])
-});
-const questionBlockPattern = /```cacp-question[ \t]*\r?\n([\s\S]*?)```/g;
 
 export function findActiveAgentId(events: CacpEvent[]): string | undefined {
   for (const storedEvent of [...events].reverse()) {
@@ -66,7 +54,7 @@ export function hasQueuedFollowup(events: CacpEvent[], turnId: string): boolean 
 export function eventsAfterLastHistoryClear(events: CacpEvent[]): CacpEvent[] {
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const storedEvent = events[index];
-    if (storedEvent.type === "room.history_cleared" && storedEvent.payload.scope === "messages_and_decisions") {
+    if (storedEvent.type === "room.history_cleared" && (storedEvent.payload.scope === "messages" || storedEvent.payload.scope === "messages_and_decisions")) {
       return events.slice(index + 1);
     }
   }
@@ -92,30 +80,39 @@ export function buildAgentContextPrompt(input: { participants: Participant[]; me
     .map((message) => `${message.actorName}: ${message.text}`)
     .join("\n");
   return [
-    `你是 ${input.agentName}，正在一个 CACP 多人协作 AI 房间中参与讨论。`,
+    `You are ${input.agentName}, an AI agent participating in a CACP multi-person collaboration room.`,
     "",
-    "当前房间参与者：",
-    participants || "- 暂无参与者",
+    "Current room participants:",
+    participants || "- No visible participants",
     "",
-    "最近对话：",
-    messages || "暂无历史对话。",
+    "Recent conversation:",
+    messages || "No recent conversation.",
     "",
-    "请基于以上多人共享上下文，用简洁、可执行的中文回复下一条消息。除非明确要求，不要修改文件。",
-    "When an explicit room decision is required, output a separate fenced code block tagged `cacp-decision`.",
-    "The block must contain JSON with title, description, kind, options, policy, and blocking.",
-    "Only create a decision when the humans must choose, judge, approve, or confirm something."
+    "Reply in concise, actionable Chinese by default. Do not modify files unless explicitly asked.",
+    "If multiple humans should answer before you continue, ask the host to use AI Flow Control to collect answers. Do not output structured governance code blocks."
   ].join("\n");
 }
 
-export function extractCacpQuestions(text: string): CacpQuestion[] {
-  const questions: CacpQuestion[] = [];
-  for (const match of text.matchAll(questionBlockPattern)) {
-    try {
-      const parsed = QuestionBlockSchema.safeParse(JSON.parse(match[1].trim()));
-      if (parsed.success) questions.push(parsed.data);
-    } catch {
-      // Ignore malformed AI-emitted question blocks; the final message is still preserved.
-    }
-  }
-  return questions;
+export function buildCollectedAnswersPrompt(input: { participants: Participant[]; messages: PromptMessage[]; agentName: string }): string {
+  const participants = input.participants
+    .map((participant) => `- ${participant.display_name}(${participant.role})`)
+    .join("\n");
+  const messages = input.messages
+    .map((message) => `${message.actorName}: ${message.text}`)
+    .join("\n");
+  return [
+    `You are ${input.agentName}, an AI agent participating in a CACP multi-person collaboration room.`,
+    "",
+    "The host just ended an AI Flow Control collection round. Human messages during the collection were not sent to AI one by one.",
+    "Synthesize the collected answers below and continue the discussion without mechanically repeating every message.",
+    "",
+    "Current room participants:",
+    participants || "- No visible participants",
+    "",
+    "Collected answers:",
+    messages || "No collected answers.",
+    "",
+    "Reply in concise, actionable Chinese by default. Do not modify files unless explicitly asked.",
+    "If more human input is needed, ask the host to keep using AI Flow Control. Do not output structured governance code blocks."
+  ].join("\n");
 }
