@@ -37,8 +37,10 @@ export function buildAgentProfile(input: { agentType: AgentType; permissionLevel
   ];
   if (input.permissionLevel === "read_only") {
     args.push("--tools", "Read,LS,Grep,Glob", "--permission-mode", "dontAsk");
+  } else if (input.permissionLevel === "limited_write") {
+    args.push("--permission-mode", "acceptEdits");
   } else {
-    args.push("--permission-mode", "default");
+    args.push("--permission-mode", "bypassPermissions");
   }
   args.push("--append-system-prompt", claudeSystemPrompt(input.permissionLevel, input.hookUrl));
   return {
@@ -53,7 +55,9 @@ export function buildAgentProfile(input: { agentType: AgentType; permissionLevel
 function claudeSystemPrompt(permissionLevel: PermissionLevel, _hookUrl?: string): string {
   const approval = permissionLevel === "read_only"
     ? "当前权限为只读：不要修改文件，不要执行写入、删除、安装依赖或其他会改变环境的操作。"
-    : "当前权限允许受控执行，但不要自行推进高风险动作。涉及修改文件、运行可能改变环境的命令、安装依赖、访问网络或其他高风险操作时，请先在普通聊天中说明风险，并等待房主通过 AI Flow Control 收集共识后再继续。";
+    : permissionLevel === "limited_write"
+      ? "当前权限允许普通文件创建和编辑。对于删除文件、批量重构、安装依赖、访问网络或运行可能改变环境的命令，请先说明风险并等待房主确认。"
+      : "当前权限为 Full access：当房主明确要求时，可以创建/修改文件并执行必要命令。对于破坏性、不可逆或大范围操作，仍需先说明风险并等待房主确认。";
   return [
     "你是连接到 CACP 多人协作 AI 房间的 Claude Code CLI Agent。",
     "请基于房间共享上下文帮助所有参与者讨论和推进任务。",

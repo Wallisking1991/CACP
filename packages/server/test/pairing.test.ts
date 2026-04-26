@@ -19,6 +19,18 @@ describe("agent pairing profiles", () => {
     }
   });
 
+  it("maps writable room permissions to distinct Claude Code CLI modes", () => {
+    const readOnly = buildAgentProfile({ agentType: "claude-code", permissionLevel: "read_only", workingDir: "D:\\Development\\2" });
+    const limitedWrite = buildAgentProfile({ agentType: "claude-code", permissionLevel: "limited_write", workingDir: "D:\\Development\\2" });
+    const fullAccess = buildAgentProfile({ agentType: "claude-code", permissionLevel: "full_access", workingDir: "D:\\Development\\2" });
+
+    expect(readOnly.args).toEqual(expect.arrayContaining(["--permission-mode", "dontAsk"]));
+    expect(readOnly.args).toEqual(expect.arrayContaining(["--tools", "Read,LS,Grep,Glob"]));
+    expect(limitedWrite.args).toEqual(expect.arrayContaining(["--permission-mode", "acceptEdits"]));
+    expect(fullAccess.args).toEqual(expect.arrayContaining(["--permission-mode", "bypassPermissions"]));
+    expect(fullAccess.args).not.toContain("--tools");
+  });
+
   it("does not impose a Claude Code CLI USD budget cap", () => {
     const profile = buildAgentProfile({
       agentType: "claude-code",

@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildServer } from "../src/server.js";
 
@@ -27,6 +28,15 @@ function tempDbPath() {
   const dir = mkdtempSync(join(tmpdir(), "cacp-server-hardening-"));
   tempDirs.push(dir);
   return join(dir, "cacp.db");
+}
+
+function updateParticipantRole(dbPath: string, roomId: string, participantId: string, role: "admin" | "member" | "observer") {
+  const db = new Database(dbPath);
+  try {
+    db.prepare("UPDATE participants SET role = ? WHERE room_id = ? AND participant_id = ?").run(role, roomId, participantId);
+  } finally {
+    db.close();
+  }
 }
 
 async function createRoom(app?: Awaited<ReturnType<typeof buildServer>>, displayName = "Owner") {
@@ -219,6 +229,35 @@ describe("CACP server hardening", () => {
 
     const responses = await Promise.all(attempts);
     expect(responses.map((response) => response.statusCode)).toEqual([403, 403, 403]);
+  });
+
+  it("restricts control APIs to owners/admins while AI Flow Control remains owner-only", async () => {
+    const dbPath = tempDbPath();
+    const app = await trackedServer(dbPath);
+    const { room, ownerAuth } = await createRoom(app, "Control Owner");
+    const invite = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/invites`, headers: ownerAuth, payload: { role: "member" } });
+    expect(invite.statusCode).toBe(201);
+    const join = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/join`, payload: { invite_token: invite.json().invite_token, display_name: "Bob" } });
+    expect(join.statusCode).toBe(201);
+    const memberAuth = { authorization: `Bearer ${join.json().participant_token}` };
+
+    const ownerAgent = await registerAgent(app, room.room_id, ownerAuth, "Owner Agent");
+    const memberAttempts = [
+      app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-pairings`, headers: memberAuth, payload: { agent_type: "echo", permission_level: "read_only", working_dir: "." } }),
+      app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/register`, headers: memberAuth, payload: { name: "Member Agent", capabilities: [] } }),
+      app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/select`, headers: memberAuth, payload: { agent_id: ownerAgent.agent_id } })
+    ];
+    expect((await Promise.all(memberAttempts)).map((response) => response.statusCode)).toEqual([403, 403, 403]);
+
+    updateParticipantRole(dbPath, room.room_id, join.json().participant_id, "admin");
+    const adminAuth = memberAuth;
+    const adminAgent = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/register`, headers: adminAuth, payload: { name: "Admin Agent", capabilities: [] } });
+    expect(adminAgent.statusCode).toBe(201);
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-pairings`, headers: adminAuth, payload: { agent_type: "echo", permission_level: "read_only", working_dir: "." } })).statusCode).toBe(201);
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/select`, headers: adminAuth, payload: { agent_id: adminAgent.json().agent_id } })).statusCode).toBe(201);
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/invites`, headers: adminAuth, payload: { role: "observer" } })).statusCode).toBe(201);
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/ai-collection/start`, headers: adminAuth, payload: {} })).statusCode).toBe(403);
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/ai-collection/start`, headers: ownerAuth, payload: {} })).statusCode).toBe(201);
   });
 
   it("prevents registered agent tokens from creating human collaboration content", async () => {

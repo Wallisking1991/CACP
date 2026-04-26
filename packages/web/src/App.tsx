@@ -3,6 +3,7 @@ import type { CacpEvent } from "@cacp/protocol";
 import { cancelAiCollection, clearEventSocket, clearRoom, connectEvents, createAgentPairing, createInvite, createLocalAgentLaunch, createRoom, inviteUrlFor, joinRoom, parseInviteUrl, selectAgent, sendMessage, startAiCollection, submitAiCollection, type LocalAgentLaunch, type RoomSession } from "./api.js";
 import { badgeChangesForCollapsedControls, type ControlBadges, type ControlCounts } from "./control-badges.js";
 import { mergeEvent } from "./event-log.js";
+import { roomPermissionsForRole } from "./role-permissions.js";
 import { deriveRoomState } from "./room-state.js";
 import { clearStoredSession, loadInitialSession, saveStoredSession } from "./session-storage.js";
 import "./App.css";
@@ -113,7 +114,10 @@ export default function App() {
 
   const room = useMemo(() => deriveRoomState(events), [events]);
   const activeAgent = room.agents.find((agent) => agent.agent_id === room.activeAgentId);
-  const canManageRoom = session?.role === "owner" || session?.role === "admin";
+  const permissions = roomPermissionsForRole(session?.role);
+  const canManageRoom = permissions.canManageControls;
+  const canUseAiFlowControl = permissions.canUseAiFlowControl;
+  const canSendMessages = permissions.canSendMessages;
   const actorNames = useMemo(() => {
     const names = new Map<string, string>();
     for (const participant of room.participants) names.set(participant.id, participant.display_name);
@@ -359,10 +363,11 @@ export default function App() {
             })}
           </div>
 
-          <form className="composer" onSubmit={(event) => { event.preventDefault(); void run(async () => { await sendMessage(session, message.trim()); setMessage(""); }); }}>
-            <textarea aria-label="Message the room" value={message} onChange={(event) => setMessage(event.target.value)} placeholder={room.activeCollection ? "AI is paused. Messages are being collected for the host." : "Message the shared AI room..."} />
-            <button disabled={!message.trim()}>Send</button>
+          <form className="composer" onSubmit={(event) => { event.preventDefault(); if (!canSendMessages) return; void run(async () => { await sendMessage(session, message.trim()); setMessage(""); }); }}>
+            <textarea aria-label="Message the room" disabled={!canSendMessages} value={message} onChange={(event) => setMessage(event.target.value)} placeholder={!canSendMessages ? "Observer mode: read-only room view." : room.activeCollection ? "AI is paused. Messages are being collected for the host." : "Message the shared AI room..."} />
+            <button disabled={!canSendMessages || !message.trim()}>Send</button>
           </form>
+          {!canSendMessages && <p className="muted compact">Observer mode is read-only. You can watch the conversation but cannot send messages.</p>}
           {activeAgent && activeAgent.status !== "online" && <p className="error inline-error">The active agent is offline. Select an online agent from the controls.</p>}
           {error && <p className="error inline-error">{error}</p>}
         </section>
@@ -387,16 +392,17 @@ export default function App() {
             <section className="side-card">
               <h2>Local Agent</h2>
               <label htmlFor="agent-type">Agent type</label>
-              <select id="agent-type" value={agentType} onChange={(event) => setAgentType(event.target.value)}>{agentTypes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+              <select id="agent-type" disabled={!canManageRoom} value={agentType} onChange={(event) => setAgentType(event.target.value)}>{agentTypes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
               <label htmlFor="permission-level">Permission</label>
-              <select id="permission-level" value={permissionLevel} onChange={(event) => setPermissionLevel(event.target.value)}>{permissionLevels.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+              <select id="permission-level" disabled={!canManageRoom} value={permissionLevel} onChange={(event) => setPermissionLevel(event.target.value)}>{permissionLevels.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+              <p className="muted compact">Permission is applied when a local agent starts. Restart the agent after changing it.</p>
               <label htmlFor="working-dir">Working directory</label>
-              <input id="working-dir" value={workingDir} onChange={(event) => setWorkingDir(event.target.value)} />
+              <input id="working-dir" disabled={!canManageRoom} value={workingDir} onChange={(event) => setWorkingDir(event.target.value)} />
               <div className="agent-actions">
                 <button type="button" disabled={!canManageRoom} onClick={() => void run(startLocalAgent)}>Start local agent</button>
-                <button type="button" className="secondary" onClick={() => void run(toggleManualCommand)}>{showManualCommand ? "Hide manual command" : "Show manual command"}</button>
+                <button type="button" className="secondary" disabled={!canManageRoom} onClick={() => void run(toggleManualCommand)}>{showManualCommand ? "Hide manual command" : "Show manual command"}</button>
               </div>
-              {!canManageRoom && <p className="muted compact">Only owners and admins can start local agents from the browser.</p>}
+              {!canManageRoom && <p className="muted compact">Only owners and admins can configure or start local agents.</p>}
               {localLaunch && <p className="status-line">Local launch started{localLaunch.pid ? ` (pid ${localLaunch.pid})` : ""}.</p>}
               {localLaunch?.out_log && <p className="muted compact">Logs: {localLaunch.out_log}</p>}
               {showManualCommand && pairingCommand && <code className="command-box">{pairingCommand}</code>}
@@ -412,11 +418,12 @@ export default function App() {
 
             <section className="side-card">
               <h2>Active Agent</h2>
-              <select aria-label="Active agent" value={room.activeAgentId ?? ""} onChange={(event) => { const value = event.target.value; if (value) void run(async () => selectAgent(session, value)); }}>
+              <select aria-label="Active agent" disabled={!canManageRoom} value={room.activeAgentId ?? ""} onChange={(event) => { const value = event.target.value; if (value) void run(async () => selectAgent(session, value)); }}>
                 <option value="">Select agent</option>
                 {room.agents.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.status === "online" ? "Online" : "Offline"} - {agent.name} - {agent.agent_id.slice(-6)}</option>)}
               </select>
               {room.agents.length === 0 && <p className="muted">Run the connect command and the agent will appear here.</p>}
+              {!canManageRoom && <p className="muted compact">Only owners and admins can change the active agent.</p>}
             </section>
 
             <section className="side-card collection-panel">
@@ -434,7 +441,7 @@ export default function App() {
                     <div><dt>Collected</dt><dd>{room.activeCollection.messages.length} message{room.activeCollection.messages.length === 1 ? "" : "s"}</dd></div>
                     <div><dt>Started</dt><dd>{new Date(room.activeCollection.started_at).toLocaleTimeString()}</dd></div>
                   </dl>
-                  {canManageRoom ? (
+                  {canUseAiFlowControl ? (
                     <div className="collection-actions">
                       <button type="button" disabled={room.activeCollection.messages.length === 0} onClick={() => void run(submitCollection)}>Submit collected answers</button>
                       <button type="button" className="secondary danger" onClick={() => void run(cancelCollection)}>Cancel collection</button>
@@ -444,8 +451,8 @@ export default function App() {
               ) : (
                 <>
                   <p className="muted compact">Live mode is on. New human messages are sent to the active AI agent automatically.</p>
-                  <button type="button" disabled={!canManageRoom} onClick={() => void run(startCollection)}>Start collecting answers</button>
-                  {!canManageRoom && <p className="muted compact">Only owners and admins can pause AI and collect answers.</p>}
+                  <button type="button" disabled={!canUseAiFlowControl} onClick={() => void run(startCollection)}>Start collecting answers</button>
+                  {!canUseAiFlowControl && <p className="muted compact">Only the host can pause AI and collect answers.</p>}
                 </>
               )}
               {room.collectionHistory.length > 0 && (
@@ -463,10 +470,11 @@ export default function App() {
             <section className="side-card">
               <h2>Invite link</h2>
               <label htmlFor="invite-role">Invite role</label>
-              <select id="invite-role" value={inviteRole} onChange={(event) => setInviteRole(event.target.value as InviteRole)}><option value="member">Member</option><option value="observer">Observer</option></select>
+              <select id="invite-role" disabled={!canManageRoom} value={inviteRole} onChange={(event) => setInviteRole(event.target.value as InviteRole)}><option value="member">Member</option><option value="observer">Observer</option></select>
               <label htmlFor="invite-ttl">Invite expires</label>
-              <select id="invite-ttl" value={inviteTtl} onChange={(event) => setInviteTtl(Number(event.target.value))}><option value={3600}>1 hour</option><option value={86400}>24 hours</option><option value={604800}>7 days</option></select>
-              <button type="button" onClick={() => void run(async () => { const invite = await createInvite(session, inviteRole, inviteTtl); setCreatedInviteUrl(inviteUrlFor(window.location.origin, session.room_id, invite.invite_token)); })}>Create invite link</button>
+              <select id="invite-ttl" disabled={!canManageRoom} value={inviteTtl} onChange={(event) => setInviteTtl(Number(event.target.value))}><option value={3600}>1 hour</option><option value={86400}>24 hours</option><option value={604800}>7 days</option></select>
+              <button type="button" disabled={!canManageRoom} onClick={() => void run(async () => { const invite = await createInvite(session, inviteRole, inviteTtl); setCreatedInviteUrl(inviteUrlFor(window.location.origin, session.room_id, invite.invite_token)); })}>Create invite link</button>
+              {!canManageRoom && <p className="muted compact">Only owners and admins can create invite links.</p>}
               {createdInviteUrl && <code className="command-box">{createdInviteUrl}</code>}
             </section>
           </aside>

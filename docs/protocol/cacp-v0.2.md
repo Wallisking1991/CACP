@@ -91,7 +91,7 @@ POST /rooms
 
 ```http
 POST /rooms/:roomId/ai-collection/start
-Authorization: Bearer <owner_or_admin_token>
+Authorization: Bearer <owner_token>
 ```
 
 响应：
@@ -112,7 +112,7 @@ Authorization: Bearer <owner_or_admin_token>
 
 ```http
 POST /rooms/:roomId/ai-collection/submit
-Authorization: Bearer <owner_or_admin_token>
+Authorization: Bearer <owner_token>
 ```
 
 响应：
@@ -135,7 +135,7 @@ Authorization: Bearer <owner_or_admin_token>
 
 ```http
 POST /rooms/:roomId/ai-collection/cancel
-Authorization: Bearer <owner_or_admin_token>
+Authorization: Bearer <owner_token>
 ```
 
 响应：
@@ -156,7 +156,7 @@ Authorization: Bearer <owner_or_admin_token>
 
 ```http
 POST /rooms/:roomId/messages
-Authorization: Bearer <human_token>
+Authorization: Bearer <owner_admin_or_member_token>
 ```
 
 请求：
@@ -177,15 +177,15 @@ Live mode 下：
 
 1. 追加带 `collection_id` 的 `message.created`；
 2. 不创建 Agent turn；
-3. 等 owner/admin 提交收集结果后再合并触发。
+3. 等 owner 提交收集结果后再合并触发。
 
 ## Agent pairing
 
-Host 可创建 pairing token：
+Owner/admin 可创建 pairing token：
 
 ```http
 POST /rooms/:roomId/agent-pairings
-Authorization: Bearer <owner_or_member_token>
+Authorization: Bearer <owner_or_admin_token>
 ```
 
 浏览器本地一键启动使用：

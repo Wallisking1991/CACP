@@ -579,7 +579,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/ai-collection/start", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (!hasAnyRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
+    if (!hasHumanRole(participant, ["owner"])) return deny(reply, "forbidden", 403);
     if (activeCollectionFor(request.params.roomId)) return deny(reply, "active_collection_exists", 409);
     const collectionId = prefixedId("collection");
     appendAndPublish(event(request.params.roomId, "ai.collection.started", participant.id, {
@@ -592,7 +592,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/ai-collection/submit", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (!hasAnyRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
+    if (!hasHumanRole(participant, ["owner"])) return deny(reply, "forbidden", 403);
     const activeCollection = activeCollectionFor(request.params.roomId);
     if (!activeCollection) return deny(reply, "no_active_collection", 409);
     const activeAgentId = findActiveAgentId(store.listEvents(request.params.roomId));
@@ -615,7 +615,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/ai-collection/cancel", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (!hasAnyRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
+    if (!hasHumanRole(participant, ["owner"])) return deny(reply, "forbidden", 403);
     const activeCollection = activeCollectionFor(request.params.roomId);
     if (!activeCollection) return deny(reply, "no_active_collection", 409);
     appendAndPublish(event(request.params.roomId, "ai.collection.cancelled", participant.id, {
@@ -657,7 +657,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/agents/register", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
+    if (!hasHumanRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
     const body = AgentRegisterSchema.parse(request.body);
     const agentId = prefixedId("agent");
     const agentToken = token();
@@ -672,7 +672,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/agent-pairings", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
+    if (!hasHumanRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
     const body = AgentPairingCreateSchema.parse(request.body);
     const serverUrl = body.server_url ?? `${request.protocol}://${request.headers.host}`;
     return reply.code(201).send(createAgentPairing(request.params.roomId, participant.id, body, serverUrl));
@@ -750,7 +750,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/agents/select", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
+    if (!hasHumanRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
     const body = SelectAgentSchema.parse(request.body);
     const targetAgent = findParticipant(request.params.roomId, body.agent_id);
     if (!targetAgent || targetAgent.type !== "agent" || targetAgent.role !== "agent") return deny(reply, "invalid_target_agent", 400);
