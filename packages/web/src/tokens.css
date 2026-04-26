@@ -1,0 +1,42 @@
+:root {
+  /* Backgrounds */
+  --bg: #faf6ee;
+  --surface: #fdfaf2;
+  --surface-warm: #fdf9f1;
+  --surface-collect: #fff7eb;
+  --surface-queued: #f5ede0;
+
+  /* Ink */
+  --ink: #1c1813;
+  --ink-2: #4d4239;
+  --ink-3: #6b5e50;
+  --ink-4: #8a7a66;
+  --ink-5: #a89b8a;
+  --invert: #faf6ee;
+
+  /* Borders */
+  --border: #e8dfd0;
+  --border-soft: #f0e9d8;
+
+  /* Accent */
+  --accent: #c2410c;
+  --accent-soft: #fef3e7;
+  --accent-border: #f3d4ad;
+
+  /* Success */
+  --success: #15803d;
+
+  /* Typography */
+  --font-headline: 'Times New Roman', Georgia, 'Source Han Serif SC', 'Songti SC', 'SimSun', serif;
+  --font-body: Inter, ui-sans-serif, system-ui, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Radii */
+  --radius-chip: 6px;
+  --radius-button: 8px;
+  --radius-input: 8px;
+  --radius-card: 10px;
+  --radius-composer: 10px;
+  --radius-frame: 12px;
+  --radius-pill: 999px;
+}
