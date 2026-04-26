@@ -288,11 +288,11 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return true;
   }
 
-  function isOpenTurnStale(events: CacpEvent[], turnId: string, agentId: string): boolean {
-    const requested = events.find((storedEvent) => storedEvent.type === "agent.turn.requested" && storedEvent.payload.turn_id === turnId);
+  function isOpenTurnStale(turnEvents: CacpEvent[], statusEvents: CacpEvent[], turnId: string, agentId: string): boolean {
+    const requested = turnEvents.find((storedEvent) => storedEvent.type === "agent.turn.requested" && storedEvent.payload.turn_id === turnId);
     if (!requested) return false;
     const ageMs = Date.now() - Date.parse(requested.created_at);
-    return ageMs > 2 * 60 * 1000 || !isAgentOnline(events, agentId);
+    return ageMs > 2 * 60 * 1000 || !isAgentOnline(statusEvents, agentId);
   }
 
   function findParticipant(roomId: string, participantId: string): Participant | undefined {
@@ -330,7 +330,20 @@ export async function buildServer(options: BuildServerOptions = {}) {
       deny(reply, "forbidden", 403);
       return undefined;
     }
+    if (isTurnCleared(roomId, turnId)) {
+      deny(reply, "turn_cleared", 409);
+      return undefined;
+    }
     return turn;
+  }
+
+  function isTurnCleared(roomId: string, turnId: string): boolean {
+    const events = store.listEvents(roomId);
+    const postClearEvents = eventsAfterLastHistoryClear(events);
+    if (postClearEvents === events) return false;
+    const wasRequested = events.some((storedEvent) => storedEvent.type === "agent.turn.requested" && storedEvent.payload.turn_id === turnId);
+    const requestedAfterClear = postClearEvents.some((storedEvent) => storedEvent.type === "agent.turn.requested" && storedEvent.payload.turn_id === turnId);
+    return wasRequested && !requestedAfterClear;
   }
 
   function buildContextPrompt(roomId: string, agentId: string): string {
@@ -349,17 +362,18 @@ export async function buildServer(options: BuildServerOptions = {}) {
   function createAgentTurnRequestEvents(roomId: string, actorId: string, reason: "human_message" | "queued_followup"): CacpEvent[] {
     if (activeBlockingDecisionFor(roomId)) return [];
     const events = store.listEvents(roomId);
+    const turnEvents = eventsAfterLastHistoryClear(events);
     const activeAgentId = findActiveAgentId(events);
     if (!activeAgentId) return [];
     const activeAgent = findParticipant(roomId, activeAgentId);
     if (!activeAgent || activeAgent.role !== "agent" || activeAgent.type !== "agent") return [];
     if (!isAgentOnline(events, activeAgentId)) {
-      const openTurn = findOpenTurn(events, activeAgentId);
+      const openTurn = findOpenTurn(turnEvents, activeAgentId);
       return openTurn ? [event(roomId, "agent.turn.failed", actorId, { turn_id: openTurn.turn_id, agent_id: activeAgentId, error: "active_agent_offline" })] : [];
     }
-    const openTurn = findOpenTurn(events, activeAgentId);
+    const openTurn = findOpenTurn(turnEvents, activeAgentId);
     if (openTurn) {
-      if (isOpenTurnStale(events, openTurn.turn_id, activeAgentId)) {
+      if (isOpenTurnStale(turnEvents, events, openTurn.turn_id, activeAgentId)) {
         const turnId = prefixedId("turn");
         return [
           event(roomId, "agent.turn.failed", actorId, { turn_id: openTurn.turn_id, agent_id: activeAgentId, error: "stale_turn_recovered" }),
@@ -371,7 +385,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
           })
         ];
       }
-      if (hasQueuedFollowup(events, openTurn.turn_id)) return [];
+      if (hasQueuedFollowup(turnEvents, openTurn.turn_id)) return [];
       return [event(roomId, "agent.turn.followup_queued", actorId, { turn_id: openTurn.turn_id, agent_id: activeAgentId })];
     }
     const turnId = prefixedId("turn");

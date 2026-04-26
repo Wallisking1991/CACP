@@ -269,6 +269,91 @@ describe("CACP decision protocol integration", () => {
     await app.close();
   });
 
+  it("creates a fresh agent turn after clearing an in-flight pre-clear turn", async () => {
+    const { app, room, ownerAuth } = await createRoom();
+    const agent = await registerAndSelectAgent(app, room.room_id, ownerAuth);
+
+    const beforeMessage = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/messages`,
+      headers: ownerAuth,
+      payload: { text: "start pre-clear turn" }
+    });
+    expect(beforeMessage.statusCode).toBe(201);
+    let events = await listEvents(app, room.room_id, ownerAuth);
+    const preClearTurnId = String(events.find((event) => event.type === "agent.turn.requested")?.payload.turn_id);
+    expect(preClearTurnId).toMatch(/^turn_/);
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${preClearTurnId}/start`, headers: agent.agentAuth, payload: {} })).statusCode).toBe(201);
+
+    const clear = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/history/clear`,
+      headers: ownerAuth,
+      payload: {}
+    });
+    expect(clear.statusCode).toBe(201);
+
+    const afterMessage = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/messages`,
+      headers: ownerAuth,
+      payload: { text: "post-clear turn needs fresh context" }
+    });
+    expect(afterMessage.statusCode).toBe(201);
+
+    events = await listEvents(app, room.room_id, ownerAuth);
+    const requestedTurns = events.filter((event) => event.type === "agent.turn.requested");
+    expect(requestedTurns).toHaveLength(2);
+    expect(requestedTurns[requestedTurns.length - 1].payload.turn_id).not.toBe(preClearTurnId);
+    expect(events.some((event) => event.type === "agent.turn.followup_queued" && event.payload.turn_id === preClearTurnId)).toBe(false);
+
+    await app.close();
+  });
+
+  it.each([
+    ["delta", { chunk: "leaked old delta" }, "agent.output.delta"],
+    ["complete", { final_text: "leaked old completion", exit_code: 0 }, "agent.turn.completed"],
+    ["fail", { error: "old turn failed" }, "agent.turn.failed"]
+  ])("rejects pre-clear turn %s after history clear", async (action, payload, rejectedEventType) => {
+    const { app, room, ownerAuth } = await createRoom();
+    const agent = await registerAndSelectAgent(app, room.room_id, ownerAuth);
+
+    const beforeMessage = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/messages`,
+      headers: ownerAuth,
+      payload: { text: "start old turn before clear" }
+    });
+    expect(beforeMessage.statusCode).toBe(201);
+    let events = await listEvents(app, room.room_id, ownerAuth);
+    const preClearTurnId = String(events.find((event) => event.type === "agent.turn.requested")?.payload.turn_id);
+    expect(preClearTurnId).toMatch(/^turn_/);
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${preClearTurnId}/start`, headers: agent.agentAuth, payload: {} })).statusCode).toBe(201);
+
+    const clear = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/history/clear`,
+      headers: ownerAuth,
+      payload: {}
+    });
+    expect(clear.statusCode).toBe(201);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-turns/${preClearTurnId}/${action}`,
+      headers: agent.agentAuth,
+      payload
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toEqual({ error: "turn_cleared" });
+
+    events = await listEvents(app, room.room_id, ownerAuth);
+    expect(events.some((event) => event.type === rejectedEventType && event.payload.turn_id === preClearTurnId)).toBe(false);
+    expect(events.some((event) => event.type === "message.created" && event.payload.text === "leaked old completion")).toBe(false);
+
+    await app.close();
+  });
+
   it("allows a new decision after cancellation", async () => {
     const { app, room, ownerAuth } = await createRoom();
     const agent = await registerAndSelectAgent(app, room.room_id, ownerAuth);
