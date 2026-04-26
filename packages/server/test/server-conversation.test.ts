@@ -61,8 +61,8 @@ describe("CACP server conversation room", () => {
       payload: {
         final_text: [
           "建议先做主聊天框。",
-          "```cacp-question",
-          "{\"question\":\"下一步优先实现什么？\",\"options\":[\"主聊天框\",\"邀请加入\"]}",
+          "```cacp-decision",
+          "{\"title\":\"\u4e0b\u4e00\u6b65\u4f18\u5148\u5b9e\u73b0\u4ec0\u4e48\uff1f\",\"description\":\"\u8bf7\u9009\u62e9\u4e0b\u4e00\u6b65\u4f18\u5148\u5b9e\u73b0\u7684\u529f\u80fd\u3002\",\"kind\":\"single_choice\",\"options\":[{\"id\":\"chat\",\"label\":\"\u4e3b\u804a\u5929\u6846\"},{\"id\":\"invite\",\"label\":\"\u9080\u8bf7\u52a0\u5165\"}],\"policy\":\"room_default\",\"blocking\":true}",
           "```"
         ].join("\n"),
         exit_code: 0
@@ -77,13 +77,13 @@ describe("CACP server conversation room", () => {
       "agent.turn.started",
       "agent.output.delta",
       "agent.turn.completed",
-      "question.created"
+      "decision.requested"
     ]));
     const finalMessage = events.find((event) => event.type === "message.created" && event.actor_id === agent.agent_id);
     expect(finalMessage?.payload.text).toContain("建议先做主聊天框");
     expect(finalMessage?.payload.kind).toBe("agent");
-    const question = events.find((event) => event.type === "question.created");
-    expect(question?.payload.question).toBe("下一步优先实现什么？");
+    const decision = events.find((event) => event.type === "decision.requested");
+    expect(decision?.payload.title).toBe("\u4e0b\u4e00\u6b65\u4f18\u5148\u5b9e\u73b0\u4ec0\u4e48\uff1f");
 
     await app.close();
   });

@@ -3,7 +3,8 @@ import websocket from "@fastify/websocket";
 import { z } from "zod";
 import { evaluatePolicy, PolicySchema, VoteRecordSchema, type CacpEvent, type Participant, type Policy, type VoteRecord } from "@cacp/protocol";
 import { requireParticipant, hasAnyRole, hasHumanRole } from "./auth.js";
-import { buildAgentContextPrompt, extractCacpQuestions, findActiveAgentId, findOpenTurn, hasQueuedFollowup, recentConversationMessages } from "./conversation.js";
+import { buildAgentContextPrompt, eventsAfterLastHistoryClear, findActiveAgentId, findOpenTurn, hasQueuedFollowup, recentConversationMessages } from "./conversation.js";
+import { deriveDecisionStates, evaluateDecisionPolicy, extractCacpDecisions, interpretDecisionResponse } from "./decisions.js";
 import { EventBus } from "./event-bus.js";
 import { EventStore } from "./event-store.js";
 import { event, prefixedId, token } from "./ids.js";
@@ -16,6 +17,19 @@ const JoinSchema = z.object({ invite_token: z.string().min(1), display_name: z.s
 const MessageSchema = z.object({ text: z.string().min(1) });
 const QuestionSchema = z.object({ question: z.string().min(1), expected_response: z.enum(["free_text", "single_choice", "multiple_choice"]).default("free_text"), options: z.array(z.string()).default([]) });
 const QuestionResponseSchema = z.object({ response: z.unknown(), comment: z.string().optional() });
+const DecisionCreateSchema = z.object({
+  title: z.string().min(1),
+  description: z.string().min(1),
+  kind: z.string().min(1),
+  options: z.array(z.object({ id: z.string().min(1), label: z.string().min(1) })).default([]),
+  policy: z.union([PolicySchema, z.literal("room_default")]).default("room_default"),
+  blocking: z.boolean().default(true),
+  decision_type: z.string().optional(),
+  action_id: z.string().optional(),
+  source_turn_id: z.string().optional(),
+  source_message_id: z.string().optional()
+});
+const DecisionCancelSchema = z.object({ reason: z.string().min(1).default("Cancelled by owner") });
 const ProposalSchema = z.object({ title: z.string().min(1), proposal_type: z.string().min(1), policy: PolicySchema });
 const AgentRegisterSchema = z.object({ name: z.string().min(1), capabilities: z.array(z.string()).default([]) });
 const AgentPairingCreateSchema = z.object({
@@ -45,9 +59,39 @@ type TaskTerminalStatus = "completed" | "failed" | "cancelled";
 type TaskState = { target_agent_id: string; started: boolean; terminal_status?: TaskTerminalStatus };
 type TurnTerminalStatus = "completed" | "failed";
 type TurnState = { agent_id: string; started: boolean; terminal_status?: TurnTerminalStatus };
+type DecisionInput = z.infer<typeof DecisionCreateSchema>;
+type SupportedDecisionKind = "single_choice" | "approval";
+type SupportedDecisionPolicy = Extract<Policy, { type: "owner_approval" | "majority" | "unanimous" }>;
+type NormalizedDecisionInput = Omit<DecisionInput, "kind" | "policy"> & { kind: SupportedDecisionKind; policy: SupportedDecisionPolicy };
+type DecisionValidationError = "unsupported_decision_kind" | "unsupported_decision_policy" | "decision_options_required";
+
+const defaultApprovalOptions = [{ id: "approve", label: "Approve" }, { id: "reject", label: "Reject" }];
+const supportedDecisionPolicies = new Set(["owner_approval", "majority", "unanimous"]);
 
 function deny(reply: FastifyReply, error: string, status = 401) {
   return reply.code(status).send({ error });
+}
+
+function isSupportedDecisionPolicy(policy: Policy): policy is SupportedDecisionPolicy {
+  return supportedDecisionPolicies.has(policy.type);
+}
+
+function normalizeDecisionInput(input: DecisionInput, roomDefaultPolicy: Policy): { ok: true; value: NormalizedDecisionInput } | { ok: false; error: DecisionValidationError } {
+  if (input.kind !== "single_choice" && input.kind !== "approval") return { ok: false, error: "unsupported_decision_kind" };
+
+  const policy = input.policy === "room_default" ? roomDefaultPolicy : input.policy;
+  if (!isSupportedDecisionPolicy(policy)) return { ok: false, error: "unsupported_decision_policy" };
+
+  if (input.kind === "single_choice" && input.options.length === 0) return { ok: false, error: "decision_options_required" };
+
+  if (input.kind === "approval") {
+    const options = input.options.length === 0 ? defaultApprovalOptions : input.options;
+    const optionIds = new Set(options.map((option) => option.id));
+    if (!optionIds.has("approve") || !optionIds.has("reject")) return { ok: false, error: "decision_options_required" };
+    return { ok: true, value: { ...input, kind: input.kind, policy, options } };
+  }
+
+  return { ok: true, value: { ...input, kind: input.kind, policy } };
 }
 
 export async function buildServer(options: BuildServerOptions = {}) {
@@ -130,6 +174,39 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return parsed.success ? parsed.data : { type: "owner_approval" };
   }
 
+  function decisionStatesFor(roomId: string) {
+    return deriveDecisionStates(eventsAfterLastHistoryClear(store.listEvents(roomId)));
+  }
+
+  function activeBlockingDecisionFor(roomId: string) {
+    const participants = store.getParticipants(roomId).map(publicParticipant);
+    return decisionStatesFor(roomId).find((state) => {
+      if (state.terminal_status || state.request.blocking !== true) return false;
+      const evaluation = evaluateDecisionPolicy({ decision: state, participants, now: new Date() });
+      return !(evaluation.status === "open" && evaluation.reason === "decision policy expired");
+    });
+  }
+
+  function resolveDecisionPolicyEvents(roomId: string, actorId: string, decisionId: string): CacpEvent[] {
+    const state = decisionStatesFor(roomId).find((item) => item.request.decision_id === decisionId);
+    if (!state || state.terminal_status) return [];
+    const evaluation = evaluateDecisionPolicy({ decision: state, participants: store.getParticipants(roomId).map(publicParticipant) });
+    if (evaluation.status !== "resolved") return [];
+    const resolved = event(roomId, "decision.resolved", actorId, {
+      decision_id: decisionId,
+      result: evaluation.result,
+      result_label: evaluation.result_label,
+      decided_by: evaluation.decided_by,
+      policy_evaluation: { status: "approved", reason: evaluation.reason }
+    });
+    if (state.request.decision_type !== "agent_action_approval" || typeof state.request.action_id !== "string") return [resolved];
+    return [resolved, event(roomId, "agent.action_approval_resolved", actorId, {
+      action_id: state.request.action_id,
+      decision_id: decisionId,
+      decision: evaluation.result
+    })];
+  }
+
   function isQuestionClosed(roomId: string, questionId: string): boolean {
     return store.listEvents(roomId).some((storedEvent) => storedEvent.type === "question.closed" && storedEvent.payload.question_id === questionId);
   }
@@ -154,32 +231,32 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return value === "approve" ? "approve" : "reject";
   }
 
-  function findActionApprovalStatus(roomId: string, actionId: string): { status: "pending"; question_id?: string } | { status: "resolved"; question_id?: string; decision: "approve" | "reject"; raw_decision: unknown } | undefined {
-    let questionId: string | undefined;
+  function findActionApprovalStatus(roomId: string, actionId: string): { status: "pending"; decision_id?: string } | { status: "resolved"; decision_id?: string; decision: "approve" | "reject"; raw_decision: unknown } | undefined {
+    let decisionId: string | undefined;
     for (const storedEvent of store.listEvents(roomId)) {
-      if (storedEvent.type === "question.created" && storedEvent.payload.action_id === actionId && typeof storedEvent.payload.question_id === "string") {
-        questionId = storedEvent.payload.question_id;
+      if (storedEvent.type === "decision.requested" && storedEvent.payload.action_id === actionId && typeof storedEvent.payload.decision_id === "string") {
+        decisionId = storedEvent.payload.decision_id;
       }
       if (storedEvent.type === "agent.action_approval_resolved" && storedEvent.payload.action_id === actionId) {
-        if (typeof storedEvent.payload.question_id === "string") questionId = storedEvent.payload.question_id;
+        if (typeof storedEvent.payload.decision_id === "string") decisionId = storedEvent.payload.decision_id;
         return {
           status: "resolved",
-          question_id: questionId,
+          decision_id: decisionId,
           decision: normalizeActionDecision(storedEvent.payload.decision),
           raw_decision: storedEvent.payload.decision
         };
       }
     }
-    return questionId ? { status: "pending", question_id: questionId } : undefined;
+    return decisionId ? { status: "pending", decision_id: decisionId } : undefined;
   }
 
-  async function waitForActionApprovalResolution(roomId: string, actionId: string, timeoutMs: number): Promise<{ status: "resolved"; question_id?: string; decision: "approve" | "reject"; raw_decision: unknown } | undefined> {
+  async function waitForActionApprovalResolution(roomId: string, actionId: string, timeoutMs: number): Promise<{ status: "resolved"; decision_id?: string; decision: "approve" | "reject"; raw_decision: unknown } | undefined> {
     const current = findActionApprovalStatus(roomId, actionId);
     if (current?.status === "resolved") return current;
     if (timeoutMs <= 0) return undefined;
     return await new Promise((resolve) => {
       let settled = false;
-      const settle = (value: { status: "resolved"; question_id?: string; decision: "approve" | "reject"; raw_decision: unknown } | undefined) => {
+      const settle = (value: { status: "resolved"; decision_id?: string; decision: "approve" | "reject"; raw_decision: unknown } | undefined) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
@@ -191,7 +268,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
         const resolved = findActionApprovalStatus(roomId, actionId);
         settle(resolved?.status === "resolved" ? resolved : {
           status: "resolved",
-          question_id: typeof nextEvent.payload.question_id === "string" ? nextEvent.payload.question_id : undefined,
+          decision_id: typeof nextEvent.payload.decision_id === "string" ? nextEvent.payload.decision_id : undefined,
           decision: normalizeActionDecision(nextEvent.payload.decision),
           raw_decision: nextEvent.payload.decision
         });
@@ -211,11 +288,11 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return true;
   }
 
-  function isOpenTurnStale(events: CacpEvent[], turnId: string, agentId: string): boolean {
-    const requested = events.find((storedEvent) => storedEvent.type === "agent.turn.requested" && storedEvent.payload.turn_id === turnId);
+  function isOpenTurnStale(turnEvents: CacpEvent[], statusEvents: CacpEvent[], turnId: string, agentId: string): boolean {
+    const requested = turnEvents.find((storedEvent) => storedEvent.type === "agent.turn.requested" && storedEvent.payload.turn_id === turnId);
     if (!requested) return false;
     const ageMs = Date.now() - Date.parse(requested.created_at);
-    return ageMs > 2 * 60 * 1000 || !isAgentOnline(events, agentId);
+    return ageMs > 2 * 60 * 1000 || !isAgentOnline(statusEvents, agentId);
   }
 
   function findParticipant(roomId: string, participantId: string): Participant | undefined {
@@ -253,7 +330,20 @@ export async function buildServer(options: BuildServerOptions = {}) {
       deny(reply, "forbidden", 403);
       return undefined;
     }
+    if (isTurnCleared(roomId, turnId)) {
+      deny(reply, "turn_cleared", 409);
+      return undefined;
+    }
     return turn;
+  }
+
+  function isTurnCleared(roomId: string, turnId: string): boolean {
+    const events = store.listEvents(roomId);
+    const postClearEvents = eventsAfterLastHistoryClear(events);
+    if (postClearEvents === events) return false;
+    const wasRequested = events.some((storedEvent) => storedEvent.type === "agent.turn.requested" && storedEvent.payload.turn_id === turnId);
+    const requestedAfterClear = postClearEvents.some((storedEvent) => storedEvent.type === "agent.turn.requested" && storedEvent.payload.turn_id === turnId);
+    return wasRequested && !requestedAfterClear;
   }
 
   function buildContextPrompt(roomId: string, agentId: string): string {
@@ -270,18 +360,20 @@ export async function buildServer(options: BuildServerOptions = {}) {
   }
 
   function createAgentTurnRequestEvents(roomId: string, actorId: string, reason: "human_message" | "queued_followup"): CacpEvent[] {
+    if (activeBlockingDecisionFor(roomId)) return [];
     const events = store.listEvents(roomId);
+    const turnEvents = eventsAfterLastHistoryClear(events);
     const activeAgentId = findActiveAgentId(events);
     if (!activeAgentId) return [];
     const activeAgent = findParticipant(roomId, activeAgentId);
     if (!activeAgent || activeAgent.role !== "agent" || activeAgent.type !== "agent") return [];
     if (!isAgentOnline(events, activeAgentId)) {
-      const openTurn = findOpenTurn(events, activeAgentId);
+      const openTurn = findOpenTurn(turnEvents, activeAgentId);
       return openTurn ? [event(roomId, "agent.turn.failed", actorId, { turn_id: openTurn.turn_id, agent_id: activeAgentId, error: "active_agent_offline" })] : [];
     }
-    const openTurn = findOpenTurn(events, activeAgentId);
+    const openTurn = findOpenTurn(turnEvents, activeAgentId);
     if (openTurn) {
-      if (isOpenTurnStale(events, openTurn.turn_id, activeAgentId)) {
+      if (isOpenTurnStale(turnEvents, events, openTurn.turn_id, activeAgentId)) {
         const turnId = prefixedId("turn");
         return [
           event(roomId, "agent.turn.failed", actorId, { turn_id: openTurn.turn_id, agent_id: activeAgentId, error: "stale_turn_recovered" }),
@@ -293,7 +385,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
           })
         ];
       }
-      if (hasQueuedFollowup(events, openTurn.turn_id)) return [];
+      if (hasQueuedFollowup(turnEvents, openTurn.turn_id)) return [];
       return [event(roomId, "agent.turn.followup_queued", actorId, { turn_id: openTurn.turn_id, agent_id: activeAgentId })];
     }
     const turnId = prefixedId("turn");
@@ -305,7 +397,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     })];
   }
 
-  app.get("/health", async () => ({ ok: true, protocol: "cacp", version: "0.1.0" }));
+  app.get("/health", async () => ({ ok: true, protocol: "cacp", version: "0.2.0" }));
 
   app.post("/rooms", async (request, reply) => {
     const body = CreateRoomSchema.parse(request.body);
@@ -350,6 +442,18 @@ export async function buildServer(options: BuildServerOptions = {}) {
     });
   });
 
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/history/clear", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    if (!hasAnyRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
+    appendAndPublish(event(request.params.roomId, "room.history_cleared", participant.id, {
+      cleared_by: participant.id,
+      cleared_at: new Date().toISOString(),
+      scope: "messages_and_decisions"
+    }));
+    return reply.code(201).send({ ok: true });
+  });
+
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/invites", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
@@ -382,16 +486,88 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!participant) return deny(reply, "invalid_token");
     if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
     const body = MessageSchema.parse(request.body);
+    const activeDecision = activeBlockingDecisionFor(request.params.roomId);
     const storedEvents = store.transaction(() => {
+      const messageId = prefixedId("msg");
       const message = store.appendEvent(event(request.params.roomId, "message.created", participant.id, {
-        message_id: prefixedId("msg"),
+        message_id: messageId,
         text: body.text,
         kind: "human"
       }));
+
+      if (activeDecision) {
+        const interpreted = interpretDecisionResponse({ decision: activeDecision.request, text: body.text });
+        if (!interpreted) {
+          const allowedAnswers = activeDecision.request.options.map((option) => option.id).join(", ");
+          const systemMessage = store.appendEvent(event(request.params.roomId, "message.created", participant.id, {
+            message_id: prefixedId("msg"),
+            text: `Current decision is still open. Please answer with one of: ${allowedAnswers}.`,
+            kind: "system"
+          }));
+          return [message, systemMessage];
+        }
+
+        const responseRecorded = store.appendEvent(event(request.params.roomId, "decision.response_recorded", participant.id, {
+          decision_id: activeDecision.request.decision_id,
+          respondent_id: participant.id,
+          response: interpreted.response,
+          response_label: interpreted.response_label,
+          source_message_id: messageId,
+          interpretation: { method: "deterministic", confidence: 1 }
+        }));
+        const resolvedEvents = resolveDecisionPolicyEvents(request.params.roomId, participant.id, activeDecision.request.decision_id).map((nextEvent) => store.appendEvent(nextEvent));
+        const followupEvents = resolvedEvents.some((storedEvent) => storedEvent.type === "decision.resolved")
+          ? createAgentTurnRequestEvents(request.params.roomId, participant.id, "human_message").map((nextEvent) => store.appendEvent(nextEvent))
+          : [];
+        return [message, responseRecorded, ...resolvedEvents, ...followupEvents];
+      }
+
       return [message, ...createAgentTurnRequestEvents(request.params.roomId, participant.id, "human_message").map((nextEvent) => store.appendEvent(nextEvent))];
     });
     publishEvents(storedEvents);
     return reply.code(201).send(storedEvents[0]);
+  });
+
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/decisions", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    if (!hasAnyRole(participant, ["owner", "admin", "agent"])) return deny(reply, "forbidden", 403);
+    if (activeBlockingDecisionFor(request.params.roomId)) return deny(reply, "active_decision_exists", 409);
+    const parsed = DecisionCreateSchema.safeParse(request.body);
+    if (!parsed.success) return deny(reply, "invalid_decision", 400);
+    const normalized = normalizeDecisionInput(parsed.data, roomPolicy(request.params.roomId));
+    if (!normalized.ok) return deny(reply, normalized.error, 400);
+    const body = normalized.value;
+    const decisionId = prefixedId("dec");
+    appendAndPublish(event(request.params.roomId, "decision.requested", participant.id, {
+      ...body,
+      decision_id: decisionId
+    }));
+    return reply.code(201).send({ decision_id: decisionId });
+  });
+
+  app.post<{ Params: { roomId: string; decisionId: string } }>("/rooms/:roomId/decisions/:decisionId/cancel", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    if (!hasAnyRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
+    const state = decisionStatesFor(request.params.roomId).find((item) => item.request.decision_id === request.params.decisionId);
+    if (!state) return deny(reply, "unknown_decision", 404);
+    if (state.terminal_status) return deny(reply, "decision_closed", 409);
+    const body = DecisionCancelSchema.parse(request.body ?? {});
+    const storedEvents = store.transaction(() => {
+      const cancelled = store.appendEvent(event(request.params.roomId, "decision.cancelled", participant.id, { decision_id: request.params.decisionId, reason: body.reason, cancelled_by: participant.id }));
+      if (state.request.decision_type !== "agent_action_approval" || typeof state.request.action_id !== "string") return [cancelled];
+      return [
+        cancelled,
+        store.appendEvent(event(request.params.roomId, "agent.action_approval_resolved", participant.id, {
+          action_id: state.request.action_id,
+          decision_id: request.params.decisionId,
+          decision: "reject"
+        }))
+      ];
+    });
+    publishEvents(storedEvents);
+    return reply.code(201).send({ ok: true });
   });
 
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/questions", async (request, reply) => {
@@ -553,9 +729,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const participant = query.token ? store.getParticipantByToken(request.params.roomId, query.token) : requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
     if (participant.role !== "agent" || participant.type !== "agent") return deny(reply, "forbidden", 403);
+    if (activeBlockingDecisionFor(request.params.roomId)) return deny(reply, "active_decision_exists", 409);
     const body = AgentActionApprovalSchema.parse(request.body);
     const actionId = prefixedId("action");
-    const questionId = prefixedId("q");
+    const decisionId = prefixedId("dec");
     const storedEvents = store.transaction(() => [
       store.appendEvent(event(request.params.roomId, "agent.action_approval_requested", participant.id, {
         action_id: actionId,
@@ -564,23 +741,24 @@ export async function buildServer(options: BuildServerOptions = {}) {
         tool_input: body.tool_input,
         description: body.description
       })),
-      store.appendEvent(event(request.params.roomId, "question.created", participant.id, {
-        question_id: questionId,
+      store.appendEvent(event(request.params.roomId, "decision.requested", participant.id, {
+        decision_id: decisionId,
         action_id: actionId,
-        question: body.description ?? `允许 Agent 执行 ${body.tool_name} 吗？`,
-        expected_response: "single_choice",
-        options: ["approve", "reject"],
+        decision_type: "agent_action_approval",
+        title: `Approve ${body.tool_name}`,
+        description: body.description ?? `Allow agent to run ${body.tool_name}?`,
+        kind: "approval",
+        options: [{ id: "approve", label: "Approve" }, { id: "reject", label: "Reject" }],
         blocking: true,
-        policy: roomPolicy(request.params.roomId),
-        question_type: "agent_action_approval"
+        policy: roomPolicy(request.params.roomId)
       }))
     ]);
     publishEvents(storedEvents);
     const resolved = await waitForActionApprovalResolution(request.params.roomId, actionId, query.wait_ms);
     if (resolved) {
-      return reply.code(201).send({ action_id: actionId, question_id: resolved.question_id ?? questionId, status: "resolved", decision: resolved.decision, raw_decision: resolved.raw_decision });
+      return reply.code(201).send({ action_id: actionId, decision_id: resolved.decision_id ?? decisionId, status: "resolved", decision: resolved.decision, raw_decision: resolved.raw_decision });
     }
-    return reply.code(201).send({ action_id: actionId, question_id: questionId, status: "pending" });
+    return reply.code(201).send({ action_id: actionId, decision_id: decisionId, status: "pending" });
   });
 
   app.post<{ Params: { roomId: string; turnId: string } }>("/rooms/:roomId/agent-turns/:turnId/start", async (request, reply) => {
@@ -628,18 +806,36 @@ export async function buildServer(options: BuildServerOptions = {}) {
         kind: "agent",
         turn_id: request.params.turnId
       }));
-      const questionEvents = extractCacpQuestions(body.final_text).map((question) => store.appendEvent(event(request.params.roomId, "question.created", participant.id, {
-        question_id: prefixedId("q"),
-        question: question.question,
-        expected_response: "single_choice",
-        options: question.options,
-        blocking: true,
-        policy: roomPolicy(request.params.roomId)
-      })));
+      const decisionEvents: CacpEvent[] = [];
+      for (const draft of extractCacpDecisions(body.final_text, roomPolicy(request.params.roomId))) {
+        if (activeBlockingDecisionFor(request.params.roomId)) {
+          decisionEvents.push(store.appendEvent(event(request.params.roomId, "message.created", participant.id, {
+            message_id: prefixedId("msg"),
+            text: "A decision is already active. Resolve or cancel it before creating another decision.",
+            kind: "system"
+          })));
+          continue;
+        }
+        const normalized = normalizeDecisionInput(draft, roomPolicy(request.params.roomId));
+        if (!normalized.ok) {
+          decisionEvents.push(store.appendEvent(event(request.params.roomId, "message.created", participant.id, {
+            message_id: prefixedId("msg"),
+            text: "The AI emitted an unsupported decision draft. Please ask it to use single_choice or approval with supported policies.",
+            kind: "system"
+          })));
+          continue;
+        }
+        decisionEvents.push(store.appendEvent(event(request.params.roomId, "decision.requested", participant.id, {
+          ...normalized.value,
+          decision_id: prefixedId("dec"),
+          source_turn_id: request.params.turnId,
+          source_message_id: messageId
+        })));
+      }
       const followupEvents = hasQueuedFollowup(store.listEvents(request.params.roomId), request.params.turnId)
         ? createAgentTurnRequestEvents(request.params.roomId, participant.id, "queued_followup").map((nextEvent) => store.appendEvent(nextEvent))
         : [];
-      return [completed, finalMessage, ...questionEvents, ...followupEvents];
+      return [completed, finalMessage, ...decisionEvents, ...followupEvents];
     });
     publishEvents(storedEvents);
     return reply.code(201).send({ ok: true, message_id: messageId });

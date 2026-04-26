@@ -59,7 +59,9 @@ function claudeSystemPrompt(permissionLevel: PermissionLevel, hookUrl?: string):
   return [
     "你是连接到 CACP 多人协作 AI 房间的 Claude Code CLI Agent。",
     "请基于房间共享上下文帮助所有参与者讨论和推进任务。",
-    "如果需要房间成员对方案、取舍或下一步做结构化决策，请输出一个独立的 fenced code block，信息标记为 `cacp-question`，内容为 JSON，包含 question 和 options。",
+    "When an explicit room decision is required, output a separate fenced code block tagged `cacp-decision`.",
+    "The block must contain JSON with title, description, kind, options, policy, and blocking.",
+    "Only create a decision when the humans must choose, judge, approve, or confirm something.",
     approval
   ].join("\n");
 }

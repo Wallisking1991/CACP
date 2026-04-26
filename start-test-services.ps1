@@ -4,6 +4,7 @@ param(
   [switch]$Restart,
   [switch]$Open,
   [switch]$NoWait,
+  [switch]$Foreground,
   [switch]$CleanLogs
 )
 
@@ -138,6 +139,73 @@ function Start-TestService {
   Write-Host "    logs: $OutLog"
 }
 
+function Start-TestServices {
+  $serverRunning = Test-HttpOk -Url $serverHealthUrl
+  $webRunning = Test-HttpOk -Url "$WebUrl/"
+
+  if (-not $serverRunning) {
+    Stop-RepoListener -Port $ServerPort
+    Start-TestService `
+      -Name "CACP server ($ServerUrl)" `
+      -Arguments @("pnpm", "dev:server") `
+      -PidFile (Join-Path $StateDir "server.pid") `
+      -OutLog (Join-Path $StateDir "server.out.log") `
+      -ErrLog (Join-Path $StateDir "server.err.log")
+  } else {
+    Write-Step "CACP server is already running at $ServerUrl"
+  }
+
+  if (-not $webRunning) {
+    Stop-RepoListener -Port $WebPort
+    Start-TestService `
+      -Name "CACP web ($WebUrl)" `
+      -Arguments @("pnpm", "dev:web") `
+      -PidFile (Join-Path $StateDir "web.pid") `
+      -OutLog (Join-Path $StateDir "web.out.log") `
+      -ErrLog (Join-Path $StateDir "web.err.log")
+  } else {
+    Write-Step "CACP web is already running at $WebUrl"
+  }
+}
+
+function Invoke-ForegroundLifecycle {
+  try {
+    Start-TestServices
+
+    if (-not $NoWait) {
+      Wait-Until -Name "Server" -Check { Test-HttpOk -Url $serverHealthUrl }
+      Wait-Until -Name "Web" -Check { Test-HttpOk -Url "$WebUrl/" }
+    }
+
+    if ($Open) {
+      Start-Process $WebUrl
+    }
+
+    Write-Host ""
+    Write-Host "CACP test services" -ForegroundColor Green
+    Write-Host "Server: $ServerUrl"
+    Write-Host "Web:    $WebUrl"
+    Write-Host "Press Ctrl+C or close this window to stop services."
+    Write-Host ""
+
+    $logs = @(
+      Join-Path $StateDir "server.out.log"
+      Join-Path $StateDir "server.err.log"
+      Join-Path $StateDir "web.out.log"
+      Join-Path $StateDir "web.err.log"
+    )
+    foreach ($log in $logs) {
+      if (-not (Test-Path -LiteralPath $log)) {
+        New-Item -ItemType File -Path $log -Force | Out-Null
+      }
+    }
+
+    Get-Content -LiteralPath $logs -Tail 20 -Wait
+  } finally {
+    Stop-TestServices
+  }
+}
+
 New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
 
 if ($Stop -or $Restart) {
@@ -157,32 +225,13 @@ if ($CleanLogs) {
 }
 
 $serverHealthUrl = "$ServerUrl/health"
-$serverRunning = Test-HttpOk -Url $serverHealthUrl
-$webRunning = Test-HttpOk -Url "$WebUrl/"
 
-if (-not $serverRunning) {
-  Stop-RepoListener -Port $ServerPort
-  Start-TestService `
-    -Name "CACP server ($ServerUrl)" `
-    -Arguments @("pnpm", "dev:server") `
-    -PidFile (Join-Path $StateDir "server.pid") `
-    -OutLog (Join-Path $StateDir "server.out.log") `
-    -ErrLog (Join-Path $StateDir "server.err.log")
-} else {
-  Write-Step "CACP server is already running at $ServerUrl"
+if ($Foreground) {
+  Invoke-ForegroundLifecycle
+  exit 0
 }
 
-if (-not $webRunning) {
-  Stop-RepoListener -Port $WebPort
-  Start-TestService `
-    -Name "CACP web ($WebUrl)" `
-    -Arguments @("pnpm", "dev:web") `
-    -PidFile (Join-Path $StateDir "web.pid") `
-    -OutLog (Join-Path $StateDir "web.out.log") `
-    -ErrLog (Join-Path $StateDir "web.err.log")
-} else {
-  Write-Step "CACP web is already running at $WebUrl"
-}
+Start-TestServices
 
 if (-not $NoWait) {
   Wait-Until -Name "Server" -Check { Test-HttpOk -Url $serverHealthUrl }

@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { CacpEventSchema, evaluatePolicy, type Participant, type Policy, type VoteRecord } from "../src/index.js";
+import {
+  CacpEventSchema,
+  DecisionRequestedPayloadSchema,
+  DecisionResponseRecordedPayloadSchema,
+  DecisionResolvedPayloadSchema,
+  DecisionCancelledPayloadSchema,
+  evaluatePolicy,
+  type Participant,
+  type Policy,
+  type VoteRecord
+} from "../src/index.js";
 
 const participants: Participant[] = [
   { id: "u_owner", type: "human", display_name: "Owner", role: "owner" },
@@ -60,6 +70,101 @@ describe("CACP event schema", () => {
       }).type).toBe(type);
     }
   });
+
+  it("accepts v0.2 decision events and payloads", () => {
+    expect(CacpEventSchema.parse({
+      protocol: "cacp",
+      version: "0.2.0",
+      event_id: "evt_1",
+      room_id: "room_1",
+      type: "decision.requested",
+      actor_id: "agent_1",
+      created_at: "2026-04-26T00:00:00.000Z",
+      payload: {
+        decision_id: "dec_1",
+        title: "Choose CLI",
+        description: "Pick the first CLI integration.",
+        kind: "single_choice",
+        options: [{ id: "A", label: "Claude Code CLI" }],
+        policy: { type: "majority" },
+        blocking: true
+      }
+    }).type).toBe("decision.requested");
+
+    expect(DecisionRequestedPayloadSchema.parse({
+      decision_id: "dec_1",
+      title: "Approve write",
+      description: "Allow file writes?",
+      kind: "approval",
+      options: [{ id: "approve", label: "Approve" }, { id: "reject", label: "Reject" }],
+      policy: { type: "owner_approval" },
+      blocking: true
+    }).kind).toBe("approval");
+
+    expect(DecisionResponseRecordedPayloadSchema.parse({
+      decision_id: "dec_1",
+      respondent_id: "user_1",
+      response: "approve",
+      response_label: "Approve",
+      source_message_id: "msg_1",
+      interpretation: { method: "deterministic", confidence: 1 }
+    }).response).toBe("approve");
+
+    expect(DecisionResolvedPayloadSchema.parse({
+      decision_id: "dec_1",
+      result: "approve",
+      result_label: "Approve",
+      decided_by: ["user_1"],
+      policy_evaluation: { status: "approved", reason: "owner selected approve" }
+    }).result).toBe("approve");
+
+    expect(DecisionCancelledPayloadSchema.parse({
+      decision_id: "dec_1",
+      reason: "Skipped by owner",
+      cancelled_by: "user_1"
+    }).reason).toBe("Skipped by owner");
+  });
+
+  it("accepts all v0.2 decision event types", () => {
+    for (const type of [
+      "decision.requested",
+      "decision.response_recorded",
+      "decision.resolved",
+      "decision.cancelled",
+      "room.history_cleared"
+    ] as const) {
+      expect(CacpEventSchema.parse({
+        protocol: "cacp",
+        version: "0.2.0",
+        event_id: `evt_${type}`,
+        room_id: "room_1",
+        type,
+        actor_id: "user_1",
+        created_at: "2026-04-26T00:00:00.000Z",
+        payload: {}
+      }).type).toBe(type);
+    }
+  });
+
+  it("requires response values when recording decision responses", () => {
+    expect(() => DecisionResponseRecordedPayloadSchema.parse({
+      decision_id: "dec_1",
+      respondent_id: "user_1",
+      response_label: "Approve",
+      source_message_id: "msg_1",
+      interpretation: { method: "deterministic", confidence: 1 }
+    })).toThrow();
+  });
+
+  it("requires result values when resolving decisions", () => {
+    expect(() => DecisionResolvedPayloadSchema.parse({
+      decision_id: "dec_1",
+      result_label: "Approve",
+      decided_by: ["user_1"],
+      policy_evaluation: { status: "approved", reason: "owner selected approve" }
+    })).toThrow();
+  });
+
 });
 
 describe("policy engine", () => {

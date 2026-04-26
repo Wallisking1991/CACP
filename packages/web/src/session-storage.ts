@@ -5,11 +5,15 @@ const SESSION_STORAGE_KEY = "cacp.roomSession";
 type SessionStorageLike = Pick<Storage, "getItem" | "removeItem" | "setItem">;
 type InviteTarget = { room_id: string; invite_token: string } | undefined;
 
+const ROOM_ROLES = ["owner", "admin", "member", "observer", "agent"] satisfies RoomSession["role"][];
+
 function isRoomSession(value: unknown): value is RoomSession {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<RoomSession>;
   return typeof candidate.room_id === "string" && candidate.room_id.length > 0
-    && typeof candidate.token === "string" && candidate.token.length > 0;
+    && typeof candidate.token === "string" && candidate.token.length > 0
+    && typeof candidate.participant_id === "string" && candidate.participant_id.length > 0
+    && typeof candidate.role === "string" && ROOM_ROLES.includes(candidate.role as RoomSession["role"]);
 }
 
 export function loadStoredSession(storage: SessionStorageLike): RoomSession | undefined {

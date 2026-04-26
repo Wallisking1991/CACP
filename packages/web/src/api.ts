@@ -3,6 +3,8 @@ import { CacpEventSchema, type CacpEvent } from "@cacp/protocol";
 export interface RoomSession {
   room_id: string;
   token: string;
+  participant_id: string;
+  role: "owner" | "admin" | "member" | "observer" | "agent";
 }
 
 async function postJson<T>(path: string, token: string | undefined, body: unknown): Promise<T> {
@@ -16,8 +18,8 @@ async function postJson<T>(path: string, token: string | undefined, body: unknow
 }
 
 export async function createRoom(name: string, displayName: string, defaultPolicy = "owner_approval"): Promise<RoomSession> {
-  const result = await postJson<{ room_id: string; owner_token: string }>("/rooms", undefined, { name, display_name: displayName, default_policy: defaultPolicy });
-  return { room_id: result.room_id, token: result.owner_token };
+  const result = await postJson<{ room_id: string; owner_id: string; owner_token: string }>("/rooms", undefined, { name, display_name: displayName, default_policy: defaultPolicy });
+  return { room_id: result.room_id, token: result.owner_token, participant_id: result.owner_id, role: "owner" };
 }
 
 export async function createInvite(session: RoomSession, role: "member" | "observer", expiresInSeconds: number): Promise<{ invite_token: string; role: string; expires_at: string }> {
@@ -25,12 +27,20 @@ export async function createInvite(session: RoomSession, role: "member" | "obser
 }
 
 export async function joinRoom(roomId: string, inviteToken: string, displayName: string): Promise<RoomSession> {
-  const result = await postJson<{ participant_token: string }>(`/rooms/${roomId}/join`, undefined, { invite_token: inviteToken, display_name: displayName });
-  return { room_id: roomId, token: result.participant_token };
+  const result = await postJson<{ participant_id: string; participant_token: string; role: RoomSession["role"] }>(`/rooms/${roomId}/join`, undefined, { invite_token: inviteToken, display_name: displayName });
+  return { room_id: roomId, token: result.participant_token, participant_id: result.participant_id, role: result.role };
 }
 
 export async function sendMessage(session: RoomSession, text: string): Promise<void> {
   await postJson(`/rooms/${session.room_id}/messages`, session.token, { text });
+}
+
+export async function clearRoom(session: RoomSession): Promise<void> {
+  await postJson(`/rooms/${session.room_id}/history/clear`, session.token, {});
+}
+
+export async function cancelDecision(session: RoomSession, decisionId: string, reason: string): Promise<void> {
+  await postJson(`/rooms/${session.room_id}/decisions/${decisionId}/cancel`, session.token, { reason });
 }
 
 

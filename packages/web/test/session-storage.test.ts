@@ -21,7 +21,7 @@ class MemoryStorage implements Pick<Storage, "getItem" | "removeItem" | "setItem
 describe("room session storage", () => {
   it("round-trips a valid room session", () => {
     const storage = new MemoryStorage();
-    const session: RoomSession = { room_id: "room_123", token: "cacp_secret" };
+    const session: RoomSession = { room_id: "room_123", token: "cacp_secret", participant_id: "user_123", role: "owner" };
 
     saveStoredSession(storage, session);
 
@@ -36,9 +36,21 @@ describe("room session storage", () => {
     expect(storage.getItem("cacp.roomSession")).toBeNull();
   });
 
+  it("clears stored sessions missing participant metadata", () => {
+    const storage = new MemoryStorage();
+
+    storage.setItem("cacp.roomSession", JSON.stringify({ room_id: "room_123", token: "cacp_secret", role: "owner" }));
+    expect(loadStoredSession(storage)).toBeUndefined();
+    expect(storage.getItem("cacp.roomSession")).toBeNull();
+
+    storage.setItem("cacp.roomSession", JSON.stringify({ room_id: "room_123", token: "cacp_secret", participant_id: "user_123" }));
+    expect(loadStoredSession(storage)).toBeUndefined();
+    expect(storage.getItem("cacp.roomSession")).toBeNull();
+  });
+
   it("can clear a previously stored session", () => {
     const storage = new MemoryStorage();
-    saveStoredSession(storage, { room_id: "room_123", token: "cacp_secret" });
+    saveStoredSession(storage, { room_id: "room_123", token: "cacp_secret", participant_id: "user_123", role: "owner" });
 
     clearStoredSession(storage);
 
@@ -47,9 +59,9 @@ describe("room session storage", () => {
 
   it("ignores stored host sessions when opening an invite link", () => {
     const storage = new MemoryStorage();
-    saveStoredSession(storage, { room_id: "room_host", token: "host_token" });
+    saveStoredSession(storage, { room_id: "room_host", token: "host_token", participant_id: "user_host", role: "owner" });
 
     expect(loadInitialSession(storage, { room_id: "room_invited", invite_token: "invite_token" })).toBeUndefined();
-    expect(loadInitialSession(storage, undefined)).toEqual({ room_id: "room_host", token: "host_token" });
+    expect(loadInitialSession(storage, undefined)).toEqual({ room_id: "room_host", token: "host_token", participant_id: "user_host", role: "owner" });
   });
 });
