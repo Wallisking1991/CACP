@@ -4,6 +4,7 @@ param(
   [switch]$Restart,
   [switch]$Open,
   [switch]$NoWait,
+  [switch]$Foreground,
   [switch]$CleanLogs
 )
 
@@ -191,6 +192,35 @@ if (-not $NoWait) {
 
 if ($Open) {
   Start-Process $WebUrl
+}
+
+if ($Foreground) {
+  Write-Host ""
+  Write-Host "CACP test services" -ForegroundColor Green
+  Write-Host "Server: $ServerUrl"
+  Write-Host "Web:    $WebUrl"
+  Write-Host "Press Ctrl+C or close this window to stop services."
+  Write-Host ""
+
+  $logs = @(
+    Join-Path $StateDir "server.out.log"
+    Join-Path $StateDir "server.err.log"
+    Join-Path $StateDir "web.out.log"
+    Join-Path $StateDir "web.err.log"
+  )
+  foreach ($log in $logs) {
+    if (-not (Test-Path -LiteralPath $log)) {
+      New-Item -ItemType File -Path $log -Force | Out-Null
+    }
+  }
+
+  try {
+    Get-Content -LiteralPath $logs -Tail 20 -Wait
+  } finally {
+    Stop-TestServices
+  }
+
+  exit 0
 }
 
 Write-Host ""
