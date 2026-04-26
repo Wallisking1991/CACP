@@ -37,6 +37,25 @@ describe("CLI runner", () => {
     expect(completed).toBe(true);
   });
 
+  it("delivers output chunks before the command exits", async () => {
+    const received: Array<{ chunk: string; at: number }> = [];
+    const startedAt = Date.now();
+    const result = await runCommandForTask({
+      command: process.execPath,
+      args: [
+        "-e",
+        "process.stdout.write('first'); setTimeout(() => { process.stdout.write('second'); process.exit(0); }, 250);"
+      ],
+      working_dir: process.cwd(),
+      prompt: "",
+      onOutput: (output) => received.push({ chunk: output.chunk, at: Date.now() - startedAt })
+    });
+
+    expect(result.exit_code).toBe(0);
+    expect(received.map((item) => item.chunk).join("")).toContain("first");
+    expect(received[0]?.at).toBeLessThan(200);
+  });
+
   it("rejects when an async output callback rejects", async () => {
     await expect(
       runCommandForTask({
