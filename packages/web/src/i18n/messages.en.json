@@ -20,5 +20,21 @@
   "role.member": "Member",
   "role.observer": "Observer",
   "lang.en": "English",
-  "lang.zh": "中文"
+  "lang.zh": "中文",
+  "landing.eyebrow": "Collaborative Agent Communication Protocol",
+  "landing.headline": "Create a collaborative AI room",
+  "landing.subcopy": "Create a room, connect a local CLI agent, and invite teammates into one governed chat workspace.",
+  "landing.tab.create": "Create room",
+  "landing.tab.join": "Join with invite",
+  "landing.create.roomName": "Room name",
+  "landing.create.displayName": "Your name",
+  "landing.create.agentType": "Agent type",
+  "landing.create.permissionLevel": "Permission",
+  "landing.create.workingDir": "Working directory",
+  "landing.create.cta": "Create room and start agent",
+  "landing.join.inviteLink": "Invite link",
+  "landing.join.roomId": "Room ID",
+  "landing.join.inviteToken": "Invite token",
+  "landing.join.displayName": "Your name",
+  "landing.join.cta": "Join shared room"
 }

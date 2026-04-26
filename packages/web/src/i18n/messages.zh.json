@@ -20,5 +20,21 @@
   "role.member": "成员",
   "role.observer": "观察者",
   "lang.en": "English",
-  "lang.zh": "中文"
+  "lang.zh": "中文",
+  "landing.eyebrow": "Collaborative Agent Communication Protocol",
+  "landing.headline": "创建协作式 AI 房间",
+  "landing.subcopy": "创建房间，连接本地 CLI Agent，并邀请队友进入同一个受管理的聊天工作空间。",
+  "landing.tab.create": "创建房间",
+  "landing.tab.join": "通过邀请加入",
+  "landing.create.roomName": "房间名称",
+  "landing.create.displayName": "你的名字",
+  "landing.create.agentType": "Agent 类型",
+  "landing.create.permissionLevel": "权限",
+  "landing.create.workingDir": "工作目录",
+  "landing.create.cta": "创建房间并启动 Agent",
+  "landing.join.inviteLink": "邀请链接",
+  "landing.join.roomId": "房间 ID",
+  "landing.join.inviteToken": "邀请令牌",
+  "landing.join.displayName": "你的名字",
+  "landing.join.cta": "加入共享房间"
 }
