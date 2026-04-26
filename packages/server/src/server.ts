@@ -342,6 +342,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   }
 
   function createAgentTurnRequestEvents(roomId: string, actorId: string, reason: "human_message" | "queued_followup"): CacpEvent[] {
+    if (activeBlockingDecisionFor(roomId)) return [];
     const events = store.listEvents(roomId);
     const activeAgentId = findActiveAgentId(events);
     if (!activeAgentId) return [];

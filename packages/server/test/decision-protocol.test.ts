@@ -388,6 +388,47 @@ describe("CACP decision protocol integration", () => {
     await app.close();
   });
 
+  it("does not run a queued follow-up while an agent-created decision is active", async () => {
+    const { app, room, ownerAuth } = await createRoom();
+    const agent = await registerAndSelectAgent(app, room.room_id, ownerAuth);
+
+    const firstMessage = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "Please recommend a CLI." } });
+    expect(firstMessage.statusCode).toBe(201);
+    let events = await listEvents(app, room.room_id, ownerAuth);
+    const turnId = String(events.find((event) => event.type === "agent.turn.requested")?.payload.turn_id);
+    expect(turnId).toMatch(/^turn_/);
+
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${turnId}/start`, headers: agent.agentAuth, payload: {} })).statusCode).toBe(201);
+
+    const secondMessage = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "Also consider Codex CLI." } });
+    expect(secondMessage.statusCode).toBe(201);
+    events = await listEvents(app, room.room_id, ownerAuth);
+    expect(events.some((event) => event.type === "agent.turn.followup_queued" && event.payload.turn_id === turnId)).toBe(true);
+    expect(events.filter((event) => event.type === "agent.turn.requested")).toHaveLength(1);
+
+    const complete = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-turns/${turnId}/complete`,
+      headers: agent.agentAuth,
+      payload: {
+        final_text: [
+          "I need a decision.",
+          "```cacp-decision",
+          JSON.stringify(decisionPayload),
+          "```"
+        ].join("\n"),
+        exit_code: 0
+      }
+    });
+    expect(complete.statusCode).toBe(201);
+
+    events = await listEvents(app, room.room_id, ownerAuth);
+    expect(events.filter((event) => event.type === "decision.requested")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "agent.turn.requested")).toHaveLength(1);
+
+    await app.close();
+  });
+
   it("does not request a new agent turn for unrelated human messages while an active decision is open", async () => {
     const { app, room, ownerAuth } = await createRoom();
     const agent = await registerAndSelectAgent(app, room.room_id, ownerAuth);
