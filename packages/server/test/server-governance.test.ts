@@ -56,11 +56,30 @@ describe("CACP server pairing and room governance", () => {
     expect(claim.json().agent.capabilities).toContain("manual_flow_control");
 
     const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
-    expect(events.map((event) => event.type)).toEqual(expect.arrayContaining(["agent.pairing_created", "agent.registered", "agent.status_changed"]));
+    expect(events.map((event) => event.type)).toEqual(expect.arrayContaining(["agent.pairing_created", "agent.registered", "agent.status_changed", "room.agent_selected"]));
     expect(events.find((event) => event.type === "agent.status_changed")?.payload.status).toBe("online");
+    expect(events.find((event) => event.type === "room.agent_selected")?.payload.agent_id).toBe(claim.json().agent_id);
 
     const secondClaim = await app.inject({ method: "POST", url: `/agent-pairings/${pairing.json().pairing_token}/claim`, payload: {} });
     expect(secondClaim.statusCode).toBe(409);
+
+    await app.close();
+  });
+
+  it("does not override an existing active agent when another paired adapter claims", async () => {
+    const { app, room, ownerAuth } = await createRoom();
+    const firstPairing = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-pairings`, headers: ownerAuth, payload: { agent_type: "echo", permission_level: "read_only", working_dir: "D:\\Development\\2" } });
+    const firstClaim = await app.inject({ method: "POST", url: `/agent-pairings/${firstPairing.json().pairing_token}/claim`, payload: { adapter_name: "First Agent" } });
+    expect(firstClaim.statusCode).toBe(201);
+
+    const secondPairing = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-pairings`, headers: ownerAuth, payload: { agent_type: "echo", permission_level: "read_only", working_dir: "D:\\Development\\2" } });
+    const secondClaim = await app.inject({ method: "POST", url: `/agent-pairings/${secondPairing.json().pairing_token}/claim`, payload: { adapter_name: "Second Agent" } });
+    expect(secondClaim.statusCode).toBe(201);
+
+    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
+    const selections = events.filter((event) => event.type === "room.agent_selected");
+    expect(selections).toHaveLength(1);
+    expect(selections[0].payload.agent_id).toBe(firstClaim.json().agent_id);
 
     await app.close();
   });

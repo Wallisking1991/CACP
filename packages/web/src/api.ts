@@ -18,6 +18,18 @@ export interface LocalAgentLaunch {
   err_log?: string;
 }
 
+export interface AgentSetupInput {
+  agent_type: string;
+  permission_level: string;
+  working_dir: string;
+}
+
+export interface RoomWithLocalAgentResult {
+  session: RoomSession;
+  launch?: LocalAgentLaunch;
+  launch_error?: string;
+}
+
 async function postJson<T>(path: string, token: string | undefined, body: unknown): Promise<T> {
   const response = await fetch(path, {
     method: "POST",
@@ -31,6 +43,16 @@ async function postJson<T>(path: string, token: string | undefined, body: unknow
 export async function createRoom(name: string, displayName: string): Promise<RoomSession> {
   const result = await postJson<{ room_id: string; owner_id: string; owner_token: string }>("/rooms", undefined, { name, display_name: displayName });
   return { room_id: result.room_id, token: result.owner_token, participant_id: result.owner_id, role: "owner" };
+}
+
+export async function createRoomWithLocalAgent(name: string, displayName: string, agent: AgentSetupInput): Promise<RoomWithLocalAgentResult> {
+  const session = await createRoom(name, displayName);
+  try {
+    const launch = await createLocalAgentLaunch(session, agent);
+    return { session, launch };
+  } catch (cause) {
+    return { session, launch_error: cause instanceof Error ? cause.message : String(cause) };
+  }
 }
 
 export async function createInvite(session: RoomSession, role: "member" | "observer", expiresInSeconds: number): Promise<{ invite_token: string; role: string; expires_at: string }> {
@@ -79,11 +101,11 @@ function currentBrowserOrigin(): string {
   return typeof window === "undefined" ? "http://localhost:3737" : window.location.origin;
 }
 
-export async function createAgentPairing(session: RoomSession, input: { agent_type: string; permission_level: string; working_dir: string }): Promise<{ pairing_token: string; expires_at: string; command: string }> {
+export async function createAgentPairing(session: RoomSession, input: AgentSetupInput): Promise<{ pairing_token: string; expires_at: string; command: string }> {
   return await postJson(`/rooms/${session.room_id}/agent-pairings`, session.token, { ...input, server_url: pairingServerUrlFor(currentBrowserOrigin()) });
 }
 
-export async function createLocalAgentLaunch(session: RoomSession, input: { agent_type: string; permission_level: string; working_dir: string }): Promise<LocalAgentLaunch> {
+export async function createLocalAgentLaunch(session: RoomSession, input: AgentSetupInput): Promise<LocalAgentLaunch> {
   return await postJson(`/rooms/${session.room_id}/agent-pairings/start-local`, session.token, { ...input, server_url: pairingServerUrlFor(currentBrowserOrigin()) });
 }
 

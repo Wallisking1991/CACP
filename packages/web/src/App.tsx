@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CacpEvent } from "@cacp/protocol";
-import { cancelAiCollection, clearEventSocket, clearRoom, connectEvents, createAgentPairing, createInvite, createLocalAgentLaunch, createRoom, inviteUrlFor, joinRoom, parseInviteUrl, selectAgent, sendMessage, startAiCollection, submitAiCollection, type LocalAgentLaunch, type RoomSession } from "./api.js";
+import { cancelAiCollection, clearEventSocket, clearRoom, connectEvents, createAgentPairing, createInvite, createLocalAgentLaunch, createRoomWithLocalAgent, inviteUrlFor, joinRoom, parseInviteUrl, selectAgent, sendMessage, startAiCollection, submitAiCollection, type LocalAgentLaunch, type RoomSession } from "./api.js";
 import { badgeChangesForCollapsedControls, type ControlBadges, type ControlCounts } from "./control-badges.js";
 import { mergeEvent } from "./event-log.js";
 import { roomPermissionsForRole } from "./role-permissions.js";
@@ -100,6 +100,7 @@ export default function App() {
   const [pairingCommand, setPairingCommand] = useState<string>();
   const [localLaunch, setLocalLaunch] = useState<LocalAgentLaunch>();
   const [showManualCommand, setShowManualCommand] = useState(false);
+  const [showAgentManager, setShowAgentManager] = useState(false);
   const [error, setError] = useState<string>();
   const [controlsCollapsed, setControlsCollapsed] = useState(false);
   const [controlBadges, setControlBadges] = useState<ControlBadges>(zeroControlBadges);
@@ -195,6 +196,7 @@ export default function App() {
     setPairingCommand(undefined);
     setLocalLaunch(undefined);
     setShowManualCommand(false);
+    setShowAgentManager(false);
     setSession(nextSession);
     if (inviteTarget) window.history.replaceState({}, "", "/");
   }
@@ -208,6 +210,7 @@ export default function App() {
     setPairingCommand(undefined);
     setLocalLaunch(undefined);
     setShowManualCommand(false);
+    setShowAgentManager(false);
     setError(undefined);
   }
 
@@ -221,6 +224,19 @@ export default function App() {
 
   function renderBadge(value: number) {
     return value > 0 ? <span className="badge">{value}</span> : null;
+  }
+
+  async function createRoomAndStartAgent(): Promise<void> {
+    const result = await createRoomWithLocalAgent(roomName.trim(), displayName.trim(), { agent_type: agentType, permission_level: permissionLevel, working_dir: workingDir });
+    activateSession(result.session);
+    if (result.launch) {
+      setLocalLaunch(result.launch);
+      setPairingCommand(result.launch.command);
+    }
+    if (result.launch_error) {
+      setShowAgentManager(true);
+      setError(`Starting the local agent failed: ${result.launch_error}`);
+    }
   }
 
   async function startLocalAgent(): Promise<void> {
@@ -273,13 +289,37 @@ export default function App() {
         </section>
         <section className="landing-grid">
           {!inviteMode && (
-            <form className="glass-card" onSubmit={(event) => { event.preventDefault(); void run(async () => activateSession(await createRoom(roomName.trim(), displayName.trim()))); }}>
-              <h2>Create room</h2>
-              <label htmlFor="room-name">Room name</label>
-              <input id="room-name" required value={roomName} onChange={(event) => setRoomName(event.target.value)} />
-              <label htmlFor="display-name">Your name</label>
-              <input id="display-name" required value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
-              <button>Create AI room</button>
+            <form className="glass-card setup-card" onSubmit={(event) => { event.preventDefault(); void run(createRoomAndStartAgent); }}>
+              <div className="form-heading">
+                <span className="status-pill online">Room host</span>
+                <h2>Local Agent setup</h2>
+                <p className="muted compact">Create the collaboration room and start the trusted local CLI bridge in one guided setup flow.</p>
+              </div>
+              <div className="field-grid">
+                <div>
+                  <label htmlFor="room-name">Room name</label>
+                  <input id="room-name" required value={roomName} onChange={(event) => setRoomName(event.target.value)} />
+                </div>
+                <div>
+                  <label htmlFor="display-name">Your name</label>
+                  <input id="display-name" required value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+                </div>
+              </div>
+              <div className="form-divider" />
+              <div className="field-grid">
+                <div>
+                  <label htmlFor="setup-agent-type">Agent type</label>
+                  <select id="setup-agent-type" value={agentType} onChange={(event) => setAgentType(event.target.value)}>{agentTypes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                </div>
+                <div>
+                  <label htmlFor="setup-permission-level">Permission</label>
+                  <select id="setup-permission-level" value={permissionLevel} onChange={(event) => setPermissionLevel(event.target.value)}>{permissionLevels.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                </div>
+              </div>
+              <label htmlFor="setup-working-dir">Working directory</label>
+              <input id="setup-working-dir" required value={workingDir} onChange={(event) => setWorkingDir(event.target.value)} />
+              <button disabled={!roomName.trim() || !displayName.trim() || !workingDir.trim()}>Create room and start agent</button>
+              <p className="muted compact">If automatic startup fails, the room still opens and you can retry or use the manual command fallback.</p>
             </form>
           )}
           <form className="glass-card" onSubmit={(event) => { event.preventDefault(); void run(async () => activateSession(await joinRoom(joinRoomId.trim(), inviteToken.trim(), displayName.trim()))); }}>
@@ -337,7 +377,7 @@ export default function App() {
             {room.messages.length === 0 && room.streamingTurns.length === 0 ? (
               <div className="empty-state">
                 <h2>Start the shared conversation</h2>
-                <p>Connect a local CLI agent from the controls, select an online agent, then send messages here. Use AI Flow Control when the host wants to collect multiple human answers before sending them to AI.</p>
+                <p>The room is ready. If the local agent is still starting, wait for it to appear as the active online agent before sending AI-directed messages. Use AI Flow Control when the host wants to collect multiple human answers before sending them to AI.</p>
               </div>
             ) : null}
             {room.messages.map((item) => {
@@ -389,23 +429,53 @@ export default function App() {
           </aside>
         ) : (
           <aside className="sidebar command-center-panel">
-            <section className="side-card">
-              <h2>Local Agent</h2>
-              <label htmlFor="agent-type">Agent type</label>
-              <select id="agent-type" disabled={!canManageRoom} value={agentType} onChange={(event) => setAgentType(event.target.value)}>{agentTypes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
-              <label htmlFor="permission-level">Permission</label>
-              <select id="permission-level" disabled={!canManageRoom} value={permissionLevel} onChange={(event) => setPermissionLevel(event.target.value)}>{permissionLevels.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
-              <p className="muted compact">Permission is applied when a local agent starts. Restart the agent after changing it.</p>
-              <label htmlFor="working-dir">Working directory</label>
-              <input id="working-dir" disabled={!canManageRoom} value={workingDir} onChange={(event) => setWorkingDir(event.target.value)} />
-              <div className="agent-actions">
-                <button type="button" disabled={!canManageRoom} onClick={() => void run(startLocalAgent)}>Start local agent</button>
-                <button type="button" className="secondary" disabled={!canManageRoom} onClick={() => void run(toggleManualCommand)}>{showManualCommand ? "Hide manual command" : "Show manual command"}</button>
+            <section className="side-card agent-status-card">
+              <div className="side-card-title-row">
+                <div>
+                  <h2>Agent Status</h2>
+                  <p className="muted compact">The first claimed local agent becomes active automatically.</p>
+                </div>
+                {canManageRoom && (
+                  <button type="button" className="secondary compact-button" onClick={() => setShowAgentManager((current) => !current)}>
+                    {showAgentManager ? "Close" : "Manage Agent"}
+                  </button>
+                )}
               </div>
-              {!canManageRoom && <p className="muted compact">Only owners and admins can configure or start local agents.</p>}
+              <div className={activeAgent?.status === "online" ? "agent-summary online" : "agent-summary"}>
+                <span className="agent-summary-dot" aria-hidden="true" />
+                <div>
+                  <strong>{activeAgent ? activeAgent.name : localLaunch ? "Local agent is starting" : "No active agent"}</strong>
+                  <p className="muted compact">
+                    {activeAgent ? `${titleCase(activeAgent.status)} - ${activeAgent.agent_id.slice(-8)}` : localLaunch ? "Waiting for the adapter to claim this room." : "Create or start a local agent to enable AI replies."}
+                  </p>
+                </div>
+              </div>
+              <label htmlFor="active-agent">Active agent</label>
+              <select id="active-agent" aria-label="Active agent" disabled={!canManageRoom || room.agents.length === 0} value={room.activeAgentId ?? ""} onChange={(event) => { const value = event.target.value; if (value) void run(async () => selectAgent(session, value)); }}>
+                <option value="">Select agent</option>
+                {room.agents.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.status === "online" ? "Online" : "Offline"} - {agent.name} - {agent.agent_id.slice(-6)}</option>)}
+              </select>
+              {room.agents.length === 0 && <p className="muted compact">The local agent should appear here automatically after it claims the room.</p>}
+              {!canManageRoom && <p className="muted compact">Only owners and admins can change or start local agents.</p>}
               {localLaunch && <p className="status-line">Local launch started{localLaunch.pid ? ` (pid ${localLaunch.pid})` : ""}.</p>}
               {localLaunch?.out_log && <p className="muted compact">Logs: {localLaunch.out_log}</p>}
-              {showManualCommand && pairingCommand && <code className="command-box">{pairingCommand}</code>}
+              {showAgentManager && (
+                <div className="manager-panel">
+                  <h3>Local Agent setup</h3>
+                  <label htmlFor="agent-type">Agent type</label>
+                  <select id="agent-type" disabled={!canManageRoom} value={agentType} onChange={(event) => setAgentType(event.target.value)}>{agentTypes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                  <label htmlFor="permission-level">Permission</label>
+                  <select id="permission-level" disabled={!canManageRoom} value={permissionLevel} onChange={(event) => setPermissionLevel(event.target.value)}>{permissionLevels.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                  <p className="muted compact">Permission is applied when a local agent starts. Restart the agent after changing it.</p>
+                  <label htmlFor="working-dir">Working directory</label>
+                  <input id="working-dir" disabled={!canManageRoom} value={workingDir} onChange={(event) => setWorkingDir(event.target.value)} />
+                  <div className="agent-actions">
+                    <button type="button" disabled={!canManageRoom} onClick={() => void run(startLocalAgent)}>Start local agent</button>
+                    <button type="button" className="secondary" disabled={!canManageRoom} onClick={() => void run(toggleManualCommand)}>{showManualCommand ? "Hide manual command" : "Show manual command"}</button>
+                  </div>
+                  {showManualCommand && pairingCommand && <code className="command-box">{pairingCommand}</code>}
+                </div>
+              )}
             </section>
 
             <section className="side-card">
@@ -414,16 +484,6 @@ export default function App() {
                 {room.participants.map((participant) => <span className="chip" key={participant.id}>{participant.display_name}<small>{roleLabel(participant.role)}</small></span>)}
               </div>
               {room.participants.length === 0 && <p className="muted">No participants are visible yet.</p>}
-            </section>
-
-            <section className="side-card">
-              <h2>Active Agent</h2>
-              <select aria-label="Active agent" disabled={!canManageRoom} value={room.activeAgentId ?? ""} onChange={(event) => { const value = event.target.value; if (value) void run(async () => selectAgent(session, value)); }}>
-                <option value="">Select agent</option>
-                {room.agents.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.status === "online" ? "Online" : "Offline"} - {agent.name} - {agent.agent_id.slice(-6)}</option>)}
-              </select>
-              {room.agents.length === 0 && <p className="muted">Run the connect command and the agent will appear here.</p>}
-              {!canManageRoom && <p className="muted compact">Only owners and admins can change the active agent.</p>}
             </section>
 
             <section className="side-card collection-panel">

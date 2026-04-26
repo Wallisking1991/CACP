@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CacpEvent } from "@cacp/protocol";
-import { cancelAiCollection, clearEventSocket, clearRoom, createLocalAgentLaunch, createRoom, joinRoom, pairingServerUrlFor, parseCacpEventMessage, startAiCollection, submitAiCollection, type RoomSession } from "../src/api.js";
+import { cancelAiCollection, clearEventSocket, clearRoom, createLocalAgentLaunch, createRoom, createRoomWithLocalAgent, joinRoom, pairingServerUrlFor, parseCacpEventMessage, startAiCollection, submitAiCollection, type RoomSession } from "../src/api.js";
 
 const validEvent = {
   protocol: "cacp",
@@ -82,6 +82,13 @@ describe("room API", () => {
     } as Response);
   }
 
+  function mockErrorResponse(message: string): void {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: false,
+      text: async () => message
+    } as Response);
+  }
+
   it("maps created rooms to an owner room session", async () => {
     mockJsonResponse({ room_id: "room_1", owner_id: "user_owner", owner_token: "owner_secret" });
 
@@ -135,6 +142,45 @@ describe("room API", () => {
       method: "POST",
       headers: { "content-type": "application/json", authorization: "Bearer owner_secret" },
       body: JSON.stringify({ agent_type: "claude-code", permission_level: "read_only", working_dir: "D:\\Development\\2", server_url: "http://localhost:3737" })
+    });
+  });
+
+  it("creates a room and starts the configured local agent in one setup flow", async () => {
+    mockJsonResponse({ room_id: "room_1", owner_id: "user_owner", owner_token: "owner_secret" });
+    mockJsonResponse({ launch_id: "launch_1", status: "starting", command: "corepack pnpm ..." });
+
+    await expect(createRoomWithLocalAgent("Planning", "Owner", {
+      agent_type: "claude-code",
+      permission_level: "full_access",
+      working_dir: "D:\\Development\\2"
+    })).resolves.toEqual({
+      session: { room_id: "room_1", token: "owner_secret", participant_id: "user_owner", role: "owner" },
+      launch: { launch_id: "launch_1", status: "starting", command: "corepack pnpm ..." }
+    });
+
+    expect(fetch).toHaveBeenNthCalledWith(1, "/rooms", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Planning", display_name: "Owner" })
+    });
+    expect(fetch).toHaveBeenNthCalledWith(2, "/rooms/room_1/agent-pairings/start-local", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer owner_secret" },
+      body: JSON.stringify({ agent_type: "claude-code", permission_level: "full_access", working_dir: "D:\\Development\\2", server_url: "http://localhost:3737" })
+    });
+  });
+
+  it("keeps the created room session when automatic local agent startup fails", async () => {
+    mockJsonResponse({ room_id: "room_1", owner_id: "user_owner", owner_token: "owner_secret" });
+    mockErrorResponse("local agent failed");
+
+    await expect(createRoomWithLocalAgent("Planning", "Owner", {
+      agent_type: "claude-code",
+      permission_level: "read_only",
+      working_dir: "D:\\Development\\2"
+    })).resolves.toEqual({
+      session: { room_id: "room_1", token: "owner_secret", participant_id: "user_owner", role: "owner" },
+      launch_error: "local agent failed"
     });
   });
 

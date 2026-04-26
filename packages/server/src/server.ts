@@ -732,7 +732,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const storedEvents = store.transaction(() => {
       pairing.claimed = true;
       store.addParticipant({ room_id: pairing.room_id, id: agentId, token: agentToken, display_name: request.body?.adapter_name ?? profile.name, type: "agent", role: "agent" });
-      return [
+      const shouldSelectAgent = !findActiveAgentId(store.listEvents(pairing.room_id));
+      const eventsToAppend = [
         store.appendEvent(event(pairing.room_id, "agent.registered", pairing.created_by, {
           agent_id: agentId,
           name: request.body?.adapter_name ?? profile.name,
@@ -742,6 +743,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
         })),
         store.appendEvent(event(pairing.room_id, "agent.status_changed", agentId, { agent_id: agentId, status: "online" }))
       ];
+      if (shouldSelectAgent) {
+        eventsToAppend.push(store.appendEvent(event(pairing.room_id, "room.agent_selected", pairing.created_by, { agent_id: agentId })));
+      }
+      return eventsToAppend;
     });
     publishEvents(storedEvents);
     return reply.code(201).send({ room_id: pairing.room_id, agent_id: agentId, agent_token: agentToken, agent: profile, agent_type: pairing.agent_type, permission_level: pairing.permission_level, hook_url: hookUrl });

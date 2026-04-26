@@ -85,13 +85,18 @@ describe("App room copy and layout source", () => {
     expect(css).toContain("cubic-bezier(0.22, 1, 0.36, 1)");
   });
 
-  it("offers one-click local agent launch while keeping manual command fallback", () => {
+  it("moves local agent setup into the room creation flow while keeping manual management fallback", () => {
     const source = appSource();
 
+    expect(source).toContain("Local Agent setup");
+    expect(source).toContain("Create room and start agent");
+    expect(source).toContain("createRoomWithLocalAgent");
+    expect(source).toContain("Starting the local agent failed");
+    expect(source).toContain("Agent Status");
+    expect(source).toContain("Manage Agent");
     expect(source).toContain("Start local agent");
     expect(source).toContain("Show manual command");
     expect(source).toContain("Local launch started");
-    expect(source).toContain("createLocalAgentLaunch");
   });
 
   it("explains that slow CLI responses have an automatic timeout", () => {
