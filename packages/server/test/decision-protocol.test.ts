@@ -68,6 +68,30 @@ async function createDecision(app: App, roomId: string, auth: Auth) {
   return app.inject({ method: "POST", url: `/rooms/${roomId}/decisions`, headers: auth, payload: decisionPayload });
 }
 
+async function requestAgentDecisionDraft(app: App, roomId: string, ownerAuth: Auth, agentAuth: Auth, draft: Record<string, unknown>) {
+  const humanMessage = await app.inject({ method: "POST", url: `/rooms/${roomId}/messages`, headers: ownerAuth, payload: { text: "Please propose a decision." } });
+  expect(humanMessage.statusCode).toBe(201);
+  const events = await listEvents(app, roomId, ownerAuth);
+  const turnId = String(events.find((event) => event.type === "agent.turn.requested")?.payload.turn_id);
+
+  expect((await app.inject({ method: "POST", url: `/rooms/${roomId}/agent-turns/${turnId}/start`, headers: agentAuth, payload: {} })).statusCode).toBe(201);
+  const complete = await app.inject({
+    method: "POST",
+    url: `/rooms/${roomId}/agent-turns/${turnId}/complete`,
+    headers: agentAuth,
+    payload: {
+      final_text: [
+        "I need a decision.",
+        "```cacp-decision",
+        JSON.stringify(draft),
+        "```"
+      ].join("\n"),
+      exit_code: 0
+    }
+  });
+  expect(complete.statusCode).toBe(201);
+}
+
 describe("CACP decision protocol integration", () => {
   it("creates a decision and rejects a second active decision", async () => {
     const { app, room, ownerAuth } = await createRoom();
@@ -231,6 +255,98 @@ describe("CACP decision protocol integration", () => {
     expect(events.filter((event) => event.type === "decision.resolved")).toHaveLength(1);
     expect(events.some((event) => event.type === "agent.action_approval_resolved")).toBe(false);
 
+    await app.close();
+  });
+
+  it.each([
+    [{ type: "role_quorum", required_roles: ["owner"], min_approvals: 1 }, "unsupported_decision_policy"],
+    [{ type: "no_approval" }, "unsupported_decision_policy"]
+  ])("rejects unsupported REST decision policy %j", async (policy, expectedError) => {
+    const { app, room, ownerAuth } = await createRoom();
+    const agent = await registerAndSelectAgent(app, room.room_id, ownerAuth);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/decisions`,
+      headers: agent.agentAuth,
+      payload: { ...decisionPayload, policy }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: expectedError });
+    await app.close();
+  });
+
+  it("rejects unsupported REST decision kind", async () => {
+    const { app, room, ownerAuth } = await createRoom();
+    const agent = await registerAndSelectAgent(app, room.room_id, ownerAuth);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/decisions`,
+      headers: agent.agentAuth,
+      payload: { ...decisionPayload, kind: "multiple_choice" }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: "unsupported_decision_kind" });
+    await app.close();
+  });
+
+  it("rejects REST single_choice decisions with empty options", async () => {
+    const { app, room, ownerAuth } = await createRoom();
+    const agent = await registerAndSelectAgent(app, room.room_id, ownerAuth);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/decisions`,
+      headers: agent.agentAuth,
+      payload: { ...decisionPayload, options: [] }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: "decision_options_required" });
+    await app.close();
+  });
+
+  it("creates REST approval decisions with default approve and reject options", async () => {
+    const { app, room, ownerAuth } = await createRoom();
+    const agent = await registerAndSelectAgent(app, room.room_id, ownerAuth);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/decisions`,
+      headers: agent.agentAuth,
+      payload: {
+        title: "Approve rollout",
+        description: "Confirm whether to proceed.",
+        kind: "approval",
+        policy: "room_default",
+        blocking: true
+      }
+    });
+
+    expect(response.statusCode).toBe(201);
+    const events = await listEvents(app, room.room_id, ownerAuth);
+    const requested = events.find((event) => event.type === "decision.requested");
+    expect(requested?.payload.options).toEqual([{ id: "approve", label: "Approve" }, { id: "reject", label: "Reject" }]);
+    await app.close();
+  });
+
+  it.each([
+    [{ ...decisionPayload, kind: "multiple_choice" }, "unsupported decision draft"],
+    [{ ...decisionPayload, policy: { type: "role_quorum", required_roles: ["owner"], min_approvals: 1 } }, "unsupported decision draft"],
+    [{ ...decisionPayload, options: [] }, "unsupported decision draft"]
+  ])("preserves agent message and rejects invalid decision draft %#", async (draft, expectedText) => {
+    const { app, room, ownerAuth } = await createRoom();
+    const agent = await registerAndSelectAgent(app, room.room_id, ownerAuth);
+
+    await requestAgentDecisionDraft(app, room.room_id, ownerAuth, agent.agentAuth, draft);
+
+    const events = await listEvents(app, room.room_id, ownerAuth);
+    expect(events.some((event) => event.type === "decision.requested")).toBe(false);
+    expect(events.some((event) => event.type === "message.created" && event.payload.kind === "agent" && String(event.payload.text).includes("```cacp-decision"))).toBe(true);
+    expect(events.some((event) => event.type === "message.created" && event.payload.kind === "system" && String(event.payload.text).includes(expectedText))).toBe(true);
     await app.close();
   });
 

@@ -20,7 +20,7 @@ const QuestionResponseSchema = z.object({ response: z.unknown(), comment: z.stri
 const DecisionCreateSchema = z.object({
   title: z.string().min(1),
   description: z.string().min(1),
-  kind: z.enum(["single_choice", "approval"]),
+  kind: z.string().min(1),
   options: z.array(z.object({ id: z.string().min(1), label: z.string().min(1) })).default([]),
   policy: z.union([PolicySchema, z.literal("room_default")]).default("room_default"),
   blocking: z.boolean().default(true),
@@ -59,9 +59,39 @@ type TaskTerminalStatus = "completed" | "failed" | "cancelled";
 type TaskState = { target_agent_id: string; started: boolean; terminal_status?: TaskTerminalStatus };
 type TurnTerminalStatus = "completed" | "failed";
 type TurnState = { agent_id: string; started: boolean; terminal_status?: TurnTerminalStatus };
+type DecisionInput = z.infer<typeof DecisionCreateSchema>;
+type SupportedDecisionKind = "single_choice" | "approval";
+type SupportedDecisionPolicy = Extract<Policy, { type: "owner_approval" | "majority" | "unanimous" }>;
+type NormalizedDecisionInput = Omit<DecisionInput, "kind" | "policy"> & { kind: SupportedDecisionKind; policy: SupportedDecisionPolicy };
+type DecisionValidationError = "unsupported_decision_kind" | "unsupported_decision_policy" | "decision_options_required";
+
+const defaultApprovalOptions = [{ id: "approve", label: "Approve" }, { id: "reject", label: "Reject" }];
+const supportedDecisionPolicies = new Set(["owner_approval", "majority", "unanimous"]);
 
 function deny(reply: FastifyReply, error: string, status = 401) {
   return reply.code(status).send({ error });
+}
+
+function isSupportedDecisionPolicy(policy: Policy): policy is SupportedDecisionPolicy {
+  return supportedDecisionPolicies.has(policy.type);
+}
+
+function normalizeDecisionInput(input: DecisionInput, roomDefaultPolicy: Policy): { ok: true; value: NormalizedDecisionInput } | { ok: false; error: DecisionValidationError } {
+  if (input.kind !== "single_choice" && input.kind !== "approval") return { ok: false, error: "unsupported_decision_kind" };
+
+  const policy = input.policy === "room_default" ? roomDefaultPolicy : input.policy;
+  if (!isSupportedDecisionPolicy(policy)) return { ok: false, error: "unsupported_decision_policy" };
+
+  if (input.kind === "single_choice" && input.options.length === 0) return { ok: false, error: "decision_options_required" };
+
+  if (input.kind === "approval") {
+    const options = input.options.length === 0 ? defaultApprovalOptions : input.options;
+    const optionIds = new Set(options.map((option) => option.id));
+    if (!optionIds.has("approve") || !optionIds.has("reject")) return { ok: false, error: "decision_options_required" };
+    return { ok: true, value: { ...input, kind: input.kind, policy, options } };
+  }
+
+  return { ok: true, value: { ...input, kind: input.kind, policy } };
 }
 
 export async function buildServer(options: BuildServerOptions = {}) {
@@ -471,13 +501,15 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!participant) return deny(reply, "invalid_token");
     if (!hasAnyRole(participant, ["owner", "admin", "agent"])) return deny(reply, "forbidden", 403);
     if (activeBlockingDecisionFor(request.params.roomId)) return deny(reply, "active_decision_exists", 409);
-    const body = DecisionCreateSchema.parse(request.body);
+    const parsed = DecisionCreateSchema.safeParse(request.body);
+    if (!parsed.success) return deny(reply, "invalid_decision", 400);
+    const normalized = normalizeDecisionInput(parsed.data, roomPolicy(request.params.roomId));
+    if (!normalized.ok) return deny(reply, normalized.error, 400);
+    const body = normalized.value;
     const decisionId = prefixedId("dec");
-    const policy = body.policy === "room_default" ? roomPolicy(request.params.roomId) : body.policy;
     appendAndPublish(event(request.params.roomId, "decision.requested", participant.id, {
       ...body,
-      decision_id: decisionId,
-      policy
+      decision_id: decisionId
     }));
     return reply.code(201).send({ decision_id: decisionId });
   });
@@ -738,8 +770,17 @@ export async function buildServer(options: BuildServerOptions = {}) {
           })));
           continue;
         }
+        const normalized = normalizeDecisionInput(draft, roomPolicy(request.params.roomId));
+        if (!normalized.ok) {
+          decisionEvents.push(store.appendEvent(event(request.params.roomId, "message.created", participant.id, {
+            message_id: prefixedId("msg"),
+            text: "The AI emitted an unsupported decision draft. Please ask it to use single_choice or approval with supported policies.",
+            kind: "system"
+          })));
+          continue;
+        }
         decisionEvents.push(store.appendEvent(event(request.params.roomId, "decision.requested", participant.id, {
-          ...draft,
+          ...normalized.value,
           decision_id: prefixedId("dec"),
           source_turn_id: request.params.turnId,
           source_message_id: messageId
