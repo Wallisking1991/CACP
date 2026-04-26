@@ -158,7 +158,7 @@ export function interpretDecisionResponse(input: { decision: DecisionRequestedPa
   return undefined;
 }
 
-export function evaluateDecisionPolicy(input: { decision: DecisionState; participants: Participant[] }): DecisionPolicyResult {
+export function evaluateDecisionPolicy(input: { decision: DecisionState; participants: Participant[]; now?: Date }): DecisionPolicyResult {
   if (input.decision.terminal_status === "resolved") {
     return {
       status: "resolved",
@@ -169,6 +169,12 @@ export function evaluateDecisionPolicy(input: { decision: DecisionState; partici
     };
   }
   if (input.decision.terminal_status === "cancelled") return openResult("decision cancelled");
+
+  const now = input.now ?? new Date();
+  const expiresAt = input.decision.request.policy.expires_at;
+  if (expiresAt && new Date(expiresAt).getTime() <= now.getTime()) {
+    return openResult("decision policy expired");
+  }
 
   const policyType = input.decision.request.policy.type;
   if (policyType !== "owner_approval" && policyType !== "unanimous" && policyType !== "majority") {

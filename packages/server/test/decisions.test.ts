@@ -4,6 +4,7 @@ import {
   deriveDecisionStates,
   evaluateDecisionPolicy,
   extractCacpDecisions,
+  findActiveDecision,
   interpretDecisionResponse
 } from "../src/decisions.js";
 
@@ -183,7 +184,77 @@ describe("decision helpers", () => {
     ])[0];
 
     expect(stateWithTwoLatestAResponses.responses).toHaveLength(2);
-    expect(evaluateDecisionPolicy({ decision: stateWithTwoLatestAResponses, participants }).status).toBe("resolved");
+    expect(evaluateDecisionPolicy({ decision: stateWithTwoLatestAResponses, participants })).toMatchObject({
+      status: "resolved",
+      result: "A",
+      result_label: "Claude Code CLI",
+      decided_by: ["alice", "bob"]
+    });
+  });
+
+  it("keeps expired majority decisions open even when responses satisfy the threshold", () => {
+    const expiredDecision: DecisionRequestedPayload = {
+      ...singleChoiceDecision,
+      decision_id: "decision_expired",
+      policy: { type: "majority", expires_at: "2026-04-26T00:00:03.000Z" }
+    };
+    const state = deriveDecisionStates([
+      event("decision.requested", expiredDecision, 1),
+      event("decision.response_recorded", {
+        decision_id: "decision_expired",
+        respondent_id: "alice",
+        response: "A",
+        response_label: "Claude Code CLI",
+        source_message_id: "msg_1",
+        interpretation: { method: "deterministic", confidence: 1 }
+      }, 2, "alice"),
+      event("decision.response_recorded", {
+        decision_id: "decision_expired",
+        respondent_id: "bob",
+        response: "A",
+        response_label: "Claude Code CLI",
+        source_message_id: "msg_2",
+        interpretation: { method: "deterministic", confidence: 1 }
+      }, 3, "bob")
+    ])[0];
+
+    expect(evaluateDecisionPolicy({ decision: state, participants, now: new Date("2026-04-26T00:00:03.000Z") })).toMatchObject({
+      status: "open",
+      reason: "decision policy expired"
+    });
+  });
+
+  it("finds the first open blocking decision after skipping resolved, cancelled, and non-blocking decisions", () => {
+    const nonBlockingDecision: DecisionRequestedPayload = {
+      ...singleChoiceDecision,
+      decision_id: "decision_non_blocking",
+      blocking: false
+    };
+    const openBlockingDecision: DecisionRequestedPayload = {
+      ...singleChoiceDecision,
+      decision_id: "decision_open_blocking"
+    };
+    const states = deriveDecisionStates([
+      event("decision.requested", { ...singleChoiceDecision, decision_id: "decision_resolved" }, 1),
+      event("decision.resolved", {
+        decision_id: "decision_resolved",
+        result: "A",
+        result_label: "Claude Code CLI",
+        decided_by: ["alice"],
+        policy_evaluation: { status: "resolved", reason: "majority policy satisfied" }
+      }, 2),
+      event("decision.requested", { ...singleChoiceDecision, decision_id: "decision_cancelled" }, 3),
+      event("decision.cancelled", {
+        decision_id: "decision_cancelled",
+        cancelled_by: "alice",
+        reason: "No longer needed",
+        source_message_id: "msg_2"
+      }, 4, "alice"),
+      event("decision.requested", nonBlockingDecision, 5),
+      event("decision.requested", openBlockingDecision, 6)
+    ]);
+
+    expect(findActiveDecision(states)?.request.decision_id).toBe("decision_open_blocking");
   });
 
   it("keeps role_quorum decisions open instead of falling back to majority", () => {
