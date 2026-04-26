@@ -121,4 +121,69 @@ describe("decision helpers", () => {
     expect(stateWithTwoLatestAResponses.responses).toHaveLength(2);
     expect(evaluateDecisionPolicy({ decision: stateWithTwoLatestAResponses, participants }).status).toBe("resolved");
   });
+
+  it("keeps role_quorum decisions open instead of falling back to majority", () => {
+    const roleQuorumDecision: DecisionRequestedPayload = {
+      ...singleChoiceDecision,
+      decision_id: "decision_role_quorum",
+      policy: { type: "role_quorum", required_roles: ["owner"], min_approvals: 1 }
+    };
+    const state = deriveDecisionStates([
+      event("decision.requested", roleQuorumDecision, 1),
+      event("decision.response_recorded", {
+        decision_id: "decision_role_quorum",
+        respondent_id: "alice",
+        response: "A",
+        response_label: "Claude Code CLI",
+        source_message_id: "msg_1",
+        interpretation: { method: "deterministic", confidence: 1 }
+      }, 2, "alice"),
+      event("decision.response_recorded", {
+        decision_id: "decision_role_quorum",
+        respondent_id: "bob",
+        response: "A",
+        response_label: "Claude Code CLI",
+        source_message_id: "msg_2",
+        interpretation: { method: "deterministic", confidence: 1 }
+      }, 3, "bob")
+    ])[0];
+
+    expect(evaluateDecisionPolicy({ decision: state, participants })).toMatchObject({
+      status: "open",
+      reason: "unsupported decision policy: role_quorum"
+    });
+  });
+
+  it("keeps no_approval decisions open instead of falling back to majority", () => {
+    const noApprovalDecision: DecisionRequestedPayload = {
+      ...singleChoiceDecision,
+      decision_id: "decision_no_approval",
+      policy: { type: "no_approval" }
+    };
+    const state = deriveDecisionStates([
+      event("decision.requested", noApprovalDecision, 1),
+      event("decision.response_recorded", {
+        decision_id: "decision_no_approval",
+        respondent_id: "alice",
+        response: "A",
+        response_label: "Claude Code CLI",
+        source_message_id: "msg_1",
+        interpretation: { method: "deterministic", confidence: 1 }
+      }, 2, "alice"),
+      event("decision.response_recorded", {
+        decision_id: "decision_no_approval",
+        respondent_id: "bob",
+        response: "A",
+        response_label: "Claude Code CLI",
+        source_message_id: "msg_2",
+        interpretation: { method: "deterministic", confidence: 1 }
+      }, 3, "bob")
+    ])[0];
+
+    expect(evaluateDecisionPolicy({ decision: state, participants })).toMatchObject({
+      status: "open",
+      reason: "unsupported decision policy: no_approval"
+    });
+  });
+
 });

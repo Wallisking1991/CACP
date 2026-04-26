@@ -26,8 +26,8 @@ export interface InterpretedDecisionResponse {
 }
 
 export type DecisionPolicyResult =
-  | { status: "open" }
-  | { status: "resolved"; result: unknown; result_label?: string; decided_by: string[] };
+  | { status: "open"; reason: string }
+  | { status: "resolved"; result: unknown; result_label?: string; decided_by: string[]; reason: string };
 
 const decisionBlockPattern = /```cacp-decision[ \t]*\r?\n([\s\S]*?)```/g;
 const eligibleRoles = new Set(["owner", "admin", "member"]);
@@ -156,32 +156,40 @@ export function evaluateDecisionPolicy(input: { decision: DecisionState; partici
       status: "resolved",
       result: input.decision.result,
       result_label: input.decision.result_label,
-      decided_by: input.decision.decided_by ?? []
+      decided_by: input.decision.decided_by ?? [],
+      reason: "decision already resolved"
     };
   }
-  if (input.decision.terminal_status === "cancelled") return { status: "open" };
+  if (input.decision.terminal_status === "cancelled") return openResult("decision cancelled");
+
+  const policyType = input.decision.request.policy.type;
+  if (policyType !== "owner_approval" && policyType !== "unanimous" && policyType !== "majority") {
+    return openResult(`unsupported decision policy: ${policyType}`);
+  }
 
   const eligible = input.participants.filter((participant) => participant.type === "human" && eligibleRoles.has(participant.role));
-  if (eligible.length === 0) return { status: "open" };
+  if (eligible.length === 0) return openResult("no eligible voters");
   const eligibleIds = new Set(eligible.map((participant) => participant.id));
   const latest = new Map<string, DecisionState["responses"][number]>();
   for (const response of input.decision.responses) {
     if (eligibleIds.has(response.respondent_id)) latest.set(response.respondent_id, response);
   }
 
-  if (input.decision.request.policy.type === "owner_approval") {
+  if (policyType === "owner_approval") {
     const owner = eligible.find((participant) => participant.role === "owner");
     const response = owner ? latest.get(owner.id) : undefined;
-    if (!response) return { status: "open" };
-    return resolvedFromResponses([response]);
+    if (!response) return openResult("waiting for owner approval");
+    return resolvedFromResponses([response], response, "owner approval received");
   }
 
-  if (input.decision.request.policy.type === "unanimous") {
-    if (latest.size < eligible.length) return { status: "open" };
+  if (policyType === "unanimous") {
+    if (latest.size < eligible.length) return openResult("waiting for unanimous responses");
     const responses = [...latest.values()];
     const first = responses[0];
-    if (responses.every((response) => stableKey(response.response) === stableKey(first.response))) return resolvedFromResponses(responses, first);
-    return { status: "open" };
+    if (responses.every((response) => stableKey(response.response) === stableKey(first.response))) {
+      return resolvedFromResponses(responses, first, "unanimous policy satisfied");
+    }
+    return openResult("unanimous policy not satisfied");
   }
 
   const threshold = Math.floor(eligible.length / 2) + 1;
@@ -193,15 +201,20 @@ export function evaluateDecisionPolicy(input: { decision: DecisionState; partici
     counts.set(key, entry);
   }
   const winner = [...counts.values()].find((entry) => entry.voters.length >= threshold);
-  return winner ? resolvedFromResponses(winner.voters, winner.response) : { status: "open" };
+  return winner ? resolvedFromResponses(winner.voters, winner.response, "majority policy satisfied") : openResult("majority threshold not met");
 }
 
-function resolvedFromResponses(responses: DecisionState["responses"], selected = responses[0]): DecisionPolicyResult {
+function openResult(reason: string): DecisionPolicyResult {
+  return { status: "open", reason };
+}
+
+function resolvedFromResponses(responses: DecisionState["responses"], selected = responses[0], reason = "decision policy satisfied"): DecisionPolicyResult {
   return {
     status: "resolved",
     result: selected.response,
     result_label: selected.response_label,
-    decided_by: responses.map((response) => response.respondent_id)
+    decided_by: responses.map((response) => response.respondent_id),
+    reason
   };
 }
 
