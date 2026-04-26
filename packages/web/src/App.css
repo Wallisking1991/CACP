@@ -46,7 +46,7 @@ button, input, textarea, select { font: inherit; }
   font-weight: 600;
   line-height: 1.4;
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  transition: background 200ms ease, border-color 200ms ease, color 200ms ease;
 }
 
 .btn:disabled {
@@ -347,7 +347,7 @@ textarea.input {
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 220px;
-  gap: 14px;
+  gap: 16px;
   align-items: stretch;
 }
 
@@ -406,7 +406,8 @@ textarea.input {
 .message-queued {
   margin-left: auto;
   background: var(--surface-queued);
-  border-color: var(--border-soft);
+  border-style: dashed;
+  border-color: var(--accent-border);
 }
 
 .message-meta {
@@ -463,7 +464,7 @@ textarea.input {
   flex-direction: column;
   gap: 0;
   border-top: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--surface-warm);
   padding: 12px 16px;
 }
 
@@ -533,6 +534,21 @@ textarea.input {
   gap: 8px;
 }
 
+.collect-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  margin-right: 6px;
+}
+
 .status-strip {
   display: flex;
   align-items: center;
@@ -576,16 +592,16 @@ textarea.input {
 }
 
 .agent-avatar {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border-radius: var(--radius-pill);
-  background: linear-gradient(135deg, var(--accent-soft), var(--surface-collect));
+  background: linear-gradient(135deg, #c2410c, #8b5a3c);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font-size: 12px;
   font-weight: 700;
-  color: var(--accent);
+  color: white;
   flex-shrink: 0;
 }
 
@@ -595,9 +611,9 @@ textarea.input {
   gap: 4px;
   font-size: 11px;
   font-weight: 600;
-  color: var(--ink-4);
-  background: var(--surface-warm);
-  border: 1px solid var(--border-soft);
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
   border-radius: var(--radius-chip);
   padding: 3px 8px;
 }
@@ -645,7 +661,7 @@ textarea.input {
   top: 0;
   bottom: 0;
   z-index: 50;
-  width: min(360px, 85vw);
+  width: 280px;
   background: var(--surface);
   border-left: 1px solid var(--border);
   box-shadow: -8px 0 24px rgba(28, 24, 19, 0.06);

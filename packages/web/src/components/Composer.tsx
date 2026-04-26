@@ -68,6 +68,13 @@ export default function Composer({
 
   return (
     <div className={composerClass} data-testid="composer">
+      {isQueued && (
+        <div className="status-strip" style={{ background: 'var(--accent-soft)', color: 'var(--accent)', marginBottom: 8, borderRadius: 'var(--radius-chip)', padding: '6px 10px' }}>
+          <span className="status-dot pulse" />
+          {t("composer.queuedHint")}
+        </div>
+      )}
+
       <div className="composer-top">
         <div className="mode-toggle">
           <button
@@ -94,7 +101,7 @@ export default function Composer({
           <span className="composer-hint">{t("composer.liveHint")}</span>
         )}
         {isLive && isQueued && (
-          <span className="composer-hint">{t("composer.queuedHint")}</span>
+          <span className="composer-hint">{t("composer.modeLocked")}</span>
         )}
         {!isLive && isOwner && (
           <span className="composer-hint">
@@ -111,6 +118,7 @@ export default function Composer({
         <textarea
           className="input"
           placeholder={String(t("chat.placeholder"))}
+          aria-label={t("composer.messageLabel")}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -152,29 +160,31 @@ export default function Composer({
       </div>
 
       {!isLive && isOwner && (
+        <div className="composer-actions" style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border-soft)', justifyContent: 'space-between' }}>
+          <span className="composer-hint">{t("composer.ownerOnlyHint")}</span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              type="button"
+              className="btn btn-warm-ghost"
+              onClick={onCancelCollection}
+            >
+              {t("composer.cancelCollection")}
+            </button>
+            <button
+              type="button"
+              className="btn btn-warm"
+              onClick={onSubmitCollection}
+              disabled={collectCount === 0}
+            >
+              {t("composer.submit", { count: collectCount })}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!isLive && !isOwner && (
         <div className="status-strip">
-          <span className="status-dot pulse" />
-          <span>
-            {collectCount > 0
-              ? t("composer.submitLabel", { count: collectCount })
-              : t("composer.submitLabelZero")}
-          </span>
-          <div style={{ flex: 1 }} />
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={onCancelCollection}
-          >
-            {t("composer.cancelCollection")}
-          </button>
-          <button
-            type="button"
-            className="btn btn-warm"
-            onClick={onSubmitCollection}
-            disabled={collectCount === 0}
-          >
-            {t("composer.submit", { count: collectCount })}
-          </button>
+          <span className="composer-hint">{t("composer.lockedHint")}</span>
         </div>
       )}
     </div>

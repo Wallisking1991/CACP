@@ -7,11 +7,13 @@ export interface ThreadProps {
   streamingTurns: StreamingTurnView[];
   actorNames: Map<string, string>;
   showSlowStreamingNotice: boolean;
+  activeCollectionId?: string;
 }
 
-function messageClass(kind: string, collectionId?: string): string {
+function messageClass(kind: string, collectionId: string | undefined, activeCollectionId: string | undefined): string {
   const base = "message";
-  if (collectionId) return `${base} message-queued`;
+  const isQueued = Boolean(collectionId) && collectionId === activeCollectionId;
+  if (isQueued) return `${base} message-queued`;
   switch (kind) {
     case "agent": return `${base} message-agent`;
     case "system": return `${base} message-system`;
@@ -19,8 +21,9 @@ function messageClass(kind: string, collectionId?: string): string {
   }
 }
 
-function roleLabel(kind: string, collectionId: string | undefined, t: ReturnType<typeof useT>): string {
-  if (collectionId) return t("message.queued");
+function roleLabel(kind: string, collectionId: string | undefined, activeCollectionId: string | undefined, t: ReturnType<typeof useT>): string {
+  const isQueued = Boolean(collectionId) && collectionId === activeCollectionId;
+  if (isQueued) return t("message.queued");
   switch (kind) {
     case "agent": return t("message.ai");
     case "system": return t("message.system");
@@ -33,6 +36,7 @@ export default function Thread({
   streamingTurns,
   actorNames,
   showSlowStreamingNotice,
+  activeCollectionId,
 }: ThreadProps) {
   const t = useT();
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -54,16 +58,19 @@ export default function Thread({
 
       {messages.map((msg) => {
         const actorName = actorNames.get(msg.actor_id) ?? msg.actor_id;
+        const displayText = msg.text === "__CACP_COLLECTION_CANCELLED__"
+          ? t("thread.collectionCancelled", { count: msg.cancelledMessageCount ?? 0 })
+          : msg.text;
         return (
           <article
             key={msg.message_id ?? `${msg.actor_id}-${msg.created_at}`}
-            className={messageClass(msg.kind, msg.collection_id)}
+            className={messageClass(msg.kind, msg.collection_id, activeCollectionId)}
           >
             <div className="message-meta">
               <span>{actorName}</span>
-              <span>{roleLabel(msg.kind, msg.collection_id, t)}</span>
+              <span>{roleLabel(msg.kind, msg.collection_id, activeCollectionId, t)}</span>
             </div>
-            <div className="message-body">{msg.text}</div>
+            <div className="message-body">{displayText}</div>
           </article>
         );
       })}

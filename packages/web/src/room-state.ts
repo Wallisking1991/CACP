@@ -2,7 +2,7 @@ import type { CacpEvent } from "@cacp/protocol";
 
 export interface ParticipantView { id: string; display_name: string; role: string; type: string }
 export interface AgentView { agent_id: string; name: string; capabilities: string[]; status: "online" | "offline" | "unknown"; last_status_at?: string }
-export interface MessageView { message_id?: string; actor_id: string; text: string; kind: string; created_at: string; collection_id?: string }
+export interface MessageView { message_id?: string; actor_id: string; text: string; kind: string; created_at: string; collection_id?: string; cancelledMessageCount?: number }
 export interface StreamingTurnView { turn_id: string; agent_id: string; text: string }
 export interface AiCollectionView {
   collection_id: string;
@@ -152,6 +152,14 @@ export function deriveRoomState(events: CacpEvent[]): RoomViewState {
           ...collection,
           cancelled_by: typeof event.payload.cancelled_by === "string" ? event.payload.cancelled_by : event.actor_id,
           cancelled_at: event.created_at
+        });
+        messages.push({
+          message_id: `cancelled-${event.payload.collection_id}`,
+          actor_id: "system",
+          text: "__CACP_COLLECTION_CANCELLED__",
+          kind: "system",
+          created_at: event.created_at,
+          cancelledMessageCount: collection.messages.length
         });
       }
     }

@@ -26,7 +26,11 @@ export function resolveLang(storageValue: string | null, navigatorLang: string):
 function getInitialLang(): Lang {
   const stored = typeof localStorage !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null;
   const navigatorLang = typeof navigator !== "undefined" ? navigator.language : "en";
-  return resolveLang(stored, navigatorLang);
+  const resolved = resolveLang(stored, navigatorLang);
+  if (typeof localStorage !== "undefined" && stored !== resolved) {
+    localStorage.setItem(STORAGE_KEY, resolved);
+  }
+  return resolved;
 }
 
 export interface LangProviderProps {

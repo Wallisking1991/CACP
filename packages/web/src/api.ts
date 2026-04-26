@@ -91,7 +91,7 @@ export async function selectAgent(session: RoomSession, agentId: string): Promis
 
 export function pairingServerUrlFor(origin: string): string {
   const url = new URL(origin);
-  if ((url.hostname === "127.0.0.1" || url.hostname === "localhost") && url.port === "5173") {
+  if ((url.hostname === "127.0.0.1" || url.hostname === "localhost") && (url.port === "5173" || url.port === "3000")) {
     url.port = "3737";
   }
   return url.toString().replace(/\/$/, "");

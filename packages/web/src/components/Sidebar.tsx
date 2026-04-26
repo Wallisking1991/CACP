@@ -142,7 +142,7 @@ export default function Sidebar({
 
           {activeAgent ? (
             <>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }} aria-label={`Active agent ${activeAgent.name}`}>
                 <div className="agent-avatar">{agentAvatarInitial(activeAgent.name)}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 14, fontWeight: 600 }}>{activeAgent.name}</div>

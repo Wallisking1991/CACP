@@ -33,7 +33,7 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
   const [displayName, setDisplayName] = useState("Alice");
   const [agentType, setAgentType] = useState("claude-code");
   const [permissionLevel, setPermissionLevel] = useState("read_only");
-  const [workingDir, setWorkingDir] = useState("D:\\Development\\2");
+  const [workingDir, setWorkingDir] = useState("");
 
   const [joinRoomId, setJoinRoomId] = useState(inviteTarget?.room_id ?? "");
   const [inviteToken, setInviteToken] = useState(inviteTarget?.invite_token ?? "");
