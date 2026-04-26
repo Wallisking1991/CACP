@@ -91,7 +91,9 @@ export function buildAgentContextPrompt(input: { participants: Participant[]; me
     messages || "暂无历史对话。",
     "",
     "请基于以上多人共享上下文，用简洁、可执行的中文回复下一条消息。除非明确要求，不要修改文件。",
-    "如果你需要多人做结构化决策，请输出一个独立的 fenced code block，信息标记为 `cacp-question`，内容为 JSON，包含 question 和 options。"
+    "When an explicit room decision is required, output a separate fenced code block tagged `cacp-decision`.",
+    "The block must contain JSON with title, description, kind, options, policy, and blocking.",
+    "Only create a decision when the humans must choose, judge, approve, or confirm something."
   ].join("\n");
 }
 
