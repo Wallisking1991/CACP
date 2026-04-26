@@ -141,6 +141,99 @@ describe("CACP decision protocol integration", () => {
     await app.close();
   });
 
+  it("allows a new decision after cancellation", async () => {
+    const { app, room, ownerAuth } = await createRoom();
+    const agent = await registerAndSelectAgent(app, room.room_id, ownerAuth);
+    const created = await createDecision(app, room.room_id, agent.agentAuth);
+    expect(created.statusCode).toBe(201);
+    const decisionId = (created.json() as { decision_id: string }).decision_id;
+
+    const cancelled = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/decisions/${decisionId}/cancel`,
+      headers: ownerAuth,
+      payload: { reason: "Try a better question" }
+    });
+    expect(cancelled.statusCode).toBe(201);
+
+    const next = await createDecision(app, room.room_id, agent.agentAuth);
+    expect(next.statusCode).toBe(201);
+
+    await app.close();
+  });
+
+  it("allows a new decision after resolution", async () => {
+    const { app, room, ownerAuth } = await createRoom("majority");
+    const bob = await inviteMember(app, room.room_id, ownerAuth);
+    const agent = await registerAndSelectAgent(app, room.room_id, ownerAuth);
+    const created = await createDecision(app, room.room_id, agent.agentAuth);
+    expect(created.statusCode).toBe(201);
+
+    const aliceAnswer = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "A" } });
+    expect(aliceAnswer.statusCode).toBe(201);
+    const bobAnswer = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: bob.auth, payload: { text: "A" } });
+    expect(bobAnswer.statusCode).toBe(201);
+
+    const next = await createDecision(app, room.room_id, agent.agentAuth);
+    expect(next.statusCode).toBe(201);
+
+    await app.close();
+  });
+
+  it("expired decisions do not block new decisions or agent turns", async () => {
+    const { app, room, ownerAuth } = await createRoom("majority");
+    const agent = await registerAndSelectAgent(app, room.room_id, ownerAuth);
+    const expiredDecision = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/decisions`,
+      headers: agent.agentAuth,
+      payload: {
+        ...decisionPayload,
+        policy: { type: "majority", expires_at: "2000-01-01T00:00:00.000Z" }
+      }
+    });
+    expect(expiredDecision.statusCode).toBe(201);
+
+    const message = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/messages`,
+      headers: ownerAuth,
+      payload: { text: "Please continue with a recommendation." }
+    });
+    expect(message.statusCode).toBe(201);
+    let events = await listEvents(app, room.room_id, ownerAuth);
+    expect(events.some((event) => event.type === "agent.turn.requested")).toBe(true);
+    expect(events.some((event) => event.type === "message.created" && event.payload.kind === "system" && String(event.payload.text).startsWith("Current decision is still open."))).toBe(false);
+
+    const next = await createDecision(app, room.room_id, agent.agentAuth);
+    expect(next.statusCode).toBe(201);
+    events = await listEvents(app, room.room_id, ownerAuth);
+    expect(events.filter((event) => event.type === "decision.requested")).toHaveLength(2);
+
+    await app.close();
+  });
+
+  it("decision resolution does not emit action approval resolution in Task 3", async () => {
+    const { app, room, ownerAuth } = await createRoom();
+    const agent = await registerAndSelectAgent(app, room.room_id, ownerAuth);
+    const created = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/decisions`,
+      headers: agent.agentAuth,
+      payload: { ...decisionPayload, action_id: "action_1" }
+    });
+    expect(created.statusCode).toBe(201);
+
+    const answer = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "A" } });
+    expect(answer.statusCode).toBe(201);
+
+    const events = await listEvents(app, room.room_id, ownerAuth);
+    expect(events.filter((event) => event.type === "decision.resolved")).toHaveLength(1);
+    expect(events.some((event) => event.type === "agent.action_approval_resolved")).toBe(false);
+
+    await app.close();
+  });
+
   it("parses a cacp-decision draft without decision_id from agent turn completion", async () => {
     const { app, room, ownerAuth } = await createRoom();
     const agent = await registerAndSelectAgent(app, room.room_id, ownerAuth);

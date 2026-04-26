@@ -4,7 +4,7 @@ import { z } from "zod";
 import { evaluatePolicy, PolicySchema, VoteRecordSchema, type CacpEvent, type Participant, type Policy, type VoteRecord } from "@cacp/protocol";
 import { requireParticipant, hasAnyRole, hasHumanRole } from "./auth.js";
 import { buildAgentContextPrompt, findActiveAgentId, findOpenTurn, hasQueuedFollowup, recentConversationMessages } from "./conversation.js";
-import { deriveDecisionStates, evaluateDecisionPolicy, extractCacpDecisions, findActiveDecision, interpretDecisionResponse } from "./decisions.js";
+import { deriveDecisionStates, evaluateDecisionPolicy, extractCacpDecisions, interpretDecisionResponse } from "./decisions.js";
 import { EventBus } from "./event-bus.js";
 import { EventStore } from "./event-store.js";
 import { event, prefixedId, token } from "./ids.js";
@@ -148,8 +148,13 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return deriveDecisionStates(store.listEvents(roomId));
   }
 
-  function activeDecisionFor(roomId: string) {
-    return findActiveDecision(decisionStatesFor(roomId));
+  function activeBlockingDecisionFor(roomId: string) {
+    const participants = store.getParticipants(roomId).map(publicParticipant);
+    return decisionStatesFor(roomId).find((state) => {
+      if (state.terminal_status || state.request.blocking !== true) return false;
+      const evaluation = evaluateDecisionPolicy({ decision: state, participants, now: new Date() });
+      return !(evaluation.status === "open" && evaluation.reason === "decision policy expired");
+    });
   }
 
   function resolveDecisionPolicyEvents(roomId: string, actorId: string, decisionId: string): CacpEvent[] {
@@ -164,10 +169,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       decided_by: evaluation.decided_by,
       policy_evaluation: { status: "approved", reason: evaluation.reason }
     });
-    const actionId = state.request.action_id;
-    return typeof actionId === "string"
-      ? [resolved, event(roomId, "agent.action_approval_resolved", actorId, { action_id: actionId, decision_id: decisionId, decision: evaluation.result })]
-      : [resolved];
+    return [resolved];
   }
 
   function isQuestionClosed(roomId: string, questionId: string): boolean {
@@ -345,7 +347,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     })];
   }
 
-  app.get("/health", async () => ({ ok: true, protocol: "cacp", version: "0.1.0" }));
+  app.get("/health", async () => ({ ok: true, protocol: "cacp", version: "0.2.0" }));
 
   app.post("/rooms", async (request, reply) => {
     const body = CreateRoomSchema.parse(request.body);
@@ -422,7 +424,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!participant) return deny(reply, "invalid_token");
     if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
     const body = MessageSchema.parse(request.body);
-    const activeDecision = activeDecisionFor(request.params.roomId);
+    const activeDecision = activeBlockingDecisionFor(request.params.roomId);
     const storedEvents = store.transaction(() => {
       const messageId = prefixedId("msg");
       const message = store.appendEvent(event(request.params.roomId, "message.created", participant.id, {
@@ -468,7 +470,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
     if (!hasAnyRole(participant, ["owner", "admin", "agent"])) return deny(reply, "forbidden", 403);
-    if (activeDecisionFor(request.params.roomId)) return deny(reply, "active_decision_exists", 409);
+    if (activeBlockingDecisionFor(request.params.roomId)) return deny(reply, "active_decision_exists", 409);
     const body = DecisionCreateSchema.parse(request.body);
     const decisionId = prefixedId("dec");
     const policy = body.policy === "room_default" ? roomPolicy(request.params.roomId) : body.policy;
@@ -728,7 +730,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       }));
       const decisionEvents: CacpEvent[] = [];
       for (const draft of extractCacpDecisions(body.final_text, roomPolicy(request.params.roomId))) {
-        if (activeDecisionFor(request.params.roomId)) {
+        if (activeBlockingDecisionFor(request.params.roomId)) {
           decisionEvents.push(store.appendEvent(event(request.params.roomId, "message.created", participant.id, {
             message_id: prefixedId("msg"),
             text: "A decision is already active. Resolve or cancel it before creating another decision.",
