@@ -97,6 +97,31 @@ describe("CACP server pairing and governance", () => {
     await app.close();
   });
 
+  it("resolves action approvals as rejected when their decision is cancelled", async () => {
+    const { app, room, ownerAuth } = await createRoom("owner_approval");
+    const agent = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/register`, headers: ownerAuth, payload: { name: "Claude", capabilities: [] } });
+    const agentToken = agent.json().agent_token;
+
+    const approval = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-action-approvals?token=${encodeURIComponent(agentToken)}&wait_ms=0`, payload: { tool_name: "Write", description: "Allow Write?" } });
+    expect(approval.statusCode).toBe(201);
+    const actionId = approval.json().action_id as string;
+    const decisionId = approval.json().decision_id as string;
+    expect(actionId).toMatch(/^action_/);
+    expect(decisionId).toMatch(/^dec_/);
+
+    const cancelled = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/decisions/${decisionId}/cancel`, headers: ownerAuth, payload: { reason: "Owner rejected the action." } });
+    expect(cancelled.statusCode).toBe(201);
+
+    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
+    const cancelledEvent = events.find((event) => event.type === "decision.cancelled" && event.payload.decision_id === decisionId);
+    expect(cancelledEvent?.payload.reason).toBe("Owner rejected the action.");
+    const resolvedEvent = events.find((event) => event.type === "agent.action_approval_resolved" && event.payload.action_id === actionId);
+    expect(resolvedEvent?.payload).toMatchObject({ action_id: actionId, decision_id: decisionId, decision: "reject" });
+    expect(events.indexOf(resolvedEvent!)).toBeGreaterThan(events.indexOf(cancelledEvent!));
+
+    await app.close();
+  });
+
   it("rejects action approval decisions while another blocking decision is active", async () => {
     const { app, room, ownerAuth } = await createRoom("owner_approval");
     const agent = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/register`, headers: ownerAuth, payload: { name: "Claude", capabilities: [] } });

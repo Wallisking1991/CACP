@@ -528,7 +528,19 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!state) return deny(reply, "unknown_decision", 404);
     if (state.terminal_status) return deny(reply, "decision_closed", 409);
     const body = DecisionCancelSchema.parse(request.body ?? {});
-    appendAndPublish(event(request.params.roomId, "decision.cancelled", participant.id, { decision_id: request.params.decisionId, reason: body.reason, cancelled_by: participant.id }));
+    const storedEvents = store.transaction(() => {
+      const cancelled = store.appendEvent(event(request.params.roomId, "decision.cancelled", participant.id, { decision_id: request.params.decisionId, reason: body.reason, cancelled_by: participant.id }));
+      if (state.request.decision_type !== "agent_action_approval" || typeof state.request.action_id !== "string") return [cancelled];
+      return [
+        cancelled,
+        store.appendEvent(event(request.params.roomId, "agent.action_approval_resolved", participant.id, {
+          action_id: state.request.action_id,
+          decision_id: request.params.decisionId,
+          decision: "reject"
+        }))
+      ];
+    });
+    publishEvents(storedEvents);
     return reply.code(201).send({ ok: true });
   });
 
