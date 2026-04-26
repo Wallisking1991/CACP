@@ -28,8 +28,17 @@ describe("App room copy and layout source", () => {
 
     expect(source).toContain("clearRoom(");
     expect(source).toContain("cancelDecision(");
+    expect(source).toContain("Cancel this decision for everyone?");
     expect(source).toContain("badgeChangesForCollapsedControls");
+    expect(source).toContain("controlSectionSignatures");
     expect(source).not.toContain("submitQuestionResponse");
+  });
+
+  it("gives unlabeled chat and active-agent controls accessible names", () => {
+    const source = appSource();
+
+    expect(source).toContain('aria-label="Message the room');
+    expect(source).toContain('aria-label="Active agent');
   });
 
   it("keeps the chat workspace fixed height with internally scrolling timeline and collapsed controls", () => {
@@ -38,5 +47,14 @@ describe("App room copy and layout source", () => {
     expect(source).toContain("overflow-y: auto");
     expect(source).toContain("height: calc(100vh");
     expect(source).toContain(".workspace-grid.collapsed-controls");
+  });
+
+  it("keeps fixed-height responsive layout and visible focus styling", () => {
+    const source = cssSource();
+
+    expect(source).toContain(":focus-visible");
+    expect(source).not.toContain("body { overflow: auto; }");
+    expect(source).not.toContain("height: auto; min-height: 100vh; overflow: visible;");
+    expect(source).not.toContain("height: auto; max-height: none;");
   });
 });

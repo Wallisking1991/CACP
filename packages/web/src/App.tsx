@@ -8,6 +8,8 @@ import { clearStoredSession, loadInitialSession, saveStoredSession } from "./ses
 import "./App.css";
 
 type InviteRole = "member" | "observer";
+type ControlSectionKey = keyof ControlBadges;
+type ControlSectionSignatures = Record<ControlSectionKey, string>;
 
 const agentTypes = [
   { value: "claude-code", label: "Claude Code CLI" },
@@ -29,6 +31,7 @@ const policyOptions = [
 ];
 
 const zeroControlBadges: ControlBadges = { agent: 0, invite: 0, participants: 0, decisions: 0 };
+const controlSectionKeys = ["agent", "invite", "participants", "decisions"] as const satisfies readonly ControlSectionKey[];
 
 function titleCase(value: string): string {
   return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -65,6 +68,45 @@ function statusLabel(decision: DecisionView): string {
   if (decision.terminal_status === "resolved") return "Resolved";
   if (decision.terminal_status === "cancelled") return "Cancelled";
   return decision.blocking ? "Active blocking decision" : "Active decision";
+}
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(value, (_key, item: unknown) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+    return Object.fromEntries(Object.entries(item).sort(([left], [right]) => left.localeCompare(right)));
+  }) ?? "";
+}
+
+function controlSectionSignatures(room: ReturnType<typeof deriveRoomState>): ControlSectionSignatures {
+  const agentSignature = stableJson({
+    activeAgentId: room.activeAgentId,
+    agents: [...room.agents]
+      .sort((left, right) => left.agent_id.localeCompare(right.agent_id))
+      .map((agent) => ({ id: agent.agent_id, name: agent.name, status: agent.status, lastStatusAt: agent.last_status_at }))
+  });
+  const participantSignature = stableJson([...room.participants]
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((participant) => ({ id: participant.id, name: participant.display_name, role: participant.role, type: participant.type })));
+  const decisionSignature = stableJson({
+    currentDecision: room.currentDecision,
+    decisionHistory: room.decisionHistory
+  });
+
+  return {
+    agent: agentSignature,
+    invite: stableJson({ inviteCount: room.inviteCount }),
+    participants: participantSignature,
+    decisions: decisionSignature
+  };
+}
+
+function countForSection(counts: ControlCounts, section: ControlSectionKey): number {
+  switch (section) {
+    case "agent": return counts.agents;
+    case "invite": return counts.invites;
+    case "participants": return counts.participants;
+    case "decisions": return counts.decisions;
+  }
 }
 
 export default function App() {
@@ -112,17 +154,34 @@ export default function App() {
     participants: room.participants.length,
     decisions: (room.currentDecision ? 1 : 0) + room.decisionHistory.length
   }), [room.agents.length, room.currentDecision, room.decisionHistory.length, room.inviteCount, room.participants.length]);
+  const currentControlSignatures = useMemo(() => controlSectionSignatures(room), [room]);
   const previousControlCounts = useRef<ControlCounts>(controlCounts);
+  const previousControlSignatures = useRef<ControlSectionSignatures>(currentControlSignatures);
 
   useEffect(() => {
-    setControlBadges((existing) => badgeChangesForCollapsedControls({
-      collapsed: controlsCollapsed,
-      previous: previousControlCounts.current,
-      current: controlCounts,
-      existing
-    }));
+    const previousCounts = previousControlCounts.current;
+    const previousSignatures = previousControlSignatures.current;
+    setControlBadges((existing) => {
+      const countBadges = badgeChangesForCollapsedControls({
+        collapsed: controlsCollapsed,
+        previous: previousCounts,
+        current: controlCounts,
+        existing
+      });
+      if (!controlsCollapsed) return countBadges;
+
+      const nextBadges = { ...countBadges };
+      for (const section of controlSectionKeys) {
+        const countDidNotIncrease = countForSection(controlCounts, section) <= countForSection(previousCounts, section);
+        if (countDidNotIncrease && currentControlSignatures[section] !== previousSignatures[section]) {
+          nextBadges[section] += 1;
+        }
+      }
+      return nextBadges;
+    });
     previousControlCounts.current = controlCounts;
-  }, [controlCounts, controlsCollapsed]);
+    previousControlSignatures.current = currentControlSignatures;
+  }, [controlCounts, controlsCollapsed, currentControlSignatures]);
 
   const streamingKey = useMemo(() => room.streamingTurns.map((turn) => turn.turn_id).join("|"), [room.streamingTurns]);
   const streamingTextKey = useMemo(() => room.streamingTurns.map((turn) => `${turn.turn_id}:${turn.text}`).join("|"), [room.streamingTurns]);
@@ -220,7 +279,9 @@ export default function App() {
         {decision.terminal_status === "resolved" && <p className="status-line">Result: {decision.result_label ?? displayValue(decision.result)}</p>}
         {decision.terminal_status === "cancelled" && <p className="status-line">Cancelled: {decision.cancelled_reason ?? "No reason provided"}</p>}
         {mode === "current" && canManageRoom && (
-          <button type="button" className="secondary danger" onClick={() => void run(async () => cancelDecision(session, decision.decision_id, "Cancelled from the web room controls"))}>
+          <button type="button" className="secondary danger" onClick={() => void run(async () => {
+            if (window.confirm("Cancel this decision for everyone?")) await cancelDecision(session, decision.decision_id, "Cancelled from the web room controls");
+          })}>
             Cancel decision
           </button>
         )}
@@ -331,7 +392,7 @@ export default function App() {
           </div>
 
           <form className="composer" onSubmit={(event) => { event.preventDefault(); void run(async () => { await sendMessage(session, message.trim()); setMessage(""); }); }}>
-            <textarea value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Message the room and answer decisions here..." />
+            <textarea aria-label="Message the room" value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Message the room and answer decisions here..." />
             <button disabled={!message.trim()}>Send</button>
           </form>
           {activeAgent && activeAgent.status !== "online" && <p className="error inline-error">The active agent is offline. Select an online agent from the controls.</p>}
@@ -369,7 +430,7 @@ export default function App() {
 
             <section className="side-card">
               <h2>Active Agent</h2>
-              <select value={room.activeAgentId ?? ""} onChange={(event) => { const value = event.target.value; if (value) void run(async () => selectAgent(session, value)); }}>
+              <select aria-label="Active agent" value={room.activeAgentId ?? ""} onChange={(event) => { const value = event.target.value; if (value) void run(async () => selectAgent(session, value)); }}>
                 <option value="">Select agent</option>
                 {room.agents.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.status === "online" ? "Online" : "Offline"} - {agent.name} - {agent.agent_id.slice(-6)}</option>)}
               </select>
