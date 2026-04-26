@@ -240,7 +240,7 @@ export function deriveRoomState(events: CacpEvent[]): RoomViewState {
   }
 
   const decisionViews = [...decisions.values()];
-  const currentDecision = [...decisionViews].reverse().find((decision) => !decision.terminal_status && decision.blocking);
+  const currentDecision = [...decisionViews].reverse().find((decision) => !decision.terminal_status);
   const decisionHistory = decisionViews.filter((decision) => Boolean(decision.terminal_status));
 
   return {
