@@ -9,3 +9,5 @@ dist/
 .DS_Store
 docs/examples/*.local.json
 .playwright-cli/
+.tmp-test-services/
+.superpowers/
