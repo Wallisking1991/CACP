@@ -6,7 +6,6 @@ import { deriveRoomState, isCollectionActive, isTurnInFlight } from "../room-sta
 import Header from "./Header.js";
 import Thread from "./Thread.js";
 import Composer from "./Composer.js";
-import Sidebar from "./Sidebar.js";
 import MobileDrawer from "./MobileDrawer.js";
 
 export interface WorkspaceProps {
@@ -19,8 +18,8 @@ export interface WorkspaceProps {
   onSubmitCollection: () => void;
   onCancelCollection: () => void;
   onSelectAgent: (agentId: string) => void;
-  onCreateInvite: (role: string, ttl: number) => void;
-  inviteUrl?: string;
+  onCreateInvite: (role: string, ttl: number) => Promise<string | undefined>;
+  createdInvite?: { url: string; role: string; ttl: number };
   error?: string;
 }
 
@@ -35,7 +34,7 @@ export default function Workspace({
   onCancelCollection,
   onSelectAgent,
   onCreateInvite,
-  inviteUrl,
+  createdInvite,
   error,
 }: WorkspaceProps) {
   const room = useMemo(() => deriveRoomState(events), [events]);
@@ -89,18 +88,21 @@ export default function Workspace({
     currentParticipantId: session.participant_id,
     onSelectAgent,
     onCreateInvite,
-    inviteUrl,
+    createdInvite,
   };
 
   const collectCount = room.activeCollection?.messages.length ?? 0;
+
+  const myDisplayName = room.participants.find((p) => p.id === session.participant_id)?.display_name;
 
   return (
     <div className="workspace-shell">
       <div className="workspace-grid">
         <div className="chat-panel">
           <Header
-            roomName={session.room_id}
+            roomName={room.roomName ?? session.room_id}
             roomId={session.room_id}
+            userDisplayName={myDisplayName}
             participantCount={room.participants.length}
             agentName={activeAgent?.name}
             agentOnline={activeAgent?.status === "online"}
@@ -136,10 +138,6 @@ export default function Workspace({
               {error}
             </p>
           )}
-        </div>
-
-        <div className="sidebar-desktop">
-          <Sidebar {...sidebarProps} />
         </div>
       </div>
 

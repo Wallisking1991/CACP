@@ -6,6 +6,7 @@ import { useContext } from "react";
 export interface HeaderProps {
   roomName: string;
   roomId: string;
+  userDisplayName?: string;
   participantCount: number;
   agentName?: string;
   agentOnline?: boolean;
@@ -42,6 +43,7 @@ function statusDotStyle(mode: HeaderProps["mode"], agentOnline?: boolean): React
 export default function Header({
   roomName,
   roomId,
+  userDisplayName,
   participantCount,
   agentName,
   agentOnline,
@@ -75,7 +77,10 @@ export default function Header({
   return (
     <header className="workspace-header">
       <div className="header-title">
-        <h2>{roomName}</h2>
+        <h2>
+          {roomName}
+          {userDisplayName ? <> · {userDisplayName}</> : null}
+        </h2>
         <p className="header-sub">
           {t("header.room")} · {t("header.peopleCount", { count: participantCount })} · {agentStatusText}
         </p>

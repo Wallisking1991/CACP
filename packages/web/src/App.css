@@ -346,7 +346,7 @@ textarea.input {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 220px;
+  grid-template-columns: 1fr;
   gap: 16px;
   align-items: stretch;
 }
@@ -717,18 +717,3 @@ textarea.input {
 }
 
 /* Breakpoints */
-@media (max-width: 1279px) {
-  .workspace-grid {
-    grid-template-columns: minmax(0, 1fr) 180px;
-  }
-}
-
-@media (max-width: 1023px) {
-  .workspace-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .sidebar {
-    display: none;
-  }
-}

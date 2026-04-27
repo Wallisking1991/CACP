@@ -30,6 +30,7 @@
   "composer.submitLabel": "提交 {count} 条回答",
   "composer.submitLabelZero": "提交回答",
   "composer.submit": "提交 {count} 条回答",
+  "composer.messageLabel": "向房间发送消息",
   "composer.ownerOnlyHint": "只有房主能看到这些控制项",
   "composer.lockedHint": "🔒 只有房主可以提交或取消此收集",
   "composer.modeLocked": "🔒 智能体回复期间模式锁定",

@@ -32,7 +32,7 @@ export default function App() {
   const [events, setEvents] = useState<CacpEvent[]>([]);
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(false);
-  const [createdInviteUrl, setCreatedInviteUrl] = useState<string>();
+  const [createdInvite, setCreatedInvite] = useState<{ url: string; role: string; ttl: number }>();
   const [localLaunch, setLocalLaunch] = useState<LocalAgentLaunch>();
 
   useEffect(() => {
@@ -56,7 +56,7 @@ export default function App() {
   const activateSession = useCallback((nextSession: RoomSession): void => {
     saveStoredSession(window.localStorage, nextSession);
     setEvents([]);
-    setCreatedInviteUrl(undefined);
+    setCreatedInvite(undefined);
     setLocalLaunch(undefined);
     setSession(nextSession);
     if (inviteTarget) window.history.replaceState({}, "", "/");
@@ -66,7 +66,7 @@ export default function App() {
     clearStoredSession(window.localStorage);
     setSession(undefined);
     setEvents([]);
-    setCreatedInviteUrl(undefined);
+    setCreatedInvite(undefined);
     setLocalLaunch(undefined);
     setError(undefined);
   }, []);
@@ -153,12 +153,21 @@ export default function App() {
     });
   }, [session]);
 
-  const handleCreateInvite = useCallback((role: string, ttl: number) => {
-    if (!session) return;
-    void run(async () => {
+  const handleCreateInvite = useCallback(async (role: string, ttl: number): Promise<string | undefined> => {
+    if (!session) return undefined;
+    setError(undefined);
+    setLoading(true);
+    try {
       const invite = await createInvite(session, role as "member" | "observer", ttl);
-      setCreatedInviteUrl(inviteUrlFor(window.location.origin, session.room_id, invite.invite_token));
-    });
+      const url = inviteUrlFor(window.location.origin, session.room_id, invite.invite_token);
+      setCreatedInvite({ url, role, ttl });
+      return url;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+      return undefined;
+    } finally {
+      setLoading(false);
+    }
   }, [session]);
 
   if (!session) {
@@ -187,7 +196,7 @@ export default function App() {
         onCancelCollection={handleCancelCollection}
         onSelectAgent={handleSelectAgent}
         onCreateInvite={handleCreateInvite}
-        inviteUrl={createdInviteUrl}
+        createdInvite={createdInvite}
         error={error}
       />
     </LangProvider>

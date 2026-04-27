@@ -11,8 +11,8 @@ export interface SidebarProps {
   canManageRoom: boolean;
   currentParticipantId?: string;
   onSelectAgent: (agentId: string) => void;
-  onCreateInvite: (role: string, ttl: number) => void;
-  inviteUrl?: string;
+  onCreateInvite: (role: string, ttl: number) => Promise<string | undefined>;
+  createdInvite?: { url: string; role: string; ttl: number };
 }
 
 function agentAvatarInitial(name: string): string {
@@ -98,7 +98,7 @@ export default function Sidebar({
   currentParticipantId,
   onSelectAgent,
   onCreateInvite,
-  inviteUrl,
+  createdInvite,
 }: SidebarProps) {
   const t = useT();
   const [dialog, setDialog] = useState<{ title: string } | null>(null);
@@ -106,6 +106,11 @@ export default function Sidebar({
   const [inviteTtl, setInviteTtl] = useState(3600);
 
   const activeAgent = agents.find((a) => a.agent_id === activeAgentId);
+
+  const matchingInvite =
+    createdInvite && createdInvite.role === inviteRole && createdInvite.ttl === inviteTtl
+      ? createdInvite
+      : undefined;
 
   const openPlaceholder = useCallback((title: string) => {
     setDialog({ title });
@@ -116,10 +121,16 @@ export default function Sidebar({
   }, []);
 
   const handleCopyInvite = useCallback(() => {
-    if (inviteUrl) {
-      navigator.clipboard.writeText(inviteUrl).catch(() => {});
+    if (matchingInvite) {
+      navigator.clipboard.writeText(matchingInvite.url).catch(() => {});
+      return;
     }
-  }, [inviteUrl]);
+    void onCreateInvite(inviteRole, inviteTtl).then((url) => {
+      if (url) {
+        navigator.clipboard.writeText(url).catch(() => {});
+      }
+    });
+  }, [matchingInvite, onCreateInvite, inviteRole, inviteTtl]);
 
   return (
     <>
@@ -288,12 +299,12 @@ export default function Sidebar({
               type="button"
               className="btn btn-warm"
               style={{ width: "100%" }}
-              onClick={() => onCreateInvite(inviteRole, inviteTtl)}
+              onClick={handleCopyInvite}
             >
               {t("sidebar.copyInvite")}
             </button>
 
-            {inviteUrl && (
+            {matchingInvite && (
               <code
                 style={{
                   display: "block",
@@ -307,7 +318,7 @@ export default function Sidebar({
                   color: "var(--ink-2)",
                 }}
               >
-                {inviteUrl}
+                {matchingInvite.url}
               </code>
             )}
 

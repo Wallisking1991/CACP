@@ -25,6 +25,7 @@ export interface RoomViewState {
   collectionHistory: AiCollectionView[];
   lastHistoryClearedAt?: string;
   inviteCount: number;
+  roomName?: string;
 }
 
 function failedTurnMessage(event: CacpEvent, streamedText: string | undefined): MessageView | undefined {
@@ -78,10 +79,12 @@ export function deriveRoomState(events: CacpEvent[]): RoomViewState {
   const collections = new Map<string, AiCollectionView>();
   let activeAgentId: string | undefined;
   let inviteCount = 0;
+  let roomName: string | undefined;
   const historyClear = lastHistoryClear(events);
   const scopedEvents = events.slice(historyClear.index + 1);
 
   for (const event of events) {
+    if (event.type === "room.created" && typeof event.payload.name === "string") roomName = event.payload.name;
     if (event.type === "participant.joined" && isParticipant(event.payload.participant)) participants.set(event.payload.participant.id, event.payload.participant);
     if (event.type === "participant.left" && typeof event.payload.participant_id === "string") participants.delete(event.payload.participant_id);
     if (event.type === "participant.role_updated" && typeof event.payload.participant_id === "string" && typeof event.payload.role === "string") {
@@ -189,7 +192,8 @@ export function deriveRoomState(events: CacpEvent[]): RoomViewState {
     activeCollection,
     collectionHistory,
     lastHistoryClearedAt: historyClear.clearedAt,
-    inviteCount
+    inviteCount,
+    roomName
   };
 }
 
