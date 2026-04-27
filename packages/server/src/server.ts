@@ -10,7 +10,8 @@ import { requireParticipant, hasAnyRole, hasHumanRole } from "./auth.js";
 import { buildAgentContextPrompt, buildCollectedAnswersPrompt, eventsAfterLastHistoryClear, findActiveAgentId, findOpenTurn, hasQueuedFollowup, recentConversationMessages } from "./conversation.js";
 import { EventBus } from "./event-bus.js";
 import { EventStore } from "./event-store.js";
-import { event, prefixedId, token } from "./ids.js";
+import { loadServerConfig, type ServerConfig } from "./config.js";
+import { event, hashToken, prefixedId, token } from "./ids.js";
 import { AgentTypeValues, PermissionLevelValues, buildAgentProfile, type AgentType, type PermissionLevel } from "./pairing.js";
 
 const CreateRoomSchema = z.object({ name: z.string().min(1), display_name: z.string().min(1).default("Owner") });
@@ -54,10 +55,7 @@ export interface LocalAgentLaunchResult { pid?: number }
 
 export type LocalAgentLauncher = (input: LocalAgentLaunchInput) => Promise<LocalAgentLaunchResult> | LocalAgentLaunchResult;
 
-export interface BuildServerOptions { dbPath?: string; localAgentLauncher?: LocalAgentLauncher; repoRoot?: string }
-
-type Invite = { room_id: string; role: "member" | "observer"; expires_at: string };
-type Pairing = { room_id: string; created_by: string; agent_type: AgentType; permission_level: PermissionLevel; working_dir: string; expires_at: string; claimed?: boolean };
+export interface BuildServerOptions { dbPath?: string; localAgentLauncher?: LocalAgentLauncher; repoRoot?: string; config?: ServerConfig }
 type ProposalTerminalStatus = "approved" | "rejected" | "expired";
 type ProposalState = { policy: Policy; votes: VoteRecord[]; terminal_status?: ProposalTerminalStatus };
 type TaskTerminalStatus = "completed" | "failed" | "cancelled";
@@ -214,11 +212,10 @@ export function defaultLocalAgentLauncher(input: LocalAgentLaunchInput): LocalAg
 }
 
 export async function buildServer(options: BuildServerOptions = {}) {
-  const app = Fastify({ logger: false });
+  const config = options.config ?? loadServerConfig();
+  const app = Fastify({ bodyLimit: config.bodyLimitBytes });
   const store = new EventStore(options.dbPath ?? "cacp.db");
   const bus = new EventBus();
-  const invites = new Map<string, Invite>();
-  const pairings = new Map<string, Pairing>();
   const localAgentLauncher = options.localAgentLauncher ?? defaultLocalAgentLauncher;
   const localRepoRoot = options.repoRoot ?? repoRoot;
   await app.register(websocket);
@@ -448,21 +445,30 @@ export async function buildServer(options: BuildServerOptions = {}) {
   }
 
   function createAgentPairing(roomId: string, actorId: string, body: z.infer<typeof AgentPairingCreateSchema>, serverUrl: string) {
+    const pairingId = prefixedId("pair");
     const pairingToken = token();
+    const now = new Date().toISOString();
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-    pairings.set(pairingToken, {
-      room_id: roomId,
-      created_by: actorId,
-      agent_type: body.agent_type,
-      permission_level: body.permission_level,
-      working_dir: body.working_dir,
-      expires_at: expiresAt
+    const storedEvents = store.transaction(() => {
+      store.createAgentPairing({
+        pairing_id: pairingId,
+        room_id: roomId,
+        token_hash: hashToken(pairingToken, config.tokenSecret),
+        created_by: actorId,
+        agent_type: body.agent_type,
+        permission_level: body.permission_level,
+        working_dir: body.working_dir,
+        created_at: now,
+        expires_at: expiresAt
+      });
+      return [store.appendEvent(event(roomId, "agent.pairing_created", actorId, {
+        pairing_id: pairingId,
+        agent_type: body.agent_type,
+        permission_level: body.permission_level,
+        expires_at: expiresAt
+      }))];
     });
-    appendAndPublish(event(roomId, "agent.pairing_created", actorId, {
-      agent_type: body.agent_type,
-      permission_level: body.permission_level,
-      expires_at: expiresAt
-    }));
+    publishEvents(storedEvents);
     return {
       pairing_token: pairingToken,
       expires_at: expiresAt,
@@ -478,6 +484,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const ownerId = prefixedId("user");
     const ownerToken = token();
     const storedEvents = store.transaction(() => {
+      const createdAt = new Date().toISOString();
+      store.createRoom({ room_id: roomId, name: body.name, owner_participant_id: ownerId, created_at: createdAt, archived_at: null });
       const owner = store.addParticipant({ room_id: roomId, id: ownerId, token: ownerToken, display_name: body.display_name, type: "human", role: "owner" });
       return [
         store.appendEvent(event(roomId, "room.created", ownerId, { name: body.name, created_by: ownerId })),
@@ -531,26 +539,45 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!participant) return deny(reply, "invalid_token");
     if (!hasAnyRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
     const body = CreateInviteSchema.parse(request.body);
+    const inviteId = prefixedId("inv");
     const inviteToken = token();
+    const now = new Date().toISOString();
     const expiresAt = new Date(Date.now() + body.expires_in_seconds * 1000).toISOString();
-    invites.set(inviteToken, { room_id: request.params.roomId, role: body.role, expires_at: expiresAt });
-    appendAndPublish(event(request.params.roomId, "invite.created", participant.id, { role: body.role, expires_at: expiresAt }));
+    const storedEvents = store.transaction(() => {
+      store.createInvite({
+        invite_id: inviteId,
+        room_id: request.params.roomId,
+        token_hash: hashToken(inviteToken, config.tokenSecret),
+        role: body.role,
+        created_by: participant.id,
+        created_at: now,
+        expires_at: expiresAt,
+        max_uses: null
+      });
+      return [store.appendEvent(event(request.params.roomId, "invite.created", participant.id, { invite_id: inviteId, role: body.role, expires_at: expiresAt }))];
+    });
+    publishEvents(storedEvents);
     return reply.code(201).send({ invite_token: inviteToken, role: body.role, expires_at: expiresAt });
   });
 
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/join", async (request, reply) => {
     const body = JoinSchema.parse(request.body);
-    const invite = invites.get(body.invite_token);
-    if (!invite || invite.room_id !== request.params.roomId) return deny(reply, "invalid_invite");
-    if (Date.parse(invite.expires_at) <= Date.now()) return deny(reply, "invite_expired");
     const participantId = prefixedId("user");
     const participantToken = token();
-    const storedEvents = store.transaction(() => {
-      const participant = store.addParticipant({ room_id: request.params.roomId, id: participantId, token: participantToken, display_name: body.display_name, type: invite.role === "observer" ? "observer" : "human", role: invite.role });
-      return [store.appendEvent(event(request.params.roomId, "participant.joined", participant.id, { participant: publicParticipant(participant) }))];
+    const joinResult = store.transaction(() => {
+      const invite = store.getInviteByTokenHash(hashToken(body.invite_token, config.tokenSecret));
+      if (!invite || invite.room_id !== request.params.roomId) return { ok: false as const, error: "invalid_invite" };
+      if (invite.revoked_at !== null) return { ok: false as const, error: "invite_revoked" };
+      if (Date.parse(invite.expires_at) <= Date.now()) return { ok: false as const, error: "invite_expired" };
+      if (invite.max_uses !== null && invite.used_count >= invite.max_uses) return { ok: false as const, error: "invite_use_limit_reached", status: 409 };
+      store.consumeInvite(invite.invite_id);
+      const role = invite.role === "observer" ? "observer" : "member";
+      const participant = store.addParticipant({ room_id: request.params.roomId, id: participantId, token: participantToken, display_name: body.display_name, type: role === "observer" ? "observer" : "human", role });
+      return { ok: true as const, role, events: [store.appendEvent(event(request.params.roomId, "participant.joined", participant.id, { participant: publicParticipant(participant) }))] };
     });
-    publishEvents(storedEvents);
-    return reply.code(201).send({ participant_id: participantId, participant_token: participantToken, role: invite.role });
+    if (!joinResult.ok) return deny(reply, joinResult.error, joinResult.status);
+    publishEvents(joinResult.events);
+    return reply.code(201).send({ participant_id: participantId, participant_token: participantToken, role: joinResult.role });
   });
 
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/messages", async (request, reply) => {
@@ -674,7 +701,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!participant) return deny(reply, "invalid_token");
     if (!hasHumanRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
     const body = AgentPairingCreateSchema.parse(request.body);
-    const serverUrl = body.server_url ?? `${request.protocol}://${request.headers.host}`;
+    const serverUrl = body.server_url ?? config.publicOrigin ?? `${request.protocol}://${request.headers.host}`;
     return reply.code(201).send(createAgentPairing(request.params.roomId, participant.id, body, serverUrl));
   });
 
@@ -682,8 +709,9 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
     if (!hasHumanRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
+    if (!config.enableLocalLaunch) return deny(reply, "local_launch_disabled", 403);
     const body = AgentPairingStartLocalSchema.parse(request.body);
-    const serverUrl = body.server_url ?? `${request.protocol}://${request.headers.host}`;
+    const serverUrl = body.server_url ?? config.publicOrigin ?? `${request.protocol}://${request.headers.host}`;
     const requestHost = request.headers.host;
     if (!isLocalUrl(serverUrl) || !isLocalHost(requestHost)) return deny(reply, "local_launch_requires_localhost", 400);
 
@@ -715,41 +743,45 @@ export async function buildServer(options: BuildServerOptions = {}) {
   });
 
   app.post<{ Params: { pairingToken: string }; Body: { adapter_name?: string }; Querystring: { server_url?: string } }>("/agent-pairings/:pairingToken/claim", async (request, reply) => {
-    const pairing = pairings.get(request.params.pairingToken);
-    if (!pairing) return deny(reply, "invalid_pairing");
-    if (pairing.claimed) return deny(reply, "pairing_claimed", 409);
-    if (Date.parse(pairing.expires_at) <= Date.now()) return deny(reply, "pairing_expired");
     const agentId = prefixedId("agent");
     const agentToken = token();
-    const serverUrl = request.query.server_url ?? `${request.protocol}://${request.headers.host}`;
-    const hookUrl = `${serverUrl}/rooms/${pairing.room_id}/agent-action-approvals?token=${encodeURIComponent(agentToken)}`;
-    const profile = buildAgentProfile({
-      agentType: pairing.agent_type,
-      permissionLevel: pairing.permission_level,
-      workingDir: pairing.working_dir,
-      hookUrl
-    });
-    const storedEvents = store.transaction(() => {
-      pairing.claimed = true;
+    const pairingHash = hashToken(request.params.pairingToken, config.tokenSecret);
+    const claimResult = store.transaction(() => {
+      const pairing = store.getAgentPairingByTokenHash(pairingHash);
+      if (!pairing) return { ok: false as const, error: "invalid_pairing" };
+      if (pairing.claimed_at !== null) return { ok: false as const, error: "pairing_claimed", status: 409 };
+      if (Date.parse(pairing.expires_at) <= Date.now()) return { ok: false as const, error: "pairing_expired" };
+      const serverUrl = request.query.server_url ?? config.publicOrigin ?? `${request.protocol}://${request.headers.host}`;
+      const hookUrl = `${serverUrl}/rooms/${pairing.room_id}/agent-action-approvals?token=${encodeURIComponent(agentToken)}`;
+      const agentType = pairing.agent_type as AgentType;
+      const permissionLevel = pairing.permission_level as PermissionLevel;
+      const profile = buildAgentProfile({
+        agentType,
+        permissionLevel,
+        workingDir: pairing.working_dir,
+        hookUrl
+      });
+      store.claimAgentPairing(pairing.pairing_id, new Date().toISOString());
       store.addParticipant({ room_id: pairing.room_id, id: agentId, token: agentToken, display_name: request.body?.adapter_name ?? profile.name, type: "agent", role: "agent" });
       const shouldSelectAgent = !findActiveAgentId(store.listEvents(pairing.room_id));
-      const eventsToAppend = [
+      const events = [
         store.appendEvent(event(pairing.room_id, "agent.registered", pairing.created_by, {
           agent_id: agentId,
           name: request.body?.adapter_name ?? profile.name,
           capabilities: profile.capabilities,
-          agent_type: pairing.agent_type,
-          permission_level: pairing.permission_level
+          agent_type: agentType,
+          permission_level: permissionLevel
         })),
         store.appendEvent(event(pairing.room_id, "agent.status_changed", agentId, { agent_id: agentId, status: "online" }))
       ];
       if (shouldSelectAgent) {
-        eventsToAppend.push(store.appendEvent(event(pairing.room_id, "room.agent_selected", pairing.created_by, { agent_id: agentId })));
+        events.push(store.appendEvent(event(pairing.room_id, "room.agent_selected", pairing.created_by, { agent_id: agentId })));
       }
-      return eventsToAppend;
+      return { ok: true as const, roomId: pairing.room_id, agentType, permissionLevel, profile, hookUrl, events };
     });
-    publishEvents(storedEvents);
-    return reply.code(201).send({ room_id: pairing.room_id, agent_id: agentId, agent_token: agentToken, agent: profile, agent_type: pairing.agent_type, permission_level: pairing.permission_level, hook_url: hookUrl });
+    if (!claimResult.ok) return deny(reply, claimResult.error, claimResult.status);
+    publishEvents(claimResult.events);
+    return reply.code(201).send({ room_id: claimResult.roomId, agent_id: agentId, agent_token: agentToken, agent: claimResult.profile, agent_type: claimResult.agentType, permission_level: claimResult.permissionLevel, hook_url: claimResult.hookUrl });
   });
 
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/agents/select", async (request, reply) => {

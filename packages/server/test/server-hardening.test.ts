@@ -117,7 +117,7 @@ describe("CACP server hardening", () => {
     expect(secondVote.json()).toEqual({ error: "proposal_closed" });
   });
 
-  it("does not share invite state across buildServer instances but recovers persisted proposal state", async () => {
+  it("recovers persisted invite and proposal state after restart", async () => {
     const dbPath = tempDbPath();
     const first = await trackedServer(dbPath);
     const { room, ownerAuth } = await createRoom(first, "First Owner");
@@ -131,7 +131,9 @@ describe("CACP server hardening", () => {
     untrack(first);
 
     const second = await trackedServer(dbPath);
-    expect((await second.inject({ method: "POST", url: `/rooms/${room.room_id}/join`, payload: { invite_token: invite.json().invite_token, display_name: "Bob" } })).statusCode).toBe(401);
+    const join = await second.inject({ method: "POST", url: `/rooms/${room.room_id}/join`, payload: { invite_token: invite.json().invite_token, display_name: "Bob" } });
+    expect(join.statusCode).toBe(201);
+    expect(join.json()).toMatchObject({ role: "member" });
     const vote = await second.inject({ method: "POST", url: `/rooms/${room.room_id}/proposals/${proposal.json().proposal_id}/votes`, headers: ownerAuth, payload: { vote: "approve" } });
     expect(vote.statusCode).toBe(201);
     expect(vote.json().evaluation.status).toBe("approved");
