@@ -698,6 +698,44 @@ textarea.input {
   color: var(--ink);
 }
 
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(28, 24, 19, 0.32);
+}
+
+.join-request-modal {
+  width: min(420px, 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-frame);
+  background: var(--surface);
+  padding: 22px;
+  box-shadow: 0 18px 50px rgba(28, 24, 19, 0.18);
+}
+
+.join-request-modal h3 {
+  font-size: 20px;
+  margin-bottom: 10px;
+}
+
+.join-request-modal-subcopy {
+  color: var(--ink-3);
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.join-request-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 /* Network banner */
 .network-banner {
   position: fixed;
