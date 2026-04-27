@@ -1,12 +1,24 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { CacpEvent, EventType } from "@cacp/protocol";
 
 export function prefixedId(prefix: string): string {
-  return `${prefix}_${randomUUID().replaceAll("-", "").slice(0, 16)}`;
+  return `${prefix}_${randomBytes(16).toString("base64url")}`;
 }
 
 export function token(): string {
-  return `cacp_${randomBytes(24).toString("base64url")}`;
+  return `cacp_${randomBytes(32).toString("base64url")}`;
+}
+
+export function hashToken(value: string, secret: string): string {
+  const digest = createHmac("sha256", secret).update(value).digest("base64url");
+  return `hmac-sha256:${digest}`;
+}
+
+export function safeTokenEquals(value: string, storedHash: string, secret: string): boolean {
+  const next = hashToken(value, secret);
+  const left = Buffer.from(next);
+  const right = Buffer.from(storedHash);
+  return left.length === right.length && timingSafeEqual(left, right);
 }
 
 export function event(roomId: string, type: EventType, actorId: string, payload: Record<string, unknown>): CacpEvent {
