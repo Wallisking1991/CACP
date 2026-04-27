@@ -11,3 +11,6 @@ docs/examples/*.local.json
 .playwright-cli/
 .tmp-test-services/
 .superpowers/
+
+.deploy/*.local.json
+docs/Server info.md
