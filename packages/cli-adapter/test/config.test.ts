@@ -1,6 +1,9 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { buildConnectionCode } from "@cacp/protocol";
-import { loadRuntimeConfigFromArgs, parseAdapterArgs } from "../src/config.js";
+import { defaultConnectorWorkingDir, loadRuntimeConfigFromArgs, parseAdapterArgs, resolveConnectorWorkingDir } from "../src/config.js";
 
 describe("adapter config arguments", () => {
   it("parses pairing mode arguments with raw token", () => {
@@ -57,5 +60,66 @@ describe("adapter config arguments", () => {
 
   it("rejects invalid connection code during load", async () => {
     await expect(loadRuntimeConfigFromArgs(["--connect", "CACP-CONNECT:v1:invalid"])).rejects.toThrow();
+  });
+
+  it("parses --cwd for pairing mode", () => {
+    expect(parseAdapterArgs(["--server", "http://127.0.0.1:3737", "--pair", "cacp_pair", "--cwd", "D:\\Projects\\my-app"])).toEqual({
+      mode: "pair",
+      server_url: "http://127.0.0.1:3737",
+      pairing_token: "cacp_pair",
+      cwd: "D:\\Projects\\my-app"
+    });
+  });
+
+  it("sends resolved working_dir while claiming a pairing", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "cacp-cli-cwd-"));
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(JSON.parse(String(init?.body))).toEqual({ working_dir: tempDir });
+      return new Response(JSON.stringify({
+        room_id: "room_1",
+        agent_id: "agent_1",
+        agent_token: "agent_token",
+        agent: { name: "Echo", command: "node", args: ["-e", ""], working_dir: tempDir, capabilities: ["echo"] }
+      }), { status: 201, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+
+    try {
+      const config = await loadRuntimeConfigFromArgs(["--server", "http://127.0.0.1:3737", "--pair", "pair_1", "--cwd", tempDir], fetchMock);
+      expect(config.agent.working_dir).toBe(tempDir);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("uses executable directory for packaged connector default cwd", () => {
+    expect(defaultConnectorWorkingDir({
+      argv: ["C:\\Tools\\CACP-Local-Connector.exe"],
+      cwd: () => "D:\\Shell",
+      execPath: "C:\\Tools\\CACP-Local-Connector.exe"
+    })).toBe("C:\\Tools");
+  });
+
+  it("uses process cwd for developer CLI default cwd", () => {
+    expect(defaultConnectorWorkingDir({
+      argv: ["C:\\Program Files\\nodejs\\node.exe", "D:\\Development\\2\\packages\\cli-adapter\\dist\\index.js"],
+      cwd: () => "D:\\Development\\2",
+      execPath: "C:\\Program Files\\nodejs\\node.exe"
+    })).toBe("D:\\Development\\2");
+  });
+
+  it("rejects invalid --cwd before claiming", async () => {
+    const missingDir = join(tmpdir(), "cacp-missing-dir-for-test");
+    const fetchMock = vi.fn();
+    await expect(loadRuntimeConfigFromArgs(["--server", "http://127.0.0.1:3737", "--pair", "pair_1", "--cwd", missingDir], fetchMock as unknown as typeof fetch)).rejects.toThrow("working directory does not exist");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("resolves explicit cwd to an existing directory", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "cacp-cli-resolve-"));
+    try {
+      expect(resolveConnectorWorkingDir(tempDir)).toBe(tempDir);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });
