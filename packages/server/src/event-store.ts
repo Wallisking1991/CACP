@@ -50,6 +50,37 @@ export interface StoredAgentPairing extends NewAgentPairing {
   claimed_at: string | null;
 }
 
+export type JoinRequestStatus = "pending" | "approved" | "rejected" | "expired";
+
+export interface NewJoinRequest {
+  request_id: string;
+  room_id: string;
+  invite_id: string;
+  request_token_hash: string;
+  display_name: string;
+  role: "member" | "observer";
+  status: JoinRequestStatus;
+  requested_at: string;
+  expires_at: string;
+  requester_ip?: string;
+  requester_user_agent?: string;
+}
+
+export interface StoredJoinRequest extends NewJoinRequest {
+  decided_at: string | null;
+  decided_by: string | null;
+  participant_id: string | null;
+  participant_token_sealed: string | null;
+}
+
+export interface StoredParticipantRevocation {
+  room_id: string;
+  participant_id: string;
+  removed_by: string;
+  removed_at: string;
+  reason: string | null;
+}
+
 interface ParticipantRow {
   room_id: string;
   participant_id: string;
@@ -122,6 +153,32 @@ export class EventStore {
         claimed_at TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_agent_pairings_room ON agent_pairings(room_id);
+      CREATE TABLE IF NOT EXISTS join_requests (
+        request_id TEXT PRIMARY KEY,
+        room_id TEXT NOT NULL,
+        invite_id TEXT NOT NULL UNIQUE,
+        request_token_hash TEXT NOT NULL UNIQUE,
+        display_name TEXT NOT NULL CHECK(length(display_name) <= 100),
+        role TEXT NOT NULL CHECK(role IN ('member', 'observer')),
+        status TEXT NOT NULL CHECK(status IN ('pending', 'approved', 'rejected', 'expired')),
+        requested_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        decided_at TEXT,
+        decided_by TEXT,
+        participant_id TEXT,
+        participant_token_sealed TEXT,
+        requester_ip TEXT,
+        requester_user_agent TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_join_requests_room_status ON join_requests(room_id, status);
+      CREATE TABLE IF NOT EXISTS participant_revocations (
+        room_id TEXT NOT NULL,
+        participant_id TEXT NOT NULL,
+        removed_by TEXT NOT NULL,
+        removed_at TEXT NOT NULL,
+        reason TEXT,
+        PRIMARY KEY(room_id, participant_id)
+      );
     `);
   }
 
@@ -162,7 +219,9 @@ export class EventStore {
     const row = this.db.prepare(`
       SELECT * FROM participants WHERE room_id = ? AND token_hash = ?
     `).get(roomId, tokenHash) as ParticipantRow | undefined;
-    return row ? participantFromRow(row) : undefined;
+    if (!row) return undefined;
+    if (this.isParticipantRevoked(row.room_id, row.participant_id)) return undefined;
+    return participantFromRow(row);
   }
 
   getParticipants(roomId: string): StoredParticipant[] {
@@ -302,6 +361,100 @@ export class EventStore {
       throw new Error("pairing_not_found");
     }
     throw new Error("pairing_claimed");
+  }
+
+  createJoinRequest(input: NewJoinRequest): StoredJoinRequest {
+    this.db.prepare(`
+      INSERT INTO join_requests (
+        request_id, room_id, invite_id, request_token_hash, display_name, role, status,
+        requested_at, expires_at, requester_ip, requester_user_agent
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      input.request_id,
+      input.room_id,
+      input.invite_id,
+      input.request_token_hash,
+      input.display_name,
+      input.role,
+      input.status,
+      input.requested_at,
+      input.expires_at,
+      input.requester_ip ?? null,
+      input.requester_user_agent ?? null
+    );
+    return this.getJoinRequest(input.request_id) as StoredJoinRequest;
+  }
+
+  getJoinRequest(requestId: string): StoredJoinRequest | undefined {
+    return this.db.prepare(`SELECT * FROM join_requests WHERE request_id = ?`).get(requestId) as StoredJoinRequest | undefined;
+  }
+
+  getJoinRequestByTokenHash(tokenHash: string): StoredJoinRequest | undefined {
+    return this.db.prepare(`SELECT * FROM join_requests WHERE request_token_hash = ?`).get(tokenHash) as StoredJoinRequest | undefined;
+  }
+
+  listJoinRequests(roomId: string, status?: JoinRequestStatus): StoredJoinRequest[] {
+    if (status) {
+      return this.db.prepare(`SELECT * FROM join_requests WHERE room_id = ? AND status = ? ORDER BY requested_at ASC`).all(roomId, status) as StoredJoinRequest[];
+    }
+    return this.db.prepare(`SELECT * FROM join_requests WHERE room_id = ? ORDER BY requested_at ASC`).all(roomId) as StoredJoinRequest[];
+  }
+
+  approveJoinRequest(requestId: string, input: { decided_at: string; decided_by: string; participant_id: string; participant_token_sealed: string }): StoredJoinRequest {
+    const result = this.db.prepare(`
+      UPDATE join_requests
+      SET status = 'approved', decided_at = ?, decided_by = ?, participant_id = ?, participant_token_sealed = ?
+      WHERE request_id = ? AND status = 'pending'
+    `).run(input.decided_at, input.decided_by, input.participant_id, input.participant_token_sealed, requestId);
+    if (result.changes === 0) {
+      const req = this.getJoinRequest(requestId);
+      if (!req) throw new Error("join_request_not_found");
+      throw new Error("join_request_not_pending");
+    }
+    return this.getJoinRequest(requestId) as StoredJoinRequest;
+  }
+
+  rejectJoinRequest(requestId: string, decidedAt: string, decidedBy: string): StoredJoinRequest {
+    const result = this.db.prepare(`
+      UPDATE join_requests
+      SET status = 'rejected', decided_at = ?, decided_by = ?
+      WHERE request_id = ? AND status = 'pending'
+    `).run(decidedAt, decidedBy, requestId);
+    if (result.changes === 0) {
+      const req = this.getJoinRequest(requestId);
+      if (!req) throw new Error("join_request_not_found");
+      throw new Error("join_request_not_pending");
+    }
+    return this.getJoinRequest(requestId) as StoredJoinRequest;
+  }
+
+  expireJoinRequest(requestId: string, decidedAt: string): StoredJoinRequest {
+    const result = this.db.prepare(`
+      UPDATE join_requests
+      SET status = 'expired', decided_at = ?
+      WHERE request_id = ? AND status = 'pending'
+    `).run(decidedAt, requestId);
+    if (result.changes === 0) {
+      const req = this.getJoinRequest(requestId);
+      if (!req) throw new Error("join_request_not_found");
+      throw new Error("join_request_not_pending");
+    }
+    return this.getJoinRequest(requestId) as StoredJoinRequest;
+  }
+
+  revokeParticipant(roomId: string, participantId: string, removedBy: string, removedAt: string, reason?: string): StoredParticipantRevocation {
+    this.db.prepare(`
+      INSERT INTO participant_revocations (room_id, participant_id, removed_by, removed_at, reason)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(room_id, participant_id) DO UPDATE SET removed_by = excluded.removed_by, removed_at = excluded.removed_at, reason = excluded.reason
+    `).run(roomId, participantId, removedBy, removedAt, reason ?? null);
+    return { room_id: roomId, participant_id: participantId, removed_by: removedBy, removed_at: removedAt, reason: reason ?? null };
+  }
+
+  isParticipantRevoked(roomId: string, participantId: string): boolean {
+    const row = this.db.prepare(`SELECT 1 FROM participant_revocations WHERE room_id = ? AND participant_id = ?`).get(roomId, participantId) as { 1: number } | undefined;
+    return row !== undefined;
   }
 }
 

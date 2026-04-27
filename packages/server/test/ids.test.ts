@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hashToken, prefixedId, safeTokenEquals, token } from "../src/ids.js";
+import { hashToken, openSecret, prefixedId, safeTokenEquals, sealSecret, token } from "../src/ids.js";
 
 describe("ID and token helpers", () => {
   it("generates non-enumerable prefixed ids", () => {
@@ -20,5 +20,14 @@ describe("ID and token helpers", () => {
     expect(hash).not.toContain(value);
     expect(safeTokenEquals(value, hash, secret)).toBe(true);
     expect(safeTokenEquals("wrong", hash, secret)).toBe(false);
+  });
+
+  it("seals approved participant tokens for polling retrieval", () => {
+    const secret = "0123456789abcdef0123456789abcdef";
+    const sealed = sealSecret("cacp_participant_token", secret);
+    expect(sealed).toMatch(/^aes-256-gcm:/);
+    expect(sealed).not.toContain("cacp_participant_token");
+    expect(openSecret(sealed, secret)).toBe("cacp_participant_token");
+    expect(() => openSecret(sealed, "wrong-secret")).toThrow("invalid_secret");
   });
 });
