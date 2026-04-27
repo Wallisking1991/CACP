@@ -220,6 +220,14 @@ textarea.input {
   margin-top: 12px;
 }
 
+.landing-footer {
+  margin-top: 16px;
+  text-align: center;
+  color: var(--ink-4);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .tab-bar {
   display: flex;
   gap: 4px;

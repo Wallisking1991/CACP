@@ -63,6 +63,8 @@
   "landing.create.cloudAgentHint": "The cloud server will not run the agent. Run the connector command on your own computer.",
   "landing.connector.download": "Download Local Connector",
   "landing.connector.instructions": "Place the connector in your project folder, run it, then paste the room connection code.",
+  "landing.footer.copyright": "© 2026 CACP. All rights reserved.",
+  "landing.footer.contact": "Contact: 453043662@qq.com, 1023289914@qq.com",
   "landing.join.inviteLink": "Invite link",
   "landing.join.roomId": "Room ID",
   "landing.join.inviteToken": "Invite token",

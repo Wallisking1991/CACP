@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LangProvider } from "../src/i18n/LangProvider.js";
 import Landing from "../src/components/Landing.js";
@@ -38,5 +38,50 @@ describe("Landing cloud connector setup", () => {
     expect(screen.getByRole("option", { name: "受限写入" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "完全访问" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "下载本地连接器" })).toBeInTheDocument();
+  });
+
+  it("starts create and join display names empty and requires a typed name", () => {
+    render(
+      <LangProvider>
+        <Landing onCreate={() => {}} onJoin={() => {}} loading={false} />
+      </LangProvider>
+    );
+
+    const createName = screen.getByLabelText("Your name") as HTMLInputElement;
+    expect(createName).toHaveValue("");
+    expect(createName).toBeRequired();
+    expect(screen.getByRole("button", { name: "Create room and generate connector command" })).toBeDisabled();
+
+    fireEvent.change(createName, { target: { value: "Alice" } });
+    expect(screen.getByRole("button", { name: "Create room and generate connector command" })).not.toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Join with invite" }));
+    const joinName = screen.getByLabelText("Your name") as HTMLInputElement;
+    expect(joinName).toHaveValue("");
+    expect(joinName).toBeRequired();
+    expect(screen.getByRole("button", { name: "Join shared room" })).toBeDisabled();
+  });
+
+  it("renders landing copyright and contact information", () => {
+    render(
+      <LangProvider>
+        <Landing onCreate={() => {}} onJoin={() => {}} loading={false} />
+      </LangProvider>
+    );
+
+    expect(screen.getByText("© 2026 CACP. All rights reserved.")).toBeInTheDocument();
+    expect(screen.getByText("Contact: 453043662@qq.com, 1023289914@qq.com")).toBeInTheDocument();
+  });
+
+  it("renders localized Chinese footer contact information", () => {
+    window.localStorage.setItem("cacp.web.lang", "zh");
+    render(
+      <LangProvider>
+        <Landing onCreate={() => {}} onJoin={() => {}} loading={false} />
+      </LangProvider>
+    );
+
+    expect(screen.getByText("© 2026 CACP。保留所有权利。")).toBeInTheDocument();
+    expect(screen.getByText("联系方式：453043662@qq.com，1023289914@qq.com")).toBeInTheDocument();
   });
 });

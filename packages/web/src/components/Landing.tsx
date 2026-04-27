@@ -33,7 +33,8 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
   const [activeTab, setActiveTab] = useState<"create" | "join">(hasInviteInUrl ? "join" : "create");
 
   const [roomName, setRoomName] = useState("CACP AI Room");
-  const [displayName, setDisplayName] = useState("Alice");
+  const [ownerDisplayName, setOwnerDisplayName] = useState("");
+  const [joinDisplayName, setJoinDisplayName] = useState("");
   const [agentType, setAgentType] = useState("claude-code");
   const [permissionLevel, setPermissionLevel] = useState("read_only");
 
@@ -66,15 +67,15 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
     }
   }, [inviteLink]);
 
-  const createValid = roomName.trim() && displayName.trim();
-  const joinValid = joinRoomId.trim() && inviteToken.trim() && displayName.trim();
+  const createValid = roomName.trim() && ownerDisplayName.trim();
+  const joinValid = joinRoomId.trim() && inviteToken.trim() && joinDisplayName.trim();
 
   function handleCreateSubmit(event: React.FormEvent) {
     event.preventDefault();
     if (!createValid || loading) return;
     onCreate({
       roomName: roomName.trim(),
-      displayName: displayName.trim(),
+      displayName: ownerDisplayName.trim(),
       agentType,
       permissionLevel
     });
@@ -86,7 +87,7 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
     onJoin({
       roomId: joinRoomId.trim(),
       inviteToken: inviteToken.trim(),
-      displayName: displayName.trim()
+      displayName: joinDisplayName.trim()
     });
   }
 
@@ -141,8 +142,8 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
             <input
               id="landing-display-name"
               className="input"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
+              value={ownerDisplayName}
+              onChange={(e) => setOwnerDisplayName(e.target.value)}
               required
             />
 
@@ -230,8 +231,8 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
             <input
               id="landing-join-display-name"
               className="input"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
+              value={joinDisplayName}
+              onChange={(e) => setJoinDisplayName(e.target.value)}
               required
             />
 
@@ -246,6 +247,10 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
           </form>
         )}
       </div>
+      <footer className="landing-footer">
+        <p>{t("landing.footer.copyright")}</p>
+        <p>{t("landing.footer.contact")}</p>
+      </footer>
     </main>
   );
 }

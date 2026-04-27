@@ -63,6 +63,8 @@
   "landing.create.cloudAgentHint": "云端服务器不会运行 Agent。请在你自己的电脑上运行连接命令。",
   "landing.connector.download": "下载本地连接器",
   "landing.connector.instructions": "把连接器放到你的项目文件夹中运行，然后粘贴房间连接码。",
+  "landing.footer.copyright": "© 2026 CACP。保留所有权利。",
+  "landing.footer.contact": "联系方式：453043662@qq.com，1023289914@qq.com",
   "landing.join.inviteLink": "邀请链接",
   "landing.join.roomId": "房间 ID",
   "landing.join.inviteToken": "邀请令牌",
