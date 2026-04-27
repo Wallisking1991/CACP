@@ -29,6 +29,14 @@ describe("server cloud config", () => {
     })).toThrow("CACP_TOKEN_SECRET is required in cloud mode");
   });
 
+  it("rejects unsafe cloud config with an empty token secret", () => {
+    expect(() => loadServerConfig({
+      CACP_DEPLOYMENT_MODE: "cloud",
+      CACP_PUBLIC_ORIGIN: "https://cacp.zuchongai.com",
+      CACP_TOKEN_SECRET: ""
+    })).toThrow("CACP_TOKEN_SECRET is required in cloud mode");
+  });
+
   it("checks allowed websocket origins", () => {
     const config = loadServerConfig({
       CACP_DEPLOYMENT_MODE: "cloud",

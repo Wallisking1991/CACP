@@ -41,7 +41,7 @@ function cleanOrigin(value: string | undefined): string | undefined {
 export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const deploymentMode: DeploymentMode = env.CACP_DEPLOYMENT_MODE === "cloud" ? "cloud" : "local";
   const publicOrigin = cleanOrigin(env.CACP_PUBLIC_ORIGIN);
-  const tokenSecret = env.CACP_TOKEN_SECRET ?? "local-dev-token-secret";
+  const tokenSecret = env.CACP_TOKEN_SECRET?.trim() || "local-dev-token-secret";
   if (deploymentMode === "cloud" && !publicOrigin) throw new Error("CACP_PUBLIC_ORIGIN is required in cloud mode");
   if (deploymentMode === "cloud" && tokenSecret === "local-dev-token-secret") throw new Error("CACP_TOKEN_SECRET is required in cloud mode");
   return {
