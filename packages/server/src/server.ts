@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import Fastify, { type FastifyReply } from "fastify";
 import websocket from "@fastify/websocket";
 import { z } from "zod";
-import { evaluatePolicy, PolicySchema, VoteRecordSchema, type CacpEvent, type Participant, type Policy, type VoteRecord } from "@cacp/protocol";
+import { buildConnectionCode, evaluatePolicy, PolicySchema, VoteRecordSchema, type CacpEvent, type Participant, type Policy, type VoteRecord } from "@cacp/protocol";
 import { requireParticipant, hasAnyRole, hasHumanRole } from "./auth.js";
 import { buildAgentContextPrompt, buildCollectedAnswersPrompt, eventsAfterLastHistoryClear, findActiveAgentId, findOpenTurn, hasQueuedFollowup, recentConversationMessages } from "./conversation.js";
 import { EventBus } from "./event-bus.js";
@@ -489,7 +489,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     })];
   }
 
-  function createAgentPairing(roomId: string, actorId: string, body: z.infer<typeof AgentPairingCreateSchema>, serverUrl: string) {
+  function createStoredAgentPairing(roomId: string, actorId: string, body: z.infer<typeof AgentPairingCreateSchema>) {
     const pairingId = prefixedId("pair");
     const pairingToken = token();
     const now = new Date().toISOString();
@@ -514,10 +514,15 @@ export async function buildServer(options: BuildServerOptions = {}) {
       }))];
     });
     publishEvents(storedEvents);
+    return { pairingId, pairingToken, expiresAt };
+  }
+
+  function createAgentPairing(roomId: string, actorId: string, body: z.infer<typeof AgentPairingCreateSchema>, serverUrl: string) {
+    const pairing = createStoredAgentPairing(roomId, actorId, body);
     return {
-      pairing_token: pairingToken,
-      expires_at: expiresAt,
-      command: pairingCommand(serverUrl, pairingToken)
+      pairing_token: pairing.pairingToken,
+      expires_at: pairing.expiresAt,
+      command: pairingCommand(serverUrl, pairing.pairingToken)
     };
   }
 
@@ -898,8 +903,21 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!participant) return deny(reply, "invalid_token");
     if (!hasHumanRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
     const body = AgentPairingCreateSchema.parse(request.body);
+    const roomId = request.params.roomId;
     const serverUrl = body.server_url ?? config.publicOrigin ?? `${request.protocol}://${request.headers.host}`;
-    return reply.code(201).send(createAgentPairing(request.params.roomId, participant.id, body, serverUrl));
+    const pairing = createStoredAgentPairing(roomId, participant.id, body);
+    return reply.code(201).send({
+      connection_code: buildConnectionCode({
+        server_url: serverUrl,
+        pairing_token: pairing.pairingToken,
+        expires_at: pairing.expiresAt,
+        room_id: roomId,
+        agent_type: body.agent_type,
+        permission_level: body.permission_level
+      }),
+      expires_at: pairing.expiresAt,
+      download_url: "/downloads/CACP-Local-Connector.exe"
+    });
   });
 
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/agent-pairings/start-local", async (request, reply) => {

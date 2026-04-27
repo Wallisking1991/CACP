@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
+import { parseConnectionCode } from "@cacp/protocol";
 import { buildServer } from "../src/server.js";
 
 function cloudConfig() {
@@ -116,7 +117,9 @@ describe("cloud server endpoints", () => {
         payload: { agent_type: "echo", permission_level: "read_only", working_dir: "." }
       });
       expect(pairingResponse.statusCode).toBe(201);
-      const pairingToken = pairingResponse.json<{ pairing_token: string }>().pairing_token;
+      const body = pairingResponse.json() as { connection_code: string };
+      const parsed = parseConnectionCode(body.connection_code);
+      const pairingToken = parsed.pairing_token;
       await first.close();
       first = undefined;
 
@@ -245,7 +248,7 @@ describe("cloud server endpoints", () => {
       payload: { agent_type: "echo", permission_level: "read_only", working_dir: "." }
     });
     expect(firstPairing.statusCode).toBe(201);
-    const firstToken = firstPairing.json<{ pairing_token: string }>().pairing_token;
+    const firstToken = parseConnectionCode((firstPairing.json() as { connection_code: string }).connection_code).pairing_token;
 
     const claim1 = await app.inject({
       method: "POST",
@@ -261,7 +264,7 @@ describe("cloud server endpoints", () => {
       payload: { agent_type: "echo", permission_level: "read_only", working_dir: "." }
     });
     expect(secondPairing.statusCode).toBe(201);
-    const secondToken = secondPairing.json<{ pairing_token: string }>().pairing_token;
+    const secondToken = parseConnectionCode((secondPairing.json() as { connection_code: string }).connection_code).pairing_token;
 
     const claim2 = await app.inject({
       method: "POST",
