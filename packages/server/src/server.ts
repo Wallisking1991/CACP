@@ -15,29 +15,29 @@ import { event, hashToken, prefixedId, token } from "./ids.js";
 import { FixedWindowRateLimiter } from "./rate-limit.js";
 import { AgentTypeValues, PermissionLevelValues, buildAgentProfile, type AgentType, type PermissionLevel } from "./pairing.js";
 
-const CreateRoomSchema = z.object({ name: z.string().min(1), display_name: z.string().min(1).default("Owner") });
+const CreateRoomSchema = z.object({ name: z.string().min(1).max(200), display_name: z.string().min(1).max(100).default("Owner") });
 const CreateInviteSchema = z.object({ role: z.enum(["member", "observer"]).default("member"), expires_in_seconds: z.number().int().positive().max(60 * 60 * 24 * 7).default(60 * 60 * 24) });
-const JoinSchema = z.object({ invite_token: z.string().min(1), display_name: z.string().min(1) });
+const JoinSchema = z.object({ invite_token: z.string().min(1), display_name: z.string().min(1).max(100) });
 const MessageSchema = z.object({ text: z.string().min(1) });
-const ProposalSchema = z.object({ title: z.string().min(1), proposal_type: z.string().min(1), policy: PolicySchema });
-const AgentRegisterSchema = z.object({ name: z.string().min(1), capabilities: z.array(z.string()).default([]) });
+const ProposalSchema = z.object({ title: z.string().min(1).max(200), proposal_type: z.string().min(1).max(50), policy: PolicySchema });
+const AgentRegisterSchema = z.object({ name: z.string().min(1).max(100), capabilities: z.array(z.string().max(50)).default([]) });
 const AgentPairingCreateSchema = z.object({
   agent_type: z.enum(AgentTypeValues).default("claude-code"),
   permission_level: z.enum(PermissionLevelValues).default("read_only"),
-  working_dir: z.string().default("."),
+  working_dir: z.string().min(1).max(500).default("."),
   server_url: z.string().url().optional()
 });
 const AgentPairingStartLocalSchema = AgentPairingCreateSchema.extend({
   command: z.string().optional()
 });
-const AgentActionApprovalSchema = z.object({ tool_name: z.string().min(1), tool_input: z.unknown().optional(), description: z.string().optional() });
+const AgentActionApprovalSchema = z.object({ tool_name: z.string().min(1).max(100), tool_input: z.unknown().optional(), description: z.string().max(500).optional() });
 const AgentActionApprovalQuerySchema = z.object({ token: z.string().optional(), wait_ms: z.coerce.number().int().min(0).max(5 * 60 * 1000).default(0) });
 const SelectAgentSchema = z.object({ agent_id: z.string().min(1) });
-const TaskCreateSchema = z.object({ target_agent_id: z.string().min(1), prompt: z.string().min(1), mode: z.literal("oneshot").default("oneshot"), requires_approval: z.boolean().default(false) });
-const TaskOutputSchema = z.object({ stream: z.enum(["stdout", "stderr"]), chunk: z.string() });
+const TaskCreateSchema = z.object({ target_agent_id: z.string().min(1), prompt: z.string().min(1).max(4000), mode: z.literal("oneshot").default("oneshot"), requires_approval: z.boolean().default(false) });
+const TaskOutputSchema = z.object({ stream: z.enum(["stdout", "stderr"]), chunk: z.string().max(10000) });
 const TaskCompleteSchema = z.object({ exit_code: z.number().int() });
-const TaskFailedSchema = z.object({ error: z.string().min(1), exit_code: z.number().int().optional() });
-const TurnOutputSchema = z.object({ chunk: z.string() });
+const TaskFailedSchema = z.object({ error: z.string().min(1).max(2000), exit_code: z.number().int().optional() });
+const TurnOutputSchema = z.object({ chunk: z.string().max(10000) });
 const TurnCompleteSchema = z.object({ final_text: z.string(), exit_code: z.number().int().default(0) });
 const TurnFailedSchema = z.object({ error: z.string().min(1), exit_code: z.number().int().optional() });
 

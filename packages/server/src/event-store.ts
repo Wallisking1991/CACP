@@ -1,9 +1,13 @@
+import { createHash } from "node:crypto";
 import Database from "better-sqlite3";
 import { CacpEventSchema, type CacpEvent, type Participant, type ParticipantRole, type ParticipantType } from "@cacp/protocol";
 
 export interface StoredParticipant extends Participant {
   room_id: string;
-  token: string;
+}
+
+function hashParticipantToken(token: string): string {
+  return `sha256:${createHash("sha256").update(token).digest("hex")}`;
 }
 
 export interface StoredRoom {
@@ -49,7 +53,7 @@ export interface StoredAgentPairing extends NewAgentPairing {
 interface ParticipantRow {
   room_id: string;
   participant_id: string;
-  token: string;
+  token_hash: string;
   display_name: string;
   type: ParticipantType;
   role: ParticipantRole;
@@ -60,6 +64,11 @@ export class EventStore {
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
+    // Migration: rename old token column to token_hash
+    const participantColumns = this.db.prepare(`PRAGMA table_info(participants)`).all() as Array<{ name: string }>;
+    if (participantColumns.some((col) => col.name === "token") && !participantColumns.some((col) => col.name === "token_hash")) {
+      this.db.exec(`ALTER TABLE participants RENAME COLUMN token TO token_hash;`);
+    }
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS events (
         sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,15 +83,15 @@ export class EventStore {
       CREATE TABLE IF NOT EXISTS participants (
         room_id TEXT NOT NULL,
         participant_id TEXT NOT NULL,
-        token TEXT NOT NULL UNIQUE,
-        display_name TEXT NOT NULL,
-        type TEXT NOT NULL,
-        role TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        display_name TEXT NOT NULL CHECK(length(display_name) <= 100),
+        type TEXT NOT NULL CHECK(type IN ('human', 'observer', 'agent')),
+        role TEXT NOT NULL CHECK(role IN ('owner', 'admin', 'member', 'observer', 'agent')),
         PRIMARY KEY(room_id, participant_id)
       );
       CREATE TABLE IF NOT EXISTS rooms (
         room_id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
+        name TEXT NOT NULL CHECK(length(name) <= 200),
         owner_participant_id TEXT NOT NULL,
         created_at TEXT NOT NULL,
         archived_at TEXT
@@ -91,12 +100,12 @@ export class EventStore {
         invite_id TEXT PRIMARY KEY,
         room_id TEXT NOT NULL,
         token_hash TEXT NOT NULL UNIQUE,
-        role TEXT NOT NULL,
+        role TEXT NOT NULL CHECK(role IN ('member', 'observer')),
         created_by TEXT NOT NULL,
         created_at TEXT NOT NULL,
         expires_at TEXT NOT NULL,
-        max_uses INTEGER,
-        used_count INTEGER NOT NULL DEFAULT 0,
+        max_uses INTEGER CHECK(max_uses IS NULL OR max_uses > 0),
+        used_count INTEGER NOT NULL DEFAULT 0 CHECK(used_count >= 0),
         revoked_at TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_invites_room ON invites(room_id);
@@ -105,9 +114,9 @@ export class EventStore {
         room_id TEXT NOT NULL,
         token_hash TEXT NOT NULL UNIQUE,
         created_by TEXT NOT NULL,
-        agent_type TEXT NOT NULL,
-        permission_level TEXT NOT NULL,
-        working_dir TEXT NOT NULL,
+        agent_type TEXT NOT NULL CHECK(agent_type IN ('claude-code', 'codex', 'opencode', 'echo')),
+        permission_level TEXT NOT NULL CHECK(permission_level IN ('read_only', 'limited_write', 'full_access')),
+        working_dir TEXT NOT NULL CHECK(length(working_dir) <= 500),
         created_at TEXT NOT NULL,
         expires_at TEXT NOT NULL,
         claimed_at TEXT
@@ -139,18 +148,20 @@ export class EventStore {
     `).all(roomId) as Array<{ event_json: string }>).map((row) => CacpEventSchema.parse(JSON.parse(row.event_json)));
   }
 
-  addParticipant(participant: StoredParticipant): StoredParticipant {
+  addParticipant(participant: StoredParticipant & { token: string }): StoredParticipant {
+    const tokenHash = hashParticipantToken(participant.token);
     this.db.prepare(`
-      INSERT INTO participants (room_id, participant_id, token, display_name, type, role)
+      INSERT INTO participants (room_id, participant_id, token_hash, display_name, type, role)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(participant.room_id, participant.id, participant.token, participant.display_name, participant.type, participant.role);
-    return participant;
+    `).run(participant.room_id, participant.id, tokenHash, participant.display_name, participant.type, participant.role);
+    return { room_id: participant.room_id, id: participant.id, display_name: participant.display_name, type: participant.type, role: participant.role };
   }
 
   getParticipantByToken(roomId: string, participantToken: string): StoredParticipant | undefined {
+    const tokenHash = hashParticipantToken(participantToken);
     const row = this.db.prepare(`
-      SELECT * FROM participants WHERE room_id = ? AND token = ?
-    `).get(roomId, participantToken) as ParticipantRow | undefined;
+      SELECT * FROM participants WHERE room_id = ? AND token_hash = ?
+    `).get(roomId, tokenHash) as ParticipantRow | undefined;
     return row ? participantFromRow(row) : undefined;
   }
 
@@ -298,7 +309,6 @@ function participantFromRow(row: ParticipantRow): StoredParticipant {
   return {
     room_id: row.room_id,
     id: row.participant_id,
-    token: row.token,
     display_name: row.display_name,
     type: row.type,
     role: row.role
