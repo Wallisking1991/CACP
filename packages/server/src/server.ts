@@ -24,11 +24,15 @@ const AgentRegisterSchema = z.object({ name: z.string().min(1).max(100), capabil
 const AgentPairingCreateSchema = z.object({
   agent_type: z.enum(AgentTypeValues).default("claude-code"),
   permission_level: z.enum(PermissionLevelValues).default("read_only"),
-  working_dir: z.string().min(1).max(500).default("."),
+  working_dir: z.string().trim().min(1).max(500).default("."),
   server_url: z.string().url().optional()
 });
 const AgentPairingStartLocalSchema = AgentPairingCreateSchema.extend({
   command: z.string().optional()
+});
+const AgentPairingClaimSchema = z.object({
+  adapter_name: z.string().min(1).max(100).optional(),
+  working_dir: z.string().trim().min(1).max(500).optional()
 });
 const JoinRequestCreateSchema = z.object({ invite_token: z.string().min(1), display_name: z.string().min(1).max(100) });
 const JoinRequestStatusQuerySchema = z.object({ request_token: z.string().min(1) });
@@ -965,9 +969,9 @@ export async function buildServer(options: BuildServerOptions = {}) {
     });
   });
 
-  app.post<{ Params: { pairingToken: string }; Body: { adapter_name?: string }; Querystring: { server_url?: string } }>("/agent-pairings/:pairingToken/claim", async (request, reply) => {
+  app.post<{ Params: { pairingToken: string }; Body: { adapter_name?: string; working_dir?: string }; Querystring: { server_url?: string } }>("/agent-pairings/:pairingToken/claim", async (request, reply) => {
     if (!pairingClaimLimiter.allow(request.ip)) return tooMany(reply);
-    const body = z.object({ adapter_name: z.string().min(1).max(100).optional() }).parse(request.body);
+    const body = AgentPairingClaimSchema.parse(request.body);
     const agentId = prefixedId("agent");
     const agentToken = token();
     const pairingHash = hashToken(request.params.pairingToken, config.tokenSecret);
@@ -983,10 +987,11 @@ export async function buildServer(options: BuildServerOptions = {}) {
       const hookUrl = `${serverUrl}/rooms/${roomId}/agent-action-approvals?token=${encodeURIComponent(agentToken)}`;
       const agentType = pairing.agent_type as AgentType;
       const permissionLevel = pairing.permission_level as PermissionLevel;
+      const workingDir = body.working_dir ?? (pairing.working_dir || ".");
       const profile = buildAgentProfile({
         agentType,
         permissionLevel,
-        workingDir: pairing.working_dir,
+        workingDir,
         hookUrl
       });
       store.claimAgentPairing(pairing.pairing_id, new Date().toISOString());

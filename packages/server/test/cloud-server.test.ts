@@ -285,4 +285,73 @@ describe("cloud server endpoints", () => {
 
     await app.close();
   });
+
+  it("uses connector claim working directory when building the agent profile", async () => {
+    const app = await buildServer({ dbPath: ":memory:", config: cloudConfig() });
+    const roomResponse = await app.inject({
+      method: "POST",
+      url: "/rooms",
+      payload: { name: "Connector Room", display_name: "Alice" }
+    });
+    expect(roomResponse.statusCode).toBe(201);
+    const created = roomResponse.json<{ room_id: string; owner_token: string }>();
+
+    const pairingResponse = await app.inject({
+      method: "POST",
+      url: `/rooms/${created.room_id}/agent-pairings`,
+      headers: { authorization: `Bearer ${created.owner_token}` },
+      payload: { agent_type: "echo", permission_level: "read_only", working_dir: "." }
+    });
+    expect(pairingResponse.statusCode).toBe(201);
+    const pairingToken = parseConnectionCode((pairingResponse.json() as { connection_code: string }).connection_code).pairing_token;
+
+    const localWorkingDir = "D:\\Projects\\my-app";
+    const claimResponse = await app.inject({
+      method: "POST",
+      url: `/agent-pairings/${pairingToken}/claim`,
+      payload: { adapter_name: "Local Echo", working_dir: localWorkingDir }
+    });
+
+    expect(claimResponse.statusCode).toBe(201);
+    expect(claimResponse.json()).toMatchObject({
+      room_id: created.room_id,
+      agent: { working_dir: localWorkingDir }
+    });
+
+    await app.close();
+  });
+
+  it("falls back to pairing working_dir when claim omits working_dir", async () => {
+    const app = await buildServer({ dbPath: ":memory:", config: cloudConfig() });
+    const roomResponse = await app.inject({
+      method: "POST",
+      url: "/rooms",
+      payload: { name: "Fallback Room", display_name: "Alice" }
+    });
+    expect(roomResponse.statusCode).toBe(201);
+    const created = roomResponse.json<{ room_id: string; owner_token: string }>();
+
+    const pairingResponse = await app.inject({
+      method: "POST",
+      url: `/rooms/${created.room_id}/agent-pairings`,
+      headers: { authorization: `Bearer ${created.owner_token}` },
+      payload: { agent_type: "echo", permission_level: "read_only", working_dir: "D:\\Projects\\fallback" }
+    });
+    expect(pairingResponse.statusCode).toBe(201);
+    const pairingToken = parseConnectionCode((pairingResponse.json() as { connection_code: string }).connection_code).pairing_token;
+
+    const claimResponse = await app.inject({
+      method: "POST",
+      url: `/agent-pairings/${pairingToken}/claim`,
+      payload: { adapter_name: "Fallback Echo" }
+    });
+
+    expect(claimResponse.statusCode).toBe(201);
+    expect(claimResponse.json()).toMatchObject({
+      room_id: created.room_id,
+      agent: { working_dir: "D:\\Projects\\fallback" }
+    });
+
+    await app.close();
+  });
 });
