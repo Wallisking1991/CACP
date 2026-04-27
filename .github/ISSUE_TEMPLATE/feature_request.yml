@@ -1,0 +1,48 @@
+name: Feature request
+description: Propose a focused improvement for CACP
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please keep feature requests focused. Large proposals may be split into design and implementation steps.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What user need does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior you want.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - protocol
+        - server
+        - cli-adapter
+        - web
+        - deployment
+        - documentation
+        - unsure
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe other options or why the current behavior is insufficient.
+  - type: textarea
+    id: risks
+    attributes:
+      label: Compatibility or security risks
+      description: Note any protocol, token, room permission, connector, or deployment impact.

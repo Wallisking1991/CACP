@@ -1,0 +1,12 @@
+# CODEOWNERS entries use a GitHub username, team, or email attached to a GitHub account with write access.
+# Repository owner: 453043662@qq.com
+
+* 453043662@qq.com
+
+/packages/protocol/ 453043662@qq.com
+/packages/server/ 453043662@qq.com
+/packages/cli-adapter/ 453043662@qq.com
+/deploy/ 453043662@qq.com
+/.github/workflows/ 453043662@qq.com
+/package.json 453043662@qq.com
+/pnpm-lock.yaml 453043662@qq.com
