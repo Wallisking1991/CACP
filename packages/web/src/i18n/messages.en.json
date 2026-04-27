@@ -52,6 +52,7 @@
   "landing.create.agentType": "Agent type",
   "landing.create.permissionLevel": "Permission",
   "landing.create.workingDir": "Working directory",
+  "landing.browseDir": "Browse...",
   "landing.create.cta": "Create room and start agent",
   "landing.create.cloudCta": "Create room and generate connector command",
   "landing.create.cloudAgentHint": "The cloud server will not run the agent. Run the connector command on your own computer.",

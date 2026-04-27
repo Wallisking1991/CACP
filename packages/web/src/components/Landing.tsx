@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { parseInviteUrl } from "../api.js";
+import { LangContext } from "../i18n/LangProvider.js";
 import { useT } from "../i18n/useT.js";
 import { isCloudMode } from "../runtime-config.js";
 
@@ -24,6 +25,7 @@ const permissionLevels = [
 
 export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
   const t = useT();
+  const langCtx = useContext(LangContext);
 
   const inviteTarget = useMemo(() => parseInviteUrl(window.location.search) ?? parseInviteUrl(window.location.hash.replace(/^#/, "?")), []);
   const hasInviteInUrl = Boolean(inviteTarget);
@@ -39,6 +41,8 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
   const [joinRoomId, setJoinRoomId] = useState(inviteTarget?.room_id ?? "");
   const [inviteToken, setInviteToken] = useState(inviteTarget?.invite_token ?? "");
   const [inviteLink, setInviteLink] = useState("");
+
+  const dirInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (hasInviteInUrl) {
@@ -90,9 +94,37 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
     });
   }
 
+  function handleDirSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const first = files[0];
+    // Electron or environments that expose absolute path
+    const absPath = (first as unknown as Record<string, unknown>).path as string | undefined;
+    if (absPath) {
+      setWorkingDir(absPath);
+    } else if (first.webkitRelativePath) {
+      // Extract directory name from webkitRelativePath (e.g. "folder/file.txt" → "folder")
+      const dirName = first.webkitRelativePath.split("/")[0];
+      setWorkingDir(dirName);
+    }
+    // Reset input so the same directory can be selected again
+    e.target.value = "";
+  }
+
   return (
     <main className="landing-shell">
       <div className="landing-card">
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+          <button
+            type="button"
+            className="lang-toggle"
+            onClick={() => langCtx?.setLang(langCtx.lang === "en" ? "zh" : "en")}
+            title={t("lang.toggle")}
+          >
+            {t("lang.en")} / {t("lang.zh")}
+          </button>
+        </div>
+
         <p className="landing-eyebrow">{t("landing.eyebrow")}</p>
         <h1 className="landing-headline">{t("landing.headline")}</h1>
         <p className="landing-subcopy">{t("landing.subcopy")}</p>
@@ -159,12 +191,31 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
             </select>
 
             <label className="section-label" htmlFor="landing-working-dir" style={{ marginTop: 12 }}>{t("landing.create.workingDir")}</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                id="landing-working-dir"
+                className="input"
+                value={workingDir}
+                onChange={(e) => setWorkingDir(e.target.value)}
+                required
+                style={{ flex: 1 }}
+              />
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => dirInputRef.current?.click()}
+              >
+                {t("landing.browseDir")}
+              </button>
+            </div>
             <input
-              id="landing-working-dir"
-              className="input"
-              value={workingDir}
-              onChange={(e) => setWorkingDir(e.target.value)}
-              required
+              ref={dirInputRef}
+              type="file"
+              // @ts-expect-error non-standard attributes for directory picker
+              webkitdirectory=""
+              directory=""
+              style={{ display: "none" }}
+              onChange={handleDirSelect}
             />
 
             <button

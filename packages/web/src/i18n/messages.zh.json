@@ -52,6 +52,7 @@
   "landing.create.agentType": "Agent 类型",
   "landing.create.permissionLevel": "权限",
   "landing.create.workingDir": "工作目录",
+  "landing.browseDir": "浏览...",
   "landing.create.cta": "创建房间并启动 Agent",
   "landing.create.cloudCta": "创建房间并生成本地连接命令",
   "landing.create.cloudAgentHint": "云端服务器不会运行 Agent。请在你自己的电脑上运行连接命令。",
