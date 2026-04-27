@@ -174,4 +174,112 @@ describe("cloud server endpoints", () => {
 
     await app.close();
   });
+
+  it("rejects messages longer than configured max", async () => {
+    const app = await buildServer({ dbPath: ":memory:", config: cloudConfig() });
+    const roomResponse = await app.inject({ method: "POST", url: "/rooms", payload: { name: "Limit Room", display_name: "Alice" } });
+    const created = roomResponse.json<{ room_id: string; owner_token: string }>();
+
+    const longText = "x".repeat(4001);
+    const response = await app.inject({
+      method: "POST",
+      url: `/rooms/${created.room_id}/messages`,
+      headers: { authorization: `Bearer ${created.owner_token}` },
+      payload: { text: longText }
+    });
+
+    expect(response.statusCode).toBe(400);
+    await app.close();
+  });
+
+  it("rate limits room creation", async () => {
+    const limitedConfig = { ...cloudConfig(), roomCreateLimit: 1 };
+    const app = await buildServer({ dbPath: ":memory:", config: limitedConfig });
+
+    const first = await app.inject({ method: "POST", url: "/rooms", payload: { name: "Room A", display_name: "Alice" } });
+    expect(first.statusCode).toBe(201);
+
+    const second = await app.inject({ method: "POST", url: "/rooms", payload: { name: "Room B", display_name: "Bob" } });
+    expect(second.statusCode).toBe(429);
+    expect(second.json()).toMatchObject({ error: "rate_limited" });
+
+    await app.close();
+  });
+
+  it("enforces max participants per room", async () => {
+    const limitedConfig = { ...cloudConfig(), maxParticipantsPerRoom: 1 };
+    const app = await buildServer({ dbPath: ":memory:", config: limitedConfig });
+    const roomResponse = await app.inject({ method: "POST", url: "/rooms", payload: { name: "Small Room", display_name: "Alice" } });
+    const created = roomResponse.json<{ room_id: string; owner_token: string }>();
+
+    const inviteResponse = await app.inject({
+      method: "POST",
+      url: `/rooms/${created.room_id}/invites`,
+      headers: { authorization: `Bearer ${created.owner_token}` },
+      payload: { role: "member" }
+    });
+    expect(inviteResponse.statusCode).toBe(201);
+    const inviteToken = inviteResponse.json<{ invite_token: string }>().invite_token;
+
+    const joinResponse = await app.inject({
+      method: "POST",
+      url: `/rooms/${created.room_id}/join`,
+      payload: { invite_token: inviteToken, display_name: "Bob" }
+    });
+    expect(joinResponse.statusCode).toBe(409);
+    expect(joinResponse.json()).toMatchObject({ error: "max_participants_reached" });
+
+    await app.close();
+  });
+
+  it("enforces max agents per room", async () => {
+    const limitedConfig = { ...cloudConfig(), maxAgentsPerRoom: 1 };
+    const app = await buildServer({ dbPath: ":memory:", config: limitedConfig });
+    const roomResponse = await app.inject({ method: "POST", url: "/rooms", payload: { name: "Agent Room", display_name: "Alice" } });
+    const created = roomResponse.json<{ room_id: string; owner_token: string }>();
+
+    const firstPairing = await app.inject({
+      method: "POST",
+      url: `/rooms/${created.room_id}/agent-pairings`,
+      headers: { authorization: `Bearer ${created.owner_token}` },
+      payload: { agent_type: "echo", permission_level: "read_only", working_dir: "." }
+    });
+    expect(firstPairing.statusCode).toBe(201);
+    const firstToken = firstPairing.json<{ pairing_token: string }>().pairing_token;
+
+    const claim1 = await app.inject({
+      method: "POST",
+      url: `/agent-pairings/${firstToken}/claim`,
+      payload: { adapter_name: "Echo 1" }
+    });
+    expect(claim1.statusCode).toBe(201);
+
+    const secondPairing = await app.inject({
+      method: "POST",
+      url: `/rooms/${created.room_id}/agent-pairings`,
+      headers: { authorization: `Bearer ${created.owner_token}` },
+      payload: { agent_type: "echo", permission_level: "read_only", working_dir: "." }
+    });
+    expect(secondPairing.statusCode).toBe(201);
+    const secondToken = secondPairing.json<{ pairing_token: string }>().pairing_token;
+
+    const claim2 = await app.inject({
+      method: "POST",
+      url: `/agent-pairings/${secondToken}/claim`,
+      payload: { adapter_name: "Echo 2" }
+    });
+    expect(claim2.statusCode).toBe(409);
+    expect(claim2.json()).toMatchObject({ error: "max_agents_reached" });
+
+    const register = await app.inject({
+      method: "POST",
+      url: `/rooms/${created.room_id}/agents/register`,
+      headers: { authorization: `Bearer ${created.owner_token}` },
+      payload: { name: "Direct Agent", capabilities: [] }
+    });
+    expect(register.statusCode).toBe(409);
+    expect(register.json()).toMatchObject({ error: "max_agents_reached" });
+
+    await app.close();
+  });
 });

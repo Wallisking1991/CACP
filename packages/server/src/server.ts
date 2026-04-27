@@ -10,8 +10,9 @@ import { requireParticipant, hasAnyRole, hasHumanRole } from "./auth.js";
 import { buildAgentContextPrompt, buildCollectedAnswersPrompt, eventsAfterLastHistoryClear, findActiveAgentId, findOpenTurn, hasQueuedFollowup, recentConversationMessages } from "./conversation.js";
 import { EventBus } from "./event-bus.js";
 import { EventStore } from "./event-store.js";
-import { loadServerConfig, type ServerConfig } from "./config.js";
+import { hasAllowedOrigin, loadServerConfig, type ServerConfig } from "./config.js";
 import { event, hashToken, prefixedId, token } from "./ids.js";
+import { FixedWindowRateLimiter } from "./rate-limit.js";
 import { AgentTypeValues, PermissionLevelValues, buildAgentProfile, type AgentType, type PermissionLevel } from "./pairing.js";
 
 const CreateRoomSchema = z.object({ name: z.string().min(1), display_name: z.string().min(1).default("Owner") });
@@ -69,6 +70,10 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
 function deny(reply: FastifyReply, error: string, status = 401) {
   return reply.code(status).send({ error });
+}
+
+function tooMany(reply: FastifyReply) {
+  return reply.code(429).send({ error: "rate_limited" });
 }
 
 function isLocalHost(value: string | undefined): boolean {
@@ -214,10 +219,22 @@ export function defaultLocalAgentLauncher(input: LocalAgentLaunchInput): LocalAg
 export async function buildServer(options: BuildServerOptions = {}) {
   const config = options.config ?? loadServerConfig();
   const app = Fastify({ bodyLimit: config.bodyLimitBytes });
+  app.setErrorHandler((error, _request, reply) => {
+    if (error instanceof z.ZodError) {
+      return reply.code(400).send({ error: "validation_failed", issues: error.issues });
+    }
+    return reply.code(500).send({ error: "internal_error" });
+  });
   const store = new EventStore(options.dbPath ?? "cacp.db");
   const bus = new EventBus();
   const localAgentLauncher = options.localAgentLauncher ?? defaultLocalAgentLauncher;
   const localRepoRoot = options.repoRoot ?? repoRoot;
+  const roomLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.roomCreateLimit });
+  const inviteLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.inviteCreateLimit });
+  const joinLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.joinAttemptLimit });
+  const pairingLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.pairingCreateLimit });
+  const messageLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.messageCreateLimit });
+  const socketCounts = new Map<string, number>();
   await app.register(websocket);
   app.addHook("onClose", async () => store.close());
 
@@ -479,6 +496,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.get("/health", async () => ({ ok: true, protocol: "cacp", version: "0.2.0" }));
 
   app.post("/rooms", async (request, reply) => {
+    if (!roomLimiter.allow(request.ip)) return tooMany(reply);
     const body = CreateRoomSchema.parse(request.body);
     const roomId = prefixedId("room");
     const ownerId = prefixedId("user");
@@ -503,21 +521,36 @@ export async function buildServer(options: BuildServerOptions = {}) {
   });
 
   app.get<{ Params: { roomId: string }; Querystring: { token?: string } }>("/rooms/:roomId/stream", { websocket: true }, (socket, request) => {
-    const participant = request.query.token ? store.getParticipantByToken(request.params.roomId, request.query.token) : undefined;
+    if (!hasAllowedOrigin(config, request.headers.origin)) {
+      socket.send(JSON.stringify({ error: "origin_not_allowed" }));
+      socket.close();
+      return;
+    }
+    const roomId = request.params.roomId;
+    const currentCount = socketCounts.get(roomId) ?? 0;
+    if (currentCount >= config.maxSocketsPerRoom) {
+      socket.send(JSON.stringify({ error: "room_full" }));
+      socket.close();
+      return;
+    }
+    socketCounts.set(roomId, currentCount + 1);
+    const participant = request.query.token ? store.getParticipantByToken(roomId, request.query.token) : undefined;
     if (!participant) {
+      socketCounts.set(roomId, (socketCounts.get(roomId) ?? 1) - 1);
       socket.send(JSON.stringify({ error: "invalid_token" }));
       socket.close();
       return;
     }
     if (participant.role === "agent") {
-      appendAndPublish(event(request.params.roomId, "agent.status_changed", participant.id, { agent_id: participant.id, status: "online" }));
+      appendAndPublish(event(roomId, "agent.status_changed", participant.id, { agent_id: participant.id, status: "online" }));
     }
-    for (const existingEvent of store.listEvents(request.params.roomId)) socket.send(JSON.stringify(existingEvent));
-    const unsubscribe = bus.subscribe(request.params.roomId, (nextEvent) => socket.send(JSON.stringify(nextEvent)));
+    for (const existingEvent of store.listEvents(roomId)) socket.send(JSON.stringify(existingEvent));
+    const unsubscribe = bus.subscribe(roomId, (nextEvent) => socket.send(JSON.stringify(nextEvent)));
     socket.on("close", () => {
       unsubscribe();
+      socketCounts.set(roomId, (socketCounts.get(roomId) ?? 1) - 1);
       if (participant.role === "agent") {
-        appendAndPublish(event(request.params.roomId, "agent.status_changed", participant.id, { agent_id: participant.id, status: "offline" }));
+        appendAndPublish(event(roomId, "agent.status_changed", participant.id, { agent_id: participant.id, status: "offline" }));
       }
     });
   });
@@ -535,6 +568,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   });
 
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/invites", async (request, reply) => {
+    if (!inviteLimiter.allow(request.ip)) return tooMany(reply);
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
     if (!hasAnyRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
@@ -561,19 +595,23 @@ export async function buildServer(options: BuildServerOptions = {}) {
   });
 
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/join", async (request, reply) => {
+    if (!joinLimiter.allow(request.ip)) return tooMany(reply);
     const body = JoinSchema.parse(request.body);
     const participantId = prefixedId("user");
     const participantToken = token();
+    const roomId = request.params.roomId;
     const joinResult = store.transaction(() => {
       const invite = store.getInviteByTokenHash(hashToken(body.invite_token, config.tokenSecret));
-      if (!invite || invite.room_id !== request.params.roomId) return { ok: false as const, error: "invalid_invite" };
+      if (!invite || invite.room_id !== roomId) return { ok: false as const, error: "invalid_invite" };
       if (invite.revoked_at !== null) return { ok: false as const, error: "invite_revoked" };
       if (Date.parse(invite.expires_at) <= Date.now()) return { ok: false as const, error: "invite_expired" };
       if (invite.max_uses !== null && invite.used_count >= invite.max_uses) return { ok: false as const, error: "invite_use_limit_reached", status: 409 };
+      const humans = store.getParticipants(roomId).filter((p) => p.role !== "agent");
+      if (humans.length >= config.maxParticipantsPerRoom) return { ok: false as const, error: "max_participants_reached", status: 409 };
       store.consumeInvite(invite.invite_id);
       const role = invite.role === "observer" ? "observer" : "member";
-      const participant = store.addParticipant({ room_id: request.params.roomId, id: participantId, token: participantToken, display_name: body.display_name, type: role === "observer" ? "observer" : "human", role });
-      return { ok: true as const, role, events: [store.appendEvent(event(request.params.roomId, "participant.joined", participant.id, { participant: publicParticipant(participant) }))] };
+      const participant = store.addParticipant({ room_id: roomId, id: participantId, token: participantToken, display_name: body.display_name, type: role === "observer" ? "observer" : "human", role });
+      return { ok: true as const, role, events: [store.appendEvent(event(roomId, "participant.joined", participant.id, { participant: publicParticipant(participant) }))] };
     });
     if (!joinResult.ok) return deny(reply, joinResult.error, joinResult.status);
     publishEvents(joinResult.events);
@@ -581,10 +619,11 @@ export async function buildServer(options: BuildServerOptions = {}) {
   });
 
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/messages", async (request, reply) => {
+    if (!messageLimiter.allow(request.ip)) return tooMany(reply);
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
     if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
-    const body = MessageSchema.parse(request.body);
+    const body = z.object({ text: z.string().min(1).max(config.maxMessageLength) }).parse(request.body);
     const activeCollection = activeCollectionFor(request.params.roomId);
     const storedEvents = store.transaction(() => {
       const messageId = prefixedId("msg");
@@ -685,6 +724,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
     if (!hasHumanRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
+    const agents = store.getParticipants(request.params.roomId).filter((p) => p.role === "agent");
+    if (agents.length >= config.maxAgentsPerRoom) return deny(reply, "max_agents_reached", 409);
     const body = AgentRegisterSchema.parse(request.body);
     const agentId = prefixedId("agent");
     const agentToken = token();
@@ -697,6 +738,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   });
 
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/agent-pairings", async (request, reply) => {
+    if (!pairingLimiter.allow(request.ip)) return tooMany(reply);
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
     if (!hasHumanRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
@@ -751,8 +793,11 @@ export async function buildServer(options: BuildServerOptions = {}) {
       if (!pairing) return { ok: false as const, error: "invalid_pairing" };
       if (pairing.claimed_at !== null) return { ok: false as const, error: "pairing_claimed", status: 409 };
       if (Date.parse(pairing.expires_at) <= Date.now()) return { ok: false as const, error: "pairing_expired" };
+      const roomId = pairing.room_id;
+      const agents = store.getParticipants(roomId).filter((p) => p.role === "agent");
+      if (agents.length >= config.maxAgentsPerRoom) return { ok: false as const, error: "max_agents_reached", status: 409 };
       const serverUrl = request.query.server_url ?? config.publicOrigin ?? `${request.protocol}://${request.headers.host}`;
-      const hookUrl = `${serverUrl}/rooms/${pairing.room_id}/agent-action-approvals?token=${encodeURIComponent(agentToken)}`;
+      const hookUrl = `${serverUrl}/rooms/${roomId}/agent-action-approvals?token=${encodeURIComponent(agentToken)}`;
       const agentType = pairing.agent_type as AgentType;
       const permissionLevel = pairing.permission_level as PermissionLevel;
       const profile = buildAgentProfile({
@@ -762,22 +807,22 @@ export async function buildServer(options: BuildServerOptions = {}) {
         hookUrl
       });
       store.claimAgentPairing(pairing.pairing_id, new Date().toISOString());
-      store.addParticipant({ room_id: pairing.room_id, id: agentId, token: agentToken, display_name: request.body?.adapter_name ?? profile.name, type: "agent", role: "agent" });
-      const shouldSelectAgent = !findActiveAgentId(store.listEvents(pairing.room_id));
+      store.addParticipant({ room_id: roomId, id: agentId, token: agentToken, display_name: request.body?.adapter_name ?? profile.name, type: "agent", role: "agent" });
+      const shouldSelectAgent = !findActiveAgentId(store.listEvents(roomId));
       const events = [
-        store.appendEvent(event(pairing.room_id, "agent.registered", pairing.created_by, {
+        store.appendEvent(event(roomId, "agent.registered", pairing.created_by, {
           agent_id: agentId,
           name: request.body?.adapter_name ?? profile.name,
           capabilities: profile.capabilities,
           agent_type: agentType,
           permission_level: permissionLevel
         })),
-        store.appendEvent(event(pairing.room_id, "agent.status_changed", agentId, { agent_id: agentId, status: "online" }))
+        store.appendEvent(event(roomId, "agent.status_changed", agentId, { agent_id: agentId, status: "online" }))
       ];
       if (shouldSelectAgent) {
-        events.push(store.appendEvent(event(pairing.room_id, "room.agent_selected", pairing.created_by, { agent_id: agentId })));
+        events.push(store.appendEvent(event(roomId, "room.agent_selected", pairing.created_by, { agent_id: agentId })));
       }
-      return { ok: true as const, roomId: pairing.room_id, agentType, permissionLevel, profile, hookUrl, events };
+      return { ok: true as const, roomId, agentType, permissionLevel, profile, hookUrl, events };
     });
     if (!claimResult.ok) return deny(reply, claimResult.error, claimResult.status);
     publishEvents(claimResult.events);
