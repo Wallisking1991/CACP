@@ -7,6 +7,7 @@ import Header from "./Header.js";
 import Thread from "./Thread.js";
 import Composer from "./Composer.js";
 import MobileDrawer from "./MobileDrawer.js";
+import JoinRequestModal from "./JoinRequestModal.js";
 
 export interface WorkspaceProps {
   session: RoomSession;
@@ -73,6 +74,7 @@ export default function Workspace({
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [showSlowStreamingNotice, setShowSlowStreamingNotice] = useState(false);
+  const [dismissedJoinRequestIds, setDismissedJoinRequestIds] = useState<Set<string>>(() => new Set());
 
   const streamingKey = useMemo(
     () => room.streamingTurns.map((t) => t.turn_id).join("|"),
@@ -107,6 +109,23 @@ export default function Workspace({
     cloudMode,
     createdPairing,
   };
+
+  const visibleJoinRequest = useMemo(() => {
+    if (!isOwner) return undefined;
+    return room.joinRequests.find((request) => !dismissedJoinRequestIds.has(request.request_id));
+  }, [dismissedJoinRequestIds, isOwner, room.joinRequests]);
+
+  const remainingJoinRequestCount = visibleJoinRequest
+    ? room.joinRequests.filter((request) => request.request_id !== visibleJoinRequest.request_id && !dismissedJoinRequestIds.has(request.request_id)).length
+    : 0;
+
+  useEffect(() => {
+    const pendingIds = new Set(room.joinRequests.map((request) => request.request_id));
+    setDismissedJoinRequestIds((current) => {
+      const next = new Set([...current].filter((requestId) => pendingIds.has(requestId)));
+      return next.size === current.size ? current : next;
+    });
+  }, [room.joinRequests]);
 
   const collectCount = room.activeCollection?.messages.length ?? 0;
 
@@ -157,6 +176,14 @@ export default function Workspace({
           )}
         </div>
       </div>
+
+      <JoinRequestModal
+        request={visibleJoinRequest}
+        remainingCount={remainingJoinRequestCount}
+        onApprove={onApproveJoinRequest}
+        onReject={onRejectJoinRequest}
+        onLater={(requestId) => setDismissedJoinRequestIds((current) => new Set(current).add(requestId))}
+      />
 
       <MobileDrawer
         {...sidebarProps}
