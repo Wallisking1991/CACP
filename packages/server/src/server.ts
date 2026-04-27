@@ -240,6 +240,29 @@ export async function buildServer(options: BuildServerOptions = {}) {
   const pairingClaimLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.joinAttemptLimit });
   const messageLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.messageCreateLimit });
   const socketCounts = new Map<string, number>();
+  const participantSockets = new Map<string, Set<{ close: (code?: number, reason?: string) => void }>>();
+
+  function socketKey(roomId: string, participantId: string): string {
+    return `${roomId}:${participantId}`;
+  }
+
+  function rememberSocket(roomId: string, participantId: string, socket: { close: (code?: number, reason?: string) => void }): () => void {
+    const key = socketKey(roomId, participantId);
+    const sockets = participantSockets.get(key) ?? new Set();
+    sockets.add(socket);
+    participantSockets.set(key, sockets);
+    return () => {
+      sockets.delete(socket);
+      if (sockets.size === 0) participantSockets.delete(key);
+    };
+  }
+
+  function closeParticipantSockets(roomId: string, participantId: string): void {
+    const sockets = participantSockets.get(socketKey(roomId, participantId));
+    if (!sockets) return;
+    for (const socket of sockets) socket.close(4001, "participant_removed");
+  }
+
   await app.register(websocket);
   app.addHook("onClose", async () => store.close());
 
@@ -551,8 +574,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
     }
     for (const existingEvent of store.listEvents(roomId)) socket.send(JSON.stringify(existingEvent));
     const unsubscribe = bus.subscribe(roomId, (nextEvent) => socket.send(JSON.stringify(nextEvent)));
+    const forgetSocket = rememberSocket(roomId, participant.id, socket);
     socket.on("close", () => {
       unsubscribe();
+      forgetSocket();
       socketCounts.set(roomId, (socketCounts.get(roomId) ?? 1) - 1);
       if (participant.role === "agent") {
         appendAndPublish(event(roomId, "agent.status_changed", participant.id, { agent_id: participant.id, status: "offline" }));
@@ -716,6 +741,36 @@ export async function buildServer(options: BuildServerOptions = {}) {
 
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/join", async (request, reply) => {
     return deny(reply, "join_requires_owner_approval", 410);
+  });
+
+  app.post<{ Params: { roomId: string; participantId: string } }>("/rooms/:roomId/participants/:participantId/remove", async (request, reply) => {
+    const actor = requireParticipant(store, request.params.roomId, request);
+    if (!actor) return deny(reply, "invalid_token");
+    if (!hasHumanRole(actor, ["owner"])) return deny(reply, "forbidden", 403);
+    const body = z.object({ reason: z.string().max(300).optional() }).parse(request.body);
+    const target = findParticipant(request.params.roomId, request.params.participantId);
+    if (!target) return deny(reply, "unknown_participant", 404);
+    if (target.role === "owner") return deny(reply, "cannot_remove_owner", 409);
+    if (target.id === actor.id) return deny(reply, "cannot_remove_self", 409);
+    const removedAt = new Date().toISOString();
+    const storedEvents = store.transaction(() => {
+      store.revokeParticipant(request.params.roomId, target.id, actor.id, removedAt, body.reason ?? "removed_by_owner");
+      const events = [
+        store.appendEvent(event(request.params.roomId, "participant.removed", actor.id, {
+          participant_id: target.id,
+          removed_by: actor.id,
+          removed_at: removedAt,
+          reason: body.reason ?? "removed_by_owner"
+        }))
+      ];
+      if (target.role === "agent") {
+        events.push(store.appendEvent(event(request.params.roomId, "agent.status_changed", target.id, { agent_id: target.id, status: "offline" })));
+      }
+      return events;
+    });
+    publishEvents(storedEvents);
+    closeParticipantSockets(request.params.roomId, target.id);
+    return reply.code(201).send({ ok: true });
   });
 
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/messages", async (request, reply) => {
