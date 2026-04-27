@@ -56,4 +56,36 @@ describe("agent pairing profiles", () => {
     expect(prompt).not.toContain("agent-action-approvals");
     expect(prompt).not.toContain("???");
   });
+
+  it("maps Codex CLI approval modes to permission levels", () => {
+    const readOnly = buildAgentProfile({ agentType: "codex", permissionLevel: "read_only", workingDir: "D:\\Development\\2" });
+    const limitedWrite = buildAgentProfile({ agentType: "codex", permissionLevel: "limited_write", workingDir: "D:\\Development\\2" });
+    const fullAccess = buildAgentProfile({ agentType: "codex", permissionLevel: "full_access", workingDir: "D:\\Development\\2" });
+
+    expect(readOnly.args).toEqual(expect.arrayContaining(["--approval-mode", "suggest"]));
+    expect(limitedWrite.args).toEqual(expect.arrayContaining(["--approval-mode", "auto-edit"]));
+    expect(fullAccess.args).toEqual(expect.arrayContaining(["--approval-mode", "full-auto"]));
+  });
+
+  it("generates a Codex CLI system prompt that references CACP and AI Flow Control", () => {
+    const profile = buildAgentProfile({
+      agentType: "codex",
+      permissionLevel: "limited_write",
+      workingDir: "D:\\Development\\2"
+    });
+
+    expect(profile.system_prompt).toContain("CACP");
+    expect(profile.system_prompt).toContain("AI Flow Control");
+    expect(profile.system_prompt).toContain("LIMITED WRITE");
+  });
+
+  it("produces distinct Codex system prompts for each permission level", () => {
+    const readOnly = buildAgentProfile({ agentType: "codex", permissionLevel: "read_only", workingDir: "." });
+    const limitedWrite = buildAgentProfile({ agentType: "codex", permissionLevel: "limited_write", workingDir: "." });
+    const fullAccess = buildAgentProfile({ agentType: "codex", permissionLevel: "full_access", workingDir: "." });
+
+    expect(readOnly.system_prompt).toContain("READ-ONLY");
+    expect(limitedWrite.system_prompt).toContain("LIMITED WRITE");
+    expect(fullAccess.system_prompt).toContain("FULL ACCESS");
+  });
 });

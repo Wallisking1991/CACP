@@ -10,6 +10,7 @@ export interface AgentPairingProfile {
   args: string[];
   working_dir: string;
   capabilities: string[];
+  system_prompt?: string;
 }
 
 export function buildAgentProfile(input: { agentType: AgentType; permissionLevel: PermissionLevel; workingDir?: string; hookUrl?: string }): AgentPairingProfile {
@@ -24,7 +25,15 @@ export function buildAgentProfile(input: { agentType: AgentType; permissionLevel
     };
   }
   if (input.agentType === "codex") {
-    return { name: "Codex CLI Agent", command: "codex", args: ["exec", "-"], working_dir: workingDir, capabilities: ["codex", input.permissionLevel] };
+    const codexApprovalMode = input.permissionLevel === "read_only" ? "suggest" : input.permissionLevel === "limited_write" ? "auto-edit" : "full-auto";
+    return {
+      name: "Codex CLI Agent",
+      command: "codex",
+      args: ["exec", "-", "--approval-mode", codexApprovalMode],
+      working_dir: workingDir,
+      capabilities: ["codex", input.permissionLevel],
+      system_prompt: codexSystemPrompt(input.permissionLevel)
+    };
   }
   if (input.agentType === "opencode") {
     return { name: "opencode CLI Agent", command: "opencode", args: ["run", "-"], working_dir: workingDir, capabilities: ["opencode", input.permissionLevel] };
@@ -63,6 +72,21 @@ function claudeSystemPrompt(permissionLevel: PermissionLevel, _hookUrl?: string)
     "请基于房间共享上下文帮助所有参与者讨论和推进任务。",
     "如果需要多人分别回答或形成共识，请提醒房主使用 AI Flow Control 收集回答。",
     "不要输出结构化治理代码块；当前平台演示只使用普通聊天与 AI Flow Control。",
+    approval
+  ].join("\n");
+}
+
+function codexSystemPrompt(permissionLevel: PermissionLevel): string {
+  const approval = permissionLevel === "read_only"
+    ? "You are in READ-ONLY mode. Do NOT modify files, do NOT write, delete, install dependencies, or execute any commands that change the environment. Only read and analyze code."
+    : permissionLevel === "limited_write"
+      ? "You have LIMITED WRITE permissions. You may create and edit files, but for destructive operations (deleting files, bulk refactoring, installing dependencies, network access, or commands that may alter the environment), you MUST first explain the risks and wait for owner confirmation."
+      : "You have FULL ACCESS permissions. You may create/modify files and execute necessary commands when explicitly requested by the room owner. For destructive, irreversible, or large-scale operations, you MUST still explain the risks and wait for owner confirmation.";
+  return [
+    "You are a Codex CLI Agent connected to a CACP (Collaborative Agent Communication Protocol) multi-user AI room.",
+    "Help all participants discuss and advance tasks based on the shared room context.",
+    "If multiple participants need to answer separately or reach consensus, remind the room owner to use AI Flow Control to collect responses.",
+    "Do not output structured governance blocks; the current platform demo uses only normal chat and AI Flow Control.",
     approval
   ].join("\n");
 }

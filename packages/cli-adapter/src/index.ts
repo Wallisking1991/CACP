@@ -46,11 +46,12 @@ async function handleMessage(raw: WebSocket.RawData): Promise<void> {
       runningTasks.add(payload.task_id);
       try {
         await postJson(`/rooms/${config.room_id}/tasks/${payload.task_id}/start`, registered.agent_token, {});
+        const taskPrompt = config.agent.system_prompt ? `${config.agent.system_prompt}\n\n${payload.prompt}` : payload.prompt;
         const result = await runCommandForTask({
           command: config.agent.command,
           args: config.agent.args,
           working_dir: config.agent.working_dir,
-          prompt: payload.prompt,
+          prompt: taskPrompt,
           onOutput: async (output) => {
             await postJson(`/rooms/${config.room_id}/tasks/${payload.task_id}/output`, registered.agent_token, output);
           }
@@ -79,11 +80,12 @@ async function handleMessage(raw: WebSocket.RawData): Promise<void> {
       let finalText = "";
       try {
         await postJson(`/rooms/${config.room_id}/agent-turns/${payload.turn_id}/start`, registered.agent_token, {});
+        const turnPrompt = config.agent.system_prompt ? `${config.agent.system_prompt}\n\n${payload.context_prompt}` : payload.context_prompt;
         const result = await runCommandForTask({
           command: config.agent.command,
           args: config.agent.args,
           working_dir: config.agent.working_dir,
-          prompt: payload.context_prompt,
+          prompt: turnPrompt,
           onOutput: async (output) => {
             finalText = appendTurnOutput(finalText, output);
             await postJson(`/rooms/${config.room_id}/agent-turns/${payload.turn_id}/delta`, registered.agent_token, { chunk: output.chunk });

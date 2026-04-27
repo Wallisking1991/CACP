@@ -11,7 +11,8 @@ export const AdapterConfigSchema = z.object({
     command: z.string().min(1),
     args: z.array(z.string()).default([]),
     working_dir: z.string().default(process.cwd()),
-    capabilities: z.array(z.string()).default(["shell.oneshot"])
+    capabilities: z.array(z.string()).default(["shell.oneshot"]),
+    system_prompt: z.string().optional()
   })
 });
 
