@@ -39,11 +39,14 @@ function cleanOrigin(value: string | undefined): string | undefined {
 }
 
 export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
-  const deploymentMode: DeploymentMode = env.CACP_DEPLOYMENT_MODE === "cloud" ? "cloud" : "local";
+  const deploymentModeValue = env.CACP_DEPLOYMENT_MODE;
+  if (deploymentModeValue && deploymentModeValue !== "local" && deploymentModeValue !== "cloud") throw new Error("CACP_DEPLOYMENT_MODE must be local or cloud");
+  const deploymentMode: DeploymentMode = deploymentModeValue === "cloud" ? "cloud" : "local";
   const publicOrigin = cleanOrigin(env.CACP_PUBLIC_ORIGIN);
   const tokenSecret = env.CACP_TOKEN_SECRET?.trim() || "local-dev-token-secret";
   if (deploymentMode === "cloud" && !publicOrigin) throw new Error("CACP_PUBLIC_ORIGIN is required in cloud mode");
   if (deploymentMode === "cloud" && tokenSecret === "local-dev-token-secret") throw new Error("CACP_TOKEN_SECRET is required in cloud mode");
+  if (deploymentMode === "cloud" && tokenSecret.length < 32) throw new Error("CACP_TOKEN_SECRET must be at least 32 characters in cloud mode");
   return {
     deploymentMode,
     enableLocalLaunch: deploymentMode === "cloud" ? false : boolValue(env.CACP_ENABLE_LOCAL_LAUNCH, true),
