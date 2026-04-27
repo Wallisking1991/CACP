@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 640">
+  <defs>
+    <filter id="shadow" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.08"/>
+    </filter>
+    <marker id="arrow-gray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#9ca3af"/>
+    </marker>
+    <marker id="arrow-accent" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#c76b2a"/>
+    </marker>
+    <marker id="arrow-purple" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#7c3aed"/>
+    </marker>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#2563eb"/>
+    </marker>
+  </defs>
+  <rect width="960" height="640" fill="#faf8f5"/>
+  <text x="480" y="36" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="22" font-weight="600" fill="#1c1813">CACP — Collaborative AI Room</text>
+  <text x="480" y="60" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="13" fill="#6b6255">Many people share one local Agent, with the owner controlling AI flow</text>
+  <text x="80" y="100" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="600" fill="#9ca3af" letter-spacing="1">PARTICIPANTS</text>
+  <rect x="80" y="115" width="180" height="70" rx="10" fill="#ffffff" stroke="#e8e0d5" stroke-width="1" filter="url(#shadow)"/>
+  <text x="170" y="148" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="15" font-weight="600" fill="#1c1813">Owner</text>
+  <text x="170" y="168" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="12" fill="#6b6255">Controls AI flow</text>
+  <rect x="80" y="205" width="180" height="70" rx="10" fill="#ffffff" stroke="#e8e0d5" stroke-width="1" filter="url(#shadow)"/>
+  <text x="170" y="238" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="15" font-weight="600" fill="#1c1813">Members</text>
+  <text x="170" y="258" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="12" fill="#6b6255">Discuss through messages</text>
+  <rect x="80" y="295" width="180" height="70" rx="10" fill="#ffffff" stroke="#e8e0d5" stroke-width="1" filter="url(#shadow)"/>
+  <text x="170" y="328" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="15" font-weight="600" fill="#1c1813">Observers</text>
+  <text x="170" y="348" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="12" fill="#6b6255">Read-only visibility</text>
+  <text x="390" y="100" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="600" fill="#9ca3af" letter-spacing="1">SHARED COORDINATION</text>
+  <rect x="340" y="115" width="280" height="250" rx="12" fill="#f5f0e8" stroke="#d4c8b8" stroke-width="1" filter="url(#shadow)"/>
+  <text x="480" y="142" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="600" fill="#1c1813">Collaboration Room</text>
+  <text x="480" y="160" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="12" fill="#6b6255">Collaborative Room</text>
+  <rect x="365" y="180" width="110" height="60" rx="8" fill="#ffffff" stroke="#e8e0d5" stroke-width="1"/>
+  <text x="420" y="208" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="600" fill="#1c1813">Event Log</text>
+  <text x="420" y="225" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#9ca3af">Append-Only</text>
+  <rect x="485" y="180" width="110" height="60" rx="8" fill="#ffffff" stroke="#e8e0d5" stroke-width="1"/>
+  <text x="540" y="208" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="600" fill="#1c1813">Prompt Batch</text>
+  <text x="540" y="225" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#9ca3af">Batching</text>
+  <rect x="365" y="260" width="230" height="50" rx="8" fill="#ffffff" stroke="#e8e0d5" stroke-width="1"/>
+  <text x="480" y="290" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="600" fill="#1c1813">Role &amp; Permission Model</text>
+  <text x="480" y="340" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#9ca3af">State derived from one event stream</text>
+  <text x="700" y="100" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="600" fill="#9ca3af" letter-spacing="1">AI EXECUTION</text>
+  <rect x="700" y="165" width="180" height="150" rx="10" fill="#ffffff" stroke="#c76b2a" stroke-width="2" filter="url(#shadow)"/>
+  <text x="790" y="205" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="15" font-weight="600" fill="#1c1813">Shared Local Agent</text>
+  <text x="790" y="225" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#6b6255">Claude Code / Codex</text>
+  <text x="790" y="242" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#6b6255">opencode / echo</text>
+  <text x="790" y="270" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#9ca3af">One turn · streaming output</text>
+  <text x="790" y="290" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#c76b2a">Runs on owner's machine</text>
+  <line x1="260" y1="150" x2="340" y2="150" stroke="#c76b2a" stroke-width="2" marker-end="url(#arrow-accent)"/>
+  <rect x="270" y="138" width="60" height="18" rx="4" fill="#faf8f5" opacity="0.95"/>
+  <text x="300" y="151" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#c76b2a">Control</text>
+  <line x1="260" y1="240" x2="340" y2="240" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#arrow-gray)" stroke-dasharray="4,2"/>
+  <rect x="275" y="228" width="50" height="18" rx="4" fill="#faf8f5" opacity="0.95"/>
+  <text x="300" y="241" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#6b6255">Message</text>
+  <line x1="620" y1="240" x2="700" y2="240" stroke="#7c3aed" stroke-width="2" marker-end="url(#arrow-purple)"/>
+  <rect x="608" y="228" width="104" height="18" rx="4" fill="#faf8f5" opacity="0.95"/>
+  <text x="660" y="241" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#7c3aed">Merged prompt</text>
+  <line x1="700" y1="290" x2="620" y2="290" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <rect x="608" y="278" width="104" height="18" rx="4" fill="#faf8f5" opacity="0.95"/>
+  <text x="660" y="291" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#2563eb">Streaming reply</text>
+  <line x1="340" y1="320" x2="260" y2="320" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#arrow-gray)" stroke-dasharray="4,2"/>
+  <rect x="258" y="308" width="84" height="18" rx="4" fill="#faf8f5" opacity="0.95"/>
+  <text x="300" y="321" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#6b6255">Real-time sync</text>
+  <rect x="80" y="420" width="260" height="55" rx="8" fill="#ffffff" stroke="#e8e0d5" stroke-width="1" filter="url(#shadow)"/>
+  <text x="210" y="445" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="600" fill="#1c1813">Event Sourcing</text>
+  <text x="210" y="465" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#6b6255">Same state from one event stream</text>
+  <rect x="350" y="420" width="260" height="55" rx="8" fill="#ffffff" stroke="#e8e0d5" stroke-width="1" filter="url(#shadow)"/>
+  <text x="480" y="445" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="600" fill="#1c1813">Owner-Controlled Flow</text>
+  <text x="480" y="465" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#6b6255">Collect → Review → Submit → One AI turn</text>
+  <rect x="620" y="420" width="260" height="55" rx="8" fill="#ffffff" stroke="#e8e0d5" stroke-width="1" filter="url(#shadow)"/>
+  <text x="750" y="445" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="600" fill="#1c1813">Local First</text>
+  <text x="750" y="465" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#6b6255">Agent runs locally; data stays local</text>
+  <text x="80" y="510" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="600" fill="#9ca3af">Legend</text>
+  <line x1="80" y1="525" x2="110" y2="525" stroke="#c76b2a" stroke-width="2" marker-end="url(#arrow-accent)"/>
+  <text x="120" y="530" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#6b6255">Control flow</text>
+  <line x1="220" y1="525" x2="250" y2="525" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#arrow-gray)" stroke-dasharray="4,2"/>
+  <text x="260" y="530" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#6b6255">Message / sync</text>
+  <line x1="350" y1="525" x2="380" y2="525" stroke="#7c3aed" stroke-width="2" marker-end="url(#arrow-purple)"/>
+  <text x="390" y="530" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#6b6255">AI input (merged prompt)</text>
+  <line x1="520" y1="525" x2="550" y2="525" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <text x="560" y="530" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#6b6255">AI output (streaming reply)</text>
+</svg>
