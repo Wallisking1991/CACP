@@ -226,6 +226,14 @@ export function deriveRoomState(events: CacpEvent[]): RoomViewState {
   };
 }
 
+export function isHumanParticipant(participant: ParticipantView): boolean {
+  return participant.role !== "agent" && participant.type !== "agent";
+}
+
+export function humanParticipants(participants: ParticipantView[]): ParticipantView[] {
+  return participants.filter(isHumanParticipant);
+}
+
 export function isCollectionActive(events: CacpEvent[]): boolean {
   let active = false;
   for (const event of events) {

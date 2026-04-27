@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import type { CacpEvent } from "@cacp/protocol";
 import type { RoomSession } from "../api.js";
 import { roomPermissionsForRole } from "../role-permissions.js";
-import { deriveRoomState, isCollectionActive, isTurnInFlight } from "../room-state.js";
+import { deriveRoomState, humanParticipants, isCollectionActive, isTurnInFlight } from "../room-state.js";
 import Header from "./Header.js";
 import Thread from "./Thread.js";
 import Composer from "./Composer.js";
@@ -50,6 +50,7 @@ export default function Workspace({
   const room = useMemo(() => deriveRoomState(events), [events]);
   const permissions = roomPermissionsForRole(session.role);
   const isOwner = session.role === "owner";
+  const peopleParticipants = useMemo(() => humanParticipants(room.participants), [room.participants]);
 
   const activeAgent = room.agents.find((a) => a.agent_id === room.activeAgentId);
   const turnInFlight = isTurnInFlight(events);
@@ -91,7 +92,7 @@ export default function Workspace({
   const sidebarProps = {
     agents: room.agents,
     activeAgentId: room.activeAgentId,
-    participants: room.participants,
+    participants: peopleParticipants,
     inviteCount: room.inviteCount,
     joinRequests: room.joinRequests,
     isOwner,
@@ -109,7 +110,7 @@ export default function Workspace({
 
   const collectCount = room.activeCollection?.messages.length ?? 0;
 
-  const myDisplayName = room.participants.find((p) => p.id === session.participant_id)?.display_name;
+  const myDisplayName = peopleParticipants.find((p) => p.id === session.participant_id)?.display_name;
 
   return (
     <div className="workspace-shell">
@@ -119,7 +120,7 @@ export default function Workspace({
             roomName={room.roomName ?? session.room_id}
             roomId={session.room_id}
             userDisplayName={myDisplayName}
-            participantCount={room.participants.length}
+            participantCount={peopleParticipants.length}
             agentName={activeAgent?.name}
             agentOnline={activeAgent?.status === "online"}
             mode={mode}

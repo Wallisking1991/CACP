@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CacpEvent } from "@cacp/protocol";
-import { isCollectionActive, isTurnInFlight, collectedMessageIds } from "../src/room-state.js";
+import { isCollectionActive, isTurnInFlight, collectedMessageIds, humanParticipants } from "../src/room-state.js";
 
 function event(type: CacpEvent["type"], payload: Record<string, unknown>, sequence: number, actor_id = "user_1"): CacpEvent {
   return {
@@ -110,5 +110,22 @@ describe("collectedMessageIds", () => {
       event("message.created", { message_id: 123, text: "bad", kind: "human", collection_id: "c1" }, 2, "user_1")
     ];
     expect(collectedMessageIds(events, "c1")).toEqual(["msg_1"]);
+  });
+});
+
+describe("humanParticipants", () => {
+  it("excludes agent participants from people counts and lists", () => {
+    const participants = [
+      { id: "user_owner", display_name: "Owner", role: "owner", type: "human" },
+      { id: "user_member", display_name: "Member", role: "member", type: "human" },
+      { id: "user_observer", display_name: "Observer", role: "observer", type: "observer" },
+      { id: "agent_1", display_name: "Claude Code Agent", role: "agent", type: "agent" }
+    ];
+
+    expect(humanParticipants(participants).map((participant) => participant.id)).toEqual([
+      "user_owner",
+      "user_member",
+      "user_observer"
+    ]);
   });
 });
