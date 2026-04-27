@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { WebSocket } from "ws";
 import { buildServer } from "../src/server.js";
 
 function config() {

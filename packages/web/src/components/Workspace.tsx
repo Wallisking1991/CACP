@@ -19,10 +19,13 @@ export interface WorkspaceProps {
   onCancelCollection: () => void;
   onSelectAgent: (agentId: string) => void;
   onCreateInvite: (role: string, ttl: number) => Promise<string | undefined>;
+  onApproveJoinRequest: (requestId: string) => void;
+  onRejectJoinRequest: (requestId: string) => void;
+  onRemoveParticipant: (participantId: string) => void;
   createdInvite?: { url: string; role: string; ttl: number };
   error?: string;
   cloudMode?: boolean;
-  createdPairing?: { command: string; expires_at: string; permission_level: string };
+  createdPairing?: { connection_code: string; download_url: string; expires_at: string };
 }
 
 export default function Workspace({
@@ -36,6 +39,9 @@ export default function Workspace({
   onCancelCollection,
   onSelectAgent,
   onCreateInvite,
+  onApproveJoinRequest,
+  onRejectJoinRequest,
+  onRemoveParticipant,
   createdInvite,
   error,
   cloudMode,
@@ -87,11 +93,15 @@ export default function Workspace({
     activeAgentId: room.activeAgentId,
     participants: room.participants,
     inviteCount: room.inviteCount,
+    joinRequests: room.joinRequests,
     isOwner,
     canManageRoom: permissions.canManageControls,
     currentParticipantId: session.participant_id,
     onSelectAgent,
     onCreateInvite,
+    onApproveJoinRequest,
+    onRejectJoinRequest,
+    onRemoveParticipant,
     createdInvite,
     cloudMode,
     createdPairing,

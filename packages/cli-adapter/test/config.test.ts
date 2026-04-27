@@ -1,9 +1,23 @@
 import { describe, expect, it, vi } from "vitest";
+import { buildConnectionCode } from "@cacp/protocol";
 import { loadRuntimeConfigFromArgs, parseAdapterArgs } from "../src/config.js";
 
 describe("adapter config arguments", () => {
-  it("parses pairing mode arguments", () => {
+  it("parses pairing mode arguments with raw token", () => {
     expect(parseAdapterArgs(["--server", "http://127.0.0.1:3737", "--pair", "cacp_pair"])).toEqual({ mode: "pair", server_url: "http://127.0.0.1:3737", pairing_token: "cacp_pair" });
+  });
+
+  it("parses --connect connection codes", () => {
+    const code = buildConnectionCode({
+      server_url: "https://cacp.example.com",
+      pairing_token: "cacp_pair",
+      expires_at: "2026-04-27T08:15:00.000Z"
+    });
+    expect(parseAdapterArgs(["--connect", code])).toEqual({ mode: "connect", connection_code: code });
+  });
+
+  it("uses prompt mode when double-clicked without args", () => {
+    expect(parseAdapterArgs([])).toEqual({ mode: "prompt" });
   });
 
   it("claims pairing tokens and returns a runtime config without manual room token", async () => {
@@ -20,5 +34,28 @@ describe("adapter config arguments", () => {
     expect(config.registered_agent).toEqual({ agent_id: "agent_1", agent_token: "agent_token" });
     expect(config.room_id).toBe("room_1");
     expect(config.agent.name).toBe("Echo");
+  });
+
+  it("claims a pairing from a connection code", async () => {
+    const code = buildConnectionCode({
+      server_url: "https://cacp.example.com",
+      pairing_token: "cacp_pair",
+      expires_at: "2026-04-27T08:15:00.000Z"
+    });
+    const fetchImpl = vi.fn(async (url: string) => {
+      expect(url).toBe("https://cacp.example.com/agent-pairings/cacp_pair/claim?server_url=https%3A%2F%2Fcacp.example.com");
+      return new Response(JSON.stringify({
+        room_id: "room_alpha",
+        agent_id: "agent_alpha",
+        agent_token: "cacp_agent",
+        agent: { name: "Codex", command: "echo", args: [], working_dir: ".", capabilities: ["shell.oneshot"] }
+      }), { status: 201, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    const config = await loadRuntimeConfigFromArgs(["--connect", code], fetchImpl);
+    expect(config.registered_agent?.agent_token).toBe("cacp_agent");
+  });
+
+  it("rejects invalid connection code during load", async () => {
+    await expect(loadRuntimeConfigFromArgs(["--connect", "CACP-CONNECT:v1:invalid"])).rejects.toThrow();
   });
 });

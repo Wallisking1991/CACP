@@ -227,7 +227,9 @@ export class EventStore {
   getParticipants(roomId: string): StoredParticipant[] {
     return (this.db.prepare(`
       SELECT * FROM participants WHERE room_id = ? ORDER BY participant_id ASC
-    `).all(roomId) as ParticipantRow[]).map(participantFromRow);
+    `).all(roomId) as ParticipantRow[])
+      .map(participantFromRow)
+      .filter((p) => !this.isParticipantRevoked(roomId, p.id));
   }
 
   createRoom(room: StoredRoom): StoredRoom {
@@ -399,6 +401,10 @@ export class EventStore {
       return this.db.prepare(`SELECT * FROM join_requests WHERE room_id = ? AND status = ? ORDER BY requested_at ASC`).all(roomId, status) as StoredJoinRequest[];
     }
     return this.db.prepare(`SELECT * FROM join_requests WHERE room_id = ? ORDER BY requested_at ASC`).all(roomId) as StoredJoinRequest[];
+  }
+
+  getExpiredPendingJoinRequests(nowIso: string): StoredJoinRequest[] {
+    return this.db.prepare(`SELECT * FROM join_requests WHERE status = 'pending' AND expires_at <= ? ORDER BY requested_at ASC`).all(nowIso) as StoredJoinRequest[];
   }
 
   approveJoinRequest(requestId: string, input: { decided_at: string; decided_by: string; participant_id: string; participant_token_sealed: string }): StoredJoinRequest {

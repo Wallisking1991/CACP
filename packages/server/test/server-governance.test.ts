@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { parseConnectionCode } from "@cacp/protocol";
 import { buildLocalAgentConsoleScript, buildLocalAgentConsoleSpawnCommand, buildServer, defaultLocalAgentLauncher } from "../src/server.js";
 
 async function createRoom() {
@@ -51,9 +52,12 @@ describe("CACP server pairing and room governance", () => {
 
     const pairing = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-pairings`, headers: ownerAuth, payload: { agent_type: "claude-code", permission_level: "limited_write", working_dir: "D:\\Development\\2" } });
     expect(pairing.statusCode).toBe(201);
-    expect(pairing.json().command).toContain("--pair");
+    const pairingBody = pairing.json() as { connection_code: string; expires_at: string; download_url: string };
+    expect(pairingBody.connection_code).toContain("CACP-CONNECT");
+    const parsed = parseConnectionCode(pairingBody.connection_code);
+    expect(parsed.pairing_token).toBeTruthy();
 
-    const claim = await app.inject({ method: "POST", url: `/agent-pairings/${pairing.json().pairing_token}/claim`, payload: { adapter_name: "Claude Local" } });
+    const claim = await app.inject({ method: "POST", url: `/agent-pairings/${parsed.pairing_token}/claim`, payload: { adapter_name: "Claude Local" } });
     expect(claim.statusCode).toBe(201);
     expect(claim.json().room_id).toBe(room.room_id);
     expect(claim.json().agent.name).toBe("Claude Code Agent");
@@ -64,7 +68,7 @@ describe("CACP server pairing and room governance", () => {
     expect(events.find((event) => event.type === "agent.status_changed")?.payload.status).toBe("online");
     expect(events.find((event) => event.type === "room.agent_selected")?.payload.agent_id).toBe(claim.json().agent_id);
 
-    const secondClaim = await app.inject({ method: "POST", url: `/agent-pairings/${pairing.json().pairing_token}/claim`, payload: {} });
+    const secondClaim = await app.inject({ method: "POST", url: `/agent-pairings/${parsed.pairing_token}/claim`, payload: {} });
     expect(secondClaim.statusCode).toBe(409);
 
     await app.close();
@@ -73,11 +77,13 @@ describe("CACP server pairing and room governance", () => {
   it("does not override an existing active agent when another paired adapter claims", async () => {
     const { app, room, ownerAuth } = await createRoom();
     const firstPairing = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-pairings`, headers: ownerAuth, payload: { agent_type: "echo", permission_level: "read_only", working_dir: "D:\\Development\\2" } });
-    const firstClaim = await app.inject({ method: "POST", url: `/agent-pairings/${firstPairing.json().pairing_token}/claim`, payload: { adapter_name: "First Agent" } });
+    const firstToken = parseConnectionCode((firstPairing.json() as { connection_code: string }).connection_code).pairing_token;
+    const firstClaim = await app.inject({ method: "POST", url: `/agent-pairings/${firstToken}/claim`, payload: { adapter_name: "First Agent" } });
     expect(firstClaim.statusCode).toBe(201);
 
     const secondPairing = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-pairings`, headers: ownerAuth, payload: { agent_type: "echo", permission_level: "read_only", working_dir: "D:\\Development\\2" } });
-    const secondClaim = await app.inject({ method: "POST", url: `/agent-pairings/${secondPairing.json().pairing_token}/claim`, payload: { adapter_name: "Second Agent" } });
+    const secondToken = parseConnectionCode((secondPairing.json() as { connection_code: string }).connection_code).pairing_token;
+    const secondClaim = await app.inject({ method: "POST", url: `/agent-pairings/${secondToken}/claim`, payload: { adapter_name: "Second Agent" } });
     expect(secondClaim.statusCode).toBe(201);
 
     const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
@@ -117,8 +123,10 @@ describe("CACP server pairing and room governance", () => {
     });
 
     expect(pairing.statusCode).toBe(201);
-    expect(pairing.json().command).toContain("--server http://127.0.0.1:3737 ");
-    expect(pairing.json().command).not.toContain("--server http://127.0.0.1:5173 ");
+    const pairingBody = pairing.json() as { connection_code: string };
+    const parsed = parseConnectionCode(pairingBody.connection_code);
+    expect(parsed.server_url).toBe("http://127.0.0.1:3737");
+    expect(parsed.server_url).not.toBe("http://127.0.0.1:5173");
 
     await app.close();
   });

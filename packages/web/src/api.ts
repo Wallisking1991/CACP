@@ -59,11 +59,6 @@ export async function createInvite(session: RoomSession, role: "member" | "obser
   return await postJson(`/rooms/${session.room_id}/invites`, session.token, { role, expires_in_seconds: expiresInSeconds });
 }
 
-export async function joinRoom(roomId: string, inviteToken: string, displayName: string): Promise<RoomSession> {
-  const result = await postJson<{ participant_id: string; participant_token: string; role: RoomSession["role"] }>(`/rooms/${roomId}/join`, undefined, { invite_token: inviteToken, display_name: displayName });
-  return { room_id: roomId, token: result.participant_token, participant_id: result.participant_id, role: result.role };
-}
-
 export async function sendMessage(session: RoomSession, text: string): Promise<void> {
   await postJson(`/rooms/${session.room_id}/messages`, session.token, { text });
 }
@@ -102,13 +97,49 @@ function currentBrowserOrigin(): string {
 }
 
 export interface AgentPairingResult {
-  pairing_token: string;
+  connection_code: string;
   expires_at: string;
-  command: string;
+  download_url: string;
 }
 
 export async function createAgentPairing(session: RoomSession, input: AgentSetupInput): Promise<AgentPairingResult> {
   return await postJson(`/rooms/${session.room_id}/agent-pairings`, session.token, { ...input, server_url: pairingServerUrlFor(currentBrowserOrigin()) });
+}
+
+export interface JoinRequestResult {
+  request_id: string;
+  request_token: string;
+  status: "pending";
+  expires_at: string;
+}
+
+export interface JoinRequestStatus {
+  status: "pending" | "approved" | "rejected" | "expired";
+  participant_id?: string;
+  participant_token?: string;
+  role?: RoomSession["role"];
+}
+
+export async function createJoinRequest(roomId: string, inviteToken: string, displayName: string): Promise<JoinRequestResult> {
+  return await postJson(`/rooms/${roomId}/join-requests`, undefined, { invite_token: inviteToken, display_name: displayName });
+}
+
+export async function joinRequestStatus(roomId: string, requestId: string, requestToken: string): Promise<JoinRequestStatus> {
+  const response = await fetch(`/rooms/${roomId}/join-requests/${requestId}?request_token=${encodeURIComponent(requestToken)}`);
+  if (!response.ok) throw new Error(await response.text());
+  return (await response.json()) as JoinRequestStatus;
+}
+
+export async function approveJoinRequest(session: RoomSession, requestId: string): Promise<void> {
+  await postJson(`/rooms/${session.room_id}/join-requests/${requestId}/approve`, session.token, {});
+}
+
+export async function rejectJoinRequest(session: RoomSession, requestId: string): Promise<void> {
+  await postJson(`/rooms/${session.room_id}/join-requests/${requestId}/reject`, session.token, {});
+}
+
+export async function removeParticipant(session: RoomSession, participantId: string): Promise<void> {
+  await postJson(`/rooms/${session.room_id}/participants/${participantId}/remove`, session.token, {});
 }
 
 export async function createLocalAgentLaunch(session: RoomSession, input: AgentSetupInput): Promise<LocalAgentLaunch> {
@@ -146,7 +177,11 @@ export function clearEventSocket(socket: WebSocket): void {
   if (socket.readyState === 1) socket.close();
 }
 
-export function connectEvents(session: RoomSession, onEvent: (event: CacpEvent) => void): WebSocket {
+export function connectEvents(
+  session: RoomSession,
+  onEvent: (event: CacpEvent) => void,
+  onClose?: (code: number, reason: string) => void
+): WebSocket {
   const url = new URL(`/rooms/${session.room_id}/stream`, window.location.origin);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.searchParams.set("token", session.token);
@@ -155,5 +190,8 @@ export function connectEvents(session: RoomSession, onEvent: (event: CacpEvent) 
     const parsed = parseCacpEventMessage(message.data);
     if (parsed) onEvent(parsed);
   });
+  if (onClose) {
+    socket.addEventListener("close", (ev) => onClose(ev.code, ev.reason));
+  }
   return socket;
 }

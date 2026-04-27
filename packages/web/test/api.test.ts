@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CacpEvent } from "@cacp/protocol";
-import { cancelAiCollection, clearEventSocket, clearRoom, createLocalAgentLaunch, createRoom, createRoomWithLocalAgent, joinRoom, pairingServerUrlFor, parseCacpEventMessage, startAiCollection, submitAiCollection, type RoomSession } from "../src/api.js";
+import { cancelAiCollection, clearEventSocket, clearRoom, createJoinRequest, createLocalAgentLaunch, createRoom, createRoomWithLocalAgent, joinRequestStatus, pairingServerUrlFor, parseCacpEventMessage, startAiCollection, submitAiCollection, type RoomSession } from "../src/api.js";
 
 const validEvent = {
   protocol: "cacp",
@@ -105,13 +105,26 @@ describe("room API", () => {
     });
   });
 
-  it("maps joined rooms to the participant room session returned by the server", async () => {
-    mockJsonResponse({ participant_id: "user_2", participant_token: "member_secret", role: "member" });
+  it("creates a join request and polls its status", async () => {
+    mockJsonResponse({ request_id: "req_1", request_token: "req_secret", status: "pending", expires_at: "2026-04-27T16:30:00.000Z" });
 
-    await expect(joinRoom("room_1", "invite_secret", "Member")).resolves.toEqual({
-      room_id: "room_1",
-      token: "member_secret",
+    await expect(createJoinRequest("room_1", "invite_secret", "Member")).resolves.toEqual({
+      request_id: "req_1",
+      request_token: "req_secret",
+      status: "pending",
+      expires_at: "2026-04-27T16:30:00.000Z"
+    });
+    expect(fetch).toHaveBeenCalledWith("/rooms/room_1/join-requests", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ invite_token: "invite_secret", display_name: "Member" })
+    });
+
+    mockJsonResponse({ status: "approved", participant_id: "user_2", participant_token: "member_secret", role: "member" });
+    await expect(joinRequestStatus("room_1", "req_1", "req_secret")).resolves.toEqual({
+      status: "approved",
       participant_id: "user_2",
+      participant_token: "member_secret",
       role: "member"
     });
   });

@@ -239,6 +239,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   const pairingLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.pairingCreateLimit });
   const pairingClaimLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.joinAttemptLimit });
   const messageLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.messageCreateLimit });
+  const joinRequestPollLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.joinAttemptLimit * 2 });
   const socketCounts = new Map<string, number>();
   const participantSockets = new Map<string, Set<{ close: (code?: number, reason?: string) => void }>>();
 
@@ -264,7 +265,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
   }
 
   await app.register(websocket);
-  app.addHook("onClose", async () => store.close());
+  app.addHook("onClose", async () => {
+    clearInterval(joinRequestCleanupTimer);
+    store.close();
+  });
 
   function publishEvents(events: CacpEvent[]): void {
     for (const stored of events) bus.publish(stored);
@@ -666,6 +670,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   });
 
   app.get<{ Params: { roomId: string; requestId: string }; Querystring: { request_token?: string } }>("/rooms/:roomId/join-requests/:requestId", async (request, reply) => {
+    if (!joinRequestPollLimiter.allow(request.ip)) return tooMany(reply);
     const query = JoinRequestStatusQuerySchema.parse(request.query);
     const tokenHash = hashToken(query.request_token, config.tokenSecret);
     const current = store.getJoinRequest(request.params.requestId);
@@ -890,8 +895,11 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const agentId = prefixedId("agent");
     const agentToken = token();
     const storedEvents = store.transaction(() => {
-      store.addParticipant({ room_id: request.params.roomId, id: agentId, token: agentToken, display_name: body.name, type: "agent", role: "agent" });
-      return [store.appendEvent(event(request.params.roomId, "agent.registered", participant.id, { agent_id: agentId, name: body.name, capabilities: body.capabilities }))];
+      const added = store.addParticipant({ room_id: request.params.roomId, id: agentId, token: agentToken, display_name: body.name, type: "agent", role: "agent" });
+      return [
+        store.appendEvent(event(request.params.roomId, "agent.registered", participant.id, { agent_id: agentId, name: body.name, capabilities: body.capabilities })),
+        store.appendEvent(event(request.params.roomId, "participant.joined", agentId, { participant: publicParticipant(added) }))
+      ];
     });
     publishEvents(storedEvents);
     return reply.code(201).send({ agent_id: agentId, agent_token: agentToken });
@@ -982,7 +990,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
         hookUrl
       });
       store.claimAgentPairing(pairing.pairing_id, new Date().toISOString());
-      store.addParticipant({ room_id: roomId, id: agentId, token: agentToken, display_name: body.adapter_name ?? profile.name, type: "agent", role: "agent" });
+      const added = store.addParticipant({ room_id: roomId, id: agentId, token: agentToken, display_name: body.adapter_name ?? profile.name, type: "agent", role: "agent" });
       const shouldSelectAgent = !findActiveAgentId(store.listEvents(roomId));
       const events = [
         store.appendEvent(event(roomId, "agent.registered", pairing.created_by, {
@@ -992,6 +1000,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
           agent_type: agentType,
           permission_level: permissionLevel
         })),
+        store.appendEvent(event(roomId, "participant.joined", agentId, { participant: publicParticipant(added) })),
         store.appendEvent(event(roomId, "agent.status_changed", agentId, { agent_id: agentId, status: "online" }))
       ];
       if (shouldSelectAgent) {
@@ -1166,6 +1175,16 @@ export async function buildServer(options: BuildServerOptions = {}) {
     appendAndPublish(event(request.params.roomId, "task.failed", participant.id, { task_id: request.params.taskId, agent_id: participant.id, ...TaskFailedSchema.parse(request.body) }));
     return reply.code(201).send({ ok: true });
   });
+
+  // Periodic cleanup of expired pending join requests
+  const joinRequestCleanupTimer = setInterval(() => {
+    const nowIso = new Date().toISOString();
+    const stale = store.getExpiredPendingJoinRequests(nowIso);
+    for (const request of stale) {
+      const expired = store.expireJoinRequest(request.request_id, nowIso);
+      appendAndPublish(event(request.room_id, "join_request.expired", "system", publicJoinRequest(expired)));
+    }
+  }, 60_000);
 
   return app;
 }

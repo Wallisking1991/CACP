@@ -105,7 +105,18 @@
   "sidebar.placeholderBody": "Coming soon",
   "sidebar.close": "Close",
   "sidebar.connectorLabel": "Local Connector",
-  "sidebar.connectorHelp": "Run this command locally. Permission: {{permission}}. Expires: {{expiresAt}}.",
+  "sidebar.connectorHelp": "Connection code expires at {{expiresAt}}.",
+  "sidebar.downloadConnector": "Download connector",
+  "sidebar.copyConnectionCode": "Copy connection code",
   "sidebar.copyConnectorCommand": "Copy connector command",
-  "sidebar.connectorSafety": "For limited write or full access, confirm permissions locally before connecting."
+  "sidebar.connectorSafety": "For limited write or full access, confirm permissions locally before connecting.",
+  "sidebar.joinRequestsLabel": "Join Requests",
+  "sidebar.approve": "Approve",
+  "sidebar.reject": "Reject",
+  "sidebar.removeParticipant": "Remove",
+  "waitingRoom.eyebrow": "Collaborative Agent Communication Protocol",
+  "waitingRoom.headline": "Waiting for approval",
+  "waitingRoom.subcopy": "Hi {name}, your join request has been sent to the room owner.",
+  "waitingRoom.polling": "Polling for approval...",
+  "waitingRoom.cancel": "Cancel and go back"
 }

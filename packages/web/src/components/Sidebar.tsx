@@ -2,19 +2,25 @@ import { useState, useCallback } from "react";
 import { useT } from "../i18n/useT.js";
 import type { AgentView, ParticipantView } from "../room-state.js";
 
+import type { JoinRequestView } from "../room-state.js";
+
 export interface SidebarProps {
   agents: AgentView[];
   activeAgentId?: string;
   participants: ParticipantView[];
   inviteCount: number;
+  joinRequests: JoinRequestView[];
   isOwner: boolean;
   canManageRoom: boolean;
   currentParticipantId?: string;
   onSelectAgent: (agentId: string) => void;
   onCreateInvite: (role: string, ttl: number) => Promise<string | undefined>;
+  onApproveJoinRequest: (requestId: string) => void;
+  onRejectJoinRequest: (requestId: string) => void;
+  onRemoveParticipant: (participantId: string) => void;
   createdInvite?: { url: string; role: string; ttl: number };
   cloudMode?: boolean;
-  createdPairing?: { command: string; expires_at: string; permission_level: string };
+  createdPairing?: { connection_code: string; download_url: string; expires_at: string };
 }
 
 function agentAvatarInitial(name: string): string {
@@ -95,11 +101,15 @@ export default function Sidebar({
   activeAgentId,
   participants,
   inviteCount,
+  joinRequests,
   isOwner,
   canManageRoom,
   currentParticipantId,
   onSelectAgent,
   onCreateInvite,
+  onApproveJoinRequest,
+  onRejectJoinRequest,
+  onRemoveParticipant,
   createdInvite,
   cloudMode,
   createdPairing,
@@ -111,16 +121,11 @@ export default function Sidebar({
 
   const handleCopyConnector = useCallback(() => {
     if (createdPairing) {
-      navigator.clipboard.writeText(createdPairing.command).catch(() => {});
+      navigator.clipboard.writeText(createdPairing.connection_code).catch(() => {});
     }
   }, [createdPairing]);
 
   const activeAgent = agents.find((a) => a.agent_id === activeAgentId);
-
-  const matchingInvite =
-    createdInvite && createdInvite.role === inviteRole && createdInvite.ttl === inviteTtl
-      ? createdInvite
-      : undefined;
 
   const openPlaceholder = useCallback((title: string) => {
     setDialog({ title });
@@ -131,16 +136,12 @@ export default function Sidebar({
   }, []);
 
   const handleCopyInvite = useCallback(() => {
-    if (matchingInvite) {
-      navigator.clipboard.writeText(matchingInvite.url).catch(() => {});
-      return;
-    }
     void onCreateInvite(inviteRole, inviteTtl).then((url) => {
       if (url) {
         navigator.clipboard.writeText(url).catch(() => {});
       }
     });
-  }, [matchingInvite, onCreateInvite, inviteRole, inviteTtl]);
+  }, [onCreateInvite, inviteRole, inviteTtl]);
 
   return (
     <>
@@ -261,7 +262,20 @@ export default function Sidebar({
                   <span style={{ color: "var(--ink-4)", marginLeft: 4 }}>{t("sidebar.you")}</span>
                 )}
               </span>
-              <span className={roleClass(p.role)}>{roleDisplay(p.role, t)}</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span className={roleClass(p.role)}>{roleDisplay(p.role, t)}</span>
+                {isOwner && p.role !== "owner" && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ padding: "2px 6px", fontSize: 11, color: "var(--ink-4)" }}
+                    onClick={() => onRemoveParticipant(p.id)}
+                    title={t("sidebar.removeParticipant")}
+                  >
+                    ×
+                  </button>
+                )}
+              </span>
             </div>
           ))}
 
@@ -269,6 +283,52 @@ export default function Sidebar({
             <p style={{ fontSize: 13, color: "var(--ink-3)" }}>{t("sidebar.noPeople")}</p>
           )}
         </div>
+
+        {/* Join requests card (owner-only) */}
+        {isOwner && joinRequests.length > 0 && (
+          <div className="card">
+            <div className="sidebar-card-title-row">
+              <span className="section-label">{t("sidebar.joinRequestsLabel")}</span>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "var(--ink-4)",
+                  background: "var(--surface-warm)",
+                  border: "1px solid var(--border-soft)",
+                  borderRadius: "var(--radius-chip)",
+                  padding: "2px 8px",
+                }}
+              >
+                {joinRequests.length}
+              </span>
+            </div>
+
+            {joinRequests.map((req) => (
+              <div key={req.request_id} className="people-row">
+                <span style={{ fontSize: 13 }}>{req.display_name}</span>
+                <span style={{ display: "flex", gap: 4 }}>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ padding: "2px 8px", fontSize: 11 }}
+                    onClick={() => onApproveJoinRequest(req.request_id)}
+                  >
+                    {t("sidebar.approve")}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ padding: "2px 8px", fontSize: 11 }}
+                    onClick={() => onRejectJoinRequest(req.request_id)}
+                  >
+                    {t("sidebar.reject")}
+                  </button>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Invite card (owner-only) */}
         {isOwner && (
@@ -314,7 +374,7 @@ export default function Sidebar({
               {t("sidebar.copyInvite")}
             </button>
 
-            {matchingInvite && (
+            {createdInvite && (
               <code
                 style={{
                   display: "block",
@@ -328,7 +388,7 @@ export default function Sidebar({
                   color: "var(--ink-2)",
                 }}
               >
-                {matchingInvite.url}
+                {createdInvite.url}
               </code>
             )}
 
@@ -352,6 +412,15 @@ export default function Sidebar({
               <span className="section-label">{t("sidebar.connectorLabel")}</span>
             </div>
 
+            <a
+              className="btn btn-warm"
+              style={{ display: "block", textAlign: "center", marginBottom: 10, textDecoration: "none" }}
+              href={createdPairing.download_url}
+              download
+            >
+              {t("sidebar.downloadConnector")}
+            </a>
+
             <code
               style={{
                 display: "block",
@@ -365,11 +434,11 @@ export default function Sidebar({
                 color: "var(--ink-2)",
               }}
             >
-              {createdPairing.command}
+              {createdPairing.connection_code}
             </code>
 
             <p style={{ fontSize: 11, color: "var(--ink-3)", margin: "0 0 8px" }}>
-              {t("sidebar.connectorHelp", { permission: createdPairing.permission_level, expiresAt: new Date(createdPairing.expires_at).toLocaleString() })}
+              {t("sidebar.connectorHelp", { expiresAt: new Date(createdPairing.expires_at).toLocaleString() })}
             </p>
 
             <button
@@ -378,14 +447,8 @@ export default function Sidebar({
               style={{ width: "100%" }}
               onClick={handleCopyConnector}
             >
-              {t("sidebar.copyConnectorCommand")}
+              {t("sidebar.copyConnectionCode")}
             </button>
-
-            {(createdPairing.permission_level === "limited_write" || createdPairing.permission_level === "full_access") && (
-              <p style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 8 }}>
-                {t("sidebar.connectorSafety")}
-              </p>
-            )}
           </div>
         )}
       </aside>

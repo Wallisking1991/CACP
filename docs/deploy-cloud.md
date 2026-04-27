@@ -49,6 +49,24 @@ Copy the repository to `/opt/cacp`:
 rsync -avz --exclude=node_modules --exclude=.git --exclude=dist ./ root@cacp.zuchongai.com:/opt/cacp/
 ```
 
+## Build Windows connector (on Windows locally)
+
+The connector is a Node.js SEA executable and **must be built on Windows**:
+
+```powershell
+# From a Windows machine with the repo checked out:
+corepack pnpm build:connector:win
+```
+
+This produces `packages/web/public/downloads/CACP-Local-Connector.exe`.
+
+## Copy source and connector to server
+
+```bash
+# From your local machine — copy everything including the pre-built connector:
+rsync -avz --exclude=node_modules --exclude=.git --exclude=dist ./ root@cacp.zuchongai.com:/opt/cacp/
+```
+
 ## Install dependencies and build
 
 ```bash
@@ -58,6 +76,8 @@ corepack pnpm --filter @cacp/protocol build
 corepack pnpm --filter @cacp/server build:prod
 VITE_CACP_DEPLOYMENT_MODE=cloud corepack pnpm --filter @cacp/web build
 ```
+
+The web build copies `public/downloads/CACP-Local-Connector.exe` into `dist/downloads/`, making it available at `/downloads/CACP-Local-Connector.exe`.
 
 ## Configure environment
 
@@ -109,11 +129,18 @@ Expected response:
 {"ok":true,"protocol":"cacp","version":"0.2.0"}
 ```
 
+## Local Connector runtime flow
+
+The room owner downloads `CACP-Local-Connector.exe` once. For each room, the Web UI generates a fresh connection code. The owner opens the executable, pastes the code, and keeps the console open until leaving the room.
+
 ## Browser verification
 
 1. Open `https://cacp.zuchongai.com`
 2. Create a room
-3. Confirm the page shows a Local Connector command
-4. Copy an invite link and join from a second browser profile
-5. Send messages across both profiles
-6. Claim a pairing through a local connector and confirm Agent online status
+3. Confirm the page shows a Local Connector connection code
+4. Copy an invite link and send it to a teammate
+5. Teammate opens the link, enters a name, and lands in the waiting room
+6. Owner sees the pending join request, approves it, and teammate enters the room
+7. Send messages across both profiles
+8. Owner downloads the connector, copies the connection code, runs the exe, pastes the code, and sees Agent online
+9. Owner removes the Agent; connector exits automatically

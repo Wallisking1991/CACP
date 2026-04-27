@@ -5,6 +5,7 @@
   "bin": { "cacp-cli-adapter": "./dist/index.js" },
   "scripts": {
     "build": "corepack pnpm --filter @cacp/protocol build && tsc -p tsconfig.json",
+    "bundle:connector": "corepack pnpm exec esbuild src/index.ts --bundle --platform=node --target=node20 --format=cjs --outfile=dist/connector/index.cjs",
     "dev": "corepack pnpm --filter @cacp/protocol build && tsx src/index.ts",
     "test": "corepack pnpm --filter @cacp/protocol build && vitest run"
   },

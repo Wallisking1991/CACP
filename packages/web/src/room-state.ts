@@ -4,6 +4,12 @@ export interface ParticipantView { id: string; display_name: string; role: strin
 export interface AgentView { agent_id: string; name: string; capabilities: string[]; status: "online" | "offline" | "unknown"; last_status_at?: string }
 export interface MessageView { message_id?: string; actor_id: string; text: string; kind: string; created_at: string; collection_id?: string; cancelledMessageCount?: number }
 export interface StreamingTurnView { turn_id: string; agent_id: string; text: string }
+export interface JoinRequestView {
+  request_id: string;
+  display_name: string;
+  status: "pending" | "approved" | "rejected" | "expired";
+  created_at: string;
+}
 export interface AiCollectionView {
   collection_id: string;
   started_by: string;
@@ -26,6 +32,7 @@ export interface RoomViewState {
   lastHistoryClearedAt?: string;
   inviteCount: number;
   roomName?: string;
+  joinRequests: JoinRequestView[];
 }
 
 function failedTurnMessage(event: CacpEvent, streamedText: string | undefined): MessageView | undefined {
@@ -71,12 +78,17 @@ function lastHistoryClear(events: CacpEvent[]): { index: number; clearedAt?: str
   return { index: -1 };
 }
 
+function isValidJoinRequestStatus(value: unknown): value is JoinRequestView["status"] {
+  return value === "pending" || value === "approved" || value === "rejected" || value === "expired";
+}
+
 export function deriveRoomState(events: CacpEvent[]): RoomViewState {
   const participants = new Map<string, ParticipantView>();
   const agents = new Map<string, AgentView>();
   const messages: MessageView[] = [];
   const streamingTurns = new Map<string, StreamingTurnView>();
   const collections = new Map<string, AiCollectionView>();
+  const joinRequests = new Map<string, JoinRequestView>();
   let activeAgentId: string | undefined;
   let inviteCount = 0;
   let roomName: string | undefined;
@@ -87,11 +99,27 @@ export function deriveRoomState(events: CacpEvent[]): RoomViewState {
     if (event.type === "room.created" && typeof event.payload.name === "string") roomName = event.payload.name;
     if (event.type === "participant.joined" && isParticipant(event.payload.participant)) participants.set(event.payload.participant.id, event.payload.participant);
     if (event.type === "participant.left" && typeof event.payload.participant_id === "string") participants.delete(event.payload.participant_id);
+    if (event.type === "participant.removed" && typeof event.payload.participant_id === "string") participants.delete(event.payload.participant_id);
     if (event.type === "participant.role_updated" && typeof event.payload.participant_id === "string" && typeof event.payload.role === "string") {
       const participant = participants.get(event.payload.participant_id);
       if (participant) participants.set(participant.id, { ...participant, role: event.payload.role });
     }
     if (event.type === "invite.created") inviteCount += 1;
+    if (event.type === "join_request.created" && typeof event.payload.request_id === "string" && typeof event.payload.display_name === "string") {
+      joinRequests.set(event.payload.request_id, {
+        request_id: event.payload.request_id,
+        display_name: event.payload.display_name,
+        status: "pending",
+        created_at: event.created_at
+      });
+    }
+    if ((event.type === "join_request.approved" || event.type === "join_request.rejected" || event.type === "join_request.expired") && typeof event.payload.request_id === "string") {
+      const request = joinRequests.get(event.payload.request_id);
+      if (request) {
+        const newStatus = event.type === "join_request.approved" ? "approved" : event.type === "join_request.rejected" ? "rejected" : "expired";
+        joinRequests.set(event.payload.request_id, { ...request, status: newStatus });
+      }
+    }
     if (event.type === "agent.registered" && typeof event.payload.agent_id === "string" && typeof event.payload.name === "string") {
       const existing = agents.get(event.payload.agent_id);
       agents.set(event.payload.agent_id, {
@@ -193,7 +221,8 @@ export function deriveRoomState(events: CacpEvent[]): RoomViewState {
     collectionHistory,
     lastHistoryClearedAt: historyClear.clearedAt,
     inviteCount,
-    roomName
+    roomName,
+    joinRequests: [...joinRequests.values()].filter((r) => r.status === "pending")
   };
 }
 
