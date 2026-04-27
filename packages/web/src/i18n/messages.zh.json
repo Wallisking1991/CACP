@@ -118,6 +118,8 @@
   "sidebar.connectorHelp": "连接码过期时间：{{expiresAt}}。",
   "sidebar.downloadConnector": "下载连接器",
   "sidebar.copyConnectionCode": "复制连接码",
+  "sidebar.connectionCodePreview": "连接码预览",
+  "sidebar.connectionCodeCopied": "已复制",
   "sidebar.copyConnectorCommand": "复制连接命令",
   "sidebar.connectorSafety": "如果选择 limited write 或 full access，请在本地连接前确认权限。",
   "sidebar.joinRequestsLabel": "加入请求",

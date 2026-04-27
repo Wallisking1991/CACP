@@ -60,6 +60,13 @@ function roleDisplay(role: string, t: ReturnType<typeof useT>): string {
   }
 }
 
+export function maskConnectionCode(code: string): string {
+  if (code.length <= 12) return `••••${code}`;
+  const parts = code.split(":");
+  const prefix = parts.length >= 2 ? parts.slice(0, 2).join(":") : code.slice(0, 8);
+  return `${prefix}:••••••••${code.slice(-6)}`;
+}
+
 function PlaceholderDialog({ title, onClose }: { title: string; onClose: () => void }) {
   const t = useT();
   return (
@@ -118,10 +125,14 @@ export default function Sidebar({
   const [dialog, setDialog] = useState<{ title: string } | null>(null);
   const [inviteRole, setInviteRole] = useState("member");
   const [inviteTtl, setInviteTtl] = useState(3600);
+  const [connectorCopied, setConnectorCopied] = useState(false);
 
   const handleCopyConnector = useCallback(() => {
     if (createdPairing) {
-      navigator.clipboard.writeText(createdPairing.connection_code).catch(() => {});
+      navigator.clipboard.writeText(createdPairing.connection_code).then(() => {
+        setConnectorCopied(true);
+        window.setTimeout(() => setConnectorCopied(false), 2000);
+      }).catch(() => {});
     }
   }, [createdPairing]);
 
@@ -434,7 +445,10 @@ export default function Sidebar({
                 color: "var(--ink-2)",
               }}
             >
-              {createdPairing.connection_code}
+              <span style={{ display: "block", marginBottom: 4, color: "var(--ink-4)" }}>
+                {t("sidebar.connectionCodePreview")}
+              </span>
+              {maskConnectionCode(createdPairing.connection_code)}
             </code>
 
             <p style={{ fontSize: 11, color: "var(--ink-3)", margin: "0 0 8px" }}>
@@ -447,7 +461,7 @@ export default function Sidebar({
               style={{ width: "100%" }}
               onClick={handleCopyConnector}
             >
-              {t("sidebar.copyConnectionCode")}
+              {connectorCopied ? t("sidebar.connectionCodeCopied") : t("sidebar.copyConnectionCode")}
             </button>
           </div>
         )}

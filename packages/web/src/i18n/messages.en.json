@@ -118,6 +118,8 @@
   "sidebar.connectorHelp": "Connection code expires at {{expiresAt}}.",
   "sidebar.downloadConnector": "Download connector",
   "sidebar.copyConnectionCode": "Copy connection code",
+  "sidebar.connectionCodePreview": "Connection code preview",
+  "sidebar.connectionCodeCopied": "Copied",
   "sidebar.copyConnectorCommand": "Copy connector command",
   "sidebar.connectorSafety": "For limited write or full access, confirm permissions locally before connecting.",
   "sidebar.joinRequestsLabel": "Join Requests",
