@@ -53,6 +53,8 @@
   "landing.create.permissionLevel": "Permission",
   "landing.create.workingDir": "Working directory",
   "landing.create.cta": "Create room and start agent",
+  "landing.create.cloudCta": "Create room and generate connector command",
+  "landing.create.cloudAgentHint": "The cloud server will not run the agent. Run the connector command on your own computer.",
   "landing.join.inviteLink": "Invite link",
   "landing.join.roomId": "Room ID",
   "landing.join.inviteToken": "Invite token",
@@ -101,5 +103,9 @@
   "sidebar.lastSeen.hours": "{count}h ago",
   "sidebar.lastSeen.days": "{count}d ago",
   "sidebar.placeholderBody": "Coming soon",
-  "sidebar.close": "Close"
+  "sidebar.close": "Close",
+  "sidebar.connectorLabel": "Local Connector",
+  "sidebar.connectorHelp": "Run this command locally. Permission: {{permission}}. Expires: {{expiresAt}}.",
+  "sidebar.copyConnectorCommand": "Copy connector command",
+  "sidebar.connectorSafety": "For limited write or full access, confirm permissions locally before connecting."
 }

@@ -101,7 +101,13 @@ function currentBrowserOrigin(): string {
   return typeof window === "undefined" ? "http://localhost:3737" : window.location.origin;
 }
 
-export async function createAgentPairing(session: RoomSession, input: AgentSetupInput): Promise<{ pairing_token: string; expires_at: string; command: string }> {
+export interface AgentPairingResult {
+  pairing_token: string;
+  expires_at: string;
+  command: string;
+}
+
+export async function createAgentPairing(session: RoomSession, input: AgentSetupInput): Promise<AgentPairingResult> {
   return await postJson(`/rooms/${session.room_id}/agent-pairings`, session.token, { ...input, server_url: pairingServerUrlFor(currentBrowserOrigin()) });
 }
 

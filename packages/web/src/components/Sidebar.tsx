@@ -13,6 +13,8 @@ export interface SidebarProps {
   onSelectAgent: (agentId: string) => void;
   onCreateInvite: (role: string, ttl: number) => Promise<string | undefined>;
   createdInvite?: { url: string; role: string; ttl: number };
+  cloudMode?: boolean;
+  createdPairing?: { command: string; expires_at: string; permission_level: string };
 }
 
 function agentAvatarInitial(name: string): string {
@@ -99,11 +101,19 @@ export default function Sidebar({
   onSelectAgent,
   onCreateInvite,
   createdInvite,
+  cloudMode,
+  createdPairing,
 }: SidebarProps) {
   const t = useT();
   const [dialog, setDialog] = useState<{ title: string } | null>(null);
   const [inviteRole, setInviteRole] = useState("member");
   const [inviteTtl, setInviteTtl] = useState(3600);
+
+  const handleCopyConnector = useCallback(() => {
+    if (createdPairing) {
+      navigator.clipboard.writeText(createdPairing.command).catch(() => {});
+    }
+  }, [createdPairing]);
 
   const activeAgent = agents.find((a) => a.agent_id === activeAgentId);
 
@@ -332,6 +342,50 @@ export default function Sidebar({
             >
               {t("sidebar.inviteCount", { count: inviteCount })}
             </div>
+          </div>
+        )}
+
+        {/* Local Connector card (cloud mode, owner-only) */}
+        {cloudMode && isOwner && createdPairing && (
+          <div className="card">
+            <div className="sidebar-card-title-row">
+              <span className="section-label">{t("sidebar.connectorLabel")}</span>
+            </div>
+
+            <code
+              style={{
+                display: "block",
+                marginBottom: 10,
+                fontSize: 11,
+                wordBreak: "break-all",
+                padding: 8,
+                background: "var(--surface-warm)",
+                border: "1px solid var(--border-soft)",
+                borderRadius: "var(--radius-chip)",
+                color: "var(--ink-2)",
+              }}
+            >
+              {createdPairing.command}
+            </code>
+
+            <p style={{ fontSize: 11, color: "var(--ink-3)", margin: "0 0 8px" }}>
+              {t("sidebar.connectorHelp", { permission: createdPairing.permission_level, expiresAt: new Date(createdPairing.expires_at).toLocaleString() })}
+            </p>
+
+            <button
+              type="button"
+              className="btn btn-warm"
+              style={{ width: "100%" }}
+              onClick={handleCopyConnector}
+            >
+              {t("sidebar.copyConnectorCommand")}
+            </button>
+
+            {(createdPairing.permission_level === "limited_write" || createdPairing.permission_level === "full_access") && (
+              <p style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 8 }}>
+                {t("sidebar.connectorSafety")}
+              </p>
+            )}
           </div>
         )}
       </aside>

@@ -21,6 +21,8 @@ export interface WorkspaceProps {
   onCreateInvite: (role: string, ttl: number) => Promise<string | undefined>;
   createdInvite?: { url: string; role: string; ttl: number };
   error?: string;
+  cloudMode?: boolean;
+  createdPairing?: { command: string; expires_at: string; permission_level: string };
 }
 
 export default function Workspace({
@@ -36,6 +38,8 @@ export default function Workspace({
   onCreateInvite,
   createdInvite,
   error,
+  cloudMode,
+  createdPairing,
 }: WorkspaceProps) {
   const room = useMemo(() => deriveRoomState(events), [events]);
   const permissions = roomPermissionsForRole(session.role);
@@ -89,6 +93,8 @@ export default function Workspace({
     onSelectAgent,
     onCreateInvite,
     createdInvite,
+    cloudMode,
+    createdPairing,
   };
 
   const collectCount = room.activeCollection?.messages.length ?? 0;

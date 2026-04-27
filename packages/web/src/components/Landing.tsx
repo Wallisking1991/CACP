@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { parseInviteUrl } from "../api.js";
 import { useT } from "../i18n/useT.js";
+import { isCloudMode } from "../runtime-config.js";
 
 interface LandingProps {
   onCreate: (params: { roomName: string; displayName: string; agentType: string; permissionLevel: string; workingDir: string }) => void;
@@ -172,8 +173,11 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
               disabled={!createValid || loading}
               style={{ marginTop: 16 }}
             >
-              {t("landing.create.cta")}
+              {isCloudMode() ? t("landing.create.cloudCta") : t("landing.create.cta")}
             </button>
+            {isCloudMode() && (
+              <p style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 8 }}>{t("landing.create.cloudAgentHint")}</p>
+            )}
           </form>
         ) : (
           <form onSubmit={handleJoinSubmit}>

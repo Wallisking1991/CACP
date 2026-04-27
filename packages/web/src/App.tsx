@@ -8,6 +8,7 @@ import {
   createAgentPairing,
   createInvite,
   createLocalAgentLaunch,
+  createRoom,
   createRoomWithLocalAgent,
   inviteUrlFor,
   joinRoom,
@@ -16,12 +17,14 @@ import {
   sendMessage,
   startAiCollection,
   submitAiCollection,
+  type AgentPairingResult,
   type LocalAgentLaunch,
   type RoomSession,
 } from "./api.js";
 import { mergeEvent } from "./event-log.js";
 import { clearStoredSession, loadInitialSession, saveStoredSession } from "./session-storage.js";
 import { LangProvider } from "./i18n/LangProvider.js";
+import { isCloudMode } from "./runtime-config.js";
 import Landing from "./components/Landing.js";
 import Workspace from "./components/Workspace.js";
 import "./App.css";
@@ -34,6 +37,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [createdInvite, setCreatedInvite] = useState<{ url: string; role: string; ttl: number }>();
   const [localLaunch, setLocalLaunch] = useState<LocalAgentLaunch>();
+  const [createdPairing, setCreatedPairing] = useState<{ command: string; expires_at: string; permission_level: string }>();
 
   useEffect(() => {
     if (!session) return;
@@ -58,6 +62,7 @@ export default function App() {
     setEvents([]);
     setCreatedInvite(undefined);
     setLocalLaunch(undefined);
+    setCreatedPairing(undefined);
     setSession(nextSession);
     if (inviteTarget) window.history.replaceState({}, "", "/");
   }, [inviteTarget]);
@@ -68,6 +73,7 @@ export default function App() {
     setEvents([]);
     setCreatedInvite(undefined);
     setLocalLaunch(undefined);
+    setCreatedPairing(undefined);
     setError(undefined);
   }, []);
 
@@ -79,21 +85,36 @@ export default function App() {
     workingDir: string;
   }) => {
     await run(async () => {
-      const result = await createRoomWithLocalAgent(
-        params.roomName,
-        params.displayName,
-        {
+      if (isCloudMode()) {
+        const session = await createRoom(params.roomName, params.displayName);
+        activateSession(session);
+        const pairing = await createAgentPairing(session, {
           agent_type: params.agentType,
           permission_level: params.permissionLevel,
           working_dir: params.workingDir,
+        });
+        setCreatedPairing({
+          command: pairing.command,
+          expires_at: pairing.expires_at,
+          permission_level: params.permissionLevel,
+        });
+      } else {
+        const result = await createRoomWithLocalAgent(
+          params.roomName,
+          params.displayName,
+          {
+            agent_type: params.agentType,
+            permission_level: params.permissionLevel,
+            working_dir: params.workingDir,
+          }
+        );
+        activateSession(result.session);
+        if (result.launch) {
+          setLocalLaunch(result.launch);
         }
-      );
-      activateSession(result.session);
-      if (result.launch) {
-        setLocalLaunch(result.launch);
-      }
-      if (result.launch_error) {
-        setError(`Starting the local agent failed: ${result.launch_error}`);
+        if (result.launch_error) {
+          setError(`Starting the local agent failed: ${result.launch_error}`);
+        }
       }
     });
   }, [activateSession]);
@@ -198,6 +219,8 @@ export default function App() {
         onCreateInvite={handleCreateInvite}
         createdInvite={createdInvite}
         error={error}
+        cloudMode={isCloudMode()}
+        createdPairing={createdPairing}
       />
     </LangProvider>
   );
