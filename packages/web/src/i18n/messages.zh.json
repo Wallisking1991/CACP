@@ -130,6 +130,7 @@
   "joinRequestModal.more": "还有 {count} 个申请等待处理。",
   "joinRequestModal.later": "稍后处理",
   "sidebar.removeParticipant": "移除",
+  "sidebar.removeAgent": "移除 Agent",
   "waitingRoom.eyebrow": "Collaborative Agent Communication Protocol",
   "waitingRoom.headline": "等待批准",
   "waitingRoom.subcopy": "你好 {name}，你的加入请求已发送给房主。",

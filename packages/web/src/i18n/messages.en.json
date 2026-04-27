@@ -130,6 +130,7 @@
   "joinRequestModal.more": "{count} more requests are waiting.",
   "joinRequestModal.later": "Later",
   "sidebar.removeParticipant": "Remove",
+  "sidebar.removeAgent": "Remove Agent",
   "waitingRoom.eyebrow": "Collaborative Agent Communication Protocol",
   "waitingRoom.headline": "Waiting for approval",
   "waitingRoom.subcopy": "Hi {name}, your join request has been sent to the room owner.",

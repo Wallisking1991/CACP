@@ -95,3 +95,56 @@ describe("Workspace join request modal", () => {
     expect(screen.getByText("Bob")).toBeInTheDocument();
   });
 });
+
+describe("Workspace agent removal", () => {
+  it("excludes agents from people count but still allows removal from agent card", () => {
+    const onRemoveParticipant = vi.fn();
+    const session: RoomSession = {
+      room_id: "room_1",
+      token: "token_1",
+      participant_id: "user_owner",
+      role: "owner"
+    };
+    const props: ComponentProps<typeof Workspace> = {
+      session,
+      events: [
+        event("room.created", { name: "Room" }, 1),
+        event("participant.joined", { participant: { id: "user_owner", display_name: "Owner", role: "owner", type: "human" } }, 2),
+        event("agent.registered", { agent_id: "agent_1", name: "Claude Code", capabilities: ["read", "write"] }, 3),
+        event("agent.status_changed", { agent_id: "agent_1", status: "online" }, 4),
+        event("room.agent_selected", { agent_id: "agent_1" }, 5)
+      ],
+      onLeaveRoom: () => {},
+      onClearRoom: () => {},
+      onSendMessage: () => {},
+      onStartCollection: () => {},
+      onSubmitCollection: () => {},
+      onCancelCollection: () => {},
+      onSelectAgent: () => {},
+      onCreateInvite: async () => undefined,
+      onApproveJoinRequest: () => {},
+      onRejectJoinRequest: () => {},
+      onRemoveParticipant
+    };
+
+    render(
+      <LangProvider>
+        <Workspace {...props} />
+      </LangProvider>
+    );
+
+    // People count excludes agent
+    expect(screen.getByText(/1 people/)).toBeInTheDocument();
+
+    // Open drawer to inspect sidebar
+    fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
+
+    // Agent not in People list (check within People card specifically)
+    const peopleCard = screen.getByText("People").closest(".card") as HTMLElement;
+    expect(within(peopleCard).queryByText("Claude Code")).not.toBeInTheDocument();
+
+    // Remove Agent button present in Agent card
+    fireEvent.click(screen.getByRole("button", { name: "Remove Agent" }));
+    expect(onRemoveParticipant).toHaveBeenCalledWith("agent_1");
+  });
+});

@@ -220,6 +220,15 @@ export default function Sidebar({
                   >
                     {t("sidebar.changePermission")}
                   </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ padding: "4px 8px", fontSize: 11, color: "var(--danger)" }}
+                    onClick={() => onRemoveParticipant(activeAgent.agent_id)}
+                    title={t("sidebar.removeAgent")}
+                  >
+                    {t("sidebar.removeAgent")}
+                  </button>
                 </div>
               )}
             </>
