@@ -26,9 +26,9 @@ The implementation should add these public governance files:
 - `.github/PULL_REQUEST_TEMPLATE.md`: summary, validation commands, risk area, screenshots for UI, and security checklist.
 - `.github/ISSUE_TEMPLATE/bug_report.yml`: structured bug reports with environment and reproduction steps.
 - `.github/ISSUE_TEMPLATE/feature_request.yml`: structured feature proposals with use case and scope.
-- `.github/ISSUE_TEMPLATE/config.yml`: links users toward discussions/security reporting where appropriate.
+- `.github/ISSUE_TEMPLATE/config.yml`: disables blank issues and links users to private security reporting.
 - `.github/workflows/ci.yml`: GitHub Actions workflow for install, tests, and build.
-- `.github/CODEOWNERS`: owner-review rules after the repository owner GitHub handle or team slug is provided.
+- `.github/CODEOWNERS`: owner-review rules using the repository owner GitHub handle, team slug, or verified GitHub email address.
 
 `AGENTS.md` remains the contributor guide for AI coding agents. `CONTRIBUTING.md` becomes the human-facing entry point and should link to `AGENTS.md` for AI-assisted contributions.
 
@@ -70,7 +70,7 @@ The first `CODEOWNERS` version should require owner review for:
 /pnpm-lock.yaml
 ```
 
-The implementation must ask for the actual GitHub owner handle or team slug before committing `CODEOWNERS`, because GitHub requires real account references.
+The implementation should use `453043662@qq.com` as the initial CODEOWNER. The email must be attached to a GitHub account with write access to the repository.
 
 ## Security Boundaries
 
@@ -91,7 +91,7 @@ The governance setup is complete when:
 3. PRs include enough structured information for review.
 4. Security issues have a private reporting path.
 5. Sensitive paths remain ignored and out of Git history going forward.
-6. `CODEOWNERS` is either committed with a real owner handle/team slug or explicitly deferred until that value is known.
+6. `CODEOWNERS` is committed with `453043662@qq.com` as the initial owner, and that email is attached to a GitHub account with write access before branch protection requires Code Owner review.
 
 ## Out of Scope for First Version
 
