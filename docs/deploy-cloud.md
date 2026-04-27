@@ -56,7 +56,7 @@ cd /opt/cacp
 corepack pnpm install
 corepack pnpm --filter @cacp/protocol build
 corepack pnpm --filter @cacp/server build:prod
-corepack pnpm --filter @cacp/web build
+VITE_CACP_DEPLOYMENT_MODE=cloud corepack pnpm --filter @cacp/web build
 ```
 
 ## Configure environment

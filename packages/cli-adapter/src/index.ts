@@ -33,7 +33,7 @@ const streamUrl = new URL(`/rooms/${config.room_id}/stream`, config.server_url);
 streamUrl.protocol = streamUrl.protocol === "https:" ? "wss:" : "ws:";
 streamUrl.searchParams.set("token", registered.agent_token);
 
-const ws = new WebSocket(streamUrl);
+const ws = new WebSocket(streamUrl, { origin: config.server_url });
 const runningTasks = new Set<string>();
 
 async function handleMessage(raw: WebSocket.RawData): Promise<void> {

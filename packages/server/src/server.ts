@@ -218,7 +218,7 @@ export function defaultLocalAgentLauncher(input: LocalAgentLaunchInput): LocalAg
 
 export async function buildServer(options: BuildServerOptions = {}) {
   const config = options.config ?? loadServerConfig();
-  const app = Fastify({ bodyLimit: config.bodyLimitBytes });
+  const app = Fastify({ bodyLimit: config.bodyLimitBytes, trustProxy: config.deploymentMode === "cloud" });
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof z.ZodError) {
       return reply.code(400).send({ error: "validation_failed", issues: error.issues });
@@ -233,6 +233,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   const inviteLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.inviteCreateLimit });
   const joinLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.joinAttemptLimit });
   const pairingLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.pairingCreateLimit });
+  const pairingClaimLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.joinAttemptLimit });
   const messageLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.messageCreateLimit });
   const socketCounts = new Map<string, number>();
   await app.register(websocket);
@@ -785,6 +786,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
   });
 
   app.post<{ Params: { pairingToken: string }; Body: { adapter_name?: string }; Querystring: { server_url?: string } }>("/agent-pairings/:pairingToken/claim", async (request, reply) => {
+    if (!pairingClaimLimiter.allow(request.ip)) return tooMany(reply);
+    const body = z.object({ adapter_name: z.string().min(1).max(100).optional() }).parse(request.body);
     const agentId = prefixedId("agent");
     const agentToken = token();
     const pairingHash = hashToken(request.params.pairingToken, config.tokenSecret);
@@ -807,12 +810,12 @@ export async function buildServer(options: BuildServerOptions = {}) {
         hookUrl
       });
       store.claimAgentPairing(pairing.pairing_id, new Date().toISOString());
-      store.addParticipant({ room_id: roomId, id: agentId, token: agentToken, display_name: request.body?.adapter_name ?? profile.name, type: "agent", role: "agent" });
+      store.addParticipant({ room_id: roomId, id: agentId, token: agentToken, display_name: body.adapter_name ?? profile.name, type: "agent", role: "agent" });
       const shouldSelectAgent = !findActiveAgentId(store.listEvents(roomId));
       const events = [
         store.appendEvent(event(roomId, "agent.registered", pairing.created_by, {
           agent_id: agentId,
-          name: request.body?.adapter_name ?? profile.name,
+          name: body.adapter_name ?? profile.name,
           capabilities: profile.capabilities,
           agent_type: agentType,
           permission_level: permissionLevel
