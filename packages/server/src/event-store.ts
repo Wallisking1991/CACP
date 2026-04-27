@@ -204,23 +204,24 @@ export class EventStore {
   }
 
   consumeInvite(inviteId: string): StoredInvite {
-    return this.transaction(() => {
-      const invite = this.getInviteById(inviteId);
-      if (!invite) {
-        throw new Error("invite_not_found");
-      }
-      if (invite.revoked_at !== null) {
-        throw new Error("invite_revoked");
-      }
-      if (invite.max_uses !== null && invite.used_count >= invite.max_uses) {
-        throw new Error("invite_use_limit_reached");
-      }
+    const result = this.db.prepare(`
+      UPDATE invites
+      SET used_count = used_count + 1
+      WHERE invite_id = ? AND revoked_at IS NULL AND (max_uses IS NULL OR used_count < max_uses)
+    `).run(inviteId);
 
-      this.db.prepare(`
-        UPDATE invites SET used_count = used_count + 1 WHERE invite_id = ?
-      `).run(inviteId);
+    if (result.changes > 0) {
       return this.getInviteById(inviteId) as StoredInvite;
-    });
+    }
+
+    const invite = this.getInviteById(inviteId);
+    if (!invite) {
+      throw new Error("invite_not_found");
+    }
+    if (invite.revoked_at !== null) {
+      throw new Error("invite_revoked");
+    }
+    throw new Error("invite_use_limit_reached");
   }
 
   revokeInvite(inviteId: string, revokedAt: string): StoredInvite {
@@ -275,20 +276,21 @@ export class EventStore {
   }
 
   claimAgentPairing(pairingId: string, claimedAt: string): StoredAgentPairing {
-    return this.transaction(() => {
-      const pairing = this.getAgentPairingById(pairingId);
-      if (!pairing) {
-        throw new Error("pairing_not_found");
-      }
-      if (pairing.claimed_at !== null) {
-        throw new Error("pairing_claimed");
-      }
+    const result = this.db.prepare(`
+      UPDATE agent_pairings
+      SET claimed_at = ?
+      WHERE pairing_id = ? AND claimed_at IS NULL
+    `).run(claimedAt, pairingId);
 
-      this.db.prepare(`
-        UPDATE agent_pairings SET claimed_at = ? WHERE pairing_id = ?
-      `).run(claimedAt, pairingId);
+    if (result.changes > 0) {
       return this.getAgentPairingById(pairingId) as StoredAgentPairing;
-    });
+    }
+
+    const pairing = this.getAgentPairingById(pairingId);
+    if (!pairing) {
+      throw new Error("pairing_not_found");
+    }
+    throw new Error("pairing_claimed");
   }
 }
 
