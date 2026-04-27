@@ -1,0 +1,21 @@
+cacp.zuchongai.com {
+  encode zstd gzip
+
+  handle /health {
+    reverse_proxy 127.0.0.1:3737
+  }
+
+  handle /rooms* {
+    reverse_proxy 127.0.0.1:3737
+  }
+
+  handle /agent-pairings* {
+    reverse_proxy 127.0.0.1:3737
+  }
+
+  handle {
+    root * /opt/cacp/packages/web/dist
+    try_files {path} /index.html
+    file_server
+  }
+}
