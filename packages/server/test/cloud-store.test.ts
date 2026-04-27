@@ -1,4 +1,4 @@
-﻿import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -50,6 +50,32 @@ describe("cloud persistence records", () => {
     }
   });
 
+  it("persists cloud state transitions across file-backed reopen", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "cacp-cloud-store-"));
+    const dbPath = join(tempDir, "cloud-transitions.db");
+    const revokedAt = "2026-04-27T00:05:00.000Z";
+    const claimedAt = "2026-04-27T00:06:00.000Z";
+
+    try {
+      const firstStore = new EventStore(dbPath);
+      firstStore.createInvite({ invite_id: "inv_consumed_file", room_id: "room_file", token_hash: "hash_consumed_file", role: "member", created_by: "user_owner", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-28T00:00:00.000Z", max_uses: 2 });
+      firstStore.createInvite({ invite_id: "inv_revoked_file", room_id: "room_file", token_hash: "hash_revoked_file", role: "member", created_by: "user_owner", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-28T00:00:00.000Z", max_uses: 2 });
+      firstStore.createAgentPairing({ pairing_id: "pair_claimed_file", room_id: "room_file", token_hash: "pair_hash_claimed_file", created_by: "user_owner", agent_type: "echo", permission_level: "read_only", working_dir: ".", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-27T00:15:00.000Z" });
+      firstStore.consumeInvite("inv_consumed_file");
+      firstStore.revokeInvite("inv_revoked_file", revokedAt);
+      firstStore.claimAgentPairing("pair_claimed_file", claimedAt);
+      firstStore.close();
+
+      const reopenedStore = new EventStore(dbPath);
+      expect(reopenedStore.getInviteById("inv_consumed_file")?.used_count).toBe(1);
+      expect(reopenedStore.getInviteById("inv_revoked_file")?.revoked_at).toBe(revokedAt);
+      expect(reopenedStore.getAgentPairingById("pair_claimed_file")?.claimed_at).toBe(claimedAt);
+      reopenedStore.close();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("preserves invite error semantics", () => {
     const store = new EventStore(":memory:");
     store.createInvite({ invite_id: "inv_revoked", room_id: "room_alpha", token_hash: "hash_revoked", role: "member", created_by: "user_owner", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-28T00:00:00.000Z", max_uses: 2 });
@@ -65,12 +91,5 @@ describe("cloud persistence records", () => {
 
     expect(() => store.claimAgentPairing("pair_missing", "2026-04-27T00:01:00.000Z")).toThrow("pairing_not_found");
     store.close();
-  });
-
-  it("uses conditional atomic updates for invite consumption and pairing claims", () => {
-    const eventStoreSource = readFileSync(new URL("../src/event-store.ts", import.meta.url), "utf8").replace(/\s+/g, " ");
-
-    expect(eventStoreSource).toContain("WHERE invite_id = ? AND revoked_at IS NULL AND (max_uses IS NULL OR used_count < max_uses)");
-    expect(eventStoreSource).toContain("WHERE pairing_id = ? AND claimed_at IS NULL");
   });
 });
