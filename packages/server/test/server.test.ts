@@ -11,6 +11,17 @@ async function createRoom() {
   return { app, created: response.json() as { room_id: string; owner_id: string; owner_token: string } };
 }
 
+async function joinViaApproval(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerToken: string, inviteToken: string, displayName: string) {
+  const pending = await app.inject({ method: "POST", url: `/rooms/${roomId}/join-requests`, payload: { invite_token: inviteToken, display_name: displayName } });
+  expect(pending.statusCode).toBe(201);
+  const request = pending.json() as { request_id: string; request_token: string };
+  const approved = await app.inject({ method: "POST", url: `/rooms/${roomId}/join-requests/${request.request_id}/approve`, headers: { authorization: `Bearer ${ownerToken}` }, payload: {} });
+  expect(approved.statusCode).toBe(201);
+  const status = await app.inject({ method: "GET", url: `/rooms/${roomId}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}` });
+  expect(status.statusCode).toBe(200);
+  return status.json() as { participant_id: string; participant_token: string; role: string };
+}
+
 describe("CACP server", () => {
   it("runs the full room, collaboration, proposal, agent, and task event flow", async () => {
     const { app, created } = await createRoom();
@@ -24,13 +35,7 @@ describe("CACP server", () => {
     });
     expect(inviteResponse.statusCode).toBe(201);
 
-    const joinResponse = await app.inject({
-      method: "POST",
-      url: `/rooms/${created.room_id}/join`,
-      payload: { invite_token: inviteResponse.json().invite_token, display_name: "Bob" }
-    });
-    expect(joinResponse.statusCode).toBe(201);
-    const bob = joinResponse.json();
+    const bob = await joinViaApproval(app, created.room_id, created.owner_token, inviteResponse.json().invite_token, "Bob");
 
     expect((await app.inject({ method: "POST", url: `/rooms/${created.room_id}/messages`, headers: { authorization: `Bearer ${bob.participant_token}` }, payload: { text: "Protocol first." } })).statusCode).toBe(201);
     expect((await app.inject({ method: "POST", url: `/rooms/${created.room_id}/ai-collection/start`, headers: ownerAuth, payload: {} })).statusCode).toBe(201);

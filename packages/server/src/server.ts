@@ -11,7 +11,7 @@ import { buildAgentContextPrompt, buildCollectedAnswersPrompt, eventsAfterLastHi
 import { EventBus } from "./event-bus.js";
 import { EventStore } from "./event-store.js";
 import { hasAllowedOrigin, loadServerConfig, type ServerConfig } from "./config.js";
-import { event, hashToken, prefixedId, token } from "./ids.js";
+import { event, hashToken, openSecret, prefixedId, sealSecret, token } from "./ids.js";
 import { FixedWindowRateLimiter } from "./rate-limit.js";
 import { AgentTypeValues, PermissionLevelValues, buildAgentProfile, type AgentType, type PermissionLevel } from "./pairing.js";
 
@@ -30,6 +30,10 @@ const AgentPairingCreateSchema = z.object({
 const AgentPairingStartLocalSchema = AgentPairingCreateSchema.extend({
   command: z.string().optional()
 });
+const JoinRequestCreateSchema = z.object({ invite_token: z.string().min(1), display_name: z.string().min(1).max(100) });
+const JoinRequestStatusQuerySchema = z.object({ request_token: z.string().min(1) });
+const JoinRequestListQuerySchema = z.object({ status: z.enum(["pending", "approved", "rejected", "expired"]).optional() });
+const JoinDecisionSchema = z.object({ reason: z.string().max(300).optional() });
 const AgentActionApprovalSchema = z.object({ tool_name: z.string().min(1).max(100), tool_input: z.unknown().optional(), description: z.string().max(500).optional() });
 const AgentActionApprovalQuerySchema = z.object({ token: z.string().optional(), wait_ms: z.coerce.number().int().min(0).max(5 * 60 * 1000).default(0) });
 const SelectAgentSchema = z.object({ agent_id: z.string().min(1) });
@@ -92,7 +96,7 @@ function isLocalUrl(value: string): boolean {
 }
 
 function pairingCommand(serverUrl: string, pairingToken: string): string {
-  return `corepack pnpm --filter @cacp/cli-adapter dev -- --server ${serverUrl} --pair ${pairingToken}`;
+  return `npx @cacp/cli-adapter --server ${serverUrl} --pair ${pairingToken}`;
 }
 
 function pairingLaunchArgs(serverUrl: string, pairingToken: string): string[] {
@@ -587,7 +591,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
         created_by: participant.id,
         created_at: now,
         expires_at: expiresAt,
-        max_uses: null
+        max_uses: 1
       });
       return [store.appendEvent(event(request.params.roomId, "invite.created", participant.id, { invite_id: inviteId, role: body.role, expires_at: expiresAt }))];
     });
@@ -595,28 +599,123 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return reply.code(201).send({ invite_token: inviteToken, role: body.role, expires_at: expiresAt });
   });
 
-  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/join", async (request, reply) => {
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/join-requests", async (request, reply) => {
     if (!joinLimiter.allow(request.ip)) return tooMany(reply);
-    const body = JoinSchema.parse(request.body);
-    const participantId = prefixedId("user");
-    const participantToken = token();
+    const body = JoinRequestCreateSchema.parse(request.body);
+    const requestId = prefixedId("join");
+    const requestToken = token();
     const roomId = request.params.roomId;
-    const joinResult = store.transaction(() => {
+    const now = new Date().toISOString();
+    const expiresAt = joinRequestExpiry();
+    const result = store.transaction(() => {
       const invite = store.getInviteByTokenHash(hashToken(body.invite_token, config.tokenSecret));
       if (!invite || invite.room_id !== roomId) return { ok: false as const, error: "invalid_invite" };
       if (invite.revoked_at !== null) return { ok: false as const, error: "invite_revoked" };
       if (Date.parse(invite.expires_at) <= Date.now()) return { ok: false as const, error: "invite_expired" };
       if (invite.max_uses !== null && invite.used_count >= invite.max_uses) return { ok: false as const, error: "invite_use_limit_reached", status: 409 };
-      const humans = store.getParticipants(roomId).filter((p) => p.role !== "agent");
-      if (humans.length >= config.maxParticipantsPerRoom) return { ok: false as const, error: "max_participants_reached", status: 409 };
       store.consumeInvite(invite.invite_id);
-      const role = invite.role === "observer" ? "observer" : "member";
-      const participant = store.addParticipant({ room_id: roomId, id: participantId, token: participantToken, display_name: body.display_name, type: role === "observer" ? "observer" : "human", role });
-      return { ok: true as const, role, events: [store.appendEvent(event(roomId, "participant.joined", participant.id, { participant: publicParticipant(participant) }))] };
+      const stored = store.createJoinRequest({
+        request_id: requestId,
+        room_id: roomId,
+        invite_id: invite.invite_id,
+        request_token_hash: hashToken(requestToken, config.tokenSecret),
+        display_name: body.display_name,
+        role: invite.role === "observer" ? "observer" : "member",
+        status: "pending",
+        requested_at: now,
+        expires_at: expiresAt,
+        requester_ip: request.ip,
+        requester_user_agent: request.headers["user-agent"]
+      });
+      const created = store.appendEvent(event(roomId, "join_request.created", "system", publicJoinRequest(stored)));
+      return { ok: true as const, stored, events: [created] };
     });
-    if (!joinResult.ok) return deny(reply, joinResult.error, joinResult.status);
-    publishEvents(joinResult.events);
-    return reply.code(201).send({ participant_id: participantId, participant_token: participantToken, role: joinResult.role });
+    if (!result.ok) return deny(reply, result.error, result.status);
+    publishEvents(result.events);
+    return reply.code(201).send({ request_id: requestId, request_token: requestToken, status: "pending", expires_at: expiresAt });
+  });
+
+  app.get<{ Params: { roomId: string; requestId: string }; Querystring: { request_token?: string } }>("/rooms/:roomId/join-requests/:requestId", async (request, reply) => {
+    const query = JoinRequestStatusQuerySchema.parse(request.query);
+    const tokenHash = hashToken(query.request_token, config.tokenSecret);
+    const current = store.getJoinRequest(request.params.requestId);
+    if (!current || current.room_id !== request.params.roomId || current.request_token_hash !== tokenHash) return deny(reply, "unknown_join_request", 404);
+    if (current.status === "pending" && Date.parse(current.expires_at) <= Date.now()) {
+      const expired = store.expireJoinRequest(current.request_id, new Date().toISOString());
+      appendAndPublish(event(current.room_id, "join_request.expired", "system", publicJoinRequest(expired)));
+      return { status: "expired" };
+    }
+    if (current.status === "approved") {
+      return {
+        status: "approved",
+        participant_id: current.participant_id,
+        participant_token: current.participant_token_sealed ? openSecret(current.participant_token_sealed, config.tokenSecret) : undefined,
+        role: current.role
+      };
+    }
+    return { status: current.status };
+  });
+
+  app.get<{ Params: { roomId: string }; Querystring: { status?: string } }>("/rooms/:roomId/join-requests", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    if (!hasHumanRole(participant, ["owner"])) return deny(reply, "forbidden", 403);
+    const query = JoinRequestListQuerySchema.parse(request.query);
+    return { requests: store.listJoinRequests(request.params.roomId, query.status).map(publicJoinRequest) };
+  });
+
+  app.post<{ Params: { roomId: string; requestId: string } }>("/rooms/:roomId/join-requests/:requestId/approve", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    if (!hasHumanRole(participant, ["owner"])) return deny(reply, "forbidden", 403);
+    const participantId = prefixedId("user");
+    const participantToken = token();
+    const decidedAt = new Date().toISOString();
+    const result = store.transaction(() => {
+      const current = store.getJoinRequest(request.params.requestId);
+      if (!current || current.room_id !== request.params.roomId) return { ok: false as const, error: "unknown_join_request", status: 404 };
+      if (current.status !== "pending") return { ok: false as const, error: "join_request_not_pending", status: 409 };
+      if (Date.parse(current.expires_at) <= Date.now()) {
+        const expired = store.expireJoinRequest(current.request_id, decidedAt);
+        return { ok: false as const, error: "join_request_expired", status: 409, events: [store.appendEvent(event(current.room_id, "join_request.expired", "system", publicJoinRequest(expired)))] };
+      }
+      const humans = store.getParticipants(current.room_id).filter((p) => p.role !== "agent");
+      if (humans.length >= config.maxParticipantsPerRoom) return { ok: false as const, error: "max_participants_reached", status: 409 };
+      const role = current.role === "observer" ? "observer" : "member";
+      const joined = store.addParticipant({ room_id: current.room_id, id: participantId, token: participantToken, display_name: current.display_name, type: role === "observer" ? "observer" : "human", role });
+      const approved = store.approveJoinRequest(current.request_id, {
+        decided_at: decidedAt,
+        decided_by: participant.id,
+        participant_id: participantId,
+        participant_token_sealed: sealSecret(participantToken, config.tokenSecret)
+      });
+      return { ok: true as const, participant: joined, role, events: [
+        store.appendEvent(event(current.room_id, "join_request.approved", participant.id, publicJoinRequest(approved))),
+        store.appendEvent(event(current.room_id, "participant.joined", joined.id, { participant: publicParticipant(joined) }))
+      ] };
+    });
+    if (!result.ok) {
+      if (result.events) publishEvents(result.events);
+      return deny(reply, result.error, result.status);
+    }
+    publishEvents(result.events);
+    return reply.code(201).send({ participant_id: result.participant.id, role: result.role });
+  });
+
+  app.post<{ Params: { roomId: string; requestId: string } }>("/rooms/:roomId/join-requests/:requestId/reject", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    if (!hasHumanRole(participant, ["owner"])) return deny(reply, "forbidden", 403);
+    JoinDecisionSchema.parse(request.body);
+    const current = store.getJoinRequest(request.params.requestId);
+    if (!current || current.room_id !== request.params.roomId) return deny(reply, "unknown_join_request", 404);
+    const rejected = store.rejectJoinRequest(request.params.requestId, new Date().toISOString(), participant.id);
+    appendAndPublish(event(request.params.roomId, "join_request.rejected", participant.id, publicJoinRequest(rejected)));
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/join", async (request, reply) => {
+    return deny(reply, "join_requires_owner_approval", 410);
   });
 
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/messages", async (request, reply) => {
@@ -996,6 +1095,21 @@ export async function buildServer(options: BuildServerOptions = {}) {
   });
 
   return app;
+}
+
+function joinRequestExpiry(): string {
+  return new Date(Date.now() + 10 * 60 * 1000).toISOString();
+}
+
+function publicJoinRequest(request: { request_id: string; display_name: string; role: string; status: string; requested_at: string; expires_at: string }) {
+  return {
+    request_id: request.request_id,
+    display_name: request.display_name,
+    role: request.role,
+    status: request.status,
+    requested_at: request.requested_at,
+    expires_at: request.expires_at
+  };
 }
 
 function publicParticipant(participant: Participant): Participant {

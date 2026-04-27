@@ -33,13 +33,14 @@ async function joinMember(app: Awaited<ReturnType<typeof buildServer>>, roomId: 
   });
   expect(invite.statusCode).toBe(201);
   const inviteBody = invite.json() as { invite_token: string };
-  const join = await app.inject({
-    method: "POST",
-    url: `/rooms/${roomId}/join`,
-    payload: { invite_token: inviteBody.invite_token, display_name: displayName }
-  });
-  expect(join.statusCode).toBe(201);
-  const joined = join.json() as { participant_id: string; participant_token: string; role: "member" };
+  const pending = await app.inject({ method: "POST", url: `/rooms/${roomId}/join-requests`, payload: { invite_token: inviteBody.invite_token, display_name: displayName } });
+  expect(pending.statusCode).toBe(201);
+  const request = pending.json() as { request_id: string; request_token: string };
+  const approved = await app.inject({ method: "POST", url: `/rooms/${roomId}/join-requests/${request.request_id}/approve`, headers: auth, payload: {} });
+  expect(approved.statusCode).toBe(201);
+  const status = await app.inject({ method: "GET", url: `/rooms/${roomId}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}` });
+  expect(status.statusCode).toBe(200);
+  const joined = status.json() as { participant_id: string; participant_token: string; role: "member" };
   return { ...joined, auth: { authorization: `Bearer ${joined.participant_token}` } };
 }
 

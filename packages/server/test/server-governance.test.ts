@@ -29,13 +29,17 @@ describe("CACP server pairing and room governance", () => {
     expect(invite.statusCode).toBe(201);
     expect(invite.json().expires_at).toBeTruthy();
 
-    const joinResponse = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/join`, payload: { invite_token: invite.json().invite_token, display_name: "Bob" } });
-    expect(joinResponse.statusCode).toBe(201);
-    expect(joinResponse.json().role).toBe("member");
+    const pending = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/join-requests`, payload: { invite_token: invite.json().invite_token, display_name: "Bob" } });
+    expect(pending.statusCode).toBe(201);
+    const request = pending.json() as { request_id: string; request_token: string };
+    const approved = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/join-requests/${request.request_id}/approve`, headers: ownerAuth, payload: {} });
+    expect(approved.statusCode).toBe(201);
+    const status = await app.inject({ method: "GET", url: `/rooms/${room.room_id}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}` });
+    expect(status.json().role).toBe("member");
 
     const expired = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/invites`, headers: ownerAuth, payload: { role: "observer", expires_in_seconds: 1 } });
     await new Promise((resolve) => setTimeout(resolve, 1100));
-    const expiredJoin = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/join`, payload: { invite_token: expired.json().invite_token, display_name: "Too Late" } });
+    const expiredJoin = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/join-requests`, payload: { invite_token: expired.json().invite_token, display_name: "Too Late" } });
     expect(expiredJoin.statusCode).toBe(401);
     expect(expiredJoin.json()).toEqual({ error: "invite_expired" });
 
@@ -147,7 +151,7 @@ describe("CACP server pairing and room governance", () => {
 
     expect(started.statusCode).toBe(201);
     expect(started.json()).toMatchObject({ status: "starting", pid: 4242 });
-    expect(started.json().command).toContain("corepack pnpm --filter @cacp/cli-adapter dev -- --server http://127.0.0.1:3737 --pair ");
+    expect(started.json().command).toContain("npx @cacp/cli-adapter --server http://127.0.0.1:3737 --pair ");
     expect(started.json().command).not.toContain("Remove-Item");
     expect(launches).toHaveLength(1);
     expect(launches[0]).toMatchObject({

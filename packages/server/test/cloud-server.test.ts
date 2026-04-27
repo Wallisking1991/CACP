@@ -59,13 +59,14 @@ describe("cloud server endpoints", () => {
       first = undefined;
 
       second = await buildServer({ dbPath, config: cloudConfig() });
-      const joinResponse = await second.inject({
-        method: "POST",
-        url: `/rooms/${createdFirst.created.room_id}/join`,
-        payload: { invite_token: inviteToken, display_name: "Bob" }
-      });
-      expect(joinResponse.statusCode).toBe(201);
-      expect(joinResponse.json()).toMatchObject({ role: "member" });
+      const pending = await second.inject({ method: "POST", url: `/rooms/${createdFirst.created.room_id}/join-requests`, payload: { invite_token: inviteToken, display_name: "Bob" } });
+      expect(pending.statusCode).toBe(201);
+      const request = pending.json() as { request_id: string; request_token: string };
+      const approved = await second.inject({ method: "POST", url: `/rooms/${createdFirst.created.room_id}/join-requests/${request.request_id}/approve`, headers: { authorization: `Bearer ${createdFirst.created.owner_token}` }, payload: {} });
+      expect(approved.statusCode).toBe(201);
+      const status = await second.inject({ method: "GET", url: `/rooms/${createdFirst.created.room_id}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}` });
+      expect(status.statusCode).toBe(200);
+      expect(status.json()).toMatchObject({ status: "approved", role: "member" });
       await second.close();
       second = undefined;
     } finally {
@@ -221,13 +222,12 @@ describe("cloud server endpoints", () => {
     expect(inviteResponse.statusCode).toBe(201);
     const inviteToken = inviteResponse.json<{ invite_token: string }>().invite_token;
 
-    const joinResponse = await app.inject({
-      method: "POST",
-      url: `/rooms/${created.room_id}/join`,
-      payload: { invite_token: inviteToken, display_name: "Bob" }
-    });
-    expect(joinResponse.statusCode).toBe(409);
-    expect(joinResponse.json()).toMatchObject({ error: "max_participants_reached" });
+    const pending = await app.inject({ method: "POST", url: `/rooms/${created.room_id}/join-requests`, payload: { invite_token: inviteToken, display_name: "Bob" } });
+    expect(pending.statusCode).toBe(201);
+    const request = pending.json() as { request_id: string; request_token: string };
+    const approved = await app.inject({ method: "POST", url: `/rooms/${created.room_id}/join-requests/${request.request_id}/approve`, headers: { authorization: `Bearer ${created.owner_token}` }, payload: {} });
+    expect(approved.statusCode).toBe(409);
+    expect(approved.json()).toMatchObject({ error: "max_participants_reached" });
 
     await app.close();
   });

@@ -83,6 +83,17 @@ async function createTask(app: Awaited<ReturnType<typeof buildServer>>, roomId: 
   return response.json() as { task_id: string };
 }
 
+async function joinViaApproval(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerAuth: { authorization: string }, inviteToken: string, displayName: string) {
+  const pending = await app.inject({ method: "POST", url: `/rooms/${roomId}/join-requests`, payload: { invite_token: inviteToken, display_name: displayName } });
+  expect(pending.statusCode).toBe(201);
+  const request = pending.json() as { request_id: string; request_token: string };
+  const approved = await app.inject({ method: "POST", url: `/rooms/${roomId}/join-requests/${request.request_id}/approve`, headers: ownerAuth, payload: {} });
+  expect(approved.statusCode).toBe(201);
+  const status = await app.inject({ method: "GET", url: `/rooms/${roomId}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}` });
+  expect(status.statusCode).toBe(200);
+  return status.json() as { participant_id: string; participant_token: string; role: string };
+}
+
 describe("CACP server hardening", () => {
 
   it("rejects additional votes on a terminal proposal without appending duplicate events", async () => {
@@ -131,9 +142,8 @@ describe("CACP server hardening", () => {
     untrack(first);
 
     const second = await trackedServer(dbPath);
-    const join = await second.inject({ method: "POST", url: `/rooms/${room.room_id}/join`, payload: { invite_token: invite.json().invite_token, display_name: "Bob" } });
-    expect(join.statusCode).toBe(201);
-    expect(join.json()).toMatchObject({ role: "member" });
+    const join = await joinViaApproval(second, room.room_id, ownerAuth, invite.json().invite_token, "Bob");
+    expect(join.role).toBe("member");
     const vote = await second.inject({ method: "POST", url: `/rooms/${room.room_id}/proposals/${proposal.json().proposal_id}/votes`, headers: ownerAuth, payload: { vote: "approve" } });
     expect(vote.statusCode).toBe(201);
     expect(vote.json().evaluation.status).toBe("approved");
@@ -196,10 +206,9 @@ describe("CACP server hardening", () => {
     const roomB = await createRoom(app, "B Owner");
     const roomBAgent = await registerAgent(app, roomB.room.room_id, roomB.ownerAuth, "Room B Agent");
     const observerInvite = await app.inject({ method: "POST", url: `/rooms/${roomA.room.room_id}/invites`, headers: roomA.ownerAuth, payload: { role: "observer" } });
-    const observerJoin = await app.inject({ method: "POST", url: `/rooms/${roomA.room.room_id}/join`, payload: { invite_token: observerInvite.json().invite_token, display_name: "Watcher" } });
-    expect(observerJoin.statusCode).toBe(201);
+    const observerJoin = await joinViaApproval(app, roomA.room.room_id, roomA.ownerAuth, observerInvite.json().invite_token, "Watcher");
 
-    const targetIds = ["agent_missing", roomA.room.owner_id, observerJoin.json().participant_id, roomBAgent.agent_id];
+    const targetIds = ["agent_missing", roomA.room.owner_id, observerJoin.participant_id, roomBAgent.agent_id];
     for (const targetAgentId of targetIds) {
       const response = await app.inject({ method: "POST", url: `/rooms/${roomA.room.room_id}/tasks`, headers: roomA.ownerAuth, payload: { target_agent_id: targetAgentId, prompt: "No", mode: "oneshot" } });
       expect(response.statusCode).toBe(400);
@@ -219,9 +228,8 @@ describe("CACP server hardening", () => {
   it("prevents observers from creating collaborative content or tasks", async () => {
     const { app, room, ownerAuth } = await createRoom();
     const invite = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/invites`, headers: ownerAuth, payload: { role: "observer" } });
-    const join = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/join`, payload: { invite_token: invite.json().invite_token, display_name: "Bob" } });
-    expect(join.statusCode).toBe(201);
-    const observerAuth = { authorization: `Bearer ${join.json().participant_token}` };
+    const join = await joinViaApproval(app, room.room_id, ownerAuth, invite.json().invite_token, "Bob");
+    const observerAuth = { authorization: `Bearer ${join.participant_token}` };
 
     const attempts = [
       app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: observerAuth, payload: { text: "hi" } }),
@@ -239,9 +247,8 @@ describe("CACP server hardening", () => {
     const { room, ownerAuth } = await createRoom(app, "Control Owner");
     const invite = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/invites`, headers: ownerAuth, payload: { role: "member" } });
     expect(invite.statusCode).toBe(201);
-    const join = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/join`, payload: { invite_token: invite.json().invite_token, display_name: "Bob" } });
-    expect(join.statusCode).toBe(201);
-    const memberAuth = { authorization: `Bearer ${join.json().participant_token}` };
+    const join = await joinViaApproval(app, room.room_id, ownerAuth, invite.json().invite_token, "Bob");
+    const memberAuth = { authorization: `Bearer ${join.participant_token}` };
 
     const ownerAgent = await registerAgent(app, room.room_id, ownerAuth, "Owner Agent");
     const memberAttempts = [
@@ -251,7 +258,7 @@ describe("CACP server hardening", () => {
     ];
     expect((await Promise.all(memberAttempts)).map((response) => response.statusCode)).toEqual([403, 403, 403]);
 
-    updateParticipantRole(dbPath, room.room_id, join.json().participant_id, "admin");
+    updateParticipantRole(dbPath, room.room_id, join.participant_id, "admin");
     const adminAuth = memberAuth;
     const adminAgent = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/register`, headers: adminAuth, payload: { name: "Admin Agent", capabilities: [] } });
     expect(adminAgent.statusCode).toBe(201);
@@ -287,11 +294,10 @@ describe("CACP server hardening", () => {
     const roomAAgent = await registerAgent(app, roomA.room.room_id, roomA.ownerAuth, "Room A Agent");
     const roomBAgent = await registerAgent(app, roomB.room.room_id, roomB.ownerAuth, "Room B Agent");
     const observerInvite = await app.inject({ method: "POST", url: `/rooms/${roomA.room.room_id}/invites`, headers: roomA.ownerAuth, payload: { role: "observer" } });
-    const observerJoin = await app.inject({ method: "POST", url: `/rooms/${roomA.room.room_id}/join`, payload: { invite_token: observerInvite.json().invite_token, display_name: "Watcher" } });
-    expect(observerJoin.statusCode).toBe(201);
+    const observerJoin = await joinViaApproval(app, roomA.room.room_id, roomA.ownerAuth, observerInvite.json().invite_token, "Watcher");
 
     expect((await app.inject({ method: "POST", url: `/rooms/${roomA.room.room_id}/agents/select`, headers: roomA.ownerAuth, payload: { agent_id: roomAAgent.agent_id } })).statusCode).toBe(201);
-    expect((await app.inject({ method: "POST", url: `/rooms/${roomA.room.room_id}/agents/select`, headers: { authorization: `Bearer ${observerJoin.json().participant_token}` }, payload: { agent_id: roomAAgent.agent_id } })).statusCode).toBe(403);
+    expect((await app.inject({ method: "POST", url: `/rooms/${roomA.room.room_id}/agents/select`, headers: { authorization: `Bearer ${observerJoin.participant_token}` }, payload: { agent_id: roomAAgent.agent_id } })).statusCode).toBe(403);
     expect((await app.inject({ method: "POST", url: `/rooms/${roomA.room.room_id}/agents/select`, headers: { authorization: `Bearer ${roomAAgent.agent_token}` }, payload: { agent_id: roomAAgent.agent_id } })).statusCode).toBe(403);
     expect((await app.inject({ method: "POST", url: `/rooms/${roomA.room.room_id}/agents/select`, headers: roomA.ownerAuth, payload: { agent_id: roomBAgent.agent_id } })).statusCode).toBe(400);
     expect((await app.inject({ method: "POST", url: `/rooms/${roomA.room.room_id}/agents/select`, headers: roomA.ownerAuth, payload: { agent_id: "agent_missing" } })).statusCode).toBe(400);
