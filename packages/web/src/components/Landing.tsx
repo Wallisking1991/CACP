@@ -1,27 +1,27 @@
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
 import { parseInviteUrl } from "../api.js";
 import { LangContext } from "../i18n/LangProvider.js";
 import { useT } from "../i18n/useT.js";
 import { isCloudMode } from "../runtime-config.js";
 
 interface LandingProps {
-  onCreate: (params: { roomName: string; displayName: string; agentType: string; permissionLevel: string; workingDir: string }) => void;
+  onCreate: (params: { roomName: string; displayName: string; agentType: string; permissionLevel: string }) => void;
   onJoin: (params: { roomId: string; inviteToken: string; displayName: string }) => void;
   loading?: boolean;
 }
 
 const agentTypes = [
-  { value: "claude-code", label: "Claude Code CLI" },
-  { value: "codex", label: "Codex CLI" },
-  { value: "opencode", label: "opencode CLI" },
-  { value: "echo", label: "Echo Test Agent" }
-];
+  { value: "claude-code", labelKey: "agentType.claudeCode" },
+  { value: "codex", labelKey: "agentType.codex" },
+  { value: "opencode", labelKey: "agentType.opencode" },
+  { value: "echo", labelKey: "agentType.echo" }
+] as const;
 
 const permissionLevels = [
-  { value: "read_only", label: "Read only" },
-  { value: "limited_write", label: "Limited write" },
-  { value: "full_access", label: "Full access" }
-];
+  { value: "read_only", labelKey: "permission.readOnly" },
+  { value: "limited_write", labelKey: "permission.limitedWrite" },
+  { value: "full_access", labelKey: "permission.fullAccess" }
+] as const;
 
 export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
   const t = useT();
@@ -36,13 +36,10 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
   const [displayName, setDisplayName] = useState("Alice");
   const [agentType, setAgentType] = useState("claude-code");
   const [permissionLevel, setPermissionLevel] = useState("read_only");
-  const [workingDir, setWorkingDir] = useState(".");
 
   const [joinRoomId, setJoinRoomId] = useState(inviteTarget?.room_id ?? "");
   const [inviteToken, setInviteToken] = useState(inviteTarget?.invite_token ?? "");
   const [inviteLink, setInviteLink] = useState("");
-
-  const dirInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (hasInviteInUrl) {
@@ -69,7 +66,7 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
     }
   }, [inviteLink]);
 
-  const createValid = roomName.trim() && displayName.trim() && workingDir.trim();
+  const createValid = roomName.trim() && displayName.trim();
   const joinValid = joinRoomId.trim() && inviteToken.trim() && displayName.trim();
 
   function handleCreateSubmit(event: React.FormEvent) {
@@ -79,8 +76,7 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
       roomName: roomName.trim(),
       displayName: displayName.trim(),
       agentType,
-      permissionLevel,
-      workingDir: workingDir.trim()
+      permissionLevel
     });
   }
 
@@ -94,23 +90,6 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
     });
   }
 
-  function handleDirSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    const first = files[0];
-    // Electron or environments that expose absolute path
-    const absPath = (first as unknown as Record<string, unknown>).path as string | undefined;
-    if (absPath) {
-      setWorkingDir(absPath);
-    } else if (first.webkitRelativePath) {
-      // Extract directory name from webkitRelativePath (e.g. "folder/file.txt" → "folder")
-      const dirName = first.webkitRelativePath.split("/")[0];
-      setWorkingDir(dirName);
-    }
-    // Reset input so the same directory can be selected again
-    e.target.value = "";
-  }
-
   return (
     <main className="landing-shell">
       <div className="landing-card">
@@ -120,6 +99,7 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
             className="lang-toggle"
             onClick={() => langCtx?.setLang(langCtx.lang === "en" ? "zh" : "en")}
             title={t("lang.toggle")}
+            aria-label={t("lang.toggle")}
           >
             {t("lang.en")} / {t("lang.zh")}
           </button>
@@ -174,7 +154,7 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
               onChange={(e) => setAgentType(e.target.value)}
             >
               {agentTypes.map((item) => (
-                <option key={item.value} value={item.value}>{item.label}</option>
+                <option key={item.value} value={item.value}>{t(item.labelKey)}</option>
               ))}
             </select>
 
@@ -186,37 +166,18 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
               onChange={(e) => setPermissionLevel(e.target.value)}
             >
               {permissionLevels.map((item) => (
-                <option key={item.value} value={item.value}>{item.label}</option>
+                <option key={item.value} value={item.value}>{t(item.labelKey)}</option>
               ))}
             </select>
 
-            <label className="section-label" htmlFor="landing-working-dir" style={{ marginTop: 12 }}>{t("landing.create.workingDir")}</label>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                id="landing-working-dir"
-                className="input"
-                value={workingDir}
-                onChange={(e) => setWorkingDir(e.target.value)}
-                required
-                style={{ flex: 1 }}
-              />
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={() => dirInputRef.current?.click()}
-              >
-                {t("landing.browseDir")}
-              </button>
-            </div>
-            <input
-              ref={dirInputRef}
-              type="file"
-              // @ts-expect-error non-standard attributes for directory picker
-              webkitdirectory=""
-              directory=""
-              style={{ display: "none" }}
-              onChange={handleDirSelect}
-            />
+            {isCloudMode() && (
+              <div className="connector-setup" style={{ marginTop: 16, padding: 12, border: "1px solid var(--border-soft)", borderRadius: "var(--radius-card)", background: "var(--surface-warm)" }}>
+                <a className="btn btn-ghost" href="/downloads/CACP-Local-Connector.exe" download>
+                  {t("landing.connector.download")}
+                </a>
+                <p style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 8 }}>{t("landing.connector.instructions")}</p>
+              </div>
+            )}
 
             <button
               type="submit"

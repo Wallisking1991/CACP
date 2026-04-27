@@ -143,7 +143,6 @@ export default function App() {
     displayName: string;
     agentType: string;
     permissionLevel: string;
-    workingDir: string;
   }) => {
     await run(async () => {
       if (isCloudMode()) {
@@ -152,7 +151,7 @@ export default function App() {
         const pairing = await createAgentPairing(session, {
           agent_type: params.agentType,
           permission_level: params.permissionLevel,
-          working_dir: params.workingDir,
+          working_dir: ".",
         });
         setCreatedPairing({
           connection_code: pairing.connection_code,
@@ -166,7 +165,7 @@ export default function App() {
           {
             agent_type: params.agentType,
             permission_level: params.permissionLevel,
-            working_dir: params.workingDir,
+            working_dir: ".",
           }
         );
         activateSession(result.session);
