@@ -1,6 +1,8 @@
 import { createInterface } from "node:readline/promises";
 import { stdin as defaultStdin, stdout as defaultStdout } from "node:process";
-import { providerForAgentType, type LlmAgentType, type LlmConnectivityResult, type LlmProviderConfig } from "./types.js";
+import { normalizeProviderBaseUrl } from "./providers/base-url.js";
+import { getProviderAdapter, listProviderAdapters } from "./providers/registry.js";
+import type { LlmAgentType, LlmConnectivityResult, LlmProviderConfig } from "./types.js";
 import { sanitizeLlmError } from "./sanitize.js";
 
 export interface LlmConfigPrompter {
@@ -14,8 +16,22 @@ export interface LlmConfigPrompter {
 type ValidateLlmConfig = (config: LlmProviderConfig) => Promise<LlmConnectivityResult>;
 
 function numberOrDefault(value: string, fallback: number): number {
-  const parsed = Number(value.trim());
+  const trimmed = value.trim();
+  if (!trimmed) return fallback;
+  const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function booleanOrUndefined(value: string): boolean | undefined {
+  const trimmed = value.trim().toLowerCase();
+  if (trimmed === "y" || trimmed === "yes") return true;
+  if (trimmed === "n" || trimmed === "no") return false;
+  return undefined;
+}
+
+function stringOrUndefined(value: string): string | undefined {
+  const trimmed = value.trim();
+  return trimmed || undefined;
 }
 
 export async function promptForLlmApiConfig(
@@ -26,14 +42,56 @@ export async function promptForLlmApiConfig(
   prompter.writeLine("This connection is for an LLM API Agent.");
   prompter.writeLine("Provider settings are required for this connector session.");
   prompter.writeLine("API keys stay on this machine and are never sent to the CACP room server.");
+
+  const adapters = listProviderAdapters();
+  const defaultProviderIndex = agentType === "llm-openai-compatible"
+    ? adapters.findIndex((a) => a.id === "custom-openai-compatible")
+    : agentType === "llm-anthropic-compatible"
+      ? adapters.findIndex((a) => a.id === "custom-anthropic-compatible")
+      : -1;
+
   try {
     while (true) {
-      const baseUrl = (await prompter.question("Base URL: ")).trim();
+      prompter.writeLine("");
+      prompter.writeLine("Choose LLM API provider:");
+      adapters.forEach((adapter, index) => {
+        prompter.writeLine(`${index + 1}) ${adapter.label}`);
+      });
+
+      const providerInput = (await prompter.question("Provider [1-9]: ")).trim();
+      const providerIndex = providerInput ? Number(providerInput) - 1 : defaultProviderIndex;
+      const adapter = adapters[providerIndex];
+      if (!adapter) {
+        prompter.writeLine("Invalid provider selection.");
+        if (!(await prompter.chooseRetry("Try again? [Y/n]: "))) return undefined;
+        continue;
+      }
+
+      const baseUrlDefault = adapter.defaultBaseUrl ?? "";
+      const baseUrlPrompt = baseUrlDefault ? `Base URL [${baseUrlDefault}]: ` : "Base URL: ";
+      let baseUrl = (await prompter.question(baseUrlPrompt)).trim();
+      if (!baseUrl && baseUrlDefault) baseUrl = baseUrlDefault;
+      baseUrl = normalizeProviderBaseUrl(baseUrl, adapter.endpointPath);
+
       const model = (await prompter.question("Model: ")).trim();
       const apiKey = (await prompter.secret("API Key: ")).trim();
-      const temperature = numberOrDefault(await prompter.question("Temperature [0.7]: "), 0.7);
-      const maxTokens = Math.trunc(numberOrDefault(await prompter.question("Max tokens [1024]: "), 1024));
-      const config = { provider: providerForAgentType(agentType), baseUrl, model, apiKey, temperature, maxTokens };
+
+      const options: Record<string, unknown> = {};
+
+      const advanced = (await prompter.question("Configure advanced provider options? [y/N]: ")).trim().toLowerCase();
+      if (advanced === "y" || advanced === "yes") {
+        await promptAdvancedOptions(adapter.id, prompter, options);
+      }
+
+      const config: LlmProviderConfig = {
+        providerId: adapter.id,
+        protocol: adapter.protocol,
+        baseUrl,
+        model,
+        apiKey,
+        options
+      };
+
       try {
         const result = await validate(config);
         prompter.writeLine(
@@ -48,6 +106,95 @@ export async function promptForLlmApiConfig(
     }
   } finally {
     prompter.close();
+  }
+}
+
+async function promptAdvancedOptions(
+  providerId: string,
+  prompter: LlmConfigPrompter,
+  options: Record<string, unknown>
+): Promise<void> {
+  const adapter = getProviderAdapter(providerId as never);
+
+  const temperatureDefault = adapter.defaultTemperature;
+  const maxTokensDefault = adapter.defaultMaxTokens;
+
+  switch (providerId) {
+    case "siliconflow": {
+      const temp = stringOrUndefined(await prompter.question(`Temperature [${temperatureDefault ?? "0.7"}]: `));
+      if (temp !== undefined) options.temperature = numberOrDefault(temp, temperatureDefault ?? 0.7);
+      const maxTokens = stringOrUndefined(await prompter.question(`Max tokens [${maxTokensDefault ?? 1024}]: `));
+      if (maxTokens !== undefined) options.max_tokens = Math.trunc(numberOrDefault(maxTokens, maxTokensDefault ?? 1024));
+      const enableThinking = booleanOrUndefined(await prompter.question("Enable thinking [provider default / y / n]: "));
+      if (enableThinking !== undefined) options.enable_thinking = enableThinking;
+      const thinkingBudget = stringOrUndefined(await prompter.question(`Thinking budget [${maxTokensDefault ?? 4096}, 128-32768]: `));
+      if (thinkingBudget !== undefined) options.thinking_budget = Math.trunc(numberOrDefault(thinkingBudget, maxTokensDefault ?? 4096));
+      const minP = stringOrUndefined(await prompter.question("min_p [blank=provider default, 0-1]: "));
+      if (minP !== undefined) options.min_p = numberOrDefault(minP, 0);
+      break;
+    }
+    case "kimi":
+    case "glm-official": {
+      const temp = stringOrUndefined(await prompter.question(`Temperature [${temperatureDefault ?? 0.7}]: `));
+      if (temp !== undefined) options.temperature = numberOrDefault(temp, temperatureDefault ?? 0.7);
+      const maxTokens = stringOrUndefined(await prompter.question(`Max tokens [${maxTokensDefault ?? 1024}]: `));
+      if (maxTokens !== undefined) options.max_tokens = Math.trunc(numberOrDefault(maxTokens, maxTokensDefault ?? 1024));
+      const thinkingType = stringOrUndefined(await prompter.question("Thinking mode [provider default / enabled / disabled]: "));
+      if (thinkingType !== undefined) options.thinking_type = thinkingType;
+      break;
+    }
+    case "minimax": {
+      const temp = stringOrUndefined(await prompter.question(`Temperature [${temperatureDefault ?? 1.0}]: `));
+      if (temp !== undefined) options.temperature = numberOrDefault(temp, temperatureDefault ?? 1.0);
+      const maxTokens = stringOrUndefined(await prompter.question(`Max tokens [${maxTokensDefault ?? 1024}]: `));
+      if (maxTokens !== undefined) options.max_tokens = Math.trunc(numberOrDefault(maxTokens, maxTokensDefault ?? 1024));
+      const reasoningSplit = booleanOrUndefined(await prompter.question("Reasoning split [provider default / y / n]: "));
+      if (reasoningSplit !== undefined) options.reasoning_split = reasoningSplit;
+      break;
+    }
+    case "openai": {
+      const maxCompletionTokens = stringOrUndefined(await prompter.question("Max completion tokens [blank=provider default]: "));
+      if (maxCompletionTokens !== undefined) options.max_completion_tokens = Math.trunc(numberOrDefault(maxCompletionTokens, 1024));
+      const maxTokens = stringOrUndefined(await prompter.question("Max tokens (legacy) [blank=provider default]: "));
+      if (maxTokens !== undefined) options.max_tokens = Math.trunc(numberOrDefault(maxTokens, 1024));
+      const reasoningEffort = stringOrUndefined(await prompter.question("Reasoning effort [provider default / low / medium / high]: "));
+      if (reasoningEffort !== undefined) options.reasoning_effort = reasoningEffort;
+      break;
+    }
+    case "anthropic": {
+      const maxTokens = stringOrUndefined(await prompter.question(`Max tokens [${maxTokensDefault ?? 1024}]: `));
+      if (maxTokens !== undefined) options.max_tokens = Math.trunc(numberOrDefault(maxTokens, maxTokensDefault ?? 1024));
+      const temp = stringOrUndefined(await prompter.question("Temperature [blank=provider default]: "));
+      if (temp !== undefined) options.temperature = numberOrDefault(temp, 1);
+      const thinkingBudget = stringOrUndefined(await prompter.question("Thinking budget tokens [blank=provider default]: "));
+      if (thinkingBudget !== undefined) options.thinking_budget_tokens = Math.trunc(numberOrDefault(thinkingBudget, 1024));
+      break;
+    }
+    case "deepseek": {
+      const temp = stringOrUndefined(await prompter.question(`Temperature [${temperatureDefault ?? 1.0}]: `));
+      if (temp !== undefined) options.temperature = numberOrDefault(temp, temperatureDefault ?? 1.0);
+      const maxTokens = stringOrUndefined(await prompter.question(`Max tokens [${maxTokensDefault ?? 1024}]: `));
+      if (maxTokens !== undefined) options.max_tokens = Math.trunc(numberOrDefault(maxTokens, maxTokensDefault ?? 1024));
+      const thinkingType = stringOrUndefined(await prompter.question("Thinking mode [provider default / enabled / disabled]: "));
+      if (thinkingType !== undefined) options.thinking_type = thinkingType;
+      const reasoningEffort = stringOrUndefined(await prompter.question("Reasoning effort [provider default / high / max]: "));
+      if (reasoningEffort !== undefined) options.reasoning_effort = reasoningEffort;
+      break;
+    }
+    case "custom-openai-compatible": {
+      const temp = stringOrUndefined(await prompter.question(`Temperature [${temperatureDefault ?? 0.7}]: `));
+      if (temp !== undefined) options.temperature = numberOrDefault(temp, temperatureDefault ?? 0.7);
+      const maxTokens = stringOrUndefined(await prompter.question(`Max tokens [${maxTokensDefault ?? 1024}]: `));
+      if (maxTokens !== undefined) options.max_tokens = Math.trunc(numberOrDefault(maxTokens, maxTokensDefault ?? 1024));
+      break;
+    }
+    case "custom-anthropic-compatible": {
+      const maxTokens = stringOrUndefined(await prompter.question(`Max tokens [${maxTokensDefault ?? 1024}]: `));
+      if (maxTokens !== undefined) options.max_tokens = Math.trunc(numberOrDefault(maxTokens, maxTokensDefault ?? 1024));
+      const temp = stringOrUndefined(await prompter.question("Temperature [blank=provider default]: "));
+      if (temp !== undefined) options.temperature = numberOrDefault(temp, 1);
+      break;
+    }
   }
 }
 
