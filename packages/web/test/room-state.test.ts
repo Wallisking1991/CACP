@@ -154,5 +154,13 @@ describe("room state", () => {
       event("ai.collection.request_rejected", { request_id: "collection_request_1", rejected_by: "user_1" }, 2, "user_1")
     ]);
     expect(resolved.pendingRoundtableRequest).toBeUndefined();
+
+    const approved = deriveRoomState([
+      event("participant.joined", { participant: { id: "user_1", display_name: "Alice", role: "owner", type: "human" } }, 1),
+      event("participant.joined", { participant: { id: "user_2", display_name: "Bob", role: "member", type: "human" } }, 2, "user_2"),
+      event("ai.collection.requested", { request_id: "collection_request_1", requested_by: "user_2" }, 3, "user_2"),
+      event("ai.collection.request_approved", { request_id: "collection_request_1", approved_by: "user_1" }, 4, "user_1")
+    ]);
+    expect(approved.pendingRoundtableRequest).toBeUndefined();
   });
 });

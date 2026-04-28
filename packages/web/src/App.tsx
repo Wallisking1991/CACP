@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import type { CacpEvent } from "@cacp/protocol";
 import {
+  approveAiCollectionRequest,
   approveJoinRequest,
   cancelAiCollection,
   clearEventSocket,
@@ -15,8 +16,10 @@ import {
   inviteUrlFor,
   joinRequestStatus,
   parseInviteUrl,
+  rejectAiCollectionRequest,
   rejectJoinRequest,
   removeParticipant,
+  requestAiCollection,
   selectAgent,
   sendMessage,
   startAiCollection,
@@ -282,6 +285,21 @@ export default function App() {
     });
   }, [session]);
 
+  const handleRequestRoundtable = useCallback(() => {
+    if (!session) return;
+    void run(async () => { await requestAiCollection(session); });
+  }, [session]);
+
+  const handleApproveRoundtableRequest = useCallback((requestId: string) => {
+    if (!session) return;
+    void run(async () => { await approveAiCollectionRequest(session, requestId); });
+  }, [session]);
+
+  const handleRejectRoundtableRequest = useCallback((requestId: string) => {
+    if (!session) return;
+    void run(async () => { await rejectAiCollectionRequest(session, requestId); });
+  }, [session]);
+
   if (waitingRoom) {
     return (
       <LangProvider>
@@ -324,6 +342,9 @@ export default function App() {
         onApproveJoinRequest={handleApproveJoinRequest}
         onRejectJoinRequest={handleRejectJoinRequest}
         onRemoveParticipant={handleRemoveParticipant}
+        onRequestRoundtable={handleRequestRoundtable}
+        onApproveRoundtableRequest={handleApproveRoundtableRequest}
+        onRejectRoundtableRequest={handleRejectRoundtableRequest}
         createdInvite={createdInvite}
         error={error}
         cloudMode={isCloudMode()}

@@ -80,7 +80,7 @@ export async function cancelAiCollection(session: RoomSession): Promise<void> {
 }
 
 export interface AiCollectionRequestResult { request_id: string; requested_by: string; status: "pending" }
-export interface AiCollectionRequestApprovalResult { collection_id: string; request_id: string }
+export interface AiCollectionRequestApprovalResult { collection_id: string; request_id: string; approved_by: string }
 
 export async function requestAiCollection(session: RoomSession): Promise<AiCollectionRequestResult> {
   return await postJson(`/rooms/${session.room_id}/ai-collection/request`, session.token, {});

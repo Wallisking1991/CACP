@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   CacpEventSchema,
+  AiCollectionRequestedPayloadSchema,
+  AiCollectionRequestApprovedPayloadSchema,
+  AiCollectionRequestRejectedPayloadSchema,
   evaluatePolicy,
   type Participant,
   type Policy,
@@ -88,6 +91,28 @@ describe("CACP event schema", () => {
         payload: {}
       }).type).toBe(type);
     }
+  });
+
+  it("accepts AI collection request payload shapes", () => {
+    const requested = AiCollectionRequestedPayloadSchema.parse({
+      request_id: "req_1",
+      requested_by: "user_a"
+    });
+    expect(requested.request_id).toBe("req_1");
+    expect(requested.requested_by).toBe("user_a");
+
+    const approved = AiCollectionRequestApprovedPayloadSchema.parse({
+      request_id: "req_1",
+      approved_by: "user_b",
+      collection_id: "col_1"
+    });
+    expect(approved.collection_id).toBe("col_1");
+
+    const rejected = AiCollectionRequestRejectedPayloadSchema.parse({
+      request_id: "req_1",
+      rejected_by: "user_c"
+    });
+    expect(rejected.rejected_by).toBe("user_c");
   });
 
   it("rejects removed structured decision and question event types", () => {

@@ -21,10 +21,12 @@ describe("Composer render matrix", () => {
     turnInFlight: false,
     collectCount: 0,
     canSendMessages: true,
+    pendingRoundtableRequest: false,
     onSend: noop,
     onToggleMode: noop,
     onSubmitCollection: noop,
     onCancelCollection: noop,
+    onRequestRoundtable: noop,
   };
 
   describe("Live mode", () => {
@@ -45,18 +47,18 @@ describe("Composer render matrix", () => {
       renderComposer({ ...baseProps, role: "owner" });
 
       const liveBtn = screen.getByRole("button", { name: /Live/i });
-      const collectBtn = screen.getByRole("button", { name: /Collect/i });
+      const roundtableBtn = screen.getByRole("button", { name: /Roundtable/i });
       expect(liveBtn).not.toBeDisabled();
-      expect(collectBtn).not.toBeDisabled();
+      expect(roundtableBtn).not.toBeDisabled();
     });
 
-    it("has disabled mode toggle for non-owner", () => {
+    it("has disabled Live toggle and enabled Request Roundtable for member", () => {
       renderComposer({ ...baseProps, role: "member" });
 
       const liveBtn = screen.getByRole("button", { name: /Live/i });
-      const collectBtn = screen.getByRole("button", { name: /Collect/i });
+      const requestBtn = screen.getByRole("button", { name: /Request Roundtable/i });
       expect(liveBtn).toBeDisabled();
-      expect(collectBtn).toBeDisabled();
+      expect(requestBtn).not.toBeDisabled();
     });
 
     it("shows Queue button and queued surface when turnInFlight", () => {
@@ -65,17 +67,31 @@ describe("Composer render matrix", () => {
       const composer = document.querySelector(".composer-queued");
       expect(composer).not.toBeNull();
 
-      expect(screen.getByText(/Claude is replying/i)).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /Queue/i })).toBeInTheDocument();
+      expect(screen.getByText(/AI is replying\. Your message will wait for the next turn\./i)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Queue message/i })).toBeInTheDocument();
     });
 
     it("disables mode toggle for everyone while turnInFlight", () => {
       renderComposer({ ...baseProps, role: "owner", turnInFlight: true });
 
       const liveBtn = screen.getByRole("button", { name: /Live/i });
-      const collectBtn = screen.getByRole("button", { name: /Collect/i });
+      const roundtableBtn = screen.getByRole("button", { name: /Roundtable/i });
       expect(liveBtn).toBeDisabled();
-      expect(collectBtn).toBeDisabled();
+      expect(roundtableBtn).toBeDisabled();
+    });
+
+    it("lets members request Roundtable Mode from live mode", () => {
+      const onRequestRoundtable = vi.fn();
+      renderComposer({ ...baseProps, role: "member", onRequestRoundtable });
+      fireEvent.click(screen.getByRole("button", { name: /Request Roundtable/i }));
+      expect(onRequestRoundtable).toHaveBeenCalled();
+    });
+
+    it("shows Queue message wording while the AI is replying", () => {
+      renderComposer({ ...baseProps, turnInFlight: true });
+      expect(screen.getByText(/AI is replying\. Your message will wait for the next turn\./i)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Queue message/i })).toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/Type a message/i)).not.toBeDisabled();
     });
 
     it("disables input for observer even in live mode", () => {
@@ -97,23 +113,23 @@ describe("Composer render matrix", () => {
     });
   });
 
-  describe("Collect mode", () => {
-    it("renders collect surface, Add button, and owner action row for owner", () => {
+  describe("Roundtable mode", () => {
+    it("renders roundtable surface, Add button, and owner action row for owner", () => {
       renderComposer({ ...baseProps, role: "owner", mode: "collect", collectCount: 2 });
 
       const composer = document.querySelector(".composer-collect");
       expect(composer).not.toBeNull();
 
       expect(screen.getByRole("button", { name: /Add/i })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /Cancel collection/i })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /Submit 2 answers/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Cancel Roundtable/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Submit 2 messages/i })).toBeInTheDocument();
     });
 
-    it("shows collect badge with count for owner", () => {
+    it("shows roundtable badge with count for owner", () => {
       renderComposer({ ...baseProps, role: "owner", mode: "collect", collectCount: 3 });
 
       expect(screen.getByText("3")).toBeInTheDocument();
-      expect(screen.getByText(/Collecting answers/i)).toBeInTheDocument();
+      expect(screen.getByText(/Roundtable Mode is active/i)).toBeInTheDocument();
     });
 
     it("disables submit when collectCount is 0", () => {
@@ -125,29 +141,29 @@ describe("Composer render matrix", () => {
     it("shows member hint and no action row for member", () => {
       renderComposer({ ...baseProps, role: "member", mode: "collect", collectCount: 1 });
 
-      expect(screen.getByText(/Owner is collecting answers/i)).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: /Cancel collection/i })).not.toBeInTheDocument();
+      expect(screen.getByText(/Owner is hosting a Roundtable/i)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Cancel Roundtable/i })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /Submit/i })).not.toBeInTheDocument();
     });
 
     it("shows member hint and disabled input for observer", () => {
       renderComposer({ ...baseProps, role: "observer", mode: "collect", collectCount: 1 });
 
-      expect(screen.getByText(/Owner is collecting answers/i)).toBeInTheDocument();
+      expect(screen.getByText(/Owner is hosting a Roundtable/i)).toBeInTheDocument();
       const textarea = screen.getByPlaceholderText(/Type a message/i);
       expect(textarea).toBeDisabled();
     });
 
-    it("disables toggle for non-owner in collect mode", () => {
+    it("disables toggle for non-owner in roundtable mode", () => {
       renderComposer({ ...baseProps, role: "member", mode: "collect" });
 
       const liveBtn = screen.getByRole("button", { name: /Live/i });
-      const collectBtn = screen.getByRole("button", { name: /Collect/i });
+      const roundtableBtn = screen.getByRole("button", { name: /^Roundtable$/i });
       expect(liveBtn).toBeDisabled();
-      expect(collectBtn).toBeDisabled();
+      expect(roundtableBtn).toBeDisabled();
     });
 
-    it("calls onToggleMode when owner clicks Live in collect mode", () => {
+    it("calls onToggleMode when owner clicks Live in roundtable mode", () => {
       const onToggleMode = vi.fn();
       renderComposer({ ...baseProps, role: "owner", mode: "collect", onToggleMode });
 
@@ -155,11 +171,11 @@ describe("Composer render matrix", () => {
       expect(onToggleMode).toHaveBeenCalled();
     });
 
-    it("calls onToggleMode when owner clicks Collect in live mode", () => {
+    it("calls onToggleMode when owner clicks Roundtable in live mode", () => {
       const onToggleMode = vi.fn();
       renderComposer({ ...baseProps, role: "owner", mode: "live", onToggleMode });
 
-      fireEvent.click(screen.getByRole("button", { name: /Collect/i }));
+      fireEvent.click(screen.getByRole("button", { name: /Roundtable/i }));
       expect(onToggleMode).toHaveBeenCalled();
     });
 
@@ -167,7 +183,7 @@ describe("Composer render matrix", () => {
       const onSubmitCollection = vi.fn();
       renderComposer({ ...baseProps, role: "owner", mode: "collect", collectCount: 2, onSubmitCollection });
 
-      fireEvent.click(screen.getByRole("button", { name: /Submit 2 answers/i }));
+      fireEvent.click(screen.getByRole("button", { name: /Submit 2 messages/i }));
       expect(onSubmitCollection).toHaveBeenCalled();
     });
 
@@ -175,7 +191,7 @@ describe("Composer render matrix", () => {
       const onCancelCollection = vi.fn();
       renderComposer({ ...baseProps, role: "owner", mode: "collect", collectCount: 1, onCancelCollection });
 
-      fireEvent.click(screen.getByRole("button", { name: /Cancel collection/i }));
+      fireEvent.click(screen.getByRole("button", { name: /Cancel Roundtable/i }));
       expect(onCancelCollection).toHaveBeenCalled();
     });
   });

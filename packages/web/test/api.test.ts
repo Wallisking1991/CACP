@@ -238,6 +238,11 @@ describe("room API", () => {
     const owner: RoomSession = { room_id: "room_1", token: "owner_secret", participant_id: "user_owner", role: "owner" };
     mockJsonResponse({ ok: true, collection_id: "collection_1", request_id: "collection_request_1" });
     await expect(approveAiCollectionRequest(owner, "collection_request_1")).resolves.toEqual({ ok: true, collection_id: "collection_1", request_id: "collection_request_1" });
+    expect(fetch).toHaveBeenLastCalledWith("/rooms/room_1/ai-collection/requests/collection_request_1/approve", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer owner_secret" },
+      body: JSON.stringify({})
+    });
 
     mockJsonResponse({ ok: true, request_id: "collection_request_1" });
     await rejectAiCollectionRequest(owner, "collection_request_1");

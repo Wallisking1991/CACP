@@ -102,9 +102,9 @@ describe("App room copy and layout source", () => {
   it("offers host-controlled AI answer collection controls", () => {
     const source = allSource();
 
-    expect(source).toContain("Start AI Collection");
+    expect(source).toContain("Start Roundtable");
     expect(source).toContain("Submit to Agent");
-    expect(source).toContain("Cancel Collection");
-    expect(source).toContain("Collecting answers");
+    expect(source).toContain("Cancel Roundtable");
+    expect(source).toContain("Roundtable Mode is active");
   });
 });

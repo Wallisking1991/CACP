@@ -61,6 +61,22 @@ export const RoomHistoryClearedPayloadSchema = z.object({
   scope: z.enum(["messages", "messages_and_decisions"])
 });
 
+export const AiCollectionRequestedPayloadSchema = z.object({
+  request_id: z.string().min(1),
+  requested_by: z.string().min(1)
+});
+
+export const AiCollectionRequestApprovedPayloadSchema = z.object({
+  request_id: z.string().min(1),
+  approved_by: z.string().min(1),
+  collection_id: z.string().min(1)
+});
+
+export const AiCollectionRequestRejectedPayloadSchema = z.object({
+  request_id: z.string().min(1),
+  rejected_by: z.string().min(1)
+});
+
 export type ProtocolVersion = z.infer<typeof ProtocolVersionSchema>;
 export type ParticipantType = z.infer<typeof ParticipantTypeSchema>;
 export type ParticipantRole = z.infer<typeof ParticipantRoleSchema>;
@@ -72,3 +88,6 @@ export type VoteRecord = z.infer<typeof VoteRecordSchema>;
 export type Policy = z.infer<typeof PolicySchema>;
 export type RequiredUnknown = z.infer<typeof RequiredUnknownSchema>;
 export type RoomHistoryClearedPayload = z.infer<typeof RoomHistoryClearedPayloadSchema>;
+export type AiCollectionRequestedPayload = z.infer<typeof AiCollectionRequestedPayloadSchema>;
+export type AiCollectionRequestApprovedPayload = z.infer<typeof AiCollectionRequestApprovedPayloadSchema>;
+export type AiCollectionRequestRejectedPayload = z.infer<typeof AiCollectionRequestRejectedPayloadSchema>;

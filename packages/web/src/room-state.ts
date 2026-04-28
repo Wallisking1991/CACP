@@ -225,6 +225,8 @@ export function deriveRoomState(events: CacpEvent[]): RoomViewState {
   const collectionViews = [...collections.values()];
   const activeCollection = [...collectionViews].reverse().find((collection) => !collection.submitted_at && !collection.cancelled_at);
   const collectionHistory = collectionViews.filter((collection) => Boolean(collection.submitted_at || collection.cancelled_at));
+  // Only one pending Roundtable request is allowed per room in this version.
+  // We intentionally expose only the first (oldest) pending request.
   const pendingRoundtableRequest = [...roundtableRequests.values()][0];
 
   return {
