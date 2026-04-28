@@ -7,6 +7,7 @@ import { taskReportForExitCode } from "./task-result.js";
 import { appendTurnOutput, turnCompleteBody } from "./turn-result.js";
 import { printConnectedBanner } from "./connected-banner.js";
 import { ChatTranscriptWriter } from "./transcript.js";
+import { runLlmTurn } from "./llm/runner.js";
 
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
   console.log("Usage: cacp-cli-adapter [config.json]\n       cacp-cli-adapter --connect <connection_code>\n       cacp-cli-adapter --server <url> --pair <pairing_token>\n\nDouble-click without arguments to paste a CACP connection code.");
@@ -59,6 +60,10 @@ async function main() {
         if (!payload.task_id || !payload.prompt || payload.target_agent_id !== registered.agent_id || runningTasks.has(payload.task_id)) return;
         runningTasks.add(payload.task_id);
         try {
+          if (config.llm) {
+            await postJson(config.server_url, `/rooms/${config.room_id}/tasks/${payload.task_id}/fail`, registered.agent_token, { error: "llm_api_agents_do_not_run_tasks" });
+            return;
+          }
           await postJson(config.server_url, `/rooms/${config.room_id}/tasks/${payload.task_id}/start`, registered.agent_token, {});
           const taskPrompt = config.agent.system_prompt ? `${config.agent.system_prompt}\n\n${payload.prompt}` : payload.prompt;
           const result = await runCommandForTask({
@@ -94,24 +99,37 @@ async function main() {
         let finalText = "";
         try {
           await postJson(config.server_url, `/rooms/${config.room_id}/agent-turns/${payload.turn_id}/start`, registered.agent_token, {});
-          const turnPrompt = config.agent.system_prompt ? `${config.agent.system_prompt}\n\n${payload.context_prompt}` : payload.context_prompt;
-          const result = await runCommandForTask({
-            command: config.agent.command,
-            args: config.agent.args,
-            working_dir: config.agent.working_dir,
-            prompt: turnPrompt,
-            onOutput: async (output) => {
-              finalText = appendTurnOutput(finalText, output);
-              await postJson(config.server_url, `/rooms/${config.room_id}/agent-turns/${payload.turn_id}/delta`, registered.agent_token, { chunk: output.chunk });
-            }
-          });
-          if (result.exit_code === 0) {
-            await postJson(config.server_url, `/rooms/${config.room_id}/agent-turns/${payload.turn_id}/complete`, registered.agent_token, turnCompleteBody(finalText, result.exit_code));
-          } else {
-            await postJson(config.server_url, `/rooms/${config.room_id}/agent-turns/${payload.turn_id}/fail`, registered.agent_token, {
-              error: `command exited with code ${result.exit_code}`,
-              exit_code: result.exit_code
+          if (config.llm) {
+            const result = await runLlmTurn({
+              llm: config.llm,
+              prompt: payload.context_prompt,
+              systemPrompt: config.agent.system_prompt,
+              onDelta: async (chunk) => {
+                finalText = appendTurnOutput(finalText, { stream: "stdout", chunk });
+                await postJson(config.server_url, `/rooms/${config.room_id}/agent-turns/${payload.turn_id}/delta`, registered.agent_token, { chunk });
+              }
             });
+            await postJson(config.server_url, `/rooms/${config.room_id}/agent-turns/${payload.turn_id}/complete`, registered.agent_token, turnCompleteBody(result.finalText, 0));
+          } else {
+            const turnPrompt = config.agent.system_prompt ? `${config.agent.system_prompt}\n\n${payload.context_prompt}` : payload.context_prompt;
+            const result = await runCommandForTask({
+              command: config.agent.command,
+              args: config.agent.args,
+              working_dir: config.agent.working_dir,
+              prompt: turnPrompt,
+              onOutput: async (output) => {
+                finalText = appendTurnOutput(finalText, output);
+                await postJson(config.server_url, `/rooms/${config.room_id}/agent-turns/${payload.turn_id}/delta`, registered.agent_token, { chunk: output.chunk });
+              }
+            });
+            if (result.exit_code === 0) {
+              await postJson(config.server_url, `/rooms/${config.room_id}/agent-turns/${payload.turn_id}/complete`, registered.agent_token, turnCompleteBody(finalText, result.exit_code));
+            } else {
+              await postJson(config.server_url, `/rooms/${config.room_id}/agent-turns/${payload.turn_id}/fail`, registered.agent_token, {
+                error: `command exited with code ${result.exit_code}`,
+                exit_code: result.exit_code
+              });
+            }
           }
         } catch (error) {
           console.error("Adapter turn failed", error);

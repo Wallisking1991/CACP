@@ -11,6 +11,12 @@ describe("cli adapter stream wiring", () => {
     expect(source()).toContain("baseDir: config.agent.working_dir");
   });
 
+  it("routes agent turns through the LLM runner when llm config exists", () => {
+    expect(source()).toContain("runLlmTurn");
+    expect(source()).toContain("if (config.llm)");
+    expect(source()).toContain("/agent-turns/${payload.turn_id}/delta");
+  });
+
   it("passes parsed stream events into the transcript writer before task handling", () => {
     expect(source()).toContain("transcript.handleEvent(parsed.data)");
   });
