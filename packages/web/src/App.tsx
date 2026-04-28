@@ -212,7 +212,7 @@ export default function App() {
 
   const handleClearRoom = useCallback(() => {
     if (!session) return;
-    if (window.confirm("Clear all chat messages and AI flow history for everyone?")) {
+    if (window.confirm("Clear all chat messages and Roundtable history for everyone?")) {
       void run(async () => {
         await clearRoom(session);
       });

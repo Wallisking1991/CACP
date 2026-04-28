@@ -486,7 +486,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const openTurn = findAnyOpenTurn(turnEvents);
     if (openTurn) {
       if (hasQueuedFollowup(turnEvents, openTurn.turn_id)) return [];
-      return [event(roomId, "agent.turn.followup_queued", actorId, { turn_id: openTurn.turn_id, agent_id: activeAgentId })];
+      return [event(roomId, "agent.turn.followup_queued", actorId, { turn_id: openTurn.turn_id, agent_id: openTurn.agent_id })];
     }
     const turnId = prefixedId("turn");
     return [event(roomId, "agent.turn.requested", actorId, {

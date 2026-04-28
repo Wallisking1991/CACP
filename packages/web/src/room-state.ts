@@ -80,6 +80,11 @@ function lastHistoryClear(events: CacpEvent[]): { index: number; clearedAt?: str
   return { index: -1 };
 }
 
+function eventsAfterLastHistoryClear(events: CacpEvent[]): CacpEvent[] {
+  const historyClear = lastHistoryClear(events);
+  return events.slice(historyClear.index + 1);
+}
+
 function isValidJoinRequestStatus(value: unknown): value is JoinRequestView["status"] {
   return value === "pending" || value === "approved" || value === "rejected" || value === "expired";
 }
@@ -258,7 +263,7 @@ export function humanParticipants(participants: ParticipantView[]): ParticipantV
 
 export function isCollectionActive(events: CacpEvent[]): boolean {
   let active = false;
-  for (const event of events) {
+  for (const event of eventsAfterLastHistoryClear(events)) {
     if (event.type === "ai.collection.started") active = true;
     if (event.type === "ai.collection.submitted" || event.type === "ai.collection.cancelled") active = false;
   }
@@ -267,7 +272,7 @@ export function isCollectionActive(events: CacpEvent[]): boolean {
 
 export function isTurnInFlight(events: CacpEvent[]): boolean {
   const turns = new Map<string, boolean>();
-  for (const event of events) {
+  for (const event of eventsAfterLastHistoryClear(events)) {
     const turnId = typeof event.payload.turn_id === "string" ? event.payload.turn_id : undefined;
     if (!turnId) continue;
     if (event.type === "agent.turn.requested" || event.type === "agent.turn.started") {

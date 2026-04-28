@@ -87,7 +87,7 @@ POST /rooms
 
 ## Roundtable Mode
 
-### 开始收集
+### 开始圆桌
 
 ```http
 POST /rooms/:roomId/ai-collection/start
@@ -128,7 +128,7 @@ POST /rooms/:roomId/ai-collection/requests/:requestId/reject
 Authorization: Bearer <owner_token>
 ```
 
-### 提交收集结果
+### 提交圆桌结果
 
 ```http
 POST /rooms/:roomId/ai-collection/submit
