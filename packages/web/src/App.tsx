@@ -91,6 +91,10 @@ export default function App() {
             saveStoredSession(window.localStorage, nextSession);
             setSession(nextSession);
             setEvents([]);
+            setCreatedInvite(undefined);
+            setLocalLaunch(undefined);
+            setCreatedPairing(undefined);
+            setConnectorModalPairing(undefined);
             setWaitingRoom(undefined);
             if (inviteTarget) window.history.replaceState({}, {}, "/");
             return;
@@ -141,6 +145,7 @@ export default function App() {
     setCreatedInvite(undefined);
     setLocalLaunch(undefined);
     setCreatedPairing(undefined);
+    setConnectorModalPairing(undefined);
     setWaitingRoom(undefined);
     setError(undefined);
   }, []);

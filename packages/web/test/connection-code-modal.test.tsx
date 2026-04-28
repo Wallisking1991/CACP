@@ -56,6 +56,23 @@ describe("ConnectionCodeModal", () => {
     expect(screen.getByText("Copy failed. Select the code below and copy it manually.")).toBeInTheDocument();
   });
 
+  it("shows a manual copy field when clipboard API is unavailable", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: undefined,
+      configurable: true
+    });
+    render(
+      <LangProvider>
+        <ConnectionCodeModal pairing={pairing} onClose={() => {}} />
+      </LangProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy connection code" }));
+
+    expect(await screen.findByLabelText("Connection code for manual copy")).toHaveValue(pairing.connection_code);
+    expect(screen.getByText("Copy failed. Select the code below and copy it manually.")).toBeInTheDocument();
+  });
+
   it("calls onClose from the close button", () => {
     const { onClose } = renderModal();
 

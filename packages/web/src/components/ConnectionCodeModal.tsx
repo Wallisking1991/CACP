@@ -20,6 +20,10 @@ export default function ConnectionCodeModal({ pairing, onClose }: ConnectionCode
   const handleCopy = useCallback(() => {
     if (!pairing) return;
     setCopyFailed(false);
+    if (!navigator.clipboard?.writeText) {
+      setCopyFailed(true);
+      return;
+    }
     navigator.clipboard.writeText(pairing.connection_code).then(() => {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
@@ -99,6 +99,38 @@ describe("chat transcript writer", () => {
       expect(writer.lastErrorMessage()).toContain("Unable to write chat transcript");
       expect(logger.warn).toHaveBeenCalled();
       expect(existsSync(join(blockedBase, "rooms", "room_1", "chat.md"))).toBe(false);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not duplicate messages already present in an existing chat.md", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "cacp-transcript-restart-"));
+    try {
+      const roomDir = join(tempDir, "rooms", "room_1");
+      mkdirSync(roomDir, { recursive: true });
+      writeFileSync(join(roomDir, "chat.md"), [
+        "# CACP Room Chat",
+        "",
+        "Room: room_1",
+        "Started: 2026-04-28 03:29:00 UTC",
+        "",
+        "---",
+        "",
+        "## 2026-04-28 03:30:00 UTC - Alice",
+        "",
+        "Hello team",
+        "",
+        "<!-- cacp-message-key: msg_restart -->",
+        ""
+      ].join("\n"), "utf8");
+
+      const writer = new ChatTranscriptWriter({ roomId: "room_1", baseDir: tempDir });
+      writer.handleEvent(baseEvent("message.created", { message_id: "msg_restart", text: "Hello team", kind: "human" }, "user_1"));
+
+      const text = readFileSync(join(roomDir, "chat.md"), "utf8");
+      expect(text.match(/Hello team/g)).toHaveLength(1);
+      expect(text.match(/<!-- cacp-message-key: msg_restart -->/g)).toHaveLength(1);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }

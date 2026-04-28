@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { CacpEvent, Participant } from "@cacp/protocol";
 
@@ -74,6 +74,21 @@ export class ChatTranscriptWriter {
     this.logger = options.logger ?? console;
     this.now = options.now ?? (() => new Date());
     this.ensureReady();
+    this.scanExistingKeys();
+  }
+
+  private scanExistingKeys(): void {
+    try {
+      if (!existsSync(this.chatPath)) return;
+      const content = readFileSync(this.chatPath, "utf8");
+      const markerPattern = /<!-- cacp-message-key: ([^\s>]+) -->/gu;
+      let match: RegExpExecArray | null;
+      while ((match = markerPattern.exec(content)) !== null) {
+        this.writtenKeys.add(match[1]);
+      }
+    } catch {
+      // ignore read errors; we'll dedupe within this session only
+    }
   }
 
   isAvailable(): boolean {
@@ -104,7 +119,7 @@ export class ChatTranscriptWriter {
         actorName: this.actorNames.get(event.actor_id) ?? event.actor_id,
         createdAt: event.created_at,
         text
-      })}\n`, "utf8");
+      })}\n<!-- cacp-message-key: ${dedupeKey} -->\n`, "utf8");
       this.writtenKeys.add(dedupeKey);
     } catch (error) {
       this.reportWriteError(error);
