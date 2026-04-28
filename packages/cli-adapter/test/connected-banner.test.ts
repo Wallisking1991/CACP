@@ -10,13 +10,15 @@ describe("connected banner", () => {
       color: false
     });
 
-    expect(banner).toContain("连接成功 / CONNECTED");
-    expect(banner).toContain("请不要关闭此窗口");
-    expect(banner).toContain("房主现在可以回到 Web 房间");
-    expect(banner).toContain("开启多人协同式 AI 创作");
+    expect(banner).toContain("CONNECTED SUCCESSFULLY");
+    expect(banner).toContain("Do not close this window");
+    expect(banner).toContain("The room owner can now return to the CACP Web Room");
+    expect(banner).toContain("Start collaborative AI creation");
     expect(banner).toContain("CACP Web Room");
     expect(banner).toContain("Local Agent");
+    expect(banner).toContain("Local chat transcript chat.md");
     expect(banner).toContain("D:\\Connector\\rooms\\room_1\\chat.md");
+    expect(banner).not.toMatch(/[\u4e00-\u9fff]/);
   });
 
   it("renders a clear transcript failure message without hiding the successful connection", () => {
@@ -28,9 +30,10 @@ describe("connected banner", () => {
       color: false
     });
 
-    expect(banner).toContain("连接成功 / CONNECTED");
-    expect(banner).toContain("聊天记录保存失败");
+    expect(banner).toContain("CONNECTED SUCCESSFULLY");
+    expect(banner).toContain("Unable to save the chat transcript");
     expect(banner).toContain("access denied");
+    expect(banner).not.toMatch(/[\u4e00-\u9fff]/);
   });
 
   it("prints the banner through an injectable logger", () => {
@@ -43,6 +46,6 @@ describe("connected banner", () => {
     }, log);
 
     expect(log).toHaveBeenCalledTimes(1);
-    expect(log.mock.calls[0][0]).toContain("连接成功 / CONNECTED");
+    expect(log.mock.calls[0][0]).toContain("CONNECTED SUCCESSFULLY");
   });
 });
