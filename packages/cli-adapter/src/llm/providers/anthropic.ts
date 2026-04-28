@@ -19,10 +19,13 @@ export const anthropicAdapter: LlmProviderAdapter = {
       // Use user-provided budget or a safe default so thinking is not silently disabled
       const budget = typeof thinkingBudget === "number" && thinkingBudget > 0 ? thinkingBudget : 1024;
       extras.thinking = { type: "enabled", budget_tokens: budget };
+      // Anthropic requires max_tokens > budget_tokens when thinking is enabled
+      const userMax = typeof input.options.max_tokens === "number" && input.options.max_tokens > 0 ? input.options.max_tokens : 0;
+      extras.max_tokens = Math.max(userMax, budget + 1024);
     } else if (thinkingType === "adaptive") {
       extras.thinking = { type: "adaptive" };
       if (typeof thinkingEffort === "string") {
-        extras.output_config = { thinking: { effort: thinkingEffort } };
+        extras.output_config = { effort: thinkingEffort };
       }
     } else if (thinkingType === "disabled") {
       extras.thinking = { type: "disabled" };
@@ -32,7 +35,9 @@ export const anthropicAdapter: LlmProviderAdapter = {
     if (input.options.temperature !== undefined && thinkingType !== "enabled") {
       extras.temperature = input.options.temperature;
     }
-    if (input.options.max_tokens !== undefined) extras.max_tokens = input.options.max_tokens;
+    if (thinkingType !== "enabled" && input.options.max_tokens !== undefined) {
+      extras.max_tokens = input.options.max_tokens;
+    }
     return buildAnthropicMessagesRequest(input, extras);
   },
   extractTextDelta: extractAnthropicText,

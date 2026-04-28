@@ -10,6 +10,7 @@ export function buildAnthropicMessagesRequest(
     system: input.systemPrompt,
     messages: [{ role: "user", content: input.prompt }],
     stream: true,
+    max_tokens: 1024,
     ...extras
   };
 

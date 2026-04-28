@@ -24,10 +24,27 @@ describe("LLM provider request builders", () => {
   });
 
   it("builds Anthropic messages requests", () => {
-    const request = build("anthropic", { max_tokens: 2048, thinking_type: "enabled", thinking_budget_tokens: 1024 });
-    expect(request.url).toBe("https://api.anthropic.com/v1/messages");
-    expect(request.headers["x-api-key"]).toBe("secret-key");
-    expect(request.headers["anthropic-version"]).toBe("2023-06-01");
-    expect(request.body).toMatchObject({ stream: true, max_tokens: 2048, thinking: { type: "enabled", budget_tokens: 1024 } });
+    // Default request includes required max_tokens
+    const defaultRequest = build("anthropic", {});
+    expect(defaultRequest.url).toBe("https://api.anthropic.com/v1/messages");
+    expect(defaultRequest.headers["x-api-key"]).toBe("secret-key");
+    expect(defaultRequest.headers["anthropic-version"]).toBe("2023-06-01");
+    expect(defaultRequest.body).toMatchObject({ stream: true, max_tokens: 1024 });
+
+    // Thinking enabled with budget ensures max_tokens > budget
+    const thinkingRequest = build("anthropic", { thinking_type: "enabled", thinking_budget_tokens: 1024 });
+    expect(thinkingRequest.body).toMatchObject({
+      stream: true,
+      thinking: { type: "enabled", budget_tokens: 1024 }
+    });
+    expect((thinkingRequest.body as Record<string, unknown>).max_tokens).toBeGreaterThan(1024);
+
+    // Adaptive thinking with effort uses correct output_config shape
+    const adaptiveRequest = build("anthropic", { thinking_type: "adaptive", thinking_effort: "medium" });
+    expect(adaptiveRequest.body).toMatchObject({
+      stream: true,
+      thinking: { type: "adaptive" },
+      output_config: { effort: "medium" }
+    });
   });
 });
