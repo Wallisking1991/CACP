@@ -348,12 +348,6 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return true;
   }
 
-  function isOpenTurnStale(turnEvents: CacpEvent[], statusEvents: CacpEvent[], turnId: string, agentId: string): boolean {
-    const requested = turnEvents.find((storedEvent) => storedEvent.type === "agent.turn.requested" && storedEvent.payload.turn_id === turnId);
-    if (!requested) return false;
-    const ageMs = Date.now() - Date.parse(requested.created_at);
-    return ageMs > 2 * 60 * 1000 || !isAgentOnline(statusEvents, agentId);
-  }
 
   function findParticipant(roomId: string, participantId: string): Participant | undefined {
     return store.getParticipants(roomId).find((participant) => participant.id === participantId);
@@ -473,18 +467,6 @@ export async function buildServer(options: BuildServerOptions = {}) {
     }
     const openTurn = findOpenTurn(turnEvents, activeAgentId);
     if (openTurn) {
-      if (isOpenTurnStale(turnEvents, events, openTurn.turn_id, activeAgentId)) {
-        const turnId = prefixedId("turn");
-        return [
-          event(roomId, "agent.turn.failed", actorId, { turn_id: openTurn.turn_id, agent_id: activeAgentId, error: "stale_turn_recovered" }),
-          event(roomId, "agent.turn.requested", actorId, {
-            turn_id: turnId,
-            agent_id: activeAgentId,
-            reason,
-            context_prompt: contextPrompt ?? buildContextPrompt(roomId, activeAgentId)
-          })
-        ];
-      }
       if (hasQueuedFollowup(turnEvents, openTurn.turn_id)) return [];
       return [event(roomId, "agent.turn.followup_queued", actorId, { turn_id: openTurn.turn_id, agent_id: activeAgentId })];
     }
@@ -1121,7 +1103,18 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!turn) return;
     if (turn.terminal_status) return deny(reply, "turn_closed", 409);
     if (!turn.started) return deny(reply, "turn_not_started", 409);
-    appendAndPublish(event(request.params.roomId, "agent.turn.failed", participant.id, { turn_id: request.params.turnId, agent_id: participant.id, ...TurnFailedSchema.parse(request.body) }));
+    const storedEvents = store.transaction(() => {
+      const failed = store.appendEvent(event(request.params.roomId, "agent.turn.failed", participant.id, {
+        turn_id: request.params.turnId,
+        agent_id: participant.id,
+        ...TurnFailedSchema.parse(request.body)
+      }));
+      const followupEvents = hasQueuedFollowup(store.listEvents(request.params.roomId), request.params.turnId)
+        ? createAgentTurnRequestEvents(request.params.roomId, participant.id, "queued_followup").map((nextEvent) => store.appendEvent(nextEvent))
+        : [];
+      return [failed, ...followupEvents];
+    });
+    publishEvents(storedEvents);
     return reply.code(201).send({ ok: true });
   });
 

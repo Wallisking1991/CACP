@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildServer } from "../src/server.js";
 
 async function createRoom() {
@@ -189,6 +189,50 @@ describe("CACP server conversation room", () => {
     expect(events.filter((event) => event.type === "agent.turn.requested")).toHaveLength(1);
     expect(String(events.find((event) => event.type === "agent.turn.requested")?.payload.context_prompt)).toContain("Live mode is back.");
 
+    await app.close();
+  });
+
+  it("queues followup for old open turns without stale recovery", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-04-28T00:00:00.000Z"));
+      const { app, room, ownerAuth } = await createRoom();
+      const agent = await registerAgent(app, room.room_id, ownerAuth);
+      await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/select`, headers: ownerAuth, payload: { agent_id: agent.agent_id } });
+      await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "First slow question" } });
+
+      vi.setSystemTime(new Date("2026-04-28T00:03:10.000Z"));
+      expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "Second queued question" } })).statusCode).toBe(201);
+
+      const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
+      expect(events.filter((event) => event.type === "agent.turn.requested")).toHaveLength(1);
+      expect(events.filter((event) => event.type === "agent.turn.followup_queued")).toHaveLength(1);
+      expect(events.some((event) => event.type === "agent.turn.failed" && event.payload.error === "stale_turn_recovered")).toBe(false);
+      await app.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("starts a queued followup after an agent turn fails", async () => {
+    const { app, room, ownerAuth } = await createRoom();
+    const agent = await registerAgent(app, room.room_id, ownerAuth);
+    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/select`, headers: ownerAuth, payload: { agent_id: agent.agent_id } });
+    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "First question" } });
+    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "Second queued question" } });
+
+    let events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
+    const turnId = String(events.find((event) => event.type === "agent.turn.requested")!.payload.turn_id);
+    const agentAuth = { authorization: `Bearer ${agent.agent_token}` };
+
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${turnId}/start`, headers: agentAuth, payload: {} })).statusCode).toBe(201);
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${turnId}/fail`, headers: agentAuth, payload: { error: "CLI exited", exit_code: 1 } })).statusCode).toBe(201);
+
+    events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
+    const requestedTurns = events.filter((event) => event.type === "agent.turn.requested");
+    expect(requestedTurns).toHaveLength(2);
+    expect(requestedTurns[1].payload.reason).toBe("queued_followup");
+    expect(String(requestedTurns[1].payload.context_prompt)).toContain("Second queued question");
     await app.close();
   });
 
