@@ -5,8 +5,7 @@ import { dirname, resolve } from "node:path";
 import { parseConnectionCode } from "@cacp/protocol";
 import { z } from "zod";
 import { isLlmAgentType, type LlmAgentType, type LlmProviderConfig } from "./llm/types.js";
-import { validateOpenAiCompatibleConnectivity } from "./llm/openai-compatible.js";
-import { validateAnthropicCompatibleConnectivity } from "./llm/anthropic-compatible.js";
+import { validateLlmConnectivity } from "./llm/runner.js";
 import { promptForLlmApiConfig, createConsolePrompter } from "./llm/config-wizard.js";
 
 export const AdapterConfigSchema = z.object({
@@ -23,12 +22,12 @@ export const AdapterConfigSchema = z.object({
     system_prompt: z.string().optional()
   }),
   llm: z.object({
-    provider: z.enum(["openai-compatible", "anthropic-compatible"]),
+    providerId: z.enum(["siliconflow", "kimi", "minimax", "openai", "anthropic", "glm-official", "deepseek", "custom-openai-compatible", "custom-anthropic-compatible"]),
+    protocol: z.enum(["openai-chat", "anthropic-messages"]),
     baseUrl: z.string().min(1),
     model: z.string().min(1),
     apiKey: z.string().min(1),
-    temperature: z.number(),
-    maxTokens: z.number().int()
+    options: z.record(z.string(), z.unknown()).default({})
   }).optional()
 });
 
@@ -146,8 +145,7 @@ export interface RuntimeConfigOptions {
 
 async function defaultConfigureLlmAgent(agentType: LlmAgentType): Promise<LlmProviderConfig | undefined> {
   return await promptForLlmApiConfig(agentType, createConsolePrompter(), async (config) => {
-    if (config.provider === "openai-compatible") return await validateOpenAiCompatibleConnectivity(config);
-    return await validateAnthropicCompatibleConnectivity(config);
+    return await validateLlmConnectivity(config);
   });
 }
 

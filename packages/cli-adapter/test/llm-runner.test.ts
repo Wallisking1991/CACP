@@ -1,12 +1,35 @@
 import { describe, expect, it, vi } from "vitest";
 import { runLlmTurn } from "../src/llm/runner.js";
 
+function createSseResponse(chunks: string[]) {
+  const encoder = new TextEncoder();
+  let index = 0;
+  const stream = new ReadableStream({
+    pull(controller) {
+      if (index < chunks.length) {
+        controller.enqueue(encoder.encode(chunks[index]));
+        index += 1;
+      } else {
+        controller.close();
+      }
+    }
+  });
+  return new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } });
+}
+
 describe("LLM turn runner", () => {
-  it("dispatches OpenAI-compatible turns", async () => {
-    const runOpenAi = vi.fn(async (options: { onDelta: (chunk: string) => void }) => { options.onDelta("hi"); return { finalText: "hi" }; });
+  it("dispatches through provider adapter", async () => {
+    const fetchImpl = vi.fn(async () => createSseResponse([
+      "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n"
+    ]));
     const chunks: string[] = [];
-    const result = await runLlmTurn({ llm: { provider: "openai-compatible", baseUrl: "https://api.example.com/v1", model: "model", apiKey: "key", temperature: 0.7, maxTokens: 1024 }, prompt: "room context", onDelta: (chunk) => chunks.push(chunk), runners: { runOpenAi, runAnthropic: vi.fn() } });
-    expect(runOpenAi).toHaveBeenCalled();
+    const result = await runLlmTurn({
+      llm: { providerId: "deepseek", protocol: "openai-chat", baseUrl: "https://api.deepseek.com", model: "deepseek-v4-pro", apiKey: "key", options: {} },
+      prompt: "room context",
+      fetchImpl,
+      onDelta: (chunk) => chunks.push(chunk)
+    });
+    expect(fetchImpl).toHaveBeenCalled();
     expect(chunks).toEqual(["hi"]);
     expect(result.finalText).toBe("hi");
   });

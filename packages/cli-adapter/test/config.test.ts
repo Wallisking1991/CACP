@@ -132,12 +132,26 @@ describe("adapter config arguments", () => {
     }) as unknown as typeof fetch;
 
     const config = await loadRuntimeConfigFromArgs(["--connect", code], fetchImpl, {
-      configureLlmAgent: async (agentType) => { callOrder.push(`configure:${agentType}`); return { provider: "openai-compatible" as const, baseUrl: "https://api.example.com/v1", model: "model-a", apiKey: "secret", temperature: 0.7, maxTokens: 1024 }; }
+      configureLlmAgent: async (agentType) => { callOrder.push(`configure:${agentType}`); return { providerId: "custom-openai-compatible" as const, protocol: "openai-chat" as const, baseUrl: "https://api.example.com/v1", model: "model-a", apiKey: "secret", options: {} }; }
     });
 
     expect(callOrder).toEqual(["configure:llm-openai-compatible", "claim"]);
-    expect(config.llm?.provider).toBe("openai-compatible");
+    expect(config.llm?.providerId).toBe("custom-openai-compatible");
     expect(config.agent.command).toBe("");
+  });
+
+  it("configures provider configs before claiming llm-api pairings", async () => {
+    const code = buildConnectionCode({ server_url: "https://cacp.example.com", pairing_token: "pair_llm", expires_at: "2026-04-28T08:15:00.000Z", agent_type: "llm-api" });
+    const callOrder: string[] = [];
+    const fetchImpl = vi.fn(async () => {
+      callOrder.push("claim");
+      return new Response(JSON.stringify({ room_id: "room_1", agent_id: "agent_1", agent_token: "agent_token", agent: { name: "LLM API Agent", command: "", args: [], working_dir: ".", capabilities: ["llm.api", "chat.stream"] }, agent_type: "llm-api" }), { status: 201, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+    const config = await loadRuntimeConfigFromArgs(["--connect", code], fetchImpl, {
+      configureLlmAgent: async () => { callOrder.push("configure"); return { providerId: "siliconflow", protocol: "openai-chat", baseUrl: "https://api.siliconflow.cn/v1", model: "Qwen/Qwen3.5-4B", apiKey: "secret", options: { enable_thinking: true } }; }
+    });
+    expect(callOrder).toEqual(["configure", "claim"]);
+    expect(config.llm?.providerId).toBe("siliconflow");
   });
 
   it("does not claim when LLM API configuration is cancelled", async () => {
