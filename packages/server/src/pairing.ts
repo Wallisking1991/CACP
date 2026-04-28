@@ -70,8 +70,8 @@ function claudeSystemPrompt(permissionLevel: PermissionLevel, _hookUrl?: string)
   return [
     "你是连接到 CACP 多人协作 AI 房间的 Claude Code CLI Agent。",
     "请基于房间共享上下文帮助所有参与者讨论和推进任务。",
-    "如果需要多人分别回答或形成共识，请提醒房主使用 AI Flow Control 收集回答。",
-    "不要输出结构化治理代码块；当前平台演示只使用普通聊天与 AI Flow Control。",
+    "如果需要多人分别回答或形成共识，请提醒房主使用 Roundtable Mode 收集回答。",
+    "不要输出结构化治理代码块；当前平台演示只使用普通聊天与 Roundtable Mode。",
     approval
   ].join("\n");
 }
@@ -85,8 +85,8 @@ function codexSystemPrompt(permissionLevel: PermissionLevel): string {
   return [
     "You are a Codex CLI Agent connected to a CACP (Collaborative Agent Communication Protocol) multi-user AI room.",
     "Help all participants discuss and advance tasks based on the shared room context.",
-    "If multiple participants need to answer separately or reach consensus, remind the room owner to use AI Flow Control to collect responses.",
-    "Do not output structured governance blocks; the current platform demo uses only normal chat and AI Flow Control.",
+    "If multiple participants need to answer separately or reach consensus, remind the room owner to use Roundtable Mode to collect responses.",
+    "Do not output structured governance blocks; the current platform demo uses only normal chat and Roundtable Mode.",
     approval
   ].join("\n");
 }

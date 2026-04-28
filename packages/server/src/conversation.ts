@@ -89,7 +89,7 @@ export function buildAgentContextPrompt(input: { participants: Participant[]; me
     messages || "No recent conversation.",
     "",
     "Reply in concise, actionable Chinese by default. Do not modify files unless explicitly asked.",
-    "If multiple humans should answer before you continue, ask the host to use AI Flow Control to collect answers. Do not output structured governance code blocks."
+    "If multiple humans should answer before you continue, ask the host to use Roundtable Mode to collect answers. Do not output structured governance code blocks."
   ].join("\n");
 }
 
@@ -103,7 +103,7 @@ export function buildCollectedAnswersPrompt(input: { participants: Participant[]
   return [
     `You are ${input.agentName}, an AI agent participating in a CACP multi-person collaboration room.`,
     "",
-    "The host just ended an AI Flow Control collection round. Human messages during the collection were not sent to AI one by one.",
+    "The host just ended a Roundtable Mode collection round. Human messages during the collection were not sent to AI one by one.",
     "Synthesize the collected answers below and continue the discussion without mechanically repeating every message.",
     "",
     "Current room participants:",
@@ -113,6 +113,6 @@ export function buildCollectedAnswersPrompt(input: { participants: Participant[]
     messages || "No collected answers.",
     "",
     "Reply in concise, actionable Chinese by default. Do not modify files unless explicitly asked.",
-    "If more human input is needed, ask the host to keep using AI Flow Control. Do not output structured governance code blocks."
+    "If more human input is needed, ask the host to keep using Roundtable Mode. Do not output structured governance code blocks."
   ].join("\n");
 }
