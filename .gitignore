@@ -9,6 +9,7 @@ dist/
 .env
 .DS_Store
 docs/examples/*.local.json
+docs/examples/*.local.md
 .playwright-cli/
 .tmp-test-services/
 .superpowers/

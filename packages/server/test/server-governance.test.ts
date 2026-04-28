@@ -159,12 +159,12 @@ describe("CACP server pairing and room governance", () => {
 
     expect(started.statusCode).toBe(201);
     expect(started.json()).toMatchObject({ status: "starting", pid: 4242 });
-    expect(started.json().command).toContain("npx @cacp/cli-adapter --server http://127.0.0.1:3737 --pair ");
+    expect(started.json().command).toContain("npx @cacp/cli-adapter --connect CACP-CONNECT");
     expect(started.json().command).not.toContain("Remove-Item");
     expect(launches).toHaveLength(1);
     expect(launches[0]).toMatchObject({
       command: "corepack",
-      args: expect.arrayContaining(["pnpm", "--filter", "@cacp/cli-adapter", "dev", "--", "--server", "http://127.0.0.1:3737", "--pair"]),
+      args: expect.arrayContaining(["pnpm", "--filter", "@cacp/cli-adapter", "dev", "--", "--connect"]),
       cwd: expect.stringContaining("Development"),
       showConsole: true
     });
