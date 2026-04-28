@@ -36,13 +36,13 @@ describe("EventStore", () => {
         room_id: "room_llm",
         token_hash: "sha256:abc",
         created_by: "user_owner",
-        agent_type: "llm-openai-compatible",
+        agent_type: "llm-api",
         permission_level: "read_only",
         working_dir: ".",
         created_at: "2026-04-28T00:00:00.000Z",
         expires_at: "2026-04-28T00:15:00.000Z"
       });
-      expect(stored.agent_type).toBe("llm-openai-compatible");
+      expect(stored.agent_type).toBe("llm-api");
     } finally {
       store.close();
     }

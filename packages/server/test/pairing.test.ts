@@ -90,8 +90,10 @@ describe("agent pairing profiles", () => {
   });
 
   it("declares LLM API agent types", () => {
+    expect(AgentTypeValues).toContain("llm-api");
     expect(AgentTypeValues).toContain("llm-openai-compatible");
     expect(AgentTypeValues).toContain("llm-anthropic-compatible");
+    expect(isLlmAgentType("llm-api")).toBe(true);
     expect(isLlmAgentType("llm-openai-compatible")).toBe(true);
     expect(isLlmAgentType("llm-anthropic-compatible")).toBe(true);
     expect(isLlmAgentType("codex")).toBe(false);
@@ -100,6 +102,7 @@ describe("agent pairing profiles", () => {
   it("builds pure conversation profiles for LLM API agents", () => {
     const openai = buildAgentProfile({ agentType: "llm-openai-compatible", permissionLevel: "read_only", workingDir: "." });
     const anthropic = buildAgentProfile({ agentType: "llm-anthropic-compatible", permissionLevel: "full_access", workingDir: "." });
+    const llmApi = buildAgentProfile({ agentType: "llm-api", permissionLevel: "full_access", workingDir: "." });
 
     expect(openai.command).toBe("");
     expect(openai.args).toEqual([]);
@@ -109,5 +112,9 @@ describe("agent pairing profiles", () => {
     expect(anthropic.args).toEqual([]);
     expect(anthropic.capabilities).toEqual(["llm.api", "chat.stream", "llm.anthropic_compatible"]);
     expect(anthropic.capabilities).not.toContain("full_access");
+    expect(llmApi.command).toBe("");
+    expect(llmApi.args).toEqual([]);
+    expect(llmApi.capabilities).toEqual(["llm.api", "chat.stream"]);
+    expect(llmApi.capabilities).not.toContain("full_access");
   });
 });

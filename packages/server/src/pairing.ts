@@ -1,5 +1,5 @@
 export const CommandAgentTypeValues = ["claude-code", "codex", "opencode", "echo"] as const;
-export const LlmAgentTypeValues = ["llm-openai-compatible", "llm-anthropic-compatible"] as const;
+export const LlmAgentTypeValues = ["llm-api", "llm-openai-compatible", "llm-anthropic-compatible"] as const;
 export const AgentTypeValues = [...CommandAgentTypeValues, ...LlmAgentTypeValues] as const;
 export type AgentType = typeof AgentTypeValues[number];
 export type LlmAgentType = typeof LlmAgentTypeValues[number];
@@ -22,6 +22,9 @@ export interface AgentPairingProfile {
 
 export function buildAgentProfile(input: { agentType: AgentType; permissionLevel: PermissionLevel; workingDir?: string; hookUrl?: string }): AgentPairingProfile {
   const workingDir = input.workingDir || ".";
+  if (input.agentType === "llm-api") {
+    return { name: "LLM API Agent", command: "", args: [], working_dir: workingDir, capabilities: ["llm.api", "chat.stream"], system_prompt: llmApiSystemPrompt() };
+  }
   if (input.agentType === "llm-openai-compatible") {
     return { name: "OpenAI-compatible LLM API Agent", command: "", args: [], working_dir: workingDir, capabilities: ["llm.api", "chat.stream", "llm.openai_compatible"], system_prompt: llmApiSystemPrompt() };
   }

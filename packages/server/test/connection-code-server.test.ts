@@ -55,6 +55,22 @@ describe("agent pairing connection codes", () => {
     await app.close();
   });
 
+  it("round-trips llm-api agent type in connection codes", async () => {
+    const app = await buildServer({ dbPath: ":memory:" });
+    const room = (await app.inject({ method: "POST", url: "/rooms", payload: { name: "Room", display_name: "Owner" } })).json() as { room_id: string; owner_token: string };
+    const response = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-pairings`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: { agent_type: "llm-api", permission_level: "read_only", working_dir: ".", server_url: "http://127.0.0.1:3737" }
+    });
+
+    expect(response.statusCode).toBe(201);
+    const parsed = parseConnectionCode((response.json() as { connection_code: string }).connection_code);
+    expect(parsed.agent_type).toBe("llm-api");
+    await app.close();
+  });
+
   it("local launch passes --connect so LLM configuration can happen before claim", async () => {
     const launches: Array<{ args: string[] }> = [];
     const app = await buildServer({ dbPath: ":memory:", localAgentLauncher: (input) => { launches.push({ args: input.args }); return { pid: 1234 }; } });
