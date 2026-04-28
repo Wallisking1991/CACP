@@ -180,7 +180,7 @@ async function promptAdvancedOptions(
       const thinkingType = stringOrUndefined(await prompter.question("Thinking type [blank=provider default / enabled / adaptive / disabled]: "));
       if (thinkingType !== undefined) options.thinking_type = thinkingType;
       if (thinkingType === "enabled") {
-        const thinkingBudget = stringOrUndefined(await prompter.question("Thinking budget tokens [blank=provider default]: "));
+        const thinkingBudget = stringOrUndefined(await prompter.question("Thinking budget tokens [blank=1024 default]: "));
         if (thinkingBudget !== undefined) options.thinking_budget_tokens = positiveIntOrDefault(thinkingBudget, 1024);
         prompter.writeLine("Note: thinking enabled disables temperature control.");
       } else if (thinkingType === "adaptive") {

@@ -15,11 +15,15 @@ export const anthropicAdapter: LlmProviderAdapter = {
     const thinkingBudget = input.options.thinking_budget_tokens;
     const thinkingEffort = input.options.thinking_effort;
 
-    if (thinkingType === "enabled" && thinkingBudget !== undefined) {
-      extras.thinking = { type: "enabled", budget_tokens: thinkingBudget };
-      // When thinking is enabled, temperature must not be set (provider constraint)
-    } else if (thinkingType === "adaptive" && thinkingEffort !== undefined) {
-      extras.thinking = { type: "adaptive", effort: thinkingEffort };
+    if (thinkingType === "enabled") {
+      // Use user-provided budget or a safe default so thinking is not silently disabled
+      const budget = typeof thinkingBudget === "number" && thinkingBudget > 0 ? thinkingBudget : 1024;
+      extras.thinking = { type: "enabled", budget_tokens: budget };
+    } else if (thinkingType === "adaptive") {
+      extras.thinking = { type: "adaptive" };
+      if (typeof thinkingEffort === "string") {
+        extras.output_config = { thinking: { effort: thinkingEffort } };
+      }
     } else if (thinkingType === "disabled") {
       extras.thinking = { type: "disabled" };
     }

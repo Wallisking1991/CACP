@@ -46,13 +46,8 @@ export async function runLlmTurn(options: RunLlmTurnOptions): Promise<LlmRunResu
         throw new Error(sanitizeLlmError(`Provider error: ${errorMsg}`, options.llm.apiKey));
       }
       if (adapter.isTerminalEvent(event)) break;
-      let chunk = adapter.extractTextDelta(event);
+      const chunk = adapter.extractTextDelta(event);
       if (!chunk) continue;
-      // Defensive: some providers (e.g. MiniMax) may send cumulative content
-      // instead of incremental deltas. Detect and extract only the new suffix.
-      if (chunk.length > finalText.length && chunk.startsWith(finalText)) {
-        chunk = chunk.slice(finalText.length);
-      }
       finalText += chunk;
       await options.onDelta(chunk);
     }
@@ -84,8 +79,7 @@ export async function validateLlmConnectivity(config: LlmProviderConfig, fetchIm
     },
     prompt: "Connectivity test. Reply with a short OK.",
     fetchImpl,
-    onDelta: () => {},
-    maxTokensOverride: 256
+    onDelta: () => {}
   });
   return { ok: true as const, sampleText: result.finalText };
 }
