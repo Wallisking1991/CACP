@@ -54,7 +54,7 @@
   <text x="150" y="135" text-anchor="middle" class="h2">Owner (browser)</text>
   <text x="150" y="153" text-anchor="middle" class="body">@cacp/web · React 19</text>
   <text x="150" y="170" text-anchor="middle" class="muted">deriveRoomState · Composer</text>
-  <text x="150" y="184" text-anchor="middle" class="muted">AI Flow Control toggle</text>
+  <text x="150" y="184" text-anchor="middle" class="muted">Roundtable Mode toggle</text>
 
   <!-- Member browser -->
   <g filter="url(#soft)">
@@ -169,7 +169,7 @@
 
   <!-- Server bottom note -->
   <rect x="60" y="592" width="580" height="78" rx="8" fill="#fafafa" stroke="#e5e7eb" stroke-width="1" stroke-dasharray="3 3"/>
-  <text x="72" y="610" class="h2">AI Flow Control (owner-only batched collection)</text>
+  <text x="72" y="610" class="h2">Roundtable Mode (owner-approved batch turn)</text>
   <text x="72" y="628" class="body">while collection active: human messages tagged with collection_id, broadcast live but no agent turn.</text>
   <text x="72" y="644" class="body">on submit → buildCollectedAnswersPrompt merges all queued answers into one agent.turn.requested.</text>
   <text x="72" y="660" class="muted">If a turn is in-flight, new messages append agent.turn.followup_queued instead of starting parallel turn.</text>

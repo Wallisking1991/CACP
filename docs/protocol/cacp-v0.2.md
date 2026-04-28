@@ -33,7 +33,7 @@ CACP v0.2 当前实现聚焦于多人共享房间、Agent pairing、实时事件
 - `agent.action_approval_requested`
 - `agent.action_approval_resolved`
 
-当前 action approval 不再转换为结构化 decision。为了避免误执行高风险动作，服务端会记录请求并返回 rejected，实际协作确认应通过普通聊天和 AI Flow Control 完成。
+当前 action approval 不再转换为结构化 decision。为了避免误执行高风险动作，服务端会记录请求并返回 rejected，实际协作确认应通过普通聊天和 Roundtable Mode 完成。
 
 ### AI Flow Control
 
@@ -107,6 +107,26 @@ Authorization: Bearer <owner_token>
 - 后续 human `message.created` 会带上 `collection_id`。
 - 消息仍广播给所有客户端。
 - 不会触发新的 `agent.turn.requested`。
+
+### 申请圆桌模式
+
+```http
+POST /rooms/:roomId/ai-collection/request
+```
+
+### 同意圆桌申请
+
+```http
+POST /rooms/:roomId/ai-collection/requests/:requestId/approve
+Authorization: Bearer <owner_token>
+```
+
+### 拒绝圆桌申请
+
+```http
+POST /rooms/:roomId/ai-collection/requests/:requestId/reject
+Authorization: Bearer <owner_token>
+```
 
 ### 提交收集结果
 
@@ -210,4 +230,4 @@ Authorization: Bearer <owner_or_admin_token>
 - Web Decisions 面板
 - AI 自动生成结构化决策并由服务器自动收敛的流程
 
-如果后续重新引入治理/审批能力，建议基于 AI Flow Control 的稳定体验重新设计，而不是恢复旧的自动 Decision 判断逻辑。
+如果后续重新引入治理/审批能力，建议基于 Roundtable Mode 的稳定体验重新设计，而不是恢复旧的自动 Decision 判断逻辑。
