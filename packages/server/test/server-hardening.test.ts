@@ -241,7 +241,7 @@ describe("CACP server hardening", () => {
     expect(responses.map((response) => response.statusCode)).toEqual([403, 403, 403]);
   });
 
-  it("restricts control APIs to owners/admins while AI Flow Control remains owner-only", async () => {
+  it("restricts control APIs to owners/admins while Roundtable Mode remains owner-only", async () => {
     const dbPath = tempDbPath();
     const app = await trackedServer(dbPath);
     const { room, ownerAuth } = await createRoom(app, "Control Owner");
