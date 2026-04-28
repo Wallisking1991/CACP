@@ -31,6 +31,7 @@ import { mergeEvent } from "./event-log.js";
 import { clearStoredSession, loadInitialSession, saveStoredSession } from "./session-storage.js";
 import { LangProvider } from "./i18n/LangProvider.js";
 import { isCloudMode } from "./runtime-config.js";
+import ConnectionCodeModal, { type ConnectionCodeModalPairing } from "./components/ConnectionCodeModal.js";
 import Landing from "./components/Landing.js";
 import Workspace from "./components/Workspace.js";
 import WaitingRoom from "./components/WaitingRoom.js";
@@ -45,6 +46,7 @@ export default function App() {
   const [createdInvite, setCreatedInvite] = useState<{ url: string; role: string; ttl: number }>();
   const [localLaunch, setLocalLaunch] = useState<LocalAgentLaunch>();
   const [createdPairing, setCreatedPairing] = useState<{ connection_code: string; download_url: string; expires_at: string }>();
+  const [connectorModalPairing, setConnectorModalPairing] = useState<ConnectionCodeModalPairing>();
   const [waitingRoom, setWaitingRoom] = useState<{ roomId: string; requestId: string; requestToken: string; displayName: string } | undefined>();
   const waitingRoomRef = useRef(waitingRoom);
   waitingRoomRef.current = waitingRoom;
@@ -62,6 +64,7 @@ export default function App() {
           setCreatedInvite(undefined);
           setLocalLaunch(undefined);
           setCreatedPairing(undefined);
+          setConnectorModalPairing(undefined);
           setWaitingRoom(undefined);
           setError("You have been removed from the room.");
         }
@@ -125,6 +128,7 @@ export default function App() {
     setCreatedInvite(undefined);
     setLocalLaunch(undefined);
     setCreatedPairing(undefined);
+    setConnectorModalPairing(undefined);
     setWaitingRoom(undefined);
     setSession(nextSession);
     if (inviteTarget) window.history.replaceState({}, {}, "/");
@@ -156,11 +160,13 @@ export default function App() {
           permission_level: params.permissionLevel,
           working_dir: ".",
         });
-        setCreatedPairing({
+        const modalPairing = {
           connection_code: pairing.connection_code,
           download_url: pairing.download_url,
           expires_at: pairing.expires_at,
-        });
+        };
+        setCreatedPairing(modalPairing);
+        setConnectorModalPairing(modalPairing);
       } else {
         const result = await createRoomWithLocalAgent(
           params.roomName,
@@ -349,6 +355,10 @@ export default function App() {
         error={error}
         cloudMode={isCloudMode()}
         createdPairing={createdPairing}
+      />
+      <ConnectionCodeModal
+        pairing={connectorModalPairing}
+        onClose={() => setConnectorModalPairing(undefined)}
       />
     </LangProvider>
   );

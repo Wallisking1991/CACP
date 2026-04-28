@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { resolveLang } from "../src/i18n/LangProvider.js";
+import enMessages from "../src/i18n/messages.en.json";
+import zhMessages from "../src/i18n/messages.zh.json";
 
 describe("resolveLang", () => {
+  it("keeps English and Chinese message catalogs aligned", () => {
+    expect(Object.keys(zhMessages).sort()).toEqual(Object.keys(enMessages).sort());
+  });
+
   it("defaults to zh when navigator language starts with zh", () => {
     expect(resolveLang(null, "zh-CN")).toBe("zh");
     expect(resolveLang(null, "zh-TW")).toBe("zh");
