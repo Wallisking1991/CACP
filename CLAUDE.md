@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-CACP (Collaborative Agent Communication Protocol) — a local-first multi-person AI room demo. A web room lets multiple humans chat with a shared local CLI Agent (Claude Code, Codex, opencode, or echo) over a Fastify + WebSocket server backed by SQLite. The current demo no longer uses structured Decision/Question/Policy flow; coordination is now driven by **AI Flow Control** (owner-only batched collection of participant answers before submitting one Agent turn).
+CACP (Collaborative Agent Communication Protocol) — a local-first multi-person AI room demo. A web room lets multiple humans chat with a shared local CLI Agent (Claude Code, Codex, opencode, or echo) over a Fastify + WebSocket server backed by SQLite. Coordination is driven by **AI Flow Control** (owner-only batched collection of participant answers before submitting one Agent turn).
 
-The repo is Windows-first (PowerShell scripts, `corepack` toolchain). README.md has the user-facing manual test flow; this file is for repo-development orientation.
+The repo is Windows-first (PowerShell scripts, `corepack` toolchain).
 
 ## Commands
 
@@ -16,7 +16,7 @@ Toolchain: Node 20+, Corepack, pnpm 9.15.4 (declared via `packageManager`).
 corepack enable
 corepack pnpm install
 
-# full check (test + build)
+# full validation: tests then build
 corepack pnpm check
 
 # all tests / all builds
@@ -39,7 +39,7 @@ corepack pnpm --filter @cacp/server exec vitest run path/to/file.test.ts
 corepack pnpm --filter @cacp/server exec vitest run -t "test name fragment"
 ```
 
-Test services (Windows PowerShell, foreground console):
+Test services (Windows PowerShell):
 
 ```powershell
 .\start-test-services.cmd            # start server + web, tail logs, Ctrl+C stops
@@ -55,7 +55,7 @@ State for the launcher (logs, pids, generated adapter scripts) lives in `.tmp-te
 
 pnpm workspace. Four packages under `packages/`:
 
-- `@cacp/protocol` — pure types, zod schemas (`schemas.ts`) and the legacy `policy-engine.ts`. Imported by everyone via `workspace:*`. **Must be built before other packages run or test** — `dev:*` and `test` scripts already do this via `pnpm --filter @cacp/protocol build`. If you see "cannot find module" errors after editing protocol types, you forgot the rebuild.
+- `@cacp/protocol` — pure types, zod schemas (`schemas.ts`) and the legacy `policy-engine.ts`. Imported by everyone via `workspace:*`. **Must be built before other packages run or test** — `dev:*` and `test` scripts already do this via `pnpm --filter @cacp/protocol build`. If you see "cannot find module" errors after editing protocol types, rebuild protocol first.
 - `@cacp/server` — Fastify 5 + `@fastify/websocket` + `better-sqlite3`. Single `src/server.ts` builds the app; `src/index.ts` boots it. SQLite path defaults to `cacp.db` in CWD (env: `PORT`, `HOST`, `CACP_DB`).
 - `@cacp/cli-adapter` — Node bin (`cacp-cli-adapter`) that opens a WebSocket to a room and runs a configured local CLI command per `task.created` / `agent.turn.requested` event. Two startup modes: file config or `--server <url> --pair <token>` (claims a pairing token, then registers).
 - `@cacp/web` — React 19 + Vite. Single-page room UI; all state derived from the event stream.
@@ -80,11 +80,11 @@ Tokens (owner, member, observer, agent) are issued at room creation / invite cla
 - member: chat only
 - observer: read only
 
-### AI Flow Control (current main flow)
+### AI Flow Control
 
 Owner toggles `POST /rooms/:roomId/ai-collection/start`. While a collection is active:
 
-1. Human `message.created` events are tagged with `collection_id` and broadcast immediately (everyone sees them live).
+1. Human `message.created` events are tagged with `collection_id` and broadcast immediately.
 2. The server **does not** create `agent.turn.requested` for those messages.
 3. On `submit`, the server emits `ai.collection.submitted`, calls `buildCollectedAnswersPrompt` to merge all queued answers into one prompt, and creates a single `agent.turn.requested`.
 4. `cancel` ends the collection without an Agent turn.
@@ -93,7 +93,7 @@ If a turn is already in flight, new messages append `agent.turn.followup_queued`
 
 ### Agent pairing & local launch
 
-`POST /rooms/:roomId/agent-pairings/start-local` (owner/admin) generates an adapter command (`pnpm --filter @cacp/cli-adapter dev -- --server <url> --pair <token>`) and invokes a `LocalAgentLauncher`. The default launcher (in `server.ts`) opens a new PowerShell console on Windows so the bridge process is visible to the user. Tests inject a fake launcher via `BuildServerOptions.localAgentLauncher`. Adapter logs land in `.tmp-test-services/adapters/`.
+`POST /rooms/:roomId/agent-pairings/start-local` (owner/admin) generates an adapter command and invokes a `LocalAgentLauncher`. The default launcher opens a new PowerShell console on Windows. Tests inject a fake launcher via `BuildServerOptions.localAgentLauncher`. Adapter logs land in `.tmp-test-services/adapters/`.
 
 `buildAgentProfile` in `pairing.ts` maps `(agent_type, permission_level)` to the actual command + args:
 

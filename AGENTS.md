@@ -1,14 +1,13 @@
 ﻿# Repository Guidelines
 
 ## Project Structure & Module Organization
-CACP is a pnpm workspace for a local-first collaborative AI room demo. Source is under `packages/`:
+CACP is a pnpm workspace for a local-first collaborative AI room. Source lives under `packages/*/src`, with colocated package tests in `packages/*/test`.
 
 - `packages/protocol`: shared TypeScript types, zod schemas, and protocol contracts.
-- `packages/server`: Fastify/WebSocket server, SQLite event store, auth, pairing, and conversation helpers.
-- `packages/cli-adapter`: local CLI agent bridge and runner logic.
-- `packages/web`: React 19 + Vite room UI, components, i18n, and browser state derivation.
-
-Tests live beside each package in `test/` and use `*.test.ts` or `*.test.tsx`. Protocol docs and examples live in `docs/`; generated/local runtime state belongs in `.tmp-test-services/` and must stay untracked.
+- `packages/server`: Fastify/WebSocket server, SQLite event store, auth, pairing, and room governance.
+- `packages/cli-adapter`: local CLI agent connector and runner.
+- `packages/web`: React + Vite room UI; static assets live in `packages/web/public`.
+- `docs/`: protocol docs, architecture diagrams, examples, deployment notes; `scripts/` contains repo utilities.
 
 ## Build, Test, and Development Commands
 Use Node 20+, Corepack, and the pinned pnpm version.
@@ -16,24 +15,24 @@ Use Node 20+, Corepack, and the pinned pnpm version.
 ```powershell
 corepack enable
 corepack pnpm install
-corepack pnpm check       # full validation: tests, then build
-corepack pnpm test        # run all Vitest suites; builds protocol first
-corepack pnpm build       # build all workspace packages
-corepack pnpm dev:server  # Fastify server on 127.0.0.1:3737
-corepack pnpm dev:web     # Vite web UI on 127.0.0.1:5173
-corepack pnpm dev:adapter # run the CLI adapter with the sample local config
+corepack pnpm check        # runs tests, then builds all packages
+corepack pnpm test         # builds protocol, then runs Vitest recursively
+corepack pnpm build        # builds every workspace package
+corepack pnpm dev:server   # Fastify API/WebSocket server on 127.0.0.1:3737
+corepack pnpm dev:web      # Vite UI on 127.0.0.1:5173
+corepack pnpm dev:adapter  # starts the generic local CLI adapter example
 ```
 
-For package-focused work, run `corepack pnpm --filter @cacp/server test` or replace the package name.
+For focused work, run `corepack pnpm --filter @cacp/server test` or replace the package name.
 
 ## Coding Style & Naming Conventions
-Write strict TypeScript using ESM/NodeNext patterns. Keep relative imports with `.js` extensions, use double quotes and semicolons, and follow the existing two-space indentation. Prefer small pure helpers for derived state (`conversation.ts`, `room-state.ts`) and keep protocol changes centralized in `packages/protocol/src/schemas.ts`.
+Use strict TypeScript, ESM, and NodeNext-compatible relative imports with `.js` extensions. Follow the existing style: two-space indentation, double quotes, semicolons, and small testable helpers. Keep protocol schema changes centralized in `packages/protocol/src/schemas.ts`; update both server derivation logic and web room-state handling when event contracts change.
 
 ## Testing Guidelines
-Vitest is the test framework. Add or update tests with behavioral changes, especially when changing event types, role permissions, pairing, or room-state derivation. Server tests should prefer in-memory SQLite (`dbPath: ":memory:"`). Run the relevant filtered test plus `corepack pnpm check` before opening a PR.
+Vitest is the test framework. Name tests `*.test.ts` or `*.test.tsx` in each package's `test/` directory. Add or update tests for protocol events, role permissions, invite/pairing flows, room-state derivation, local connector behavior, and user-visible UI changes. Prefer in-memory SQLite (`dbPath: ":memory:"`) for server tests.
 
 ## Commit & Pull Request Guidelines
-Recent history uses Conventional Commit style such as `feat(server,cli-adapter): ...`, `fix(web): ...`, and `docs: ...`. Keep commits scoped and imperative. PRs should include a short summary, validation commands run, linked issues if any, and screenshots or short recordings for UI changes.
+Git history follows Conventional Commits, for example `feat(server): ...`, `fix(web): ...`, `docs: ...`, and `chore: ...`. Keep commits focused and imperative. Pull requests should include a summary, validation commands run, linked issue/context when available, screenshots or recordings for UI changes, and notes for protocol, security, deployment, or connector risk.
 
 ## Security & Configuration Tips
-Treat room, invite, pairing, and participant tokens as secrets. Do not commit `.env`, `*.db`, or `docs/examples/*.local.json`. Restart test services after server/web changes; inspect `.tmp-test-services/*.log` when launch behavior is unclear.
+Never commit secrets or local deployment artifacts: `.env`, `.deploy/*`, `docs/Server info.md`, `docs/examples/*.local.json`, SQLite `*.db*` files, SSH keys, tokens, or production config. Avoid exposing room, invite, pairing, participant, or connector secrets in logs and screenshots.
