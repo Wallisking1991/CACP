@@ -106,6 +106,7 @@ export async function promptForLlmApiConfig(
       };
 
       try {
+        prompter.writeLine("Testing LLM API connectivity...");
         const result = await validate(config);
         prompter.writeLine(
           `LLM API connectivity test succeeded. The agent will now connect to the room.${result.sampleText ? ` Sample: ${result.sampleText}` : ""}`

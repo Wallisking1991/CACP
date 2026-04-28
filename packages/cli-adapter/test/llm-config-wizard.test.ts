@@ -21,6 +21,7 @@ describe("LLM API config wizard", () => {
       options: {}
     });
     expect(validate).toHaveBeenCalledWith(config);
+    expect(lines.join("\n")).toContain("Testing LLM API connectivity...");
     expect(lines.join("\n")).toContain("LLM API connectivity test succeeded");
     expect(lines.join("\n")).not.toContain("secret-key");
   });

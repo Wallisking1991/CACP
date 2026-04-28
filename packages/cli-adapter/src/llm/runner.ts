@@ -10,6 +10,13 @@ export interface RunLlmTurnOptions {
   fetchImpl?: typeof fetch;
   onDelta: (chunk: string) => void | Promise<void>;
   maxTokensOverride?: number;
+  timeoutMs?: number;
+}
+
+export const DefaultLlmConnectivityTimeoutMs = 30_000;
+
+function llmTimeoutMessage(timeoutMs: number): string {
+  return `LLM API request timed out after ${timeoutMs}ms. Check network connectivity, Base URL, provider availability, model name, and firewall/proxy settings.`;
 }
 
 export async function runLlmTurn(options: RunLlmTurnOptions): Promise<LlmRunResult> {
@@ -24,40 +31,59 @@ export async function runLlmTurn(options: RunLlmTurnOptions): Promise<LlmRunResu
     maxTokensOverride: options.maxTokensOverride
   });
 
-  const response = await (options.fetchImpl ?? fetch)(request.url, {
-    method: "POST",
-    headers: request.headers,
-    body: JSON.stringify(request.body)
-  });
+  const timeoutMs = options.timeoutMs && options.timeoutMs > 0 ? Math.trunc(options.timeoutMs) : undefined;
+  const abortController = timeoutMs !== undefined ? new AbortController() : undefined;
+  let timedOut = false;
+  const timeout = timeoutMs !== undefined
+    ? setTimeout(() => {
+      timedOut = true;
+      abortController?.abort();
+    }, timeoutMs)
+    : undefined;
 
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(sanitizeLlmError(`Status: ${response.status} ${response.statusText}\n${body}`, options.llm.apiKey));
-  }
-
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error("LLM API response has no readable body");
-
-  let finalText = "";
   try {
-    for await (const event of parseSseStream(reader)) {
-      const errorMsg = adapter.extractProviderError(event);
-      if (errorMsg) {
-        throw new Error(sanitizeLlmError(`Provider error: ${errorMsg}`, options.llm.apiKey));
-      }
-      if (adapter.isTerminalEvent(event)) break;
-      const chunk = adapter.extractTextDelta(event);
-      if (!chunk) continue;
-      finalText += chunk;
-      await options.onDelta(chunk);
-    }
-  } catch (error) {
-    if (error instanceof Error && error.message.startsWith("Provider error:")) throw error;
-    throw new Error(sanitizeLlmError(`LLM API stream error: ${error instanceof Error ? error.message : String(error)}`, options.llm.apiKey));
-  }
+    const response = await (options.fetchImpl ?? fetch)(request.url, {
+      method: "POST",
+      headers: request.headers,
+      body: JSON.stringify(request.body),
+      signal: abortController?.signal
+    });
 
-  if (!finalText) throw new Error("LLM API stream completed without text output");
-  return { finalText };
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new Error(sanitizeLlmError(`Status: ${response.status} ${response.statusText}\n${body}`, options.llm.apiKey));
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("LLM API response has no readable body");
+
+    let finalText = "";
+    try {
+      for await (const event of parseSseStream(reader)) {
+        const errorMsg = adapter.extractProviderError(event);
+        if (errorMsg) {
+          throw new Error(sanitizeLlmError(`Provider error: ${errorMsg}`, options.llm.apiKey));
+        }
+        if (adapter.isTerminalEvent(event)) break;
+        const chunk = adapter.extractTextDelta(event);
+        if (!chunk) continue;
+        finalText += chunk;
+        await options.onDelta(chunk);
+      }
+    } catch (error) {
+      if (timedOut && timeoutMs !== undefined) throw new Error(llmTimeoutMessage(timeoutMs));
+      if (error instanceof Error && error.message.startsWith("Provider error:")) throw error;
+      throw new Error(sanitizeLlmError(`LLM API stream error: ${error instanceof Error ? error.message : String(error)}`, options.llm.apiKey));
+    }
+
+    if (!finalText) throw new Error("LLM API stream completed without text output");
+    return { finalText };
+  } catch (error) {
+    if (timedOut && timeoutMs !== undefined) throw new Error(llmTimeoutMessage(timeoutMs));
+    throw error;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 function stripThinkingOptionsForValidation(options: Record<string, unknown>): Record<string, unknown> {
@@ -71,7 +97,15 @@ function stripThinkingOptionsForValidation(options: Record<string, unknown>): Re
   return stripped;
 }
 
-export async function validateLlmConnectivity(config: LlmProviderConfig, fetchImpl?: typeof fetch): Promise<{ ok: true; sampleText: string }> {
+export interface ValidateLlmConnectivityOptions {
+  timeoutMs?: number;
+}
+
+export async function validateLlmConnectivity(
+  config: LlmProviderConfig,
+  fetchImpl?: typeof fetch,
+  options: ValidateLlmConnectivityOptions = {}
+): Promise<{ ok: true; sampleText: string }> {
   const result = await runLlmTurn({
     llm: {
       ...config,
@@ -79,7 +113,8 @@ export async function validateLlmConnectivity(config: LlmProviderConfig, fetchIm
     },
     prompt: "Connectivity test. Reply with a short OK.",
     fetchImpl,
-    onDelta: () => {}
+    onDelta: () => {},
+    timeoutMs: options.timeoutMs ?? DefaultLlmConnectivityTimeoutMs
   });
   return { ok: true as const, sampleText: result.finalText };
 }
