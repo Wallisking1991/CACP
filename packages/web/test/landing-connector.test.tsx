@@ -84,4 +84,15 @@ describe("Landing cloud connector setup", () => {
     expect(screen.getByText("© 2026 CACP。保留所有权利。")).toBeInTheDocument();
     expect(screen.getByText("联系方式：453043662@qq.com，1023289914@qq.com")).toBeInTheDocument();
   });
+
+  it("shows LLM connector instructions in cloud mode", () => {
+    render(
+      <LangProvider>
+        <Landing onCreate={() => {}} onJoin={() => {}} loading={false} />
+      </LangProvider>
+    );
+    fireEvent.change(screen.getByLabelText("Agent type"), { target: { value: "llm-openai-compatible" } });
+    expect(screen.queryByLabelText("Permission")).not.toBeInTheDocument();
+    expect(screen.getByText("Download and run the connector, paste the connection code, then enter LLM API settings in the connector console.")).toBeInTheDocument();
+  });
 });
