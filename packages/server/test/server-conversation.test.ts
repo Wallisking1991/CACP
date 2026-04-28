@@ -44,6 +44,26 @@ async function joinMember(app: Awaited<ReturnType<typeof buildServer>>, roomId: 
   return { ...joined, auth: { authorization: `Bearer ${joined.participant_token}` } };
 }
 
+async function joinObserver(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, auth: { authorization: string }, displayName = "Olivia") {
+  const invite = await app.inject({
+    method: "POST",
+    url: `/rooms/${roomId}/invites`,
+    headers: auth,
+    payload: { role: "observer", expires_in_seconds: 3600 }
+  });
+  expect(invite.statusCode).toBe(201);
+  const inviteBody = invite.json() as { invite_token: string };
+  const pending = await app.inject({ method: "POST", url: `/rooms/${roomId}/join-requests`, payload: { invite_token: inviteBody.invite_token, display_name: displayName } });
+  expect(pending.statusCode).toBe(201);
+  const request = pending.json() as { request_id: string; request_token: string };
+  const approved = await app.inject({ method: "POST", url: `/rooms/${roomId}/join-requests/${request.request_id}/approve`, headers: auth, payload: {} });
+  expect(approved.statusCode).toBe(201);
+  const status = await app.inject({ method: "GET", url: `/rooms/${roomId}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}` });
+  expect(status.statusCode).toBe(200);
+  const joined = status.json() as { participant_id: string; participant_token: string; role: "observer" };
+  return { ...joined, auth: { authorization: `Bearer ${joined.participant_token}` } };
+}
+
 describe("CACP server conversation room", () => {
   it("selects an active agent and runs a streaming AI turn from a human message", async () => {
     const { app, room, ownerAuth } = await createRoom();
@@ -251,6 +271,59 @@ describe("CACP server conversation room", () => {
     const memberCancel = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/ai-collection/cancel`, headers: member.auth, payload: {} });
     expect(memberCancel.statusCode).toBe(403);
 
+    await app.close();
+  });
+
+  it("lets members request Roundtable Mode and owner approval starts it atomically", async () => {
+    const { app, room, ownerAuth } = await createRoom();
+    const member = await joinMember(app, room.room_id, ownerAuth, "Bob");
+    const request = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/ai-collection/request`, headers: member.auth, payload: {} });
+    expect(request.statusCode).toBe(201);
+    const requestId = (request.json() as { request_id: string }).request_id;
+
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/ai-collection/request`, headers: member.auth, payload: {} })).statusCode).toBe(409);
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/ai-collection/start`, headers: ownerAuth, payload: {} })).statusCode).toBe(409);
+
+    const approve = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/ai-collection/requests/${requestId}/approve`, headers: ownerAuth, payload: {} });
+    expect(approve.statusCode).toBe(201);
+    const collectionId = (approve.json() as { collection_id: string }).collection_id;
+
+    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
+    const approvedIndex = events.findIndex((event) => event.type === "ai.collection.request_approved");
+    const startedIndex = events.findIndex((event) => event.type === "ai.collection.started");
+    expect(startedIndex).toBe(approvedIndex + 1);
+    expect(events[approvedIndex].payload).toMatchObject({ request_id: requestId, collection_id: collectionId });
+    expect(events[startedIndex].payload).toMatchObject({ request_id: requestId, collection_id: collectionId });
+    await app.close();
+  });
+
+  it("rejects Roundtable requests without starting a collection", async () => {
+    const { app, room, ownerAuth } = await createRoom();
+    const member = await joinMember(app, room.room_id, ownerAuth, "Bob");
+    const request = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/ai-collection/request`, headers: member.auth, payload: {} });
+    const requestId = (request.json() as { request_id: string }).request_id;
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/ai-collection/requests/${requestId}/reject`, headers: ownerAuth, payload: {} })).statusCode).toBe(201);
+    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
+    expect(events.some((event) => event.type === "ai.collection.request_rejected" && event.payload.request_id === requestId)).toBe(true);
+    expect(events.some((event) => event.type === "ai.collection.started")).toBe(false);
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/ai-collection/start`, headers: ownerAuth, payload: {} })).statusCode).toBe(201);
+    await app.close();
+  });
+
+  it("rejects observers and active-turn Roundtable approval", async () => {
+    const { app, room, ownerAuth } = await createRoom();
+    const agent = await registerAgent(app, room.room_id, ownerAuth);
+    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/select`, headers: ownerAuth, payload: { agent_id: agent.agent_id } });
+    const observer = await joinObserver(app, room.room_id, ownerAuth, "Olivia");
+    const member = await joinMember(app, room.room_id, ownerAuth, "Bob");
+
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/ai-collection/request`, headers: observer.auth, payload: {} })).statusCode).toBe(403);
+    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "AI should answer this first." } });
+    const request = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/ai-collection/request`, headers: member.auth, payload: {} });
+    const requestId = (request.json() as { request_id: string }).request_id;
+    const approve = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/ai-collection/requests/${requestId}/approve`, headers: ownerAuth, payload: {} });
+    expect(approve.statusCode).toBe(409);
+    expect(approve.json()).toMatchObject({ error: "active_turn_in_flight" });
     await app.close();
   });
 });
