@@ -160,4 +160,17 @@ describe("adapter config arguments", () => {
     await expect(loadRuntimeConfigFromArgs(["--connect", code], fetchImpl, { configureLlmAgent: async () => undefined })).rejects.toThrow("llm_api_configuration_cancelled");
     expect(fetchImpl).not.toHaveBeenCalled();
   });
+
+  it("explains expired connection codes after LLM API configuration succeeds", async () => {
+    const code = buildConnectionCode({ server_url: "https://cacp.example.com", pairing_token: "pair_llm", expires_at: "2026-04-28T08:15:00.000Z", agent_type: "llm-api" });
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ error: "pairing_expired" }), {
+      status: 401,
+      statusText: "Unauthorized",
+      headers: { "content-type": "application/json" }
+    })) as unknown as typeof fetch;
+
+    await expect(loadRuntimeConfigFromArgs(["--connect", code], fetchImpl, {
+      configureLlmAgent: async () => ({ providerId: "siliconflow", protocol: "openai-chat", baseUrl: "https://api.siliconflow.cn/v1", model: "Qwen/Qwen3.5-9B", apiKey: "secret", options: {} })
+    })).rejects.toThrow("CACP connection code expired");
+  });
 });

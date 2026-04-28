@@ -107,7 +107,7 @@ async function claimPairing(serverUrl: string, pairingToken: string, workingDir:
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ working_dir: workingDir })
   });
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}: ${await response.text()}`);
+  if (!response.ok) throw new Error(await formatPairingClaimError(response));
   const claim = PairingClaimSchema.parse(await response.json());
   const config: AdapterConfig = {
     server_url: serverUrl,
@@ -117,6 +117,34 @@ async function claimPairing(serverUrl: string, pairingToken: string, workingDir:
   };
   if (llm) config.llm = llm;
   return config;
+}
+
+async function formatPairingClaimError(response: Response): Promise<string> {
+  const body = await response.text().catch(() => "");
+  let errorCode: string | undefined;
+  try {
+    const parsed = JSON.parse(body) as { error?: unknown };
+    if (typeof parsed.error === "string") errorCode = parsed.error;
+  } catch {
+    // Keep the raw response body below for non-JSON server failures.
+  }
+
+  switch (errorCode) {
+    case "pairing_expired":
+      return "CACP connection code expired before the connector could claim it. Generate a new LLM API Agent connection code in the room and try again.";
+    case "pairing_claimed":
+      return "CACP connection code has already been used. Generate a new LLM API Agent connection code in the room and try again.";
+    case "invalid_pairing":
+      return "CACP connection code is invalid or no longer available. Copy a fresh connection code from the room and try again.";
+    case "max_agents_reached":
+      return "The room has reached its maximum number of connected agents. Remove an unused agent or create a new room.";
+    case "rate_limited":
+      return "CACP room server rate-limited the connector pairing claim. Wait briefly, then generate a new connection code and try again.";
+    default: {
+      const statusText = `${response.status} ${response.statusText}`.trim();
+      return `CACP pairing claim failed (${statusText})${body ? `: ${body}` : ""}`;
+    }
+  }
 }
 
 export function parseAdapterArgs(args: string[]): AdapterArgs {

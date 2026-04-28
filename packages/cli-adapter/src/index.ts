@@ -9,6 +9,7 @@ import { printConnectedBanner } from "./connected-banner.js";
 import { ChatTranscriptWriter } from "./transcript.js";
 import { runLlmTurn } from "./llm/runner.js";
 import { sanitizeLlmError } from "./llm/sanitize.js";
+import { handleFatalError } from "./fatal-error.js";
 
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
   console.log("Usage: cacp-cli-adapter [config.json]\n       cacp-cli-adapter --connect <connection_code>\n       cacp-cli-adapter --server <url> --pair <pairing_token>\n\nDouble-click without arguments to paste a CACP connection code.");
@@ -179,7 +180,4 @@ async function main() {
   ws.on("error", (error) => console.error(error));
 }
 
-void main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+void main().catch((error) => handleFatalError(error));
