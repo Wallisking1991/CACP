@@ -27,8 +27,8 @@ export async function runOpenAiCompatibleChat(options: LlmRunOptions): Promise<L
         { role: "user", content: options.prompt }
       ],
       stream: true,
-      temperature: options.config.temperature,
-      max_tokens: options.maxTokensOverride ?? options.config.maxTokens
+      temperature: (options.config.options?.temperature as number | undefined) ?? 0.7,
+      max_tokens: options.maxTokensOverride ?? (options.config.options?.max_tokens as number | undefined) ?? 1024
     })
   });
 

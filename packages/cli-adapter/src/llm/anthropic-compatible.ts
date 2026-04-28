@@ -29,8 +29,8 @@ export async function runAnthropicCompatibleMessages(options: LlmRunOptions): Pr
       system: options.systemPrompt ?? DefaultLlmSystemPrompt,
       messages: [{ role: "user", content: options.prompt }],
       stream: true,
-      temperature: options.config.temperature,
-      max_tokens: options.maxTokensOverride ?? options.config.maxTokens
+      temperature: (options.config.options?.temperature as number | undefined) ?? 1,
+      max_tokens: options.maxTokensOverride ?? (options.config.options?.max_tokens as number | undefined) ?? 1024
     })
   });
 
