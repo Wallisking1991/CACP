@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -118,6 +118,23 @@ describe("CLI runner", () => {
     });
 
     expect(result.exit_code).toBe(7);
+  });
+
+  it("does not create a timeout when timeout_ms is omitted", async () => {
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    try {
+      const result = await runCommandForTask({
+        command: process.execPath,
+        args: ["-e", "process.stdout.write('done')"],
+        working_dir: process.cwd(),
+        prompt: "",
+        onOutput: () => undefined
+      });
+      expect(result.exit_code).toBe(0);
+      expect(setTimeoutSpy).not.toHaveBeenCalled();
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
   });
 
   it("rejects and stops commands that exceed the timeout", async () => {
