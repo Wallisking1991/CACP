@@ -5,6 +5,8 @@ import { loadRuntimeConfigFromArgs } from "./config.js";
 import { runCommandForTask } from "./runner.js";
 import { taskReportForExitCode } from "./task-result.js";
 import { appendTurnOutput, turnCompleteBody } from "./turn-result.js";
+import { printConnectedBanner } from "./connected-banner.js";
+import { ChatTranscriptWriter } from "./transcript.js";
 
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
   console.log("Usage: cacp-cli-adapter [config.json]\n       cacp-cli-adapter --connect <connection_code>\n       cacp-cli-adapter --server <url> --pair <pairing_token>\n\nDouble-click without arguments to paste a CACP connection code.");
@@ -23,6 +25,11 @@ async function postJson<T>(serverUrl: string, path: string, participantToken: st
 
 async function main() {
   const config = await loadRuntimeConfigFromArgs(process.argv.slice(2));
+
+  const transcript = new ChatTranscriptWriter({
+    roomId: config.room_id,
+    baseDir: config.agent.working_dir
+  });
 
   const registered = config.registered_agent ?? await postJson<{ agent_id: string; agent_token: string }>(
     config.server_url,
@@ -46,6 +53,7 @@ async function main() {
     try {
       const parsed = CacpEventSchema.safeParse(JSON.parse(raw.toString()));
       if (!parsed.success) return;
+      transcript.handleEvent(parsed.data);
       if (parsed.data.type === "task.created") {
         const payload = parsed.data.payload as { task_id?: string; target_agent_id?: string; prompt?: string };
         if (!payload.task_id || !payload.prompt || payload.target_agent_id !== registered.agent_id || runningTasks.has(payload.task_id)) return;
@@ -129,7 +137,15 @@ async function main() {
     });
   });
 
-  ws.on("open", () => console.log(`Connected adapter stream for room ${config.room_id}`));
+  ws.on("open", () => {
+    printConnectedBanner({
+      roomId: config.room_id,
+      chatPath: transcript.chatPath,
+      chatAvailable: transcript.isAvailable(),
+      transcriptError: transcript.lastErrorMessage()
+    });
+    console.log(`Connected adapter stream for room ${config.room_id}`);
+  });
   ws.on("close", (code, reason) => {
     const reasonText = reason.toString();
     console.log(`Adapter stream closed${reasonText ? `: ${reasonText}` : ""}`);
