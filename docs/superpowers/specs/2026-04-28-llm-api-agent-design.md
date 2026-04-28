@@ -85,8 +85,10 @@ When the server can locally launch the connector:
 4. Connector parses the connection payload and sees the LLM API agent type.
 5. Connector displays a notice that provider settings are required for this session and that API keys stay local.
 6. Connector runs the LLM API console wizard.
-7. Only after successful local configuration does the connector claim the pairing and register the agent.
-8. Server marks the agent online and may auto-select it as the active agent.
+7. Connector runs a one-turn provider connectivity test with the entered settings.
+8. Console clearly shows test success or failure with sanitized error details.
+9. Only after successful local configuration and connectivity validation does the connector claim the pairing and register the agent.
+10. Server marks the agent online and may auto-select it as the active agent.
 
 ### 6.2 Cloud/download mode
 
@@ -97,7 +99,9 @@ When the server cannot launch a local process:
 3. User starts the connector and pastes the connection code.
 4. Connector detects the LLM API agent type.
 5. Connector prompts for temporary provider settings.
-6. After successful configuration, connector claims the pairing and connects to the room stream.
+6. Connector runs a one-turn provider connectivity test with the entered settings.
+7. Console clearly shows test success or failure with sanitized error details.
+8. After successful configuration and connectivity validation, connector claims the pairing and connects to the room stream.
 
 ### 6.3 Why configuration happens before claim
 
@@ -106,12 +110,15 @@ The connector must configure the local LLM provider before claiming/registering 
 - A failed or cancelled provider configuration leaving a misleading online agent in the room.
 - API-key or provider details entering server events.
 - A half-configured agent being auto-selected.
+- A provider endpoint or model failing only after the room has already selected the agent.
 
 The flow is therefore:
 
 ```text
 parse connection code
   -> if LLM API: collect temporary local settings
+  -> run provider connectivity test
+  -> show success or sanitized failure
   -> claim pairing
   -> register/online agent
   -> connect websocket stream
@@ -160,6 +167,38 @@ The API key must not appear in:
 - CACP events.
 - room transcripts.
 - committed docs or examples.
+
+### 7.4 Connectivity validation
+
+After the user enters provider settings, the connector must run a one-turn connectivity validation before claiming the room pairing.
+
+The validation should use the same provider family and streaming code path required by normal turns, with a minimal prompt and a small token budget. The test prompt should not include room history or user content. A suitable prompt is a short local diagnostic request such as asking the model to reply briefly.
+
+Validation succeeds when:
+
+- the HTTP request is accepted by the configured endpoint,
+- authentication succeeds,
+- the configured model is accepted,
+- the stream parser receives at least one text delta or a valid terminal response, and
+- no provider error event is returned.
+
+The console must show an explicit success message, for example:
+
+```text
+LLM API connectivity test succeeded. The agent will now connect to the room.
+```
+
+Validation fails when the endpoint, API key, model, network, rate limit, or streaming format fails. The console must show an explicit failure message plus sanitized details, for example:
+
+```text
+LLM API connectivity test failed.
+Status: 401 Unauthorized
+Provider error: invalid API key
+```
+
+Failure details should include useful information such as HTTP status, provider error code/message, timeout, DNS/connectivity failure, or parser failure. They must not include API keys, authorization headers, or full request bodies.
+
+After a failed validation, the connector should let the user choose whether to re-enter settings or cancel. If the user cancels, the connector exits without claiming/registering the agent.
 
 ## 8. Conversation context
 
@@ -245,7 +284,9 @@ The runner should parse Anthropic-style streaming events and extract text deltas
 
 MVP does not silently fall back to non-streaming mode.
 
-If provider configuration, authentication, network access, model availability, rate limits, or stream parsing fails during a turn, the connector reports:
+If provider configuration or connectivity validation fails before pairing claim, the connector should show a sanitized console error and allow retry or cancel. It must not claim/register the pairing until validation succeeds.
+
+If authentication, network access, model availability, rate limits, or stream parsing fails during a room turn after registration, the connector reports:
 
 ```text
 POST /rooms/:roomId/agent-turns/:turnId/fail
@@ -311,7 +352,10 @@ docs/examples/*.local.md
 
 - Command agent connection codes continue using the command runner.
 - LLM API agent connection codes trigger the console wizard before claim.
-- Cancelled or failed LLM configuration does not claim/register the pairing.
+- After settings are entered, a provider connectivity test runs before claim.
+- Successful connectivity validation clearly prints success and then claims/registers the pairing.
+- Failed connectivity validation clearly prints sanitized failure details and offers retry or cancel.
+- Cancelled or failed LLM configuration or validation does not claim/register the pairing.
 - OpenAI-compatible stream parser extracts text deltas and handles `[DONE]`.
 - Anthropic-compatible stream parser extracts text deltas and detects completion.
 - Sanitization prevents API keys from appearing in logs, transcript output, or events.
@@ -333,10 +377,12 @@ Manual validation should include:
 3. Confirm the Local Connector console launches automatically.
 4. Confirm the console says LLM API provider settings are required and keys stay local.
 5. Enter development test provider values.
-6. Confirm the agent appears online in the room.
-7. Send a normal message and observe streaming output.
-8. Start Roundtable Mode, collect multiple human messages, submit, and observe an LLM response based on collected context.
-9. Stop the connector and verify API-key material is absent from server events, logs, transcripts, tracked docs, and Git status.
+6. Confirm the connector runs a connectivity test and clearly prints success before claiming the pairing.
+7. Confirm a deliberately invalid key or model prints a sanitized failure and does not register an agent.
+8. Confirm the agent appears online in the room after a successful validation.
+9. Send a normal message and observe streaming output.
+10. Start Roundtable Mode, collect multiple human messages, submit, and observe an LLM response based on collected context.
+11. Stop the connector and verify API-key material is absent from server events, logs, transcripts, tracked docs, and Git status.
 
 ## 15. Implementation boundary
 
