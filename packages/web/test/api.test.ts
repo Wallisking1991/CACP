@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CacpEvent } from "@cacp/protocol";
-import { cancelAiCollection, clearEventSocket, clearRoom, createJoinRequest, createLocalAgentLaunch, createRoom, createRoomWithLocalAgent, joinRequestStatus, pairingServerUrlFor, parseCacpEventMessage, startAiCollection, submitAiCollection, type RoomSession } from "../src/api.js";
+import { approveAiCollectionRequest, cancelAiCollection, clearEventSocket, clearRoom, createJoinRequest, createLocalAgentLaunch, createRoom, createRoomWithLocalAgent, joinRequestStatus, pairingServerUrlFor, parseCacpEventMessage, rejectAiCollectionRequest, requestAiCollection, startAiCollection, submitAiCollection, type RoomSession } from "../src/api.js";
 
 const validEvent = {
   protocol: "cacp",
@@ -219,6 +219,34 @@ describe("room API", () => {
     mockJsonResponse({ ok: true });
     await cancelAiCollection(session);
     expect(fetch).toHaveBeenLastCalledWith("/rooms/room_1/ai-collection/cancel", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer owner_secret" },
+      body: JSON.stringify({})
+    });
+  });
+
+  it("posts Roundtable request lifecycle calls to the collection request endpoints", async () => {
+    const session: RoomSession = { room_id: "room_1", token: "member_secret", participant_id: "user_member", role: "member" };
+    mockJsonResponse({ request_id: "collection_request_1", requested_by: "user_member", status: "pending" });
+    await expect(requestAiCollection(session)).resolves.toEqual({ request_id: "collection_request_1", requested_by: "user_member", status: "pending" });
+    expect(fetch).toHaveBeenLastCalledWith("/rooms/room_1/ai-collection/request", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer member_secret" },
+      body: JSON.stringify({})
+    });
+
+    const owner: RoomSession = { room_id: "room_1", token: "owner_secret", participant_id: "user_owner", role: "owner" };
+    mockJsonResponse({ ok: true, collection_id: "collection_1", request_id: "collection_request_1" });
+    await expect(approveAiCollectionRequest(owner, "collection_request_1")).resolves.toEqual({ ok: true, collection_id: "collection_1", request_id: "collection_request_1" });
+    expect(fetch).toHaveBeenLastCalledWith("/rooms/room_1/ai-collection/requests/collection_request_1/approve", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer owner_secret" },
+      body: JSON.stringify({})
+    });
+
+    mockJsonResponse({ ok: true, request_id: "collection_request_1" });
+    await rejectAiCollectionRequest(owner, "collection_request_1");
+    expect(fetch).toHaveBeenLastCalledWith("/rooms/room_1/ai-collection/requests/collection_request_1/reject", {
       method: "POST",
       headers: { "content-type": "application/json", authorization: "Bearer owner_secret" },
       body: JSON.stringify({})

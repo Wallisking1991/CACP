@@ -41,7 +41,7 @@ describe("agent pairing profiles", () => {
     expect(profile.args).not.toContain("--max-budget-usd");
   });
 
-  it("generates a readable Claude Code system prompt that uses AI Flow Control instead of structured decisions", () => {
+  it("generates a readable Claude Code system prompt that uses Roundtable Mode instead of structured decisions", () => {
     const profile = buildAgentProfile({
       agentType: "claude-code",
       permissionLevel: "limited_write",
@@ -51,7 +51,7 @@ describe("agent pairing profiles", () => {
     const prompt = profile.args[profile.args.indexOf("--append-system-prompt") + 1];
 
     expect(prompt).toContain("CACP");
-    expect(prompt).toContain("AI Flow Control");
+    expect(prompt).toContain("Roundtable Mode");
     expect(prompt).not.toContain("cacp-decision");
     expect(prompt).not.toContain("agent-action-approvals");
     expect(prompt).not.toContain("???");
@@ -67,7 +67,7 @@ describe("agent pairing profiles", () => {
     expect(fullAccess.args).toEqual(expect.arrayContaining(["--approval-mode", "full-auto"]));
   });
 
-  it("generates a Codex CLI system prompt that references CACP and AI Flow Control", () => {
+  it("generates a Codex CLI system prompt that references CACP and Roundtable Mode", () => {
     const profile = buildAgentProfile({
       agentType: "codex",
       permissionLevel: "limited_write",
@@ -75,7 +75,7 @@ describe("agent pairing profiles", () => {
     });
 
     expect(profile.system_prompt).toContain("CACP");
-    expect(profile.system_prompt).toContain("AI Flow Control");
+    expect(profile.system_prompt).toContain("Roundtable Mode");
     expect(profile.system_prompt).toContain("LIMITED WRITE");
   });
 

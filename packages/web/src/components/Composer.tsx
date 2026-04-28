@@ -12,10 +12,12 @@ export interface ComposerProps {
   turnInFlight: boolean;
   collectCount: number;
   canSendMessages: boolean;
+  pendingRoundtableRequest: boolean;
   onSend: (text: string) => void;
   onToggleMode: () => void;
   onSubmitCollection: () => void;
   onCancelCollection: () => void;
+  onRequestRoundtable: () => void;
 }
 
 export default function Composer({
@@ -24,10 +26,12 @@ export default function Composer({
   turnInFlight,
   collectCount,
   canSendMessages,
+  pendingRoundtableRequest,
   onSend,
   onToggleMode,
   onSubmitCollection,
   onCancelCollection,
+  onRequestRoundtable,
 }: ComposerProps) {
   const t = useT();
   const [text, setText] = useState("");
@@ -40,6 +44,8 @@ export default function Composer({
   const canToggleMode = isOwner && !turnInFlight;
   const canInput = effectiveCanSend && !(!isLive && turnInFlight);
   const isQueued = isLive && turnInFlight;
+
+  const canRequestRoundtable = (role === "admin" || role === "member") && effectiveCanSend && isLive && !pendingRoundtableRequest;
 
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
@@ -89,11 +95,11 @@ export default function Composer({
           <button
             type="button"
             className={`mode-toggle-btn ${!isLive ? "active" : ""}`}
-            disabled={!canToggleMode}
-            onClick={!isLive ? undefined : onToggleMode}
+            disabled={isOwner ? (!canToggleMode || pendingRoundtableRequest) : !canRequestRoundtable}
+            onClick={isOwner ? (!isLive ? undefined : onToggleMode) : onRequestRoundtable}
             aria-pressed={!isLive}
           >
-            {t("composer.collect")}
+            {isOwner || !isLive ? t("composer.roundtable") : pendingRoundtableRequest ? t("composer.roundtablePending") : t("composer.requestRoundtable")}
           </button>
         </div>
 
@@ -106,11 +112,11 @@ export default function Composer({
         {!isLive && isOwner && (
           <span className="composer-hint">
             <span className="collect-badge">{collectCount}</span>
-            {t("composer.collectingHint")}
+            {t("composer.roundtableActiveHint")}
           </span>
         )}
         {!isLive && !isOwner && (
-          <span className="composer-hint">{t("composer.memberCollectHint")}</span>
+          <span className="composer-hint">{t("composer.memberRoundtableHint")}</span>
         )}
       </div>
 
@@ -168,7 +174,7 @@ export default function Composer({
               className="btn btn-warm-ghost"
               onClick={onCancelCollection}
             >
-              {t("composer.cancelCollection")}
+              {t("composer.cancelRoundtable")}
             </button>
             <button
               type="button"
@@ -176,7 +182,7 @@ export default function Composer({
               onClick={onSubmitCollection}
               disabled={collectCount === 0}
             >
-              {t("composer.submit", { count: collectCount })}
+              {t("composer.submitRoundtable", { count: collectCount })}
             </button>
           </div>
         </div>

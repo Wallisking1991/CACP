@@ -37,7 +37,7 @@
   <text x="420" y="208" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="600" fill="#1c1813">事件日志</text>
   <text x="420" y="225" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#9ca3af">Append-Only</text>
   <rect x="485" y="180" width="110" height="60" rx="8" fill="#ffffff" stroke="#e8e0d5" stroke-width="1"/>
-  <text x="540" y="208" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="600" fill="#1c1813">消息收集</text>
+  <text x="540" y="208" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="600" fill="#1c1813">圆桌模式</text>
   <text x="540" y="225" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#9ca3af">Batching</text>
   <rect x="365" y="260" width="230" height="50" rx="8" fill="#ffffff" stroke="#e8e0d5" stroke-width="1"/>
   <text x="480" y="290" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="600" fill="#1c1813">角色权限体系</text>
@@ -69,7 +69,7 @@
   <text x="210" y="465" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#6b6255">所有人从同一事件流推导完全一致的状态</text>
   <rect x="350" y="420" width="260" height="55" rx="8" fill="#ffffff" stroke="#e8e0d5" stroke-width="1" filter="url(#shadow)"/>
   <text x="480" y="445" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="600" fill="#1c1813">房主控制流</text>
-  <text x="480" y="465" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#6b6255">收集 → 审阅 → 提交 → 一次 AI 轮次</text>
+  <text x="480" y="465" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#6b6255">圆桌 → 审阅 → 提交 → 一次 AI 轮次</text>
   <rect x="620" y="420" width="260" height="55" rx="8" fill="#ffffff" stroke="#e8e0d5" stroke-width="1" filter="url(#shadow)"/>
   <text x="750" y="445" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="600" fill="#1c1813">本地优先</text>
   <text x="750" y="465" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#6b6255">Agent 在房主本地机器运行,数据不出本地</text>

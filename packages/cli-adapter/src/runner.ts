@@ -44,7 +44,7 @@ export async function runCommandForTask(options: RunCommandOptions): Promise<Run
     let hasOutputError = false;
     let firstOutputError: unknown;
     let timedOut = false;
-    const timeoutMs = options.timeout_ms ?? 60_000;
+    const timeoutMs = options.timeout_ms;
     const spawnOptions = spawnOptionsForPlatform(process.platform);
     const command = spawnOptions.shell
       ? [quoteForCmd(options.command), ...options.args.map(quoteForCmd)].join(" ")
@@ -56,10 +56,12 @@ export async function runCommandForTask(options: RunCommandOptions): Promise<Run
       stdio: ["pipe", "pipe", "pipe"],
       ...spawnOptions
     });
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      terminateProcessTree(child.pid, process.platform);
-    }, timeoutMs);
+    const timeout = typeof timeoutMs === "number"
+      ? setTimeout(() => {
+          timedOut = true;
+          terminateProcessTree(child.pid, process.platform);
+        }, timeoutMs)
+      : undefined;
 
     const captureOutput = (output: { stream: "stdout" | "stderr"; chunk: string }) => {
       const pending = Promise.resolve()
@@ -79,12 +81,12 @@ export async function runCommandForTask(options: RunCommandOptions): Promise<Run
     child.stdout.on("data", (chunk: Buffer) => captureOutput({ stream: "stdout", chunk: chunk.toString("utf8") }));
     child.stderr.on("data", (chunk: Buffer) => captureOutput({ stream: "stderr", chunk: chunk.toString("utf8") }));
     child.on("error", (error) => {
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
       reject(error);
     });
     child.on("close", (code) => {
       void (async () => {
-        clearTimeout(timeout);
+        if (timeout) clearTimeout(timeout);
         await Promise.all(pendingOutputs);
         if (timedOut) throw new Error(`command timed out after ${timeoutMs}ms`);
         if (hasOutputError) throw firstOutputError;

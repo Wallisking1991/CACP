@@ -20,7 +20,7 @@ CACP 是 **Collaborative Agent Communication Protocol** 的缩写，可理解为
 - 基于 Fastify/WebSocket 的房间服务器，使用追加式事件日志保存状态；
 - 共享 TypeScript/Zod 协议包，用于统一事件和类型契约；
 - 本地 CLI Adapter，可连接 Claude Code、Codex、opencode 或 echo 测试 Agent；
-- **AI Flow Control**：房主可以先收集多位成员的输入，再合并成一次 Agent 轮次提交。
+- **圆桌模式**：房主可以先汇集多位成员的输入，再合并成一次 Agent 轮次提交。
 
 体验地址：**https://cacp.zuchongai.com/**
 
@@ -42,9 +42,9 @@ CACP 是 **Collaborative Agent Communication Protocol** 的缩写，可理解为
 
 房主可以在侧边栏生成邀请链接。`member` 适合参与讨论和发言的成员，`observer` 适合只读观察者。房主可以批准加入请求、移除参与者、清空房间历史。
 
-### 5. 使用 AI Flow Control 协作
+### 5. 使用圆桌模式协作
 
-快速讨论可以直接使用普通实时聊天。如果需要多人先发表意见，再让 AI 统一处理，房主可以切换到收集模式，等待成员提交观点，审阅后一次性提交给当前激活的 Agent。
+快速讨论可以直接使用普通实时聊天。如果需要多人先发表意见，再让 AI 统一处理，可以使用 **圆桌模式**：成员可在输入区一键申请，房主同意后大家加入观点，最后由房主一次性提交给当前激活的 Agent。
 
 ### 6. 管理 Agent
 

@@ -79,6 +79,20 @@ export async function cancelAiCollection(session: RoomSession): Promise<void> {
   await postJson(`/rooms/${session.room_id}/ai-collection/cancel`, session.token, {});
 }
 
+export interface AiCollectionRequestResult { request_id: string; requested_by: string; status: "pending" }
+export interface AiCollectionRequestApprovalResult { collection_id: string; request_id: string }
+
+export async function requestAiCollection(session: RoomSession): Promise<AiCollectionRequestResult> {
+  return await postJson(`/rooms/${session.room_id}/ai-collection/request`, session.token, {});
+}
+
+export async function approveAiCollectionRequest(session: RoomSession, requestId: string): Promise<AiCollectionRequestApprovalResult> {
+  return await postJson(`/rooms/${session.room_id}/ai-collection/requests/${requestId}/approve`, session.token, {});
+}
+
+export async function rejectAiCollectionRequest(session: RoomSession, requestId: string): Promise<void> {
+  await postJson(`/rooms/${session.room_id}/ai-collection/requests/${requestId}/reject`, session.token, {});
+}
 
 export async function selectAgent(session: RoomSession, agentId: string): Promise<void> {
   await postJson(`/rooms/${session.room_id}/agents/select`, session.token, { agent_id: agentId });

@@ -21,6 +21,7 @@ export interface AiCollectionView {
   cancelled_at?: string;
   message_ids?: string[];
 }
+export interface RoundtableRequestView { request_id: string; requested_by: string; requester_name: string; created_at: string }
 export interface RoomViewState {
   participants: ParticipantView[];
   agents: AgentView[];
@@ -33,6 +34,7 @@ export interface RoomViewState {
   inviteCount: number;
   roomName?: string;
   joinRequests: JoinRequestView[];
+  pendingRoundtableRequest?: RoundtableRequestView;
 }
 
 function failedTurnMessage(event: CacpEvent, streamedText: string | undefined): MessageView | undefined {
@@ -78,6 +80,11 @@ function lastHistoryClear(events: CacpEvent[]): { index: number; clearedAt?: str
   return { index: -1 };
 }
 
+function eventsAfterLastHistoryClear(events: CacpEvent[]): CacpEvent[] {
+  const historyClear = lastHistoryClear(events);
+  return events.slice(historyClear.index + 1);
+}
+
 function isValidJoinRequestStatus(value: unknown): value is JoinRequestView["status"] {
   return value === "pending" || value === "approved" || value === "rejected" || value === "expired";
 }
@@ -89,6 +96,7 @@ export function deriveRoomState(events: CacpEvent[]): RoomViewState {
   const streamingTurns = new Map<string, StreamingTurnView>();
   const collections = new Map<string, AiCollectionView>();
   const joinRequests = new Map<string, JoinRequestView>();
+  const roundtableRequests = new Map<string, RoundtableRequestView>();
   let activeAgentId: string | undefined;
   let inviteCount = 0;
   let roomName: string | undefined;
@@ -119,6 +127,21 @@ export function deriveRoomState(events: CacpEvent[]): RoomViewState {
         const newStatus = event.type === "join_request.approved" ? "approved" : event.type === "join_request.rejected" ? "rejected" : "expired";
         joinRequests.set(event.payload.request_id, { ...request, status: newStatus });
       }
+    }
+    if (event.type === "ai.collection.requested" && typeof event.payload.request_id === "string" && typeof event.payload.requested_by === "string") {
+      const requester = participants.get(event.payload.requested_by);
+      roundtableRequests.set(event.payload.request_id, {
+        request_id: event.payload.request_id,
+        requested_by: event.payload.requested_by,
+        requester_name: requester?.display_name ?? event.payload.requested_by,
+        created_at: event.created_at
+      });
+    }
+    if ((event.type === "ai.collection.request_approved" || event.type === "ai.collection.request_rejected") && typeof event.payload.request_id === "string") {
+      roundtableRequests.delete(event.payload.request_id);
+    }
+    if (event.type === "room.history_cleared" && isHistoryClearScope(event.payload.scope)) {
+      roundtableRequests.clear();
     }
     if (event.type === "agent.registered" && typeof event.payload.agent_id === "string" && typeof event.payload.name === "string") {
       const existing = agents.get(event.payload.agent_id);
@@ -210,6 +233,9 @@ export function deriveRoomState(events: CacpEvent[]): RoomViewState {
   const collectionViews = [...collections.values()];
   const activeCollection = [...collectionViews].reverse().find((collection) => !collection.submitted_at && !collection.cancelled_at);
   const collectionHistory = collectionViews.filter((collection) => Boolean(collection.submitted_at || collection.cancelled_at));
+  // Only one pending Roundtable request is allowed per room in this version.
+  // We intentionally expose only the first (oldest) pending request.
+  const pendingRoundtableRequest = [...roundtableRequests.values()][0];
 
   return {
     participants: [...participants.values()],
@@ -222,7 +248,8 @@ export function deriveRoomState(events: CacpEvent[]): RoomViewState {
     lastHistoryClearedAt: historyClear.clearedAt,
     inviteCount,
     roomName,
-    joinRequests: [...joinRequests.values()].filter((r) => r.status === "pending")
+    joinRequests: [...joinRequests.values()].filter((r) => r.status === "pending"),
+    pendingRoundtableRequest
   };
 }
 
@@ -236,7 +263,7 @@ export function humanParticipants(participants: ParticipantView[]): ParticipantV
 
 export function isCollectionActive(events: CacpEvent[]): boolean {
   let active = false;
-  for (const event of events) {
+  for (const event of eventsAfterLastHistoryClear(events)) {
     if (event.type === "ai.collection.started") active = true;
     if (event.type === "ai.collection.submitted" || event.type === "ai.collection.cancelled") active = false;
   }
@@ -244,12 +271,18 @@ export function isCollectionActive(events: CacpEvent[]): boolean {
 }
 
 export function isTurnInFlight(events: CacpEvent[]): boolean {
-  let started = false;
-  for (const event of events) {
-    if (event.type === "agent.turn.started") started = true;
-    if (event.type === "agent.turn.completed" || event.type === "agent.turn.failed") started = false;
+  const turns = new Map<string, boolean>();
+  for (const event of eventsAfterLastHistoryClear(events)) {
+    const turnId = typeof event.payload.turn_id === "string" ? event.payload.turn_id : undefined;
+    if (!turnId) continue;
+    if (event.type === "agent.turn.requested" || event.type === "agent.turn.started") {
+      turns.set(turnId, true);
+    }
+    if (event.type === "agent.turn.completed" || event.type === "agent.turn.failed") {
+      turns.set(turnId, false);
+    }
   }
-  return started;
+  return [...turns.values()].some((open) => open);
 }
 
 export function collectedMessageIds(events: CacpEvent[], collectionId: string): string[] {

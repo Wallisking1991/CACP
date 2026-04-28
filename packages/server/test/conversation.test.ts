@@ -90,7 +90,7 @@ describe("conversation helpers", () => {
     expect(prompt).toContain("Bob(member)");
     expect(prompt).toContain("Alice: What should we do next?");
     expect(prompt).toContain("Bob: Build shared context first.");
-    expect(prompt).toContain("AI Flow Control");
+    expect(prompt).toContain("Roundtable Mode");
     expect(prompt).not.toContain("cacp-decision");
     expect(prompt).not.toContain("cacp-question");
   });

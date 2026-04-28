@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildServer } from "../src/server.js";
 
 async function createRoom() {
@@ -41,6 +41,26 @@ async function joinMember(app: Awaited<ReturnType<typeof buildServer>>, roomId: 
   const status = await app.inject({ method: "GET", url: `/rooms/${roomId}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}` });
   expect(status.statusCode).toBe(200);
   const joined = status.json() as { participant_id: string; participant_token: string; role: "member" };
+  return { ...joined, auth: { authorization: `Bearer ${joined.participant_token}` } };
+}
+
+async function joinObserver(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, auth: { authorization: string }, displayName = "Olivia") {
+  const invite = await app.inject({
+    method: "POST",
+    url: `/rooms/${roomId}/invites`,
+    headers: auth,
+    payload: { role: "observer", expires_in_seconds: 3600 }
+  });
+  expect(invite.statusCode).toBe(201);
+  const inviteBody = invite.json() as { invite_token: string };
+  const pending = await app.inject({ method: "POST", url: `/rooms/${roomId}/join-requests`, payload: { invite_token: inviteBody.invite_token, display_name: displayName } });
+  expect(pending.statusCode).toBe(201);
+  const request = pending.json() as { request_id: string; request_token: string };
+  const approved = await app.inject({ method: "POST", url: `/rooms/${roomId}/join-requests/${request.request_id}/approve`, headers: auth, payload: {} });
+  expect(approved.statusCode).toBe(201);
+  const status = await app.inject({ method: "GET", url: `/rooms/${roomId}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}` });
+  expect(status.statusCode).toBe(200);
+  const joined = status.json() as { participant_id: string; participant_token: string; role: "observer" };
   return { ...joined, auth: { authorization: `Bearer ${joined.participant_token}` } };
 }
 
@@ -192,6 +212,50 @@ describe("CACP server conversation room", () => {
     await app.close();
   });
 
+  it("queues followup for old open turns without stale recovery", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-04-28T00:00:00.000Z"));
+      const { app, room, ownerAuth } = await createRoom();
+      const agent = await registerAgent(app, room.room_id, ownerAuth);
+      await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/select`, headers: ownerAuth, payload: { agent_id: agent.agent_id } });
+      await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "First slow question" } });
+
+      vi.setSystemTime(new Date("2026-04-28T00:03:10.000Z"));
+      expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "Second queued question" } })).statusCode).toBe(201);
+
+      const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
+      expect(events.filter((event) => event.type === "agent.turn.requested")).toHaveLength(1);
+      expect(events.filter((event) => event.type === "agent.turn.followup_queued")).toHaveLength(1);
+      expect(events.some((event) => event.type === "agent.turn.failed" && event.payload.error === "stale_turn_recovered")).toBe(false);
+      await app.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("starts a queued followup after an agent turn fails", async () => {
+    const { app, room, ownerAuth } = await createRoom();
+    const agent = await registerAgent(app, room.room_id, ownerAuth);
+    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/select`, headers: ownerAuth, payload: { agent_id: agent.agent_id } });
+    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "First question" } });
+    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "Second queued question" } });
+
+    let events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
+    const turnId = String(events.find((event) => event.type === "agent.turn.requested")!.payload.turn_id);
+    const agentAuth = { authorization: `Bearer ${agent.agent_token}` };
+
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${turnId}/start`, headers: agentAuth, payload: {} })).statusCode).toBe(201);
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${turnId}/fail`, headers: agentAuth, payload: { error: "CLI exited", exit_code: 1 } })).statusCode).toBe(201);
+
+    events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
+    const requestedTurns = events.filter((event) => event.type === "agent.turn.requested");
+    expect(requestedTurns).toHaveLength(2);
+    expect(requestedTurns[1].payload.reason).toBe("queued_followup");
+    expect(String(requestedTurns[1].payload.context_prompt)).toContain("Second queued question");
+    await app.close();
+  });
+
   it("rejects member collection control", async () => {
     const { app, room, ownerAuth } = await createRoom();
     const member = await joinMember(app, room.room_id, ownerAuth, "Bob");
@@ -207,6 +271,59 @@ describe("CACP server conversation room", () => {
     const memberCancel = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/ai-collection/cancel`, headers: member.auth, payload: {} });
     expect(memberCancel.statusCode).toBe(403);
 
+    await app.close();
+  });
+
+  it("lets members request Roundtable Mode and owner approval starts it atomically", async () => {
+    const { app, room, ownerAuth } = await createRoom();
+    const member = await joinMember(app, room.room_id, ownerAuth, "Bob");
+    const request = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/ai-collection/request`, headers: member.auth, payload: {} });
+    expect(request.statusCode).toBe(201);
+    const requestId = (request.json() as { request_id: string }).request_id;
+
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/ai-collection/request`, headers: member.auth, payload: {} })).statusCode).toBe(409);
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/ai-collection/start`, headers: ownerAuth, payload: {} })).statusCode).toBe(409);
+
+    const approve = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/ai-collection/requests/${requestId}/approve`, headers: ownerAuth, payload: {} });
+    expect(approve.statusCode).toBe(201);
+    const collectionId = (approve.json() as { collection_id: string }).collection_id;
+
+    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
+    const approvedIndex = events.findIndex((event) => event.type === "ai.collection.request_approved");
+    const startedIndex = events.findIndex((event) => event.type === "ai.collection.started");
+    expect(startedIndex).toBe(approvedIndex + 1);
+    expect(events[approvedIndex].payload).toMatchObject({ request_id: requestId, collection_id: collectionId });
+    expect(events[startedIndex].payload).toMatchObject({ request_id: requestId, collection_id: collectionId });
+    await app.close();
+  });
+
+  it("rejects Roundtable requests without starting a collection", async () => {
+    const { app, room, ownerAuth } = await createRoom();
+    const member = await joinMember(app, room.room_id, ownerAuth, "Bob");
+    const request = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/ai-collection/request`, headers: member.auth, payload: {} });
+    const requestId = (request.json() as { request_id: string }).request_id;
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/ai-collection/requests/${requestId}/reject`, headers: ownerAuth, payload: {} })).statusCode).toBe(201);
+    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
+    expect(events.some((event) => event.type === "ai.collection.request_rejected" && event.payload.request_id === requestId)).toBe(true);
+    expect(events.some((event) => event.type === "ai.collection.started")).toBe(false);
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/ai-collection/start`, headers: ownerAuth, payload: {} })).statusCode).toBe(201);
+    await app.close();
+  });
+
+  it("rejects observers and active-turn Roundtable approval", async () => {
+    const { app, room, ownerAuth } = await createRoom();
+    const agent = await registerAgent(app, room.room_id, ownerAuth);
+    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/select`, headers: ownerAuth, payload: { agent_id: agent.agent_id } });
+    const observer = await joinObserver(app, room.room_id, ownerAuth, "Olivia");
+    const member = await joinMember(app, room.room_id, ownerAuth, "Bob");
+
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/ai-collection/request`, headers: observer.auth, payload: {} })).statusCode).toBe(403);
+    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "AI should answer this first." } });
+    const request = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/ai-collection/request`, headers: member.auth, payload: {} });
+    const requestId = (request.json() as { request_id: string }).request_id;
+    const approve = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/ai-collection/requests/${requestId}/approve`, headers: ownerAuth, payload: {} });
+    expect(approve.statusCode).toBe(409);
+    expect(approve.json()).toMatchObject({ error: "active_turn_in_flight" });
     await app.close();
   });
 });

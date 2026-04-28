@@ -47,6 +47,26 @@ export function findOpenTurn(events: CacpEvent[], agentId: string): OpenTurn | u
   return open ? { turn_id: open.turn_id, agent_id: open.agent_id } : undefined;
 }
 
+export function findAnyOpenTurn(events: CacpEvent[]): OpenTurn | undefined {
+  const turns = new Map<string, OpenTurn & { closed: boolean }>();
+  for (const storedEvent of events) {
+    const turnId = typeof storedEvent.payload.turn_id === "string" ? storedEvent.payload.turn_id : undefined;
+    const eventAgentId = typeof storedEvent.payload.agent_id === "string" ? storedEvent.payload.agent_id : undefined;
+    if (!turnId || !eventAgentId) continue;
+    if (storedEvent.type === "agent.turn.requested" || storedEvent.type === "agent.turn.started") {
+      const existing = turns.get(turnId);
+      turns.set(turnId, { turn_id: turnId, agent_id: eventAgentId, closed: existing?.closed ?? false });
+    }
+    if (storedEvent.type === "agent.turn.completed" || storedEvent.type === "agent.turn.failed") {
+      const existing = turns.get(turnId);
+      turns.set(turnId, { turn_id: turnId, agent_id: eventAgentId, closed: true });
+      if (!existing) turns.set(turnId, { turn_id: turnId, agent_id: eventAgentId, closed: true });
+    }
+  }
+  const open = [...turns.values()].find((turn) => !turn.closed);
+  return open ? { turn_id: open.turn_id, agent_id: open.agent_id } : undefined;
+}
+
 export function hasQueuedFollowup(events: CacpEvent[], turnId: string): boolean {
   return events.some((storedEvent) => storedEvent.type === "agent.turn.followup_queued" && storedEvent.payload.turn_id === turnId);
 }
@@ -89,7 +109,7 @@ export function buildAgentContextPrompt(input: { participants: Participant[]; me
     messages || "No recent conversation.",
     "",
     "Reply in concise, actionable Chinese by default. Do not modify files unless explicitly asked.",
-    "If multiple humans should answer before you continue, ask the host to use AI Flow Control to collect answers. Do not output structured governance code blocks."
+    "If multiple humans should answer before you continue, ask the host to use Roundtable Mode to collect answers. Do not output structured governance code blocks."
   ].join("\n");
 }
 
@@ -103,7 +123,7 @@ export function buildCollectedAnswersPrompt(input: { participants: Participant[]
   return [
     `You are ${input.agentName}, an AI agent participating in a CACP multi-person collaboration room.`,
     "",
-    "The host just ended an AI Flow Control collection round. Human messages during the collection were not sent to AI one by one.",
+    "The host just ended a Roundtable Mode collection round. Human messages during the collection were not sent to AI one by one.",
     "Synthesize the collected answers below and continue the discussion without mechanically repeating every message.",
     "",
     "Current room participants:",
@@ -113,6 +133,6 @@ export function buildCollectedAnswersPrompt(input: { participants: Participant[]
     messages || "No collected answers.",
     "",
     "Reply in concise, actionable Chinese by default. Do not modify files unless explicitly asked.",
-    "If more human input is needed, ask the host to keep using AI Flow Control. Do not output structured governance code blocks."
+    "If more human input is needed, ask the host to keep using Roundtable Mode. Do not output structured governance code blocks."
   ].join("\n");
 }

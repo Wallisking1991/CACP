@@ -20,7 +20,7 @@ CACP, short for **Collaborative Agent Communication Protocol**, is a local-first
 - a Fastify/WebSocket room server backed by an append-only event log;
 - a shared protocol package with TypeScript and Zod schemas;
 - a local CLI adapter that can connect tools such as Claude Code, Codex, opencode, or an echo test agent;
-- **AI Flow Control**, where the room owner can collect multiple participant messages and submit one consolidated agent turn.
+- **Roundtable Mode**, where the room owner can gather multiple participant messages and submit one consolidated agent turn.
 
 The live demo is available at: **https://cacp.zuchongai.com/**
 
@@ -42,9 +42,9 @@ In cloud mode, download the Local Connector from the UI and copy the generated c
 
 Room owners can create invite links from the sidebar. Use `member` for active collaborators and `observer` for read-only viewers. Owners can approve join requests, remove participants, and clear room history.
 
-### 5. Collaborate with AI Flow Control
+### 5. Collaborate with Roundtable Mode
 
-Use normal live chat for quick turns. When several people need to contribute before the AI responds, the owner can switch to collection mode, gather participant messages, review them, and submit a single merged prompt to the active agent.
+Use normal live chat for quick turns. When several people need to contribute before the AI responds, use **Roundtable Mode**: members can request it from the composer, the owner approves, participants add their views, and the owner submits one merged prompt to the active agent.
 
 ### 6. Manage the agent
 

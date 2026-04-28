@@ -8,6 +8,7 @@ import Thread from "./Thread.js";
 import Composer from "./Composer.js";
 import MobileDrawer from "./MobileDrawer.js";
 import JoinRequestModal from "./JoinRequestModal.js";
+import RoundtableRequestModal from "./RoundtableRequestModal.js";
 
 export interface WorkspaceProps {
   session: RoomSession;
@@ -23,6 +24,9 @@ export interface WorkspaceProps {
   onApproveJoinRequest: (requestId: string) => void;
   onRejectJoinRequest: (requestId: string) => void;
   onRemoveParticipant: (participantId: string) => void;
+  onRequestRoundtable: () => void;
+  onApproveRoundtableRequest: (requestId: string) => void;
+  onRejectRoundtableRequest: (requestId: string) => void;
   createdInvite?: { url: string; role: string; ttl: number };
   error?: string;
   cloudMode?: boolean;
@@ -43,6 +47,9 @@ export default function Workspace({
   onApproveJoinRequest,
   onRejectJoinRequest,
   onRemoveParticipant,
+  onRequestRoundtable,
+  onApproveRoundtableRequest,
+  onRejectRoundtableRequest,
   createdInvite,
   error,
   cloudMode,
@@ -75,6 +82,7 @@ export default function Workspace({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [showSlowStreamingNotice, setShowSlowStreamingNotice] = useState(false);
   const [dismissedJoinRequestIds, setDismissedJoinRequestIds] = useState<Set<string>>(() => new Set());
+  const [dismissedRoundtableRequestIds, setDismissedRoundtableRequestIds] = useState<Set<string>>(() => new Set());
 
   const streamingKey = useMemo(
     () => room.streamingTurns.map((t) => t.turn_id).join("|"),
@@ -127,6 +135,21 @@ export default function Workspace({
     });
   }, [room.joinRequests]);
 
+  const visibleRoundtableRequest = useMemo(() => {
+    if (!isOwner) return undefined;
+    return room.pendingRoundtableRequest && !dismissedRoundtableRequestIds.has(room.pendingRoundtableRequest.request_id)
+      ? room.pendingRoundtableRequest
+      : undefined;
+  }, [dismissedRoundtableRequestIds, isOwner, room.pendingRoundtableRequest]);
+
+  useEffect(() => {
+    if (room.pendingRoundtableRequest) return;
+    setDismissedRoundtableRequestIds((current) => {
+      if (current.size === 0) return current;
+      return new Set();
+    });
+  }, [room.pendingRoundtableRequest]);
+
   const collectCount = room.activeCollection?.messages.length ?? 0;
 
   const myDisplayName = peopleParticipants.find((p) => p.id === session.participant_id)?.display_name;
@@ -163,10 +186,12 @@ export default function Workspace({
             turnInFlight={turnInFlight}
             collectCount={collectCount}
             canSendMessages={permissions.canSendMessages}
+            pendingRoundtableRequest={Boolean(room.pendingRoundtableRequest)}
             onSend={onSendMessage}
             onToggleMode={composerMode === "live" ? onStartCollection : onCancelCollection}
             onSubmitCollection={onSubmitCollection}
             onCancelCollection={onCancelCollection}
+            onRequestRoundtable={onRequestRoundtable}
           />
 
           {error && (
@@ -183,6 +208,14 @@ export default function Workspace({
         onApprove={onApproveJoinRequest}
         onReject={onRejectJoinRequest}
         onLater={(requestId) => setDismissedJoinRequestIds((current) => new Set(current).add(requestId))}
+      />
+
+      <RoundtableRequestModal
+        request={visibleRoundtableRequest}
+        turnInFlight={turnInFlight}
+        onApprove={onApproveRoundtableRequest}
+        onReject={onRejectRoundtableRequest}
+        onLater={(requestId) => setDismissedRoundtableRequestIds((current) => new Set(current).add(requestId))}
       />
 
       <MobileDrawer
