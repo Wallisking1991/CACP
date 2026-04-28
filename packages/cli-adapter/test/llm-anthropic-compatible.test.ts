@@ -36,6 +36,37 @@ describe("Anthropic-compatible runner", () => {
     expect(result.finalText).toBe("Hello");
   });
 
+  it("throws on SSE error events", async () => {
+    const fetchImpl = vi.fn(async () =>
+      streamResponse('event: error\ndata: {"error":{"type":"authentication_error","message":"invalid API key"}}\n\n')
+    );
+    await expect(
+      runAnthropicCompatibleMessages({
+        config: { provider: "anthropic-compatible", baseUrl: "https://api.example.com/v1", model: "model", apiKey: "secret-key", temperature: 0.7, maxTokens: 1024 },
+        prompt: "room context",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        onDelta: () => {}
+      })
+    ).rejects.toThrow("Provider error: invalid API key");
+  });
+
+  it("sanitizes API keys from HTTP error responses", async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(
+        JSON.stringify({ error: { type: "authentication_error", message: "invalid API key" } }),
+        { status: 401, statusText: "Unauthorized", headers: { "content-type": "application/json" } }
+      )
+    );
+    await expect(
+      runAnthropicCompatibleMessages({
+        config: { provider: "anthropic-compatible", baseUrl: "https://api.example.com/v1", model: "model", apiKey: "sk-secret", temperature: 0.7, maxTokens: 1024 },
+        prompt: "room context",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        onDelta: () => {}
+      })
+    ).rejects.toThrow("401 Unauthorized");
+  });
+
   it("validates connectivity with a short prompt", async () => {
     const fetchImpl = vi.fn(async () =>
       streamResponse('event: content_block_delta\ndata: {"delta":{"type":"text_delta","text":"ok"}}\n\nevent: message_stop\ndata: {}\n\n')

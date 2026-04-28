@@ -8,6 +8,7 @@ import { appendTurnOutput, turnCompleteBody } from "./turn-result.js";
 import { printConnectedBanner } from "./connected-banner.js";
 import { ChatTranscriptWriter } from "./transcript.js";
 import { runLlmTurn } from "./llm/runner.js";
+import { sanitizeLlmError } from "./llm/sanitize.js";
 
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
   console.log("Usage: cacp-cli-adapter [config.json]\n       cacp-cli-adapter --connect <connection_code>\n       cacp-cli-adapter --server <url> --pair <pairing_token>\n\nDouble-click without arguments to paste a CACP connection code.");
@@ -61,7 +62,7 @@ async function main() {
         runningTasks.add(payload.task_id);
         try {
           if (config.llm) {
-            await postJson(config.server_url, `/rooms/${config.room_id}/tasks/${payload.task_id}/fail`, registered.agent_token, { error: "llm_api_agents_do_not_run_tasks" });
+            // Pure conversation LLM API agents do not run tasks; silently ignore
             return;
           }
           await postJson(config.server_url, `/rooms/${config.room_id}/tasks/${payload.task_id}/start`, registered.agent_token, {});
@@ -132,10 +133,12 @@ async function main() {
             }
           }
         } catch (error) {
-          console.error("Adapter turn failed", error);
+          const rawMessage = error instanceof Error ? error.message : String(error);
+          const displayError = config.llm ? sanitizeLlmError(rawMessage, config.llm.apiKey) : rawMessage;
+          console.error("Adapter turn failed", displayError);
           try {
             await postJson(config.server_url, `/rooms/${config.room_id}/agent-turns/${payload.turn_id}/fail`, registered.agent_token, {
-              error: error instanceof Error ? error.message : String(error)
+              error: displayError
             });
           } catch (reportError) {
             console.error("Adapter failed to report turn failure", reportError);

@@ -17,6 +17,17 @@ describe("cli adapter stream wiring", () => {
     expect(source()).toContain("/agent-turns/${payload.turn_id}/delta");
   });
 
+  it("silently ignores task.created for LLM API agents instead of calling fail", () => {
+    expect(source()).not.toContain("llm_api_agents_do_not_run_tasks");
+    expect(source()).toContain("Pure conversation LLM API agents do not run tasks");
+    expect(source()).toContain("if (config.llm)");
+  });
+
+  it("sanitizes LLM runtime errors before sending to server", () => {
+    expect(source()).toContain("sanitizeLlmError");
+    expect(source()).toContain("config.llm ? sanitizeLlmError");
+  });
+
   it("passes parsed stream events into the transcript writer before task handling", () => {
     expect(source()).toContain("transcript.handleEvent(parsed.data)");
   });

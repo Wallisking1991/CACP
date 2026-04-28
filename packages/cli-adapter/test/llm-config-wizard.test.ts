@@ -9,7 +9,8 @@ describe("LLM API config wizard", () => {
       question: vi.fn().mockResolvedValueOnce("https://api.example.com/v1").mockResolvedValueOnce("model-a").mockResolvedValueOnce("0.2").mockResolvedValueOnce("256"),
       secret: vi.fn().mockResolvedValueOnce("secret-key"),
       chooseRetry: vi.fn(),
-      writeLine: (line) => lines.push(line)
+      writeLine: (line) => lines.push(line),
+      close: vi.fn()
     }, validate);
     expect(config).toEqual({ provider: "openai-compatible", baseUrl: "https://api.example.com/v1", model: "model-a", apiKey: "secret-key", temperature: 0.2, maxTokens: 256 });
     expect(validate).toHaveBeenCalledWith(config);
@@ -24,7 +25,8 @@ describe("LLM API config wizard", () => {
       question: vi.fn().mockResolvedValueOnce("https://api.example.com/v1").mockResolvedValueOnce("model-a").mockResolvedValueOnce("").mockResolvedValueOnce(""),
       secret: vi.fn().mockResolvedValueOnce("bad-key"),
       chooseRetry: vi.fn().mockResolvedValueOnce(false),
-      writeLine: (line) => lines.push(line)
+      writeLine: (line) => lines.push(line),
+      close: vi.fn()
     }, validate);
     expect(config).toBeUndefined();
     expect(lines.join("\n")).toContain("LLM API connectivity test failed.");

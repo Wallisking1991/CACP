@@ -8,6 +8,7 @@ export interface LlmConfigPrompter {
   secret(prompt: string): Promise<string>;
   chooseRetry(prompt: string): Promise<boolean>;
   writeLine(line: string): void;
+  close(): void;
 }
 
 type ValidateLlmConfig = (config: LlmProviderConfig) => Promise<LlmConnectivityResult>;
@@ -25,24 +26,28 @@ export async function promptForLlmApiConfig(
   prompter.writeLine("This connection is for an LLM API Agent.");
   prompter.writeLine("Provider settings are required for this connector session.");
   prompter.writeLine("API keys stay on this machine and are never sent to the CACP room server.");
-  while (true) {
-    const baseUrl = (await prompter.question("Base URL: ")).trim();
-    const model = (await prompter.question("Model: ")).trim();
-    const apiKey = (await prompter.secret("API Key: ")).trim();
-    const temperature = numberOrDefault(await prompter.question("Temperature [0.7]: "), 0.7);
-    const maxTokens = Math.trunc(numberOrDefault(await prompter.question("Max tokens [1024]: "), 1024));
-    const config = { provider: providerForAgentType(agentType), baseUrl, model, apiKey, temperature, maxTokens };
-    try {
-      const result = await validate(config);
-      prompter.writeLine(
-        `LLM API connectivity test succeeded. The agent will now connect to the room.${result.sampleText ? ` Sample: ${result.sampleText}` : ""}`
-      );
-      return config;
-    } catch (cause) {
-      prompter.writeLine("LLM API connectivity test failed.");
-      prompter.writeLine(sanitizeLlmError(cause, apiKey));
-      if (!(await prompter.chooseRetry("Re-enter LLM API settings? [Y/n]: "))) return undefined;
+  try {
+    while (true) {
+      const baseUrl = (await prompter.question("Base URL: ")).trim();
+      const model = (await prompter.question("Model: ")).trim();
+      const apiKey = (await prompter.secret("API Key: ")).trim();
+      const temperature = numberOrDefault(await prompter.question("Temperature [0.7]: "), 0.7);
+      const maxTokens = Math.trunc(numberOrDefault(await prompter.question("Max tokens [1024]: "), 1024));
+      const config = { provider: providerForAgentType(agentType), baseUrl, model, apiKey, temperature, maxTokens };
+      try {
+        const result = await validate(config);
+        prompter.writeLine(
+          `LLM API connectivity test succeeded. The agent will now connect to the room.${result.sampleText ? ` Sample: ${result.sampleText}` : ""}`
+        );
+        return config;
+      } catch (cause) {
+        prompter.writeLine("LLM API connectivity test failed.");
+        prompter.writeLine(sanitizeLlmError(cause, apiKey));
+        if (!(await prompter.chooseRetry("Re-enter LLM API settings? [Y/n]: "))) return undefined;
+      }
     }
+  } finally {
+    prompter.close();
   }
 }
 
@@ -58,21 +63,36 @@ export function createConsolePrompter(): LlmConfigPrompter {
       defaultStdout.write(prompt);
       defaultStdin.setRawMode(true);
       let value = "";
-      return await new Promise<string>((resolve) => {
+      let resolved = false;
+
+      return await new Promise<string>((resolve, reject) => {
+        const cleanup = () => {
+          if (resolved) return;
+          resolved = true;
+          try { defaultStdin.setRawMode(false); } catch { /* ignore */ }
+          defaultStdin.off("data", onData);
+          defaultStdout.write("\n");
+        };
+
         const onData = (chunk: Buffer) => {
           const text = chunk.toString("utf8");
-          if (text === "\r" || text === "\n" || text === "\r\n") {
-            defaultStdin.setRawMode(false);
-            defaultStdin.off("data", onData);
-            defaultStdout.write("\n");
-            resolve(value);
-            return;
+          for (const char of text) {
+            if (char === "\r" || char === "\n") {
+              cleanup();
+              resolve(value);
+              return;
+            }
+            if (char === "\b" || char === "\u007f") {
+              value = value.slice(0, -1);
+              continue;
+            }
+            if (char === "\u0003") { // Ctrl+C
+              cleanup();
+              reject(new Error("user_cancelled"));
+              return;
+            }
+            value += char;
           }
-          if (text === "\b" || text === "\u007f") {
-            value = value.slice(0, -1);
-            return;
-          }
-          value += text;
         };
         defaultStdin.on("data", onData);
       });
@@ -81,6 +101,7 @@ export function createConsolePrompter(): LlmConfigPrompter {
       const answer = (await rl.question(prompt)).trim().toLowerCase();
       return answer === "" || answer === "y" || answer === "yes";
     },
-    writeLine: (line) => console.log(line)
+    writeLine: (line) => console.log(line),
+    close: () => rl.close()
   };
 }
