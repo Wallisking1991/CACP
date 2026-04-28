@@ -7,7 +7,7 @@ import websocket from "@fastify/websocket";
 import { z } from "zod";
 import { buildConnectionCode, evaluatePolicy, PolicySchema, VoteRecordSchema, type CacpEvent, type Participant, type Policy, type VoteRecord } from "@cacp/protocol";
 import { requireParticipant, hasAnyRole, hasHumanRole } from "./auth.js";
-import { buildAgentContextPrompt, buildCollectedAnswersPrompt, eventsAfterLastHistoryClear, findActiveAgentId, findOpenTurn, hasQueuedFollowup, recentConversationMessages, type OpenTurn } from "./conversation.js";
+import { buildAgentContextPrompt, buildCollectedAnswersPrompt, eventsAfterLastHistoryClear, findActiveAgentId, findAnyOpenTurn, findOpenTurn, hasQueuedFollowup, recentConversationMessages, type OpenTurn } from "./conversation.js";
 import { EventBus } from "./event-bus.js";
 import { EventStore } from "./event-store.js";
 import { hasAllowedOrigin, loadServerConfig, type ServerConfig } from "./config.js";
@@ -456,10 +456,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return pending;
   }
 
-  function openTurnForActiveAgent(roomId: string): OpenTurn | undefined {
-    const events = store.listEvents(roomId);
-    const activeAgentId = findActiveAgentId(events);
-    return activeAgentId ? findOpenTurn(eventsAfterLastHistoryClear(events), activeAgentId) : undefined;
+  function openTurnInRoom(roomId: string): OpenTurn | undefined {
+    return findAnyOpenTurn(eventsAfterLastHistoryClear(store.listEvents(roomId)));
   }
 
   function collectedMessagesFor(roomId: string, collectionId: string): CollectedMessage[] {
@@ -819,7 +817,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!hasHumanRole(participant, ["owner"])) return deny(reply, "forbidden", 403);
     if (activeCollectionFor(request.params.roomId)) return deny(reply, "active_collection_exists", 409);
     if (pendingCollectionRequestFor(request.params.roomId)) return deny(reply, "pending_collection_request_exists", 409);
-    if (openTurnForActiveAgent(request.params.roomId)) return deny(reply, "active_turn_in_flight", 409);
+    if (openTurnInRoom(request.params.roomId)) return deny(reply, "active_turn_in_flight", 409);
     const collectionId = prefixedId("collection");
     appendAndPublish(event(request.params.roomId, "ai.collection.started", participant.id, {
       collection_id: collectionId,
@@ -846,7 +844,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const pending = pendingCollectionRequestFor(request.params.roomId);
     if (!pending || pending.request_id !== request.params.requestId) return deny(reply, "no_pending_collection_request", 409);
     if (activeCollectionFor(request.params.roomId)) return deny(reply, "active_collection_exists", 409);
-    if (openTurnForActiveAgent(request.params.roomId)) return deny(reply, "active_turn_in_flight", 409);
+    if (openTurnInRoom(request.params.roomId)) return deny(reply, "active_turn_in_flight", 409);
     const collectionId = prefixedId("collection");
     const storedEvents = store.transaction(() => [
       store.appendEvent(event(request.params.roomId, "ai.collection.request_approved", participant.id, { request_id: request.params.requestId, approved_by: participant.id, collection_id: collectionId })),
@@ -872,7 +870,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!hasHumanRole(participant, ["owner"])) return deny(reply, "forbidden", 403);
     const activeCollection = activeCollectionFor(request.params.roomId);
     if (!activeCollection) return deny(reply, "no_active_collection", 409);
-    if (openTurnForActiveAgent(request.params.roomId)) return deny(reply, "active_turn_in_flight", 409);
+    if (openTurnInRoom(request.params.roomId)) return deny(reply, "active_turn_in_flight", 409);
     const activeAgentId = findActiveAgentId(store.listEvents(request.params.roomId));
     const contextPrompt = activeAgentId ? buildCollectedContextPrompt(request.params.roomId, activeAgentId, activeCollection.collection_id) : undefined;
     const collectedMessages = collectedMessagesFor(request.params.roomId, activeCollection.collection_id);

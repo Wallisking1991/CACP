@@ -135,6 +135,10 @@ export function deriveRoomState(events: CacpEvent[]): RoomViewState {
     if ((event.type === "ai.collection.request_approved" || event.type === "ai.collection.request_rejected") && typeof event.payload.request_id === "string") {
       roundtableRequests.delete(event.payload.request_id);
     }
+    if (event.type === "room.history_cleared" && isHistoryClearScope(event.payload.scope)) {
+      roundtableRequests.clear();
+      joinRequests.clear();
+    }
     if (event.type === "agent.registered" && typeof event.payload.agent_id === "string" && typeof event.payload.name === "string") {
       const existing = agents.get(event.payload.agent_id);
       agents.set(event.payload.agent_id, {
@@ -263,12 +267,12 @@ export function isCollectionActive(events: CacpEvent[]): boolean {
 }
 
 export function isTurnInFlight(events: CacpEvent[]): boolean {
-  let started = false;
+  let inFlight = false;
   for (const event of events) {
-    if (event.type === "agent.turn.started") started = true;
-    if (event.type === "agent.turn.completed" || event.type === "agent.turn.failed") started = false;
+    if (event.type === "agent.turn.requested" || event.type === "agent.turn.started") inFlight = true;
+    if (event.type === "agent.turn.completed" || event.type === "agent.turn.failed") inFlight = false;
   }
-  return started;
+  return inFlight;
 }
 
 export function collectedMessageIds(events: CacpEvent[], collectionId: string): string[] {

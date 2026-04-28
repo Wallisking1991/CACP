@@ -47,6 +47,26 @@ export function findOpenTurn(events: CacpEvent[], agentId: string): OpenTurn | u
   return open ? { turn_id: open.turn_id, agent_id: open.agent_id } : undefined;
 }
 
+export function findAnyOpenTurn(events: CacpEvent[]): OpenTurn | undefined {
+  const turns = new Map<string, OpenTurn & { closed: boolean }>();
+  for (const storedEvent of events) {
+    const turnId = typeof storedEvent.payload.turn_id === "string" ? storedEvent.payload.turn_id : undefined;
+    const eventAgentId = typeof storedEvent.payload.agent_id === "string" ? storedEvent.payload.agent_id : undefined;
+    if (!turnId || !eventAgentId) continue;
+    if (storedEvent.type === "agent.turn.requested" || storedEvent.type === "agent.turn.started") {
+      const existing = turns.get(turnId);
+      turns.set(turnId, { turn_id: turnId, agent_id: eventAgentId, closed: existing?.closed ?? false });
+    }
+    if (storedEvent.type === "agent.turn.completed" || storedEvent.type === "agent.turn.failed") {
+      const existing = turns.get(turnId);
+      turns.set(turnId, { turn_id: turnId, agent_id: eventAgentId, closed: true });
+      if (!existing) turns.set(turnId, { turn_id: turnId, agent_id: eventAgentId, closed: true });
+    }
+  }
+  const open = [...turns.values()].find((turn) => !turn.closed);
+  return open ? { turn_id: open.turn_id, agent_id: open.agent_id } : undefined;
+}
+
 export function hasQueuedFollowup(events: CacpEvent[], turnId: string): boolean {
   return events.some((storedEvent) => storedEvent.type === "agent.turn.followup_queued" && storedEvent.payload.turn_id === turnId);
 }
