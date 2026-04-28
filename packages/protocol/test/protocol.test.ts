@@ -72,6 +72,9 @@ describe("CACP event schema", () => {
       "ai.collection.started",
       "ai.collection.submitted",
       "ai.collection.cancelled",
+      "ai.collection.requested",
+      "ai.collection.request_approved",
+      "ai.collection.request_rejected",
       "room.history_cleared"
     ] as const) {
       expect(CacpEventSchema.parse({
