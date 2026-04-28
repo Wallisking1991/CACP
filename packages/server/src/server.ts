@@ -483,7 +483,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       const openTurn = findOpenTurn(turnEvents, activeAgentId);
       return openTurn ? [event(roomId, "agent.turn.failed", actorId, { turn_id: openTurn.turn_id, agent_id: activeAgentId, error: "active_agent_offline" })] : [];
     }
-    const openTurn = findOpenTurn(turnEvents, activeAgentId);
+    const openTurn = findAnyOpenTurn(turnEvents);
     if (openTurn) {
       if (hasQueuedFollowup(turnEvents, openTurn.turn_id)) return [];
       return [event(roomId, "agent.turn.followup_queued", actorId, { turn_id: openTurn.turn_id, agent_id: activeAgentId })];

@@ -1,6 +1,6 @@
-# CACP v0.2：多人 AI 房间与 AI Flow Control
+# CACP v0.2：多人 AI 房间与 Roundtable Mode
 
-CACP v0.2 当前实现聚焦于多人共享房间、Agent pairing、实时事件流和房主控制的 **AI Flow Control**。旧的结构化 Decision/Question 流程已经从当前主实现中移除：服务端不再解析 `cacp-decision`，Web 不再展示 Decisions 面板，创建房间也不再包含 `default_policy`。
+CACP v0.2 当前实现聚焦于多人共享房间、Agent pairing、实时事件流和房主控制的 **Roundtable Mode**。旧的结构化 Decision/Question 流程已经从当前主实现中移除：服务端不再解析 `cacp-decision`，Web 不再展示 Decisions 面板，创建房间也不再包含 `default_policy`。
 
 ## 核心事件
 
@@ -35,7 +35,7 @@ CACP v0.2 当前实现聚焦于多人共享房间、Agent pairing、实时事件
 
 当前 action approval 不再转换为结构化 decision。为了避免误执行高风险动作，服务端会记录请求并返回 rejected，实际协作确认应通过普通聊天和 Roundtable Mode 完成。
 
-### AI Flow Control
+### Roundtable Mode
 
 - `ai.collection.started`
 - `ai.collection.submitted`
@@ -85,7 +85,7 @@ POST /rooms
 - 不再接受或需要 `default_policy`。
 - owner 会作为第一个 human participant 加入房间。
 
-## AI Flow Control
+## Roundtable Mode
 
 ### 开始收集
 
@@ -151,7 +151,7 @@ Authorization: Bearer <owner_token>
 - 如果有 Active Agent，则创建一次 `agent.turn.requested`。
 - `context_prompt` 会包含本轮收集到的多人回答。
 
-### 取消收集
+### 取消圆桌
 
 ```http
 POST /rooms/:roomId/ai-collection/cancel
@@ -193,7 +193,7 @@ Live mode 下：
 2. 如果房间有 online Active Agent，则创建 `agent.turn.requested`；
 3. 如果已有未完成 turn，则追加 `agent.turn.followup_queued`，避免并发重复 turn。
 
-收集模式下：
+Roundtable 模式下：
 
 1. 追加带 `collection_id` 的 `message.created`；
 2. 不创建 Agent turn；
