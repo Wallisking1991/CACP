@@ -122,4 +122,28 @@ describe("adapter config arguments", () => {
       rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  it("configures LLM API settings from connection code before claiming", async () => {
+    const code = buildConnectionCode({ server_url: "https://cacp.example.com", pairing_token: "pair_llm", expires_at: "2026-04-28T08:15:00.000Z", agent_type: "llm-openai-compatible" });
+    const callOrder: string[] = [];
+    const fetchImpl = vi.fn(async () => {
+      callOrder.push("claim");
+      return new Response(JSON.stringify({ room_id: "room_1", agent_id: "agent_1", agent_token: "agent_token", agent: { name: "OpenAI-compatible LLM API Agent", command: "", args: [], working_dir: ".", capabilities: ["llm.api"] }, agent_type: "llm-openai-compatible" }), { status: 201, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+
+    const config = await loadRuntimeConfigFromArgs(["--connect", code], fetchImpl, {
+      configureLlmAgent: async (agentType) => { callOrder.push(`configure:${agentType}`); return { provider: "openai-compatible" as const, baseUrl: "https://api.example.com/v1", model: "model-a", apiKey: "secret", temperature: 0.7, maxTokens: 1024 }; }
+    });
+
+    expect(callOrder).toEqual(["configure:llm-openai-compatible", "claim"]);
+    expect(config.llm?.provider).toBe("openai-compatible");
+    expect(config.agent.command).toBe("");
+  });
+
+  it("does not claim when LLM API configuration is cancelled", async () => {
+    const code = buildConnectionCode({ server_url: "https://cacp.example.com", pairing_token: "pair_llm", expires_at: "2026-04-28T08:15:00.000Z", agent_type: "llm-anthropic-compatible" });
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+    await expect(loadRuntimeConfigFromArgs(["--connect", code], fetchImpl, { configureLlmAgent: async () => undefined })).rejects.toThrow("llm_api_configuration_cancelled");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
 });
