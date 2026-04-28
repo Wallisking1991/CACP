@@ -2,117 +2,167 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project
+## Project Overview
 
-CACP (Collaborative Agent Communication Protocol) — a local-first multi-person AI room demo. A web room lets multiple humans chat with a shared local CLI Agent (Claude Code, Codex, opencode, or echo) over a Fastify + WebSocket server backed by SQLite. Coordination is driven by **AI Flow Control** (owner-only batched collection of participant answers before submitting one Agent turn).
+CACP is a local-first collaborative AI room demo. It consists of a cloud room server, a React web UI, and a local CLI agent connector. Humans create rooms, invite others, and collaborate with AI agents that can execute CLI commands or call LLM APIs.
 
-The repo is Windows-first (PowerShell scripts, `corepack` toolchain).
+## Repository Structure
 
-## Commands
+This is a pnpm workspace monorepo with four packages under `packages/`:
 
-Toolchain: Node 20+, Corepack, pnpm 9.15.4 (declared via `packageManager`).
+- `@cacp/protocol` — Shared TypeScript types, Zod schemas, policy engine, and connection-code encoding. All protocol contracts live here.
+- `@cacp/server` — Fastify HTTP/WebSocket server with SQLite storage (better-sqlite3). Uses event sourcing: all state changes append immutable events to SQLite and broadcast over WebSockets. Handles auth, pairing, invites, join requests, room governance, agent turns, and tasks.
+- `@cacp/web` — React + Vite frontend. Derives all UI state by replaying the event log (shared logic with server). Connects to the server via WebSocket for real-time updates.
+- `@cacp/cli-adapter` — Local CLI agent connector. Connects to a room via WebSocket, receives `task.created` and `agent.turn.requested` events, and either runs shell commands or calls LLM APIs through a provider adapter registry.
 
+## Development Commands
+
+Prerequisites: Node 20+, Corepack enabled (`corepack enable`).
+
+Install dependencies:
 ```bash
-corepack enable
 corepack pnpm install
+```
 
-# full validation: tests then build
+Run validation (tests + build, same as CI):
+```bash
 corepack pnpm check
+```
 
-# all tests / all builds
+Run all tests:
+```bash
 corepack pnpm test
-corepack pnpm build
+```
 
-# dev (each rebuilds @cacp/protocol first)
-corepack pnpm dev:server   # http://127.0.0.1:3737
-corepack pnpm dev:web      # http://127.0.0.1:5173
-corepack pnpm dev:adapter  # uses docs/examples/generic-cli-agent.local.json
-
-# per-package test
-corepack pnpm --filter @cacp/protocol test
+Run tests for a single package:
+```bash
 corepack pnpm --filter @cacp/server test
-corepack pnpm --filter @cacp/cli-adapter test
 corepack pnpm --filter @cacp/web test
-
-# single test file / single test name (vitest)
-corepack pnpm --filter @cacp/server exec vitest run path/to/file.test.ts
-corepack pnpm --filter @cacp/server exec vitest run -t "test name fragment"
+corepack pnpm --filter @cacp/cli-adapter test
 ```
 
-Test services (Windows PowerShell):
-
-```powershell
-.\start-test-services.cmd            # start server + web, tail logs, Ctrl+C stops
-.\start-test-services.ps1 -Restart   # restart background services
-.\start-test-services.ps1 -Stop      # stop tracked services
+Build all packages:
+```bash
+corepack pnpm build
 ```
 
-State for the launcher (logs, pids, generated adapter scripts) lives in `.tmp-test-services/` and is gitignored. After modifying server/web source, restart the test services for changes to take effect.
+Build a specific package:
+```bash
+corepack pnpm --filter @cacp/protocol build
+```
+
+Development servers (each in its own terminal):
+```bash
+# Terminal 1 — server on http://127.0.0.1:3737
+corepack pnpm dev:server
+
+# Terminal 2 — web dev server on http://127.0.0.1:5173 (proxies /rooms and /health to server)
+corepack pnpm dev:web
+
+# Terminal 3 — adapter with example config
+corepack pnpm dev:adapter
+```
+
+Build the Windows Local Connector SEA executable:
+```bash
+corepack pnpm build:connector:win
+```
 
 ## Architecture
 
-### Workspace layout
+### Event Sourcing
 
-pnpm workspace. Four packages under `packages/`:
+All room state is stored as an append-only log of `CacpEvent` records in SQLite. The server never mutates existing events; every action appends new events. Both the server and the web client derive current state by replaying the event log.
 
-- `@cacp/protocol` — pure types, zod schemas (`schemas.ts`) and the legacy `policy-engine.ts`. Imported by everyone via `workspace:*`. **Must be built before other packages run or test** — `dev:*` and `test` scripts already do this via `pnpm --filter @cacp/protocol build`. If you see "cannot find module" errors after editing protocol types, rebuild protocol first.
-- `@cacp/server` — Fastify 5 + `@fastify/websocket` + `better-sqlite3`. Single `src/server.ts` builds the app; `src/index.ts` boots it. SQLite path defaults to `cacp.db` in CWD (env: `PORT`, `HOST`, `CACP_DB`).
-- `@cacp/cli-adapter` — Node bin (`cacp-cli-adapter`) that opens a WebSocket to a room and runs a configured local CLI command per `task.created` / `agent.turn.requested` event. Two startup modes: file config or `--server <url> --pair <token>` (claims a pairing token, then registers).
-- `@cacp/web` — React 19 + Vite. Single-page room UI; all state derived from the event stream.
+Key event types:
+- `room.created`, `participant.joined`, `participant.left`, `participant.removed`
+- `message.created` — human or agent messages
+- `agent.turn.requested`, `agent.turn.started`, `agent.output.delta`, `agent.turn.completed`, `agent.turn.failed` — agent streaming turn lifecycle
+- `ai.collection.started`, `ai.collection.submitted`, `ai.collection.cancelled` — Roundtable Mode (collects human messages before triggering agent)
+- `agent.pairing_created`, `agent.registered`, `agent.status_changed` — agent connection lifecycle
+- `join_request.created`, `join_request.approved`, `join_request.rejected` — owner-approved joins
 
-### Event-sourced room model
+### Protocol Package (`packages/protocol`)
 
-The server is the single source of truth and stores everything as an append-only event log:
+This is the source of truth for all schemas. `packages/protocol/src/schemas.ts` defines every Zod schema and exported type. Changes to event types, payloads, or participant roles must start here.
 
-- `EventStore` (`packages/server/src/event-store.ts`) — `events` and `participants` tables in SQLite. `appendEvent` validates against `CacpEventSchema` and writes JSON.
-- `EventBus` (`event-bus.ts`) — in-memory pub/sub keyed by `room_id`; drives the WebSocket stream at `/rooms/:roomId/stream`.
-- `conversation.ts` — pure helpers that derive room state from event arrays: `findActiveAgentId`, `findOpenTurn`, `hasQueuedFollowup`, `eventsAfterLastHistoryClear`, `recentConversationMessages`, `buildAgentContextPrompt`, `buildCollectedAnswersPrompt`. The server uses these whenever it needs current state — there is no separate state table.
-- Web client mirrors this: `packages/web/src/room-state.ts deriveRoomState` rebuilds participants/agents/messages/streamingTurns/activeCollection from the same event types.
+`packages/protocol/src/policy-engine.ts` evaluates governance policies (`owner_approval`, `majority`, `role_quorum`, `unanimous`, `no_approval`) against vote records.
 
-When adding new behavior, prefer adding an event type and deriving from it on both sides over storing new mutable state. The event type enum lives in `protocol/src/schemas.ts EventTypeSchema` and is the contract between all four packages.
+`packages/protocol/src/connection-code.ts` encodes/decodes base64url pairing tokens used by the CLI adapter.
 
-### Auth & roles
+### Server (`packages/server`)
 
-Tokens (owner, member, observer, agent) are issued at room creation / invite claim / agent register and passed as `Authorization: Bearer <token>`. `auth.ts` resolves a token to a `StoredParticipant` and checks roles via `hasAnyRole` / `hasHumanRole`. Web role permissions are centralized in `packages/web/src/role-permissions.ts`:
+`src/server.ts` builds the Fastify app. It wires together:
+- `EventStore` — SQLite persistence for events, participants, rooms, invites, agent pairings, join requests
+- `EventBus` — in-memory pub/sub for WebSocket broadcasting
+- `conversation.ts` — event-log queries: finding open agent turns, recent messages, building context prompts
+- `auth.ts` — role-based permission checks
+- `config.ts` — environment-based server configuration (`CACP_DEPLOYMENT_MODE`, `CACP_TOKEN_SECRET`, etc.)
 
-- owner: everything, **including AI Flow Control (owner-only)**
-- admin: room controls + chat
-- member: chat only
-- observer: read only
+The server supports two deployment modes:
+- **local** — default, enables local agent auto-launch, permissive CORS
+- **cloud** — requires `CACP_PUBLIC_ORIGIN` and `CACP_TOKEN_SECRET`, disables local launch
 
-### AI Flow Control
+### Web Frontend (`packages/web`)
 
-Owner toggles `POST /rooms/:roomId/ai-collection/start`. While a collection is active:
+`src/room-state.ts` is the client-side state engine. It replays the full event log into a `RoomViewState` object containing participants, messages, agents, streaming turns, collections, and join requests. This mirrors the server's event-log querying logic.
 
-1. Human `message.created` events are tagged with `collection_id` and broadcast immediately.
-2. The server **does not** create `agent.turn.requested` for those messages.
-3. On `submit`, the server emits `ai.collection.submitted`, calls `buildCollectedAnswersPrompt` to merge all queued answers into one prompt, and creates a single `agent.turn.requested`.
-4. `cancel` ends the collection without an Agent turn.
+`src/api.ts` contains all HTTP API calls and WebSocket connection logic.
 
-If a turn is already in flight, new messages append `agent.turn.followup_queued` instead of starting a parallel turn — see `findOpenTurn` / `hasQueuedFollowup`.
+`vite.config.ts` proxies `/rooms` and `/health` to `http://127.0.0.1:3737` during development.
 
-### Agent pairing & local launch
+The web build mode is controlled by `VITE_CACP_DEPLOYMENT_MODE`:
+- `local` (default) — shows local-agent launch UI
+- `cloud` — shows connection-code modal and connector download
 
-`POST /rooms/:roomId/agent-pairings/start-local` (owner/admin) generates an adapter command and invokes a `LocalAgentLauncher`. The default launcher opens a new PowerShell console on Windows. Tests inject a fake launcher via `BuildServerOptions.localAgentLauncher`. Adapter logs land in `.tmp-test-services/adapters/`.
+### CLI Adapter (`packages/cli-adapter`)
 
-`buildAgentProfile` in `pairing.ts` maps `(agent_type, permission_level)` to the actual command + args:
+`src/index.ts` is the entry point. It connects to the room WebSocket and handles two event types:
+- `task.created` — runs a shell command and reports output/completion/failure
+- `agent.turn.requested` — either runs a shell command or calls an LLM API, streaming deltas back to the server
 
-- `claude-code` → `claude -p --output-format text --no-session-persistence ...` with `--permission-mode dontAsk` / `acceptEdits` / `bypassPermissions` for read_only / limited_write / full_access. **Changing permission requires restarting the local agent** — the flag is fixed at spawn time.
-- `codex` → `codex exec -`
-- `opencode` → `opencode run -`
-- `echo` → an inline Node one-liner used for fast end-to-end tests
+`src/llm/runner.ts` executes LLM turns via the provider adapter registry.
+`src/llm/providers/registry.ts` maps provider IDs to adapters. Supported providers include OpenAI, Anthropic, DeepSeek, Kimi, MiniMax, SiliconFlow, GLM, and custom OpenAI/Anthropic-compatible endpoints.
 
-### Removed / legacy surface
+The adapter can be started in three ways:
+- Config file: `cacp-cli-adapter config.json`
+- Connection code: `cacp-cli-adapter --connect <code>`
+- Interactive prompt (double-click): pastes a connection code
 
-The old structured Decision/Question/Policy flow has been removed from the main UI/server flow but the schemas (`PolicySchema`, `VoteRecordSchema`, `proposal.*` events) and `policy-engine.ts` are still present. Don't add new code that depends on `cacp-decision`/`cacp-question` parsing or the `default_policy` field on room creation. The `room.history_cleared` event still tolerates legacy `scope: "messages_and_decisions"` for compatibility with older local databases — keep this fallback intact when touching history-clear logic.
+## Testing
 
-### Protocol versioning
+All packages use Vitest. The web package uses jsdom.
 
-`ProtocolVersionSchema = "0.1.0" | "0.2.0"`. Current docs are `docs/protocol/cacp-v0.2.md`; v0.1 is kept only as historical reference. New events go into `EventTypeSchema` in protocol and must be handled by both `conversation.ts` (server) and `room-state.ts` (web) to actually appear in the UI.
+Server tests should prefer in-memory SQLite by passing `dbPath: ":memory:"` to `buildServer()`.
 
-## Notes for changes
+Run a single test file:
+```bash
+corepack pnpm --filter @cacp/server test -- test/server.test.ts
+corepack pnpm --filter @cacp/web test -- test/room-state.test.ts
+```
 
-- The SQLite file `packages/server/cacp.db` persists across restarts. Delete it to reset all rooms; it is gitignored (`*.db`).
-- `docs/examples/*.local.json` are gitignored — use them for local adapter configs with real tokens.
-- Pairing tokens, invite tokens, and participant tokens are all sensitive — don't log them or echo into chat.
-- `1.md` is the in-room agent persona / workflow guide (used as a system prompt seed for Claude Code agents joining a room). It is not repo-level guidance for Claude Code working on this codebase.
+## Code Style
+
+- Strict TypeScript with ESM/NodeNext module resolution
+- Relative imports use `.js` extensions
+- Two-space indentation, double quotes, semicolons
+- Conventional Commit messages (`feat(server):`, `fix(web):`, `docs:`, `chore:`)
+
+## Important File Locations
+
+- Protocol schemas: `packages/protocol/src/schemas.ts`
+- Server routes and business logic: `packages/server/src/server.ts`
+- Web state derivation: `packages/web/src/room-state.ts`
+- Web API client: `packages/web/src/api.ts`
+- LLM provider registry: `packages/cli-adapter/src/llm/providers/registry.ts`
+- Server config/env vars: `packages/server/src/config.ts`
+- Protocol docs: `docs/protocol/cacp-v0.2.md`
+- Deployment runbook: `docs/deploy-cloud.md`
+- CI: `.github/workflows/ci.yml`
+
+## Notes
+
+- `@cacp/protocol` must be built before other packages can use it. The root `test`, `dev:*`, and `build` scripts handle this automatically.
+- The web UI and server both derive state from the same event log — changes to event semantics may need updates in both `packages/server/src/conversation.ts` and `packages/web/src/room-state.ts`.
+- The CLI adapter's LLM provider adapters follow a consistent pattern: `buildRequest`, `extractTextDelta`, `extractProviderError`, `isTerminalEvent`.
+- Do not commit secrets, local deployment files (`.deploy/*`, `docs/Server info.md`), `.env` files, or SQLite database files.

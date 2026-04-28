@@ -1,122 +1,326 @@
-# CACP — Collaborative Agent Communication Protocol
+# CACP
 
-[中文版本](./README.zh-CN.md) · [Live Experience](https://cacp.zuchongai.com/)
+**Status:** Experimental project  
+**Live Demo:** https://cacp.zuchongai.com/  
+**中文:** [README.zh-CN.md](README.zh-CN.md)
 
-## Vision
+CACP stands for Collaborative Agent Communication Protocol.
 
-CACP is an experiment toward a new AI interaction standard built for multi-person systems. Instead of treating AI as a private one-person chat box, CACP explores shared rooms where multiple humans and one or more agents can discuss, coordinate, decide, and execute through the same event stream.
+It starts from a simple belief: the next generation of AI tools should not only make one person more capable; it should also help groups of people, AI agents, tools, and shared context work together in the same collaborative space.
 
-The goal is to make AI collaboration protocol-first: clients, servers, local connectors, and agent tools should be able to interoperate around common room, role, message, event, and control-flow semantics.
+Most current AI and AI Agent products still assume a one-to-one interaction model: one user talks to one AI assistant or one local coding agent. That model is powerful, but many real-world problems are not solved by one person alone. Product design, software requirements, open-source planning, security reviews, business decisions, and creative work often need multiple people with different knowledge to build a shared understanding before AI can produce a high-quality answer.
 
-<p align="center">
-  <img src="./docs/cacp-concept.en.svg" alt="CACP concept diagram" width="900" />
-</p>
+CACP is an open-source exploration of that missing collaboration layer. It provides a shared AI room where humans can discuss together, invite members or observers, connect a local or API-based agent, and use Roundtable Mode to collect human perspectives before submitting them to AI as one structured context.
 
-## What Is CACP?
+This is an early prototype and protocol experiment. The core experience is already runnable and suitable for trying, studying, and contributing to, but it should not be treated as a production-ready collaboration platform yet.
 
-CACP, short for **Collaborative Agent Communication Protocol**, is a local-first reference platform and protocol layer for collaborative AI rooms. It currently includes:
+![CACP concept diagram](docs/cacp-concept.en.svg)
 
-- a browser-based room for humans to create, join, invite, and discuss;
-- a Fastify/WebSocket room server backed by an append-only event log;
-- a shared protocol package with TypeScript and Zod schemas;
-- a local CLI adapter that can connect tools such as Claude Code, Codex, opencode, or an echo test agent;
-- **Roundtable Mode**, where the room owner can gather multiple participant messages and submit one consolidated agent turn.
+## What is CACP?
 
-The live demo is available at: **https://cacp.zuchongai.com/**
+CACP is a local-first collaborative AI room and protocol experiment.
 
-## User Manual
+It includes:
 
-### 1. Start from the live experience
+- A web room where multiple humans can join the same AI conversation.
+- A room server that stores room state as an append-only event log and broadcasts updates in real time.
+- A local connector that bridges the web room to local CLI agents or LLM API agents.
+- A protocol package that defines shared event types, participant roles, connection codes, and room contracts.
+- Roundtable Mode, which lets people discuss first and send the collected human context to AI only when the room owner submits it.
 
-Open `https://cacp.zuchongai.com/`. Use the public demo for evaluation only; do not enter production secrets, private tokens, or sensitive company data.
+The important boundary is this:
 
-### 2. Create a room
+The public cloud service should host the room experience, not the user’s agent execution. Local CLI agents should continue to run on the user’s own machine through the connector.
 
-Choose **Create Room**, enter a room name and your display name, then select an agent type and permission level. Prefer `read_only` when evaluating a real CLI agent for the first time.
+## Who is it for?
 
-### 3. Connect a local agent
+CACP is designed for two audiences.
 
-In cloud mode, download the Local Connector from the UI and copy the generated connection code. The connector bridges the hosted room to a CLI agent running on your own machine. Closing the connector window disconnects the local agent.
+### For regular users
 
-### 4. Invite collaborators
+Use CACP if you want to try a multi-person AI discussion room where several people can talk with the same AI context.
 
-Room owners can create invite links from the sidebar. Use `member` for active collaborators and `observer` for read-only viewers. Owners can approve join requests, remove participants, and clear room history.
+Possible use cases:
 
-### 5. Collaborate with Roundtable Mode
+- Brainstorming product ideas with several participants.
+- Discussing software requirements with business and technical stakeholders.
+- Exploring a game, app, or creative concept with people from different backgrounds.
+- Letting observers learn how an AI-assisted project discussion unfolds.
+- Testing how local CLI agents or LLM API agents behave inside a shared room.
 
-Use normal live chat for quick turns. When several people need to contribute before the AI responds, use **Roundtable Mode**: members can request it from the composer, the owner approves, participants add their views, and the owner submits one merged prompt to the active agent.
+### For developers
 
-### 6. Manage the agent
+Use CACP if you want to study or contribute to a protocol-first, local-first AI collaboration experiment.
 
-The room sidebar shows agent status, active agent selection, capabilities, and management controls. If an agent is offline, reconnect the local connector or start a new pairing flow.
+Developer areas include:
 
-## Developer Manual
+- Room protocol and event model.
+- Fastify/WebSocket room server.
+- SQLite event store.
+- React + Vite room UI.
+- Local connector and CLI agent adapter.
+- LLM API provider adapters.
+- Invite, pairing, participant, and room governance flows.
 
-### Repository layout
+## Try the live demo
+
+Open:
+
+https://cacp.zuchongai.com/
+
+The live demo is public and experimental. Use it with non-sensitive test topics and test projects only.
+
+## Quick user guide
+
+### 1. Create a room
+
+Open the live demo and choose the create-room flow.
+
+Enter:
+
+- A room name.
+- Your display name.
+- The type of agent you want to connect.
+- The permission level if you choose a local CLI agent.
+
+### 2. Choose an agent type
+
+CACP can connect different kinds of agents.
+
+Local CLI agents:
+
+- Claude Code
+- Codex
+- opencode
+- Echo test agent
+
+LLM API agents:
+
+- OpenAI-compatible providers
+- Anthropic-compatible providers
+- Selected provider-specific adapters such as DeepSeek, Kimi, MiniMax, SiliconFlow, GLM, and others
+
+Integration maturity varies by agent and provider. Claude Code and the LLM API connector flow are the most important reference paths today.
+
+### 3. Download and start the Local Connector
+
+In cloud mode, the browser room cannot directly run your local agent. You need the Local Connector.
+
+Download the connector from the room page when prompted.
+
+Recommended practice:
+
+- Put the connector in the directory where you want the agent to work.
+- Use a test folder or a non-sensitive project first.
+- Avoid production repositories, secret files, private keys, or confidential documents.
+
+Start the connector and paste the CACP connection code shown in the web room.
+
+Keep the connector window open while using the room. Closing it disconnects the local agent.
+
+### 4. Connect an LLM API agent
+
+If you choose an LLM API agent, the connector will ask for provider settings such as base URL, model, and API key.
+
+These settings are used by the local connector. Do not share API keys in room messages, screenshots, issue reports, or logs.
+
+### 5. Invite members or observers
+
+The room owner can create invite links.
+
+Roles:
+
+- Owner: manages the room, approves join requests, starts or submits Roundtable Mode, and manages participants.
+- Member: can participate in the discussion.
+- Observer: can watch the room but does not participate in the conversation.
+- Agent: the connected AI participant.
+
+Invite links are intentionally limited and should be treated as access credentials. Share them only with people you trust.
+
+### 6. Use normal chat
+
+In normal chat mode, messages are sent to the room and can trigger the active agent to respond.
+
+This is useful when the room wants immediate AI feedback.
+
+### 7. Use Roundtable Mode
+
+Roundtable Mode is the key CACP interaction pattern.
+
+Use it when you want people to discuss first before AI answers.
+
+Typical flow:
+
+1. The owner starts Roundtable Mode, or a member requests it and the owner approves.
+2. Participants add their perspectives in the room.
+3. These messages are collected and do not trigger AI one by one.
+4. The owner submits the round.
+5. The agent receives the collected human context and responds once.
+
+This is useful when a topic needs multiple viewpoints, such as product design, architecture discussion, business analysis, or creative brainstorming.
+
+## Safety boundary for users
+
+CACP is designed around a local-first agent boundary, but users still need to be careful.
+
+Important cautions:
+
+- The live demo is experimental. Do not use it for confidential work.
+- Local CLI agents run on your machine and may access the working directory you choose.
+- Use read-only permission for demos unless you intentionally want an agent to edit files.
+- Do not expose tokens, API keys, SSH keys, production configs, private room links, or sensitive files in chat, screenshots, or logs.
+- Only connect agents in directories you trust.
+- Only invite people you trust into rooms that contain meaningful context.
+- If you are unsure, use an LLM API agent or a test folder instead of a local coding agent with write access.
+
+## What CACP is not
+
+CACP is not a hosted coding-agent platform.
+
+CACP is not a replacement for Claude Code, Codex, opencode, or other agents.
+
+CACP is not production-ready collaboration infrastructure.
+
+CACP is an early open-source experiment in how multiple humans and AI agents can communicate through a shared protocol and shared room.
+
+## Project structure
 
 ```text
-packages/protocol     Shared event schemas, types, and protocol contracts
-packages/server       Fastify/WebSocket server, auth, pairing, event store
-packages/cli-adapter  Local CLI connector and runner logic
-packages/web          React + Vite web room UI
-docs/                 Protocol docs, diagrams, examples, deployment notes
-scripts/              Build and utility scripts
+packages/
+  protocol      Shared TypeScript types, Zod schemas, protocol contracts, connection codes
+  server        Fastify/WebSocket room server, SQLite event store, auth, pairing, governance
+  cli-adapter   Local connector and runner logic for CLI agents and LLM API agents
+  web           React + Vite room UI
+
+docs/
+  protocol      Protocol notes
+  examples      Example connector configs
+  superpowers   Design and implementation notes
+
+deploy/
+  Example production deployment files
+
+scripts/
+  Repository utilities such as the Windows Local Connector build script
 ```
 
-### Requirements
+## Local development
 
-Use Node.js 20+, Corepack, and the pinned pnpm version declared in `package.json`.
+Prerequisites:
+
+- Node.js 20 or newer
+- Corepack
+- pnpm version pinned by `packageManager`
+
+Install dependencies:
 
 ```powershell
 corepack enable
 corepack pnpm install
 ```
 
-### Common commands
+Run the full validation:
 
 ```powershell
-corepack pnpm check        # run tests, then build all packages
-corepack pnpm test         # build protocol, then run Vitest recursively
-corepack pnpm build        # build every workspace package
-corepack pnpm dev:server   # run API/WebSocket server on 127.0.0.1:3737
-corepack pnpm dev:web      # run Vite web UI on 127.0.0.1:5173
-corepack pnpm dev:adapter  # run the generic local CLI adapter example
+corepack pnpm check
 ```
 
-For focused package work:
+Run tests:
+
+```powershell
+corepack pnpm test
+```
+
+Build all packages:
+
+```powershell
+corepack pnpm build
+```
+
+Start local development services:
+
+```powershell
+corepack pnpm dev:server
+corepack pnpm dev:web
+corepack pnpm dev:adapter
+```
+
+For focused tests:
 
 ```powershell
 corepack pnpm --filter @cacp/server test
 corepack pnpm --filter @cacp/web test
+corepack pnpm --filter @cacp/cli-adapter test
 ```
 
-### Local development flow
+Build the Windows Local Connector executable:
 
-1. Start the server with `corepack pnpm dev:server`.
-2. Start the web UI with `corepack pnpm dev:web`.
-3. Create a room in the browser.
-4. Copy an example adapter config from `docs/examples/*.json` to an ignored `.local.json` file.
-5. Run `corepack pnpm dev:adapter` to connect a local agent.
+```powershell
+corepack pnpm build:connector:win
+```
 
-On Windows, `start-test-services.ps1` and `start-test-services.cmd` can start or restart background test services. Runtime logs and generated adapter launch scripts are written to `.tmp-test-services/`.
+## Developer notes
 
-### Protocol development
+Important files:
 
-The protocol is event-sourced. Add new behavior by defining an event contract first, then deriving state from events. When changing event types or payloads, update:
+- Protocol schemas: `packages/protocol/src/schemas.ts`
+- Connection-code helper: `packages/protocol/src/connection-code.ts`
+- Server app and routes: `packages/server/src/server.ts`
+- Event store: `packages/server/src/event-store.ts`
+- Server conversation helpers: `packages/server/src/conversation.ts`
+- Agent profile mapping: `packages/server/src/pairing.ts`
+- Web API client: `packages/web/src/api.ts`
+- Web state derivation: `packages/web/src/room-state.ts`
+- CLI adapter entrypoint: `packages/cli-adapter/src/index.ts`
+- LLM provider registry: `packages/cli-adapter/src/llm/providers/registry.ts`
 
-- `packages/protocol/src/schemas.ts`;
-- server-side derivation and route behavior in `packages/server/src/*`;
-- web room-state derivation in `packages/web/src/room-state.ts`;
-- tests and protocol documentation under `docs/protocol/`.
+When changing protocol event contracts, update:
 
-### Security and configuration
+- The protocol schema.
+- Server logic that creates or derives from the event.
+- Web room-state derivation.
+- Package tests.
+- Documentation if the behavior is user-visible.
 
-Never commit `.env`, `.deploy/*`, `docs/Server info.md`, local connector configs, SQLite databases, SSH keys, participant tokens, invite tokens, pairing codes, or production configuration. The public demo is for testing the interaction model, not for sensitive workloads.
+## Developer safety boundary
+
+Only the room server and web UI should be public.
+
+Agent execution should stay local to the user through the connector.
+
+Do not commit:
+
+- `.env`
+- `.deploy/*`
+- `docs/Server info.md`
+- `docs/deploy-cloud.md`
+- `docs/examples/*.local.json`
+- SQLite database files
+- SSH keys
+- API keys
+- production config
+- connector tokens
+- screenshots or logs that expose room, invite, pairing, participant, or connector secrets
+
+## Contributing
+
+Contributions are welcome, especially in these areas:
+
+- Protocol design and event semantics.
+- Room UX and Roundtable Mode improvements.
+- Local Connector usability.
+- Agent adapter compatibility.
+- LLM provider adapters.
+- Security review and hardening.
+- Documentation and examples.
+
+Before opening a pull request, run the relevant tests and include validation notes. For visible UI changes, include screenshots or recordings when possible.
 
 ## Contact
 
-For feedback, collaboration, or deployment questions, contact:
+Project contact emails:
 
 - 453043662@qq.com
 - wangzuchong@gmail.com
 - 1023289914@qq.com
+

@@ -1,122 +1,326 @@
-# CACP — 协同式智能体通信协议
+# CACP
 
-[English](./README.md) · [体验地址](https://cacp.zuchongai.com/)
+**状态：** 实验性项目  
+**在线体验：** https://cacp.zuchongai.com/  
+**English:** [README.md](README.md)
 
-## 愿景
+CACP 的全称是 Collaborative Agent Communication Protocol，我把它称为协同式智能体通信协议。
 
-CACP 希望形成一种新的、基于多人系统的 AI 交互规范。它不再把 AI 视为“一个人和一个聊天框”的私有工具，而是探索一种共享房间模式：多个人类用户与一个或多个 Agent 在同一事件流中讨论、协调、决策和执行。
+这个项目来自一个很简单的理念：下一阶段的 AI 工具，不应该只让一个人变得更强，也应该帮助多个人、AI Agent、工具和共享上下文在同一个协作空间里共同工作。
 
-这个项目的目标是让 AI 协作变成 protocol-first：客户端、服务器、本地连接器和不同 Agent 工具，都可以围绕统一的房间、角色、消息、事件和控制流语义进行互操作。
+现在大多数 AI 和 AI Agent 产品，默认仍然是一个人和一个 AI 对话。这个模式已经非常有价值，但现实世界里很多高价值问题并不是一个人独立解决的。产品设计、软件需求、开源项目规划、安全评审、业务决策和创意讨论，往往都需要不同专业背景的人先形成共同上下文，然后 AI 才能基于更完整的信息给出高质量结果。
 
-<p align="center">
-  <img src="./docs/cacp-concept.svg" alt="CACP 概念图" width="900" />
-</p>
+CACP 是对这层多人 AI 协作协议的开源探索。它提供一个共享 AI 房间，让多个人可以一起讨论，邀请成员或观察者，接入本地或 API 形式的 Agent，并通过圆桌模式先收集人的多视角观点，再统一提交给 AI。
+
+这是一个早期开源原型和协议实验。核心体验已经可以运行，适合试用、研究和贡献，但它还不是生产级协作平台。
+
+![CACP 概念图](docs/cacp-concept.svg)
 
 ## CACP 是什么？
 
-CACP 是 **Collaborative Agent Communication Protocol** 的缩写，可理解为“协同式智能体通信协议”。它是一个本地优先的多人 AI 协作协议层和参考平台。目前包含：
+CACP 是一个 local-first 的多人协作 AI 房间和协议实验。
 
-- 面向人类用户的 Web 房间，用于创建、加入、邀请和讨论；
-- 基于 Fastify/WebSocket 的房间服务器，使用追加式事件日志保存状态；
-- 共享 TypeScript/Zod 协议包，用于统一事件和类型契约；
-- 本地 CLI Adapter，可连接 Claude Code、Codex、opencode 或 echo 测试 Agent；
-- **圆桌模式**：房主可以先汇集多位成员的输入，再合并成一次 Agent 轮次提交。
+它包含：
 
-体验地址：**https://cacp.zuchongai.com/**
+- 一个 Web 房间，支持多个人进入同一个 AI 对话上下文。
+- 一个房间服务，用事件日志保存状态，并通过 WebSocket 实时广播。
+- 一个本地连接器，用来把 Web 房间连接到本地 CLI Agent 或 LLM API Agent。
+- 一个协议包，定义共享事件类型、参与者角色、连接码和房间契约。
+- 一个圆桌模式，让人先充分讨论，再由房主把本轮收集到的上下文统一提交给 AI。
 
-## 用户手册
+这里最重要的边界是：
 
-### 1. 打开体验地址
+公开云端服务应该只承载房间体验，而不应该托管用户的本地 Agent 执行。本地 CLI Agent 应该继续运行在用户自己的电脑上，并通过连接器接入房间。
 
-访问 `https://cacp.zuchongai.com/`。该地址用于体验和验证交互模型，请不要输入生产密钥、私有 token 或敏感企业数据。
+## 面向谁？
 
-### 2. 创建房间
+CACP 面向两类人。
 
-选择 **Create Room / 创建房间**，填写房间名称和你的显示名称，然后选择 Agent 类型和权限级别。首次连接真实 CLI Agent 时，建议优先使用 `read_only`。
+### 普通用户
 
-### 3. 连接本地 Agent
+如果你想体验一个多人 AI 讨论房间，让几个人在同一个上下文里和 AI 一起讨论问题，可以尝试 CACP。
 
-在云端体验模式下，可以从界面下载 Local Connector，并复制生成的 connection code。Connector 会把云端房间桥接到你本机运行的 CLI Agent。关闭 Connector 窗口后，本地 Agent 会断开连接。
+可能的使用场景包括：
 
-### 4. 邀请协作者
+- 多人一起进行产品创意头脑风暴。
+- 业务人员和技术人员一起讨论软件需求。
+- 从不同专业视角设计一个游戏、应用或创意项目。
+- 让观察者学习一个 AI 辅助项目讨论是如何展开的。
+- 测试本地 CLI Agent 或 LLM API Agent 在共享房间里的表现。
 
-房主可以在侧边栏生成邀请链接。`member` 适合参与讨论和发言的成员，`observer` 适合只读观察者。房主可以批准加入请求、移除参与者、清空房间历史。
+### 开发者
 
-### 5. 使用圆桌模式协作
+如果你想研究或贡献一个 protocol-first、local-first 的 AI 协作实验项目，可以从 CACP 的代码和协议开始。
 
-快速讨论可以直接使用普通实时聊天。如果需要多人先发表意见，再让 AI 统一处理，可以使用 **圆桌模式**：成员可在输入区一键申请，房主同意后大家加入观点，最后由房主一次性提交给当前激活的 Agent。
+可以参与的方向包括：
 
-### 6. 管理 Agent
+- 房间协议和事件模型。
+- Fastify 和 WebSocket 房间服务。
+- SQLite 事件存储。
+- React + Vite 房间界面。
+- 本地连接器和 CLI Agent 适配器。
+- LLM API Provider 适配器。
+- 邀请、配对、参与者和房间治理流程。
 
-侧边栏会显示 Agent 状态、当前激活的 Agent、能力标签和管理入口。如果 Agent 离线，可以重新连接 Local Connector，或重新发起 pairing 流程。
+## 在线体验
 
-## 开发者手册
+打开：
 
-### 仓库结构
+https://cacp.zuchongai.com/
+
+在线体验环境是公开的，也是实验性的。请只用于非敏感话题和测试项目。
+
+## 普通用户使用说明
+
+### 1. 创建房间
+
+打开在线体验地址，选择创建房间。
+
+你需要填写：
+
+- 房间名称。
+- 你的显示名称。
+- 希望接入的 Agent 类型。
+- 如果选择本地 CLI Agent，还需要选择权限级别。
+
+### 2. 选择 Agent 类型
+
+CACP 可以接入不同类型的 Agent。
+
+本地 CLI Agent：
+
+- Claude Code
+- Codex
+- opencode
+- Echo 测试 Agent
+
+LLM API Agent：
+
+- OpenAI 兼容接口
+- Anthropic 兼容接口
+- 一些模型服务商适配器，例如 DeepSeek、Kimi、MiniMax、SiliconFlow、GLM 等
+
+不同 Agent 和 Provider 的成熟度不完全一致。当前最重要的参考路径是 Claude Code 和 LLM API Connector 流程。
+
+### 3. 下载并启动 Local Connector
+
+在云端体验模式下，浏览器房间不能直接运行你的本地 Agent，因此需要 Local Connector，也就是本地连接器。
+
+创建房间后，页面会提示下载连接器。
+
+建议：
+
+- 把连接器放在你希望 Agent 工作的目录里。
+- 第一次体验时，优先使用测试目录或非敏感项目。
+- 不要把生产仓库、密钥文件、私钥或机密文档作为测试目录。
+
+启动连接器后，把 Web 房间里显示的 CACP 连接码复制并粘贴到连接器窗口里。
+
+使用房间时请保持连接器窗口打开。关闭它会断开本地 Agent。
+
+### 4. 连接 LLM API Agent
+
+如果你选择 LLM API Agent，连接器会在本地询问 Provider、Base URL、模型名称和 API Key 等信息。
+
+这些配置用于本地连接器。请不要在房间消息、截图、Issue、日志或公开讨论里暴露 API Key。
+
+### 5. 邀请成员或观察者
+
+房主可以创建邀请链接。
+
+角色说明：
+
+- Owner：房主，管理房间，审批加入请求，启动和提交圆桌模式，管理参与者。
+- Member：成员，可以参与讨论和发送消息。
+- Observer：观察者，只能查看房间内容，不参与对话。
+- Agent：接入房间的 AI 参与者。
+
+邀请链接应当被视为访问凭证。只分享给你信任的人。
+
+### 6. 使用普通聊天
+
+在普通聊天模式下，消息会发送到房间，并可以触发当前 Active Agent 回复。
+
+这个模式适合需要 AI 立即反馈的场景。
+
+### 7. 使用圆桌模式
+
+圆桌模式是 CACP 当前最核心的交互模式。
+
+当你希望先让多人充分讨论，再让 AI 基于大家的讨论统一回答时，可以使用圆桌模式。
+
+典型流程：
+
+1. 房主启动圆桌模式，或者成员申请圆桌模式后由房主批准。
+2. 参与者在房间里从各自视角补充观点。
+3. 这些消息会被收集起来，不会逐条触发 AI。
+4. 房主提交本轮圆桌讨论。
+5. Agent 收到这一轮收集到的人类上下文，并统一回复一次。
+
+这个模式适合产品设计、架构讨论、业务分析、需求澄清、创意头脑风暴等需要多视角输入的场景。
+
+## 普通用户安全边界
+
+CACP 采用 local-first 的 Agent 边界设计，但用户仍然需要谨慎使用。
+
+重要提醒：
+
+- 在线体验环境是实验性的，不要用于机密工作。
+- 本地 CLI Agent 运行在你的电脑上，可能访问你选择的工作目录。
+- 公开演示时建议优先使用只读权限，除非你明确希望 Agent 修改文件。
+- 不要在聊天、截图或日志里暴露 token、API Key、SSH Key、生产配置、私有房间链接或敏感文件。
+- 只在你信任的目录中连接 Agent。
+- 只邀请你信任的人进入包含有意义上下文的房间。
+- 如果不确定安全边界，建议使用 LLM API Agent 或测试目录，而不是给本地代码 Agent 写入权限。
+
+## CACP 不是什么
+
+CACP 不是一个托管式代码 Agent 平台。
+
+CACP 不是 Claude Code、Codex、opencode 或其他 Agent 的替代品。
+
+CACP 还不是生产级协作基础设施。
+
+CACP 是一个早期开源实验，用来探索多个人类和 AI Agent 如何通过共享协议和共享房间进行沟通。
+
+## 项目结构
 
 ```text
-packages/protocol     共享事件 schema、类型和协议契约
-packages/server       Fastify/WebSocket 服务器、认证、配对、事件存储
-packages/cli-adapter  本地 CLI 连接器和命令运行逻辑
-packages/web          React + Vite Web 房间界面
-docs/                 协议文档、图示、示例和部署说明
-scripts/              构建和工具脚本
+packages/
+  protocol      共享 TypeScript 类型、Zod schema、协议契约、连接码
+  server        Fastify/WebSocket 房间服务、SQLite 事件存储、认证、配对、治理
+  cli-adapter   本地连接器，以及 CLI Agent 和 LLM API Agent 的运行逻辑
+  web           React + Vite 房间界面
+
+docs/
+  protocol      协议说明
+  examples      连接器配置示例
+  superpowers   设计和实现记录
+
+deploy/
+  示例生产部署文件
+
+scripts/
+  仓库工具，例如 Windows Local Connector 构建脚本
 ```
 
-### 环境要求
+## 本地开发
 
-使用 Node.js 20+、Corepack，以及 `package.json` 中声明的 pnpm 版本。
+前置要求：
+
+- Node.js 20 或更高版本
+- Corepack
+- 使用 `packageManager` 中固定的 pnpm 版本
+
+安装依赖：
 
 ```powershell
 corepack enable
 corepack pnpm install
 ```
 
-### 常用命令
+运行完整验证：
 
 ```powershell
-corepack pnpm check        # 先运行测试，再构建所有包
-corepack pnpm test         # 构建 protocol，然后递归运行 Vitest
-corepack pnpm build        # 构建所有 workspace package
-corepack pnpm dev:server   # 启动 API/WebSocket server，地址 127.0.0.1:3737
-corepack pnpm dev:web      # 启动 Vite Web UI，地址 127.0.0.1:5173
-corepack pnpm dev:adapter  # 启动通用本地 CLI adapter 示例
+corepack pnpm check
 ```
 
-针对单个包调试：
+运行测试：
+
+```powershell
+corepack pnpm test
+```
+
+构建所有包：
+
+```powershell
+corepack pnpm build
+```
+
+启动本地开发服务：
+
+```powershell
+corepack pnpm dev:server
+corepack pnpm dev:web
+corepack pnpm dev:adapter
+```
+
+运行单个包的测试：
 
 ```powershell
 corepack pnpm --filter @cacp/server test
 corepack pnpm --filter @cacp/web test
+corepack pnpm --filter @cacp/cli-adapter test
 ```
 
-### 本地开发流程
+构建 Windows Local Connector 可执行文件：
 
-1. 使用 `corepack pnpm dev:server` 启动服务器。
-2. 使用 `corepack pnpm dev:web` 启动 Web UI。
-3. 在浏览器中创建房间。
-4. 将 `docs/examples/*.json` 示例复制成 git 忽略的 `.local.json` 配置。
-5. 运行 `corepack pnpm dev:adapter` 连接本地 Agent。
+```powershell
+corepack pnpm build:connector:win
+```
 
-在 Windows 上，也可以使用 `start-test-services.ps1` 或 `start-test-services.cmd` 启动、重启后台测试服务。运行日志和生成的 adapter 启动脚本会写入 `.tmp-test-services/`。
+## 开发者说明
 
-### 协议开发原则
+重要文件：
 
-CACP 采用事件溯源模型。新增行为时，优先定义事件契约，再从事件推导状态。修改事件类型或 payload 时，通常需要同步更新：
+- 协议 schema：`packages/protocol/src/schemas.ts`
+- 连接码工具：`packages/protocol/src/connection-code.ts`
+- 服务端应用和路由：`packages/server/src/server.ts`
+- 事件存储：`packages/server/src/event-store.ts`
+- 服务端对话辅助逻辑：`packages/server/src/conversation.ts`
+- Agent profile 映射：`packages/server/src/pairing.ts`
+- Web API 客户端：`packages/web/src/api.ts`
+- Web 房间状态派生：`packages/web/src/room-state.ts`
+- CLI Adapter 入口：`packages/cli-adapter/src/index.ts`
+- LLM Provider Registry：`packages/cli-adapter/src/llm/providers/registry.ts`
 
-- `packages/protocol/src/schemas.ts`；
-- `packages/server/src/*` 中的服务端派生逻辑和路由行为；
-- `packages/web/src/room-state.ts` 中的前端房间状态派生；
-- 测试用例和 `docs/protocol/` 下的协议文档。
+如果修改协议事件契约，通常需要同步更新：
 
-### 安全与配置
+- 协议 schema。
+- 服务端创建或派生该事件的逻辑。
+- Web 房间状态派生。
+- 相关包测试。
+- 如果行为对用户可见，还需要更新文档。
 
-不要提交 `.env`、`.deploy/*`、`docs/Server info.md`、本地 connector 配置、SQLite 数据库、SSH key、participant token、invite token、pairing code 或生产配置。公开体验环境适合验证交互模型，不适合承载敏感业务数据。
+## 开发者安全边界
+
+只有房间服务和 Web UI 应该公开部署。
+
+Agent 执行应当通过连接器留在用户本地。
+
+不要提交：
+
+- `.env`
+- `.deploy/*`
+- `docs/Server info.md`
+- `docs/deploy-cloud.md`
+- `docs/examples/*.local.json`
+- SQLite 数据库文件
+- SSH Key
+- API Key
+- 生产配置
+- connector token
+- 包含房间、邀请、配对、参与者或连接器秘密的截图和日志
+
+## 参与贡献
+
+欢迎贡献，尤其是这些方向：
+
+- 协议设计和事件语义。
+- 房间体验和圆桌模式改进。
+- Local Connector 易用性。
+- Agent 适配兼容性。
+- LLM Provider 适配器。
+- 安全审查和加固。
+- 文档和示例。
+
+提交 Pull Request 前，请运行相关测试，并在 PR 中说明验证命令。涉及可见 UI 的改动，建议附上截图或录屏。
 
 ## 联系方式
 
-如需反馈、合作或部署沟通，可以联系：
+项目联系邮箱：
 
 - 453043662@qq.com
 - wangzuchong@gmail.com
 - 1023289914@qq.com
+
