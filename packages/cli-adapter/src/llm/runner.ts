@@ -46,8 +46,13 @@ export async function runLlmTurn(options: RunLlmTurnOptions): Promise<LlmRunResu
         throw new Error(sanitizeLlmError(`Provider error: ${errorMsg}`, options.llm.apiKey));
       }
       if (adapter.isTerminalEvent(event)) break;
-      const chunk = adapter.extractTextDelta(event);
+      let chunk = adapter.extractTextDelta(event);
       if (!chunk) continue;
+      // Defensive: some providers (e.g. MiniMax) may send cumulative content
+      // instead of incremental deltas. Detect and extract only the new suffix.
+      if (chunk.length > finalText.length && chunk.startsWith(finalText)) {
+        chunk = chunk.slice(finalText.length);
+      }
       finalText += chunk;
       await options.onDelta(chunk);
     }
@@ -60,13 +65,27 @@ export async function runLlmTurn(options: RunLlmTurnOptions): Promise<LlmRunResu
   return { finalText };
 }
 
+function stripThinkingOptionsForValidation(options: Record<string, unknown>): Record<string, unknown> {
+  const stripped = { ...options };
+  delete stripped.enable_thinking;
+  delete stripped.thinking_budget;
+  delete stripped.thinking_type;
+  delete stripped.thinking_budget_tokens;
+  delete stripped.reasoning_split;
+  delete stripped.reasoning_effort;
+  return stripped;
+}
+
 export async function validateLlmConnectivity(config: LlmProviderConfig, fetchImpl?: typeof fetch): Promise<{ ok: true; sampleText: string }> {
   const result = await runLlmTurn({
-    llm: config,
+    llm: {
+      ...config,
+      options: stripThinkingOptionsForValidation(config.options)
+    },
     prompt: "Connectivity test. Reply with a short OK.",
     fetchImpl,
     onDelta: () => {},
-    maxTokensOverride: 16
+    maxTokensOverride: 256
   });
   return { ok: true as const, sampleText: result.finalText };
 }

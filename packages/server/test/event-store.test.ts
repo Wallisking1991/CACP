@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import Database from "better-sqlite3";
 import type { CacpEvent } from "@cacp/protocol";
 import { EventStore } from "../src/event-store.js";
 
@@ -45,6 +49,55 @@ describe("EventStore", () => {
       expect(stored.agent_type).toBe("llm-api");
     } finally {
       store.close();
+    }
+  });
+
+  it("migrates old agent_pairings schema that lacks llm-api", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "cacp-event-store-migrate-"));
+    const dbPath = join(tempDir, "test.db");
+
+    try {
+      // Simulate a database that was previously migrated to include
+      // llm-openai-compatible but not the newer llm-api type.
+      const db = new Database(dbPath);
+      db.exec(`
+        CREATE TABLE agent_pairings (
+          pairing_id TEXT PRIMARY KEY,
+          room_id TEXT NOT NULL,
+          token_hash TEXT NOT NULL UNIQUE,
+          created_by TEXT NOT NULL,
+          agent_type TEXT NOT NULL CHECK(agent_type IN ('claude-code', 'codex', 'opencode', 'echo', 'llm-openai-compatible', 'llm-anthropic-compatible')),
+          permission_level TEXT NOT NULL CHECK(permission_level IN ('read_only', 'limited_write', 'full_access')),
+          working_dir TEXT NOT NULL CHECK(length(working_dir) <= 500),
+          created_at TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          claimed_at TEXT
+        );
+        INSERT INTO agent_pairings (pairing_id, room_id, token_hash, created_by, agent_type, permission_level, working_dir, created_at, expires_at)
+        VALUES ('pair_old', 'room_old', 'sha256:old', 'owner', 'llm-openai-compatible', 'read_only', '.', '2026-04-28T00:00:00.000Z', '2026-04-28T00:15:00.000Z');
+      `);
+      db.close();
+
+      // Re-opening with EventStore should migrate the table
+      const store = new EventStore(dbPath);
+      try {
+        const stored = store.createAgentPairing({
+          pairing_id: "pair_new",
+          room_id: "room_new",
+          token_hash: "sha256:new",
+          created_by: "user_owner",
+          agent_type: "llm-api",
+          permission_level: "read_only",
+          working_dir: ".",
+          created_at: "2026-04-28T00:00:00.000Z",
+          expires_at: "2026-04-28T00:15:00.000Z"
+        });
+        expect(stored.agent_type).toBe("llm-api");
+      } finally {
+        store.close();
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
     }
   });
 });

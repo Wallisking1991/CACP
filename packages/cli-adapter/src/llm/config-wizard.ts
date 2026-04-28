@@ -22,6 +22,19 @@ function numberOrDefault(value: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function positiveIntOrDefault(value: string, fallback: number): number {
+  const n = numberOrDefault(value, fallback);
+  return Math.max(1, Math.trunc(n));
+}
+
+function temperatureOrDefault(value: string, fallback: number): number {
+  return clamp(numberOrDefault(value, fallback), 0, 2);
+}
+
 function booleanOrUndefined(value: string): boolean | undefined {
   const trimmed = value.trim().toLowerCase();
   if (trimmed === "y" || trimmed === "yes") return true;
@@ -122,59 +135,69 @@ async function promptAdvancedOptions(
   switch (providerId) {
     case "siliconflow": {
       const temp = stringOrUndefined(await prompter.question(`Temperature [${temperatureDefault ?? "0.7"}]: `));
-      if (temp !== undefined) options.temperature = numberOrDefault(temp, temperatureDefault ?? 0.7);
+      if (temp !== undefined) options.temperature = temperatureOrDefault(temp, temperatureDefault ?? 0.7);
       const maxTokens = stringOrUndefined(await prompter.question(`Max tokens [${maxTokensDefault ?? 1024}]: `));
-      if (maxTokens !== undefined) options.max_tokens = Math.trunc(numberOrDefault(maxTokens, maxTokensDefault ?? 1024));
+      if (maxTokens !== undefined) options.max_tokens = positiveIntOrDefault(maxTokens, maxTokensDefault ?? 1024);
       const enableThinking = booleanOrUndefined(await prompter.question("Enable thinking [provider default / y / n]: "));
       if (enableThinking !== undefined) options.enable_thinking = enableThinking;
       const thinkingBudget = stringOrUndefined(await prompter.question(`Thinking budget [${maxTokensDefault ?? 4096}, 128-32768]: `));
-      if (thinkingBudget !== undefined) options.thinking_budget = Math.trunc(numberOrDefault(thinkingBudget, maxTokensDefault ?? 4096));
+      if (thinkingBudget !== undefined) options.thinking_budget = positiveIntOrDefault(thinkingBudget, maxTokensDefault ?? 4096);
       const minP = stringOrUndefined(await prompter.question("min_p [blank=provider default, 0-1]: "));
-      if (minP !== undefined) options.min_p = numberOrDefault(minP, 0);
+      if (minP !== undefined) options.min_p = clamp(numberOrDefault(minP, 0), 0, 1);
       break;
     }
     case "kimi":
     case "glm-official": {
       const temp = stringOrUndefined(await prompter.question(`Temperature [${temperatureDefault ?? 0.7}]: `));
-      if (temp !== undefined) options.temperature = numberOrDefault(temp, temperatureDefault ?? 0.7);
+      if (temp !== undefined) options.temperature = temperatureOrDefault(temp, temperatureDefault ?? 0.7);
       const maxTokens = stringOrUndefined(await prompter.question(`Max tokens [${maxTokensDefault ?? 1024}]: `));
-      if (maxTokens !== undefined) options.max_tokens = Math.trunc(numberOrDefault(maxTokens, maxTokensDefault ?? 1024));
+      if (maxTokens !== undefined) options.max_tokens = positiveIntOrDefault(maxTokens, maxTokensDefault ?? 1024);
       const thinkingType = stringOrUndefined(await prompter.question("Thinking mode [provider default / enabled / disabled]: "));
       if (thinkingType !== undefined) options.thinking_type = thinkingType;
       break;
     }
     case "minimax": {
       const temp = stringOrUndefined(await prompter.question(`Temperature [${temperatureDefault ?? 1.0}]: `));
-      if (temp !== undefined) options.temperature = numberOrDefault(temp, temperatureDefault ?? 1.0);
+      if (temp !== undefined) options.temperature = temperatureOrDefault(temp, temperatureDefault ?? 1.0);
       const maxTokens = stringOrUndefined(await prompter.question(`Max tokens [${maxTokensDefault ?? 1024}]: `));
-      if (maxTokens !== undefined) options.max_tokens = Math.trunc(numberOrDefault(maxTokens, maxTokensDefault ?? 1024));
+      if (maxTokens !== undefined) options.max_tokens = positiveIntOrDefault(maxTokens, maxTokensDefault ?? 1024);
       const reasoningSplit = booleanOrUndefined(await prompter.question("Reasoning split [provider default / y / n]: "));
       if (reasoningSplit !== undefined) options.reasoning_split = reasoningSplit;
       break;
     }
     case "openai": {
       const maxCompletionTokens = stringOrUndefined(await prompter.question("Max completion tokens [blank=provider default]: "));
-      if (maxCompletionTokens !== undefined) options.max_completion_tokens = Math.trunc(numberOrDefault(maxCompletionTokens, 1024));
+      if (maxCompletionTokens !== undefined) options.max_completion_tokens = positiveIntOrDefault(maxCompletionTokens, 1024);
       const maxTokens = stringOrUndefined(await prompter.question("Max tokens (legacy) [blank=provider default]: "));
-      if (maxTokens !== undefined) options.max_tokens = Math.trunc(numberOrDefault(maxTokens, 1024));
+      if (maxTokens !== undefined) options.max_tokens = positiveIntOrDefault(maxTokens, 1024);
       const reasoningEffort = stringOrUndefined(await prompter.question("Reasoning effort [provider default / low / medium / high]: "));
       if (reasoningEffort !== undefined) options.reasoning_effort = reasoningEffort;
       break;
     }
     case "anthropic": {
       const maxTokens = stringOrUndefined(await prompter.question(`Max tokens [${maxTokensDefault ?? 1024}]: `));
-      if (maxTokens !== undefined) options.max_tokens = Math.trunc(numberOrDefault(maxTokens, maxTokensDefault ?? 1024));
-      const temp = stringOrUndefined(await prompter.question("Temperature [blank=provider default]: "));
-      if (temp !== undefined) options.temperature = numberOrDefault(temp, 1);
-      const thinkingBudget = stringOrUndefined(await prompter.question("Thinking budget tokens [blank=provider default]: "));
-      if (thinkingBudget !== undefined) options.thinking_budget_tokens = Math.trunc(numberOrDefault(thinkingBudget, 1024));
+      if (maxTokens !== undefined) options.max_tokens = positiveIntOrDefault(maxTokens, maxTokensDefault ?? 1024);
+      const thinkingType = stringOrUndefined(await prompter.question("Thinking type [blank=provider default / enabled / adaptive / disabled]: "));
+      if (thinkingType !== undefined) options.thinking_type = thinkingType;
+      if (thinkingType === "enabled") {
+        const thinkingBudget = stringOrUndefined(await prompter.question("Thinking budget tokens [blank=provider default]: "));
+        if (thinkingBudget !== undefined) options.thinking_budget_tokens = positiveIntOrDefault(thinkingBudget, 1024);
+        prompter.writeLine("Note: thinking enabled disables temperature control.");
+      } else if (thinkingType === "adaptive") {
+        const thinkingEffort = stringOrUndefined(await prompter.question("Thinking effort [blank=provider default / low / medium / high]: "));
+        if (thinkingEffort !== undefined) options.thinking_effort = thinkingEffort;
+      }
+      if (thinkingType !== "enabled") {
+        const temp = stringOrUndefined(await prompter.question("Temperature [blank=provider default]: "));
+        if (temp !== undefined) options.temperature = temperatureOrDefault(temp, 1);
+      }
       break;
     }
     case "deepseek": {
       const temp = stringOrUndefined(await prompter.question(`Temperature [${temperatureDefault ?? 1.0}]: `));
-      if (temp !== undefined) options.temperature = numberOrDefault(temp, temperatureDefault ?? 1.0);
+      if (temp !== undefined) options.temperature = temperatureOrDefault(temp, temperatureDefault ?? 1.0);
       const maxTokens = stringOrUndefined(await prompter.question(`Max tokens [${maxTokensDefault ?? 1024}]: `));
-      if (maxTokens !== undefined) options.max_tokens = Math.trunc(numberOrDefault(maxTokens, maxTokensDefault ?? 1024));
+      if (maxTokens !== undefined) options.max_tokens = positiveIntOrDefault(maxTokens, maxTokensDefault ?? 1024);
       const thinkingType = stringOrUndefined(await prompter.question("Thinking mode [provider default / enabled / disabled]: "));
       if (thinkingType !== undefined) options.thinking_type = thinkingType;
       const reasoningEffort = stringOrUndefined(await prompter.question("Reasoning effort [provider default / high / max]: "));
@@ -183,16 +206,16 @@ async function promptAdvancedOptions(
     }
     case "custom-openai-compatible": {
       const temp = stringOrUndefined(await prompter.question(`Temperature [${temperatureDefault ?? 0.7}]: `));
-      if (temp !== undefined) options.temperature = numberOrDefault(temp, temperatureDefault ?? 0.7);
+      if (temp !== undefined) options.temperature = temperatureOrDefault(temp, temperatureDefault ?? 0.7);
       const maxTokens = stringOrUndefined(await prompter.question(`Max tokens [${maxTokensDefault ?? 1024}]: `));
-      if (maxTokens !== undefined) options.max_tokens = Math.trunc(numberOrDefault(maxTokens, maxTokensDefault ?? 1024));
+      if (maxTokens !== undefined) options.max_tokens = positiveIntOrDefault(maxTokens, maxTokensDefault ?? 1024);
       break;
     }
     case "custom-anthropic-compatible": {
       const maxTokens = stringOrUndefined(await prompter.question(`Max tokens [${maxTokensDefault ?? 1024}]: `));
-      if (maxTokens !== undefined) options.max_tokens = Math.trunc(numberOrDefault(maxTokens, maxTokensDefault ?? 1024));
+      if (maxTokens !== undefined) options.max_tokens = positiveIntOrDefault(maxTokens, maxTokensDefault ?? 1024);
       const temp = stringOrUndefined(await prompter.question("Temperature [blank=provider default]: "));
-      if (temp !== undefined) options.temperature = numberOrDefault(temp, 1);
+      if (temp !== undefined) options.temperature = temperatureOrDefault(temp, 1);
       break;
     }
   }

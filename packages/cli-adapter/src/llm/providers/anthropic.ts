@@ -11,11 +11,24 @@ export const anthropicAdapter: LlmProviderAdapter = {
   defaultMaxTokens: 1024,
   buildRequest(input) {
     const extras: Record<string, unknown> = {};
-    if (input.options.temperature !== undefined) extras.temperature = input.options.temperature;
-    if (input.options.max_tokens !== undefined) extras.max_tokens = input.options.max_tokens;
-    if (input.options.thinking_budget_tokens !== undefined) {
-      extras.thinking = { type: "enabled", budget_tokens: input.options.thinking_budget_tokens };
+    const thinkingType = input.options.thinking_type;
+    const thinkingBudget = input.options.thinking_budget_tokens;
+    const thinkingEffort = input.options.thinking_effort;
+
+    if (thinkingType === "enabled" && thinkingBudget !== undefined) {
+      extras.thinking = { type: "enabled", budget_tokens: thinkingBudget };
+      // When thinking is enabled, temperature must not be set (provider constraint)
+    } else if (thinkingType === "adaptive" && thinkingEffort !== undefined) {
+      extras.thinking = { type: "adaptive", effort: thinkingEffort };
+    } else if (thinkingType === "disabled") {
+      extras.thinking = { type: "disabled" };
     }
+
+    // Only set temperature when thinking is not enabled (Anthropic constraint)
+    if (input.options.temperature !== undefined && thinkingType !== "enabled") {
+      extras.temperature = input.options.temperature;
+    }
+    if (input.options.max_tokens !== undefined) extras.max_tokens = input.options.max_tokens;
     return buildAnthropicMessagesRequest(input, extras);
   },
   extractTextDelta: extractAnthropicText,

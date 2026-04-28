@@ -466,7 +466,7 @@ export class EventStore {
 
   private migrateAgentPairingAgentTypes(): void {
     const table = this.db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'agent_pairings'`).get() as { sql: string } | undefined;
-    if (!table || table.sql.includes("llm-openai-compatible")) return;
+    if (!table || table.sql.includes("llm-api")) return;
     this.db.exec(`
       CREATE TABLE agent_pairings_next (
         pairing_id TEXT PRIMARY KEY,

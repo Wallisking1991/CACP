@@ -24,7 +24,7 @@ describe("LLM provider request builders", () => {
   });
 
   it("builds Anthropic messages requests", () => {
-    const request = build("anthropic", { max_tokens: 2048, thinking_budget_tokens: 1024 });
+    const request = build("anthropic", { max_tokens: 2048, thinking_type: "enabled", thinking_budget_tokens: 1024 });
     expect(request.url).toBe("https://api.anthropic.com/v1/messages");
     expect(request.headers["x-api-key"]).toBe("secret-key");
     expect(request.headers["anthropic-version"]).toBe("2023-06-01");

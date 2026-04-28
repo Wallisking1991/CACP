@@ -33,8 +33,4 @@ export function isLlmAgentType(agentType: string | undefined): agentType is LlmA
   return agentType === "llm-api" || agentType === "llm-openai-compatible" || agentType === "llm-anthropic-compatible";
 }
 
-export function providerForAgentType(agentType: LlmAgentType): LlmProviderId {
-  return agentType === "llm-openai-compatible" ? "custom-openai-compatible" : "custom-anthropic-compatible";
-}
-
 export const DefaultLlmSystemPrompt = "You are an LLM API Agent connected to a CACP multi-user AI room. You are a pure conversation agent and must not claim to read files, write files, run commands, call tools, or access private systems.";

@@ -13,7 +13,8 @@ export const minimaxAdapter: LlmProviderAdapter = {
     const extras: Record<string, unknown> = {};
     if (input.options.temperature !== undefined) extras.temperature = input.options.temperature;
     if (input.options.max_tokens !== undefined) extras.max_tokens = input.options.max_tokens;
-    if (input.options.reasoning_split !== undefined) extras.reasoning_split = input.options.reasoning_split;
+    // Default reasoning_split to true so reasoning content is separated and not leaked into delta.content
+    extras.reasoning_split = input.options.reasoning_split ?? true;
     return buildOpenAiChatRequest(input, extras);
   },
   extractTextDelta: extractOpenAiChatText,
