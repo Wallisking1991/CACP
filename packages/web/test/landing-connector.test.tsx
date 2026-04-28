@@ -91,8 +91,8 @@ describe("Landing cloud connector setup", () => {
         <Landing onCreate={() => {}} onJoin={() => {}} loading={false} />
       </LangProvider>
     );
-    fireEvent.change(screen.getByLabelText("Agent type"), { target: { value: "llm-openai-compatible" } });
+    fireEvent.change(screen.getByLabelText("Agent type"), { target: { value: "llm-api" } });
     expect(screen.queryByLabelText("Permission")).not.toBeInTheDocument();
-    expect(screen.getByText("Download and run the connector, paste the connection code, then enter LLM API settings in the connector console.")).toBeInTheDocument();
+    expect(screen.getByText("Download and run the connector, paste the connection code, then choose the LLM API provider and enter API settings in the connector console.")).toBeInTheDocument();
   });
 });

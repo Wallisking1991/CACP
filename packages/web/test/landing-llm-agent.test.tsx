@@ -3,32 +3,31 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LangProvider } from "../src/i18n/LangProvider.js";
 import Landing from "../src/components/Landing.js";
 
-vi.mock("../src/runtime-config.js", () => ({ isCloudMode: () => false }));
-
 describe("Landing LLM API agent setup", () => {
   beforeEach(() => window.localStorage.clear());
 
-  it("shows LLM API agent choices grouped with command agents", () => {
+  it("shows a single LLM API Agent option", () => {
     render(<LangProvider><Landing onCreate={() => {}} onJoin={() => {}} /></LangProvider>);
     expect(screen.getByRole("group", { name: "Local command agents" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "LLM API agents" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "OpenAI-compatible API" })).toHaveValue("llm-openai-compatible");
-    expect(screen.getByRole("option", { name: "Anthropic-compatible API" })).toHaveValue("llm-anthropic-compatible");
+    expect(screen.getByRole("option", { name: "LLM API Agent" })).toHaveValue("llm-api");
+    expect(screen.queryByRole("option", { name: "OpenAI-compatible API" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Anthropic-compatible API" })).not.toBeInTheDocument();
   });
 
   it("hides permission selection and explains local API-key entry", () => {
     render(<LangProvider><Landing onCreate={() => {}} onJoin={() => {}} /></LangProvider>);
-    fireEvent.change(screen.getByLabelText("Agent type"), { target: { value: "llm-openai-compatible" } });
+    fireEvent.change(screen.getByLabelText("Agent type"), { target: { value: "llm-api" } });
     expect(screen.queryByLabelText("Permission")).not.toBeInTheDocument();
-    expect(screen.getByText("API keys are entered only in the Local Connector console and are never sent to the room server.")).toBeInTheDocument();
+    expect(screen.getByText("Provider and API key are configured only in the Local Connector console and are never sent to the room server.")).toBeInTheDocument();
   });
 
   it("submits read_only as server compatibility default for LLM API agents", () => {
     const onCreate = vi.fn();
     render(<LangProvider><Landing onCreate={onCreate} onJoin={() => {}} /></LangProvider>);
     fireEvent.change(screen.getByLabelText("Your name"), { target: { value: "Owner" } });
-    fireEvent.change(screen.getByLabelText("Agent type"), { target: { value: "llm-anthropic-compatible" } });
+    fireEvent.change(screen.getByLabelText("Agent type"), { target: { value: "llm-api" } });
     fireEvent.click(screen.getByRole("button", { name: "Create room and start agent" }));
-    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ agentType: "llm-anthropic-compatible", permissionLevel: "read_only" }));
+    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ agentType: "llm-api", permissionLevel: "read_only" }));
   });
 });

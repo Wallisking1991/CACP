@@ -18,8 +18,7 @@ const commandAgentTypes = [
 ] as const;
 
 const llmAgentTypes = [
-  { value: "llm-openai-compatible", labelKey: "agentType.llmOpenAiCompatible" },
-  { value: "llm-anthropic-compatible", labelKey: "agentType.llmAnthropicCompatible" }
+  { value: "llm-api", labelKey: "agentType.llmApi" }
 ] as const;
 const llmAgentTypeValues = new Set<string>(llmAgentTypes.map((item) => item.value));
 
