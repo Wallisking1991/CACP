@@ -38,4 +38,39 @@ describe("agent pairing connection codes", () => {
     expect(parsed.permission_level).toBe("read_only");
     await app.close();
   });
+
+  it("returns LLM API agent type in connection codes", async () => {
+    const app = await buildServer({ dbPath: ":memory:" });
+    const room = (await app.inject({ method: "POST", url: "/rooms", payload: { name: "Room", display_name: "Owner" } })).json() as { room_id: string; owner_token: string };
+    const response = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-pairings`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: { agent_type: "llm-openai-compatible", permission_level: "read_only", working_dir: ".", server_url: "http://127.0.0.1:3737" }
+    });
+
+    expect(response.statusCode).toBe(201);
+    const parsed = parseConnectionCode((response.json() as { connection_code: string }).connection_code);
+    expect(parsed.agent_type).toBe("llm-openai-compatible");
+    await app.close();
+  });
+
+  it("local launch passes --connect so LLM configuration can happen before claim", async () => {
+    const launches: Array<{ args: string[] }> = [];
+    const app = await buildServer({ dbPath: ":memory:", localAgentLauncher: (input) => { launches.push({ args: input.args }); return { pid: 1234 }; } });
+    const room = (await app.inject({ method: "POST", url: "/rooms", payload: { name: "Room", display_name: "Owner" } })).json() as { room_id: string; owner_token: string };
+    const response = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-pairings/start-local`,
+      headers: { authorization: `Bearer ${room.owner_token}`, host: "127.0.0.1:3737" },
+      payload: { agent_type: "llm-anthropic-compatible", permission_level: "read_only", working_dir: ".", server_url: "http://127.0.0.1:3737" }
+    });
+
+    expect(response.statusCode).toBe(201);
+    const connectIndex = launches[0].args.indexOf("--connect");
+    expect(connectIndex).toBeGreaterThanOrEqual(0);
+    expect(parseConnectionCode(launches[0].args[connectIndex + 1]).agent_type).toBe("llm-anthropic-compatible");
+    expect(launches[0].args).not.toContain("--pair");
+    await app.close();
+  });
 });

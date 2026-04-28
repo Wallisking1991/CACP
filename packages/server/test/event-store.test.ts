@@ -27,4 +27,24 @@ describe("EventStore", () => {
 
     store.close();
   });
+
+  it("persists LLM API agent pairings", () => {
+    const store = new EventStore(":memory:");
+    try {
+      const stored = store.createAgentPairing({
+        pairing_id: "pair_llm",
+        room_id: "room_llm",
+        token_hash: "sha256:abc",
+        created_by: "user_owner",
+        agent_type: "llm-openai-compatible",
+        permission_level: "read_only",
+        working_dir: ".",
+        created_at: "2026-04-28T00:00:00.000Z",
+        expires_at: "2026-04-28T00:15:00.000Z"
+      });
+      expect(stored.agent_type).toBe("llm-openai-compatible");
+    } finally {
+      store.close();
+    }
+  });
 });

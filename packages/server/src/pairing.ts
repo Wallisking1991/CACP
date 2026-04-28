@@ -1,5 +1,12 @@
-export const AgentTypeValues = ["claude-code", "codex", "opencode", "echo"] as const;
+export const CommandAgentTypeValues = ["claude-code", "codex", "opencode", "echo"] as const;
+export const LlmAgentTypeValues = ["llm-openai-compatible", "llm-anthropic-compatible"] as const;
+export const AgentTypeValues = [...CommandAgentTypeValues, ...LlmAgentTypeValues] as const;
 export type AgentType = typeof AgentTypeValues[number];
+export type LlmAgentType = typeof LlmAgentTypeValues[number];
+
+export function isLlmAgentType(agentType: string): agentType is LlmAgentType {
+  return (LlmAgentTypeValues as readonly string[]).includes(agentType);
+}
 
 export const PermissionLevelValues = ["read_only", "limited_write", "full_access"] as const;
 export type PermissionLevel = typeof PermissionLevelValues[number];
@@ -15,6 +22,12 @@ export interface AgentPairingProfile {
 
 export function buildAgentProfile(input: { agentType: AgentType; permissionLevel: PermissionLevel; workingDir?: string; hookUrl?: string }): AgentPairingProfile {
   const workingDir = input.workingDir || ".";
+  if (input.agentType === "llm-openai-compatible") {
+    return { name: "OpenAI-compatible LLM API Agent", command: "", args: [], working_dir: workingDir, capabilities: ["llm.api", "chat.stream", "llm.openai_compatible"], system_prompt: llmApiSystemPrompt() };
+  }
+  if (input.agentType === "llm-anthropic-compatible") {
+    return { name: "Anthropic-compatible LLM API Agent", command: "", args: [], working_dir: workingDir, capabilities: ["llm.api", "chat.stream", "llm.anthropic_compatible"], system_prompt: llmApiSystemPrompt() };
+  }
   if (input.agentType === "echo") {
     return {
       name: "Echo Test Agent",
@@ -73,6 +86,15 @@ function claudeSystemPrompt(permissionLevel: PermissionLevel, _hookUrl?: string)
     "如果需要多人分别回答或形成共识，请提醒房主使用 Roundtable Mode 收集回答。",
     "不要输出结构化治理代码块；当前平台演示只使用普通聊天与 Roundtable Mode。",
     approval
+  ].join("\n");
+}
+
+function llmApiSystemPrompt(): string {
+  return [
+    "You are an LLM API Agent connected to a CACP multi-user AI room.",
+    "You are a pure conversation agent. Do not claim to read files, modify files, run local commands, call tools, or access private systems.",
+    "If multiple participants need to answer separately or reach consensus, remind the room owner to use Roundtable Mode.",
+    "Reply in concise, actionable Chinese by default unless the room context asks for another language."
   ].join("\n");
 }
 

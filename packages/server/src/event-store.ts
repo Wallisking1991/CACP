@@ -145,7 +145,7 @@ export class EventStore {
         room_id TEXT NOT NULL,
         token_hash TEXT NOT NULL UNIQUE,
         created_by TEXT NOT NULL,
-        agent_type TEXT NOT NULL CHECK(agent_type IN ('claude-code', 'codex', 'opencode', 'echo')),
+        agent_type TEXT NOT NULL CHECK(agent_type IN ('claude-code', 'codex', 'opencode', 'echo', 'llm-openai-compatible', 'llm-anthropic-compatible')),
         permission_level TEXT NOT NULL CHECK(permission_level IN ('read_only', 'limited_write', 'full_access')),
         working_dir TEXT NOT NULL CHECK(length(working_dir) <= 500),
         created_at TEXT NOT NULL,
@@ -180,6 +180,7 @@ export class EventStore {
         PRIMARY KEY(room_id, participant_id)
       );
     `);
+    this.migrateAgentPairingAgentTypes();
   }
 
   close(): void {
@@ -461,6 +462,29 @@ export class EventStore {
   isParticipantRevoked(roomId: string, participantId: string): boolean {
     const row = this.db.prepare(`SELECT 1 FROM participant_revocations WHERE room_id = ? AND participant_id = ?`).get(roomId, participantId) as { 1: number } | undefined;
     return row !== undefined;
+  }
+
+  private migrateAgentPairingAgentTypes(): void {
+    const table = this.db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'agent_pairings'`).get() as { sql: string } | undefined;
+    if (!table || table.sql.includes("llm-openai-compatible")) return;
+    this.db.exec(`
+      CREATE TABLE agent_pairings_next (
+        pairing_id TEXT PRIMARY KEY,
+        room_id TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        created_by TEXT NOT NULL,
+        agent_type TEXT NOT NULL CHECK(agent_type IN ('claude-code', 'codex', 'opencode', 'echo', 'llm-openai-compatible', 'llm-anthropic-compatible')),
+        permission_level TEXT NOT NULL CHECK(permission_level IN ('read_only', 'limited_write', 'full_access')),
+        working_dir TEXT NOT NULL CHECK(length(working_dir) <= 500),
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        claimed_at TEXT
+      );
+      INSERT INTO agent_pairings_next SELECT pairing_id, room_id, token_hash, created_by, agent_type, permission_level, working_dir, created_at, expires_at, claimed_at FROM agent_pairings;
+      DROP TABLE agent_pairings;
+      ALTER TABLE agent_pairings_next RENAME TO agent_pairings;
+      CREATE INDEX IF NOT EXISTS idx_agent_pairings_room ON agent_pairings(room_id);
+    `);
   }
 }
 

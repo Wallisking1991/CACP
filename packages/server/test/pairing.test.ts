@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAgentProfile } from "../src/pairing.js";
+import { AgentTypeValues, buildAgentProfile, isLlmAgentType } from "../src/pairing.js";
 
 describe("agent pairing profiles", () => {
   it("uses Claude Code CLI permission modes supported by the installed CLI", () => {
@@ -87,5 +87,27 @@ describe("agent pairing profiles", () => {
     expect(readOnly.system_prompt).toContain("READ-ONLY");
     expect(limitedWrite.system_prompt).toContain("LIMITED WRITE");
     expect(fullAccess.system_prompt).toContain("FULL ACCESS");
+  });
+
+  it("declares LLM API agent types", () => {
+    expect(AgentTypeValues).toContain("llm-openai-compatible");
+    expect(AgentTypeValues).toContain("llm-anthropic-compatible");
+    expect(isLlmAgentType("llm-openai-compatible")).toBe(true);
+    expect(isLlmAgentType("llm-anthropic-compatible")).toBe(true);
+    expect(isLlmAgentType("codex")).toBe(false);
+  });
+
+  it("builds pure conversation profiles for LLM API agents", () => {
+    const openai = buildAgentProfile({ agentType: "llm-openai-compatible", permissionLevel: "read_only", workingDir: "." });
+    const anthropic = buildAgentProfile({ agentType: "llm-anthropic-compatible", permissionLevel: "full_access", workingDir: "." });
+
+    expect(openai.command).toBe("");
+    expect(openai.args).toEqual([]);
+    expect(openai.capabilities).toEqual(["llm.api", "chat.stream", "llm.openai_compatible"]);
+    expect(openai.capabilities).not.toContain("read_only");
+    expect(anthropic.command).toBe("");
+    expect(anthropic.args).toEqual([]);
+    expect(anthropic.capabilities).toEqual(["llm.api", "chat.stream", "llm.anthropic_compatible"]);
+    expect(anthropic.capabilities).not.toContain("full_access");
   });
 });

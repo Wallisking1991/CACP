@@ -13,7 +13,7 @@ import { EventStore } from "./event-store.js";
 import { hasAllowedOrigin, loadServerConfig, type ServerConfig } from "./config.js";
 import { event, hashToken, openSecret, prefixedId, sealSecret, token } from "./ids.js";
 import { FixedWindowRateLimiter } from "./rate-limit.js";
-import { AgentTypeValues, PermissionLevelValues, buildAgentProfile, type AgentType, type PermissionLevel } from "./pairing.js";
+import { AgentTypeValues, PermissionLevelValues, buildAgentProfile, isLlmAgentType, type AgentType, type PermissionLevel } from "./pairing.js";
 
 const CreateRoomSchema = z.object({ name: z.string().min(1).max(200), display_name: z.string().min(1).max(100).default("Owner") });
 const CreateInviteSchema = z.object({ role: z.enum(["member", "observer"]).default("member"), expires_in_seconds: z.number().int().positive().max(60 * 60 * 24 * 7).default(60 * 60 * 24) });
@@ -100,12 +100,12 @@ function isLocalUrl(value: string): boolean {
   }
 }
 
-function pairingCommand(serverUrl: string, pairingToken: string): string {
-  return `npx @cacp/cli-adapter --server ${serverUrl} --pair ${pairingToken}`;
+function pairingCommand(connectionCode: string): string {
+  return `npx @cacp/cli-adapter --connect ${connectionCode}`;
 }
 
-function pairingLaunchArgs(serverUrl: string, pairingToken: string): string[] {
-  return ["pnpm", "--filter", "@cacp/cli-adapter", "dev", "--", "--server", serverUrl, "--pair", pairingToken];
+function pairingLaunchArgs(connectionCode: string): string[] {
+  return ["pnpm", "--filter", "@cacp/cli-adapter", "dev", "--", "--connect", connectionCode];
 }
 
 function resolveLaunchCommand(command: string, args: string[]): { command: string; args: string[] } {
@@ -527,10 +527,19 @@ export async function buildServer(options: BuildServerOptions = {}) {
 
   function createAgentPairing(roomId: string, actorId: string, body: z.infer<typeof AgentPairingCreateSchema>, serverUrl: string) {
     const pairing = createStoredAgentPairing(roomId, actorId, body);
+    const connectionCode = buildConnectionCode({
+      server_url: serverUrl,
+      pairing_token: pairing.pairingToken,
+      expires_at: pairing.expiresAt,
+      room_id: roomId,
+      agent_type: body.agent_type,
+      permission_level: body.permission_level
+    });
     return {
       pairing_token: pairing.pairingToken,
       expires_at: pairing.expiresAt,
-      command: pairingCommand(serverUrl, pairing.pairingToken)
+      connection_code: connectionCode,
+      command: pairingCommand(connectionCode)
     };
   }
 
@@ -991,7 +1000,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const launch = await localAgentLauncher({
       launchId,
       command: "corepack",
-      args: pairingLaunchArgs(serverUrl, pairing.pairing_token),
+      args: pairingLaunchArgs(pairing.connection_code),
       cwd: localRepoRoot,
       outLog,
       errLog,
