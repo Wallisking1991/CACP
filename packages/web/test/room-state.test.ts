@@ -163,4 +163,123 @@ describe("room state", () => {
     ]);
     expect(approved.pendingRoundtableRequest).toBeUndefined();
   });
+
+  it("derives Claude session catalog and selection state", () => {
+    const state = deriveRoomState([
+      event("room.created", { name: "Room" }, 1, "owner"),
+      event("agent.registered", { agent_id: "agent_1", name: "Claude", capabilities: ["claude-code"] }, 2, "owner"),
+      event("claude.session_catalog.updated", {
+        agent_id: "agent_1",
+        working_dir: "D:\\Development\\2",
+        sessions: [{
+          session_id: "session_1",
+          title: "Planning",
+          project_dir: "D:\\Development\\2",
+          updated_at: "2026-04-29T00:00:00.000Z",
+          message_count: 3,
+          byte_size: 100,
+          importable: true
+        }]
+      }, 3, "agent_1"),
+      event("claude.session_selected", {
+        agent_id: "agent_1",
+        mode: "resume",
+        session_id: "session_1",
+        selected_by: "owner"
+      }, 4, "owner")
+    ]);
+
+    expect(state.claudeSessionCatalog?.sessions[0].session_id).toBe("session_1");
+    expect(state.claudeSessionSelection).toEqual({
+      agent_id: "agent_1",
+      mode: "resume",
+      session_id: "session_1",
+      selected_by: "owner"
+    });
+  });
+
+  it("renders completed Claude imports in the main message timeline", () => {
+    const state = deriveRoomState([
+      event("claude.session_import.started", {
+        import_id: "import_1",
+        agent_id: "agent_1",
+        session_id: "session_1",
+        title: "Planning",
+        message_count: 2,
+        started_at: "2026-04-29T00:00:00.000Z"
+      }, 1, "agent_1"),
+      event("claude.session_import.message", {
+        import_id: "import_1",
+        agent_id: "agent_1",
+        session_id: "session_1",
+        sequence: 0,
+        original_created_at: "2026-04-28T00:00:00.000Z",
+        author_role: "user",
+        source_kind: "user",
+        text: "Old user message"
+      }, 2, "agent_1"),
+      event("claude.session_import.message", {
+        import_id: "import_1",
+        agent_id: "agent_1",
+        session_id: "session_1",
+        sequence: 1,
+        original_created_at: "2026-04-28T00:00:01.000Z",
+        author_role: "assistant",
+        source_kind: "assistant",
+        text: "Old Claude answer"
+      }, 3, "agent_1"),
+      event("claude.session_import.completed", {
+        import_id: "import_1",
+        agent_id: "agent_1",
+        session_id: "session_1",
+        imported_message_count: 2,
+        completed_at: "2026-04-29T00:00:02.000Z"
+      }, 4, "agent_1"),
+      event("message.created", { message_id: "msg_1", text: "Continue below", kind: "human" }, 5, "owner")
+    ]);
+
+    expect(state.messages.map((message) => message.text)).toEqual([
+      "__CLAUDE_IMPORT_BANNER__",
+      "Old user message",
+      "Old Claude answer",
+      "Continue below"
+    ]);
+    expect(state.messages[1].kind).toBe("claude_import_user");
+    expect(state.messages[2].kind).toBe("claude_import_assistant");
+  });
+
+  it("derives one rolling Claude status per turn instead of messages", () => {
+    const state = deriveRoomState([
+      event("claude.runtime.status_changed", {
+        agent_id: "agent_1",
+        turn_id: "turn_1",
+        status_id: "status_turn_1",
+        phase: "thinking",
+        current: "Thinking",
+        recent: ["Thinking"],
+        metrics: { files_read: 0, searches: 0, commands: 0 },
+        started_at: "2026-04-29T00:00:00.000Z",
+        updated_at: "2026-04-29T00:00:01.000Z"
+      }, 1, "agent_1"),
+      event("claude.runtime.status_changed", {
+        agent_id: "agent_1",
+        turn_id: "turn_1",
+        status_id: "status_turn_1",
+        phase: "reading_files",
+        current: "Reading README.md",
+        recent: ["Thinking", "Reading README.md"],
+        metrics: { files_read: 1, searches: 0, commands: 0 },
+        started_at: "2026-04-29T00:00:00.000Z",
+        updated_at: "2026-04-29T00:00:02.000Z"
+      }, 2, "agent_1")
+    ]);
+
+    expect(state.messages).toEqual([]);
+    expect(state.claudeRuntimeStatuses).toHaveLength(1);
+    expect(state.claudeRuntimeStatuses[0]).toMatchObject({
+      turn_id: "turn_1",
+      phase: "reading_files",
+      current: "Reading README.md"
+    });
+  });
 });

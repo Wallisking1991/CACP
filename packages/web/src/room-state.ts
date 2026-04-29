@@ -1,8 +1,24 @@
-import type { CacpEvent } from "@cacp/protocol";
+import type {
+  CacpEvent,
+  ClaudeRuntimeMetrics,
+  ClaudeRuntimePhase,
+  ClaudeSessionSummary
+} from "@cacp/protocol";
 
 export interface ParticipantView { id: string; display_name: string; role: string; type: string }
 export interface AgentView { agent_id: string; name: string; capabilities: string[]; status: "online" | "offline" | "unknown"; last_status_at?: string }
-export interface MessageView { message_id?: string; actor_id: string; text: string; kind: string; created_at: string; collection_id?: string; cancelledMessageCount?: number }
+export interface MessageView {
+  message_id?: string;
+  actor_id: string;
+  text: string;
+  kind: string;
+  created_at: string;
+  collection_id?: string;
+  cancelledMessageCount?: number;
+  claudeImportId?: string;
+  claudeSessionId?: string;
+  claudeSourceKind?: string;
+}
 export interface StreamingTurnView { turn_id: string; agent_id: string; text: string }
 export interface JoinRequestView {
   request_id: string;
@@ -22,6 +38,44 @@ export interface AiCollectionView {
   message_ids?: string[];
 }
 export interface RoundtableRequestView { request_id: string; requested_by: string; requester_name: string; created_at: string }
+
+export interface ClaudeSessionCatalogView {
+  agent_id: string;
+  working_dir: string;
+  sessions: ClaudeSessionSummary[];
+}
+
+export type ClaudeSessionSelectionView =
+  | { agent_id: string; mode: "fresh"; selected_by: string }
+  | { agent_id: string; mode: "resume"; session_id: string; selected_by: string };
+
+export interface ClaudeImportView {
+  import_id: string;
+  agent_id: string;
+  session_id: string;
+  title: string;
+  message_count: number;
+  imported_message_count?: number;
+  status: "started" | "completed" | "failed";
+  error?: string;
+}
+
+export interface ClaudeRuntimeStatusView {
+  agent_id: string;
+  turn_id: string;
+  status_id: string;
+  phase: ClaudeRuntimePhase;
+  current: string;
+  recent: string[];
+  metrics: ClaudeRuntimeMetrics;
+  started_at?: string;
+  updated_at?: string;
+  completed_at?: string;
+  failed_at?: string;
+  summary?: string;
+  error?: string;
+}
+
 export interface RoomViewState {
   participants: ParticipantView[];
   agents: AgentView[];
@@ -35,6 +89,10 @@ export interface RoomViewState {
   roomName?: string;
   joinRequests: JoinRequestView[];
   pendingRoundtableRequest?: RoundtableRequestView;
+  claudeSessionCatalog?: ClaudeSessionCatalogView;
+  claudeSessionSelection?: ClaudeSessionSelectionView;
+  claudeImports: ClaudeImportView[];
+  claudeRuntimeStatuses: ClaudeRuntimeStatusView[];
 }
 
 function failedTurnMessage(event: CacpEvent, streamedText: string | undefined): MessageView | undefined {
@@ -100,6 +158,10 @@ export function deriveRoomState(events: CacpEvent[]): RoomViewState {
   let activeAgentId: string | undefined;
   let inviteCount = 0;
   let roomName: string | undefined;
+  let claudeSessionCatalog: ClaudeSessionCatalogView | undefined;
+  let claudeSessionSelection: ClaudeSessionSelectionView | undefined;
+  const claudeImports = new Map<string, ClaudeImportView>();
+  const claudeRuntimeStatuses = new Map<string, ClaudeRuntimeStatusView>();
   const historyClear = lastHistoryClear(events);
   const scopedEvents = events.slice(historyClear.index + 1);
 
@@ -162,9 +224,92 @@ export function deriveRoomState(events: CacpEvent[]): RoomViewState {
       agents.set(event.payload.agent_id, { ...existing, status: event.payload.status === "online" ? "online" : "offline", last_status_at: event.created_at });
     }
     if (event.type === "room.agent_selected" && typeof event.payload.agent_id === "string") activeAgentId = event.payload.agent_id;
+    if (event.type === "claude.session_catalog.updated" && typeof event.payload.agent_id === "string" && typeof event.payload.working_dir === "string" && Array.isArray(event.payload.sessions)) {
+      claudeSessionCatalog = {
+        agent_id: event.payload.agent_id,
+        working_dir: event.payload.working_dir,
+        sessions: event.payload.sessions as ClaudeSessionSummary[]
+      };
+    }
+    if (event.type === "claude.session_selected" && typeof event.payload.agent_id === "string" && typeof event.payload.mode === "string" && typeof event.payload.selected_by === "string") {
+      if (event.payload.mode === "fresh") {
+        claudeSessionSelection = { agent_id: event.payload.agent_id, mode: "fresh", selected_by: event.payload.selected_by };
+      }
+      if (event.payload.mode === "resume" && typeof event.payload.session_id === "string") {
+        claudeSessionSelection = { agent_id: event.payload.agent_id, mode: "resume", session_id: event.payload.session_id, selected_by: event.payload.selected_by };
+      }
+    }
   }
 
   for (const event of scopedEvents) {
+    if (event.type === "claude.session_import.started" && typeof event.payload.import_id === "string" && typeof event.payload.agent_id === "string" && typeof event.payload.session_id === "string" && typeof event.payload.title === "string") {
+      claudeImports.set(event.payload.import_id, {
+        import_id: event.payload.import_id,
+        agent_id: event.payload.agent_id,
+        session_id: event.payload.session_id,
+        title: event.payload.title,
+        message_count: typeof event.payload.message_count === "number" ? event.payload.message_count : 0,
+        status: "started"
+      });
+      messages.push({
+        message_id: `claude-import-banner-${event.payload.import_id}`,
+        actor_id: "system",
+        text: "__CLAUDE_IMPORT_BANNER__",
+        kind: "claude_import_banner",
+        created_at: event.created_at,
+        claudeImportId: event.payload.import_id,
+        claudeSessionId: event.payload.session_id
+      });
+    }
+    if (event.type === "claude.session_import.message" && typeof event.payload.import_id === "string" && typeof event.payload.session_id === "string" && typeof event.payload.text === "string") {
+      messages.push({
+        message_id: `claude-import-${event.payload.import_id}-${typeof event.payload.sequence === "number" ? event.payload.sequence : messages.length}`,
+        actor_id: typeof event.payload.agent_id === "string" ? event.payload.agent_id : event.actor_id,
+        text: event.payload.text,
+        kind: `claude_import_${typeof event.payload.author_role === "string" ? event.payload.author_role : "system"}`,
+        created_at: typeof event.payload.original_created_at === "string" ? event.payload.original_created_at : event.created_at,
+        claudeImportId: event.payload.import_id,
+        claudeSessionId: event.payload.session_id,
+        claudeSourceKind: typeof event.payload.source_kind === "string" ? event.payload.source_kind : undefined
+      });
+    }
+    if (event.type === "claude.session_import.completed" && typeof event.payload.import_id === "string") {
+      const existing = claudeImports.get(event.payload.import_id);
+      if (existing) claudeImports.set(event.payload.import_id, {
+        ...existing,
+        status: "completed",
+        imported_message_count: typeof event.payload.imported_message_count === "number" ? event.payload.imported_message_count : existing.message_count
+      });
+    }
+    if (event.type === "claude.session_import.failed" && typeof event.payload.import_id === "string") {
+      const existing = claudeImports.get(event.payload.import_id);
+      if (existing) claudeImports.set(event.payload.import_id, {
+        ...existing,
+        status: "failed",
+        error: typeof event.payload.error === "string" ? event.payload.error : "Import failed"
+      });
+    }
+    if (event.type === "claude.runtime.status_changed" && typeof event.payload.turn_id === "string" && typeof event.payload.status_id === "string") {
+      claudeRuntimeStatuses.set(event.payload.status_id, event.payload as unknown as ClaudeRuntimeStatusView);
+    }
+    if (event.type === "claude.runtime.status_completed" && typeof event.payload.status_id === "string") {
+      const existing = claudeRuntimeStatuses.get(event.payload.status_id);
+      if (existing) claudeRuntimeStatuses.set(event.payload.status_id, {
+        ...existing,
+        phase: "completed",
+        summary: typeof event.payload.summary === "string" ? event.payload.summary : "Claude Code completed",
+        completed_at: typeof event.payload.completed_at === "string" ? event.payload.completed_at : event.created_at
+      });
+    }
+    if (event.type === "claude.runtime.status_failed" && typeof event.payload.status_id === "string") {
+      const existing = claudeRuntimeStatuses.get(event.payload.status_id);
+      if (existing) claudeRuntimeStatuses.set(event.payload.status_id, {
+        ...existing,
+        phase: "failed",
+        error: typeof event.payload.error === "string" ? event.payload.error : "Claude Code failed",
+        failed_at: typeof event.payload.failed_at === "string" ? event.payload.failed_at : event.created_at
+      });
+    }
     if (event.type === "ai.collection.started" && typeof event.payload.collection_id === "string") {
       collections.set(event.payload.collection_id, {
         collection_id: event.payload.collection_id,
@@ -249,7 +394,11 @@ export function deriveRoomState(events: CacpEvent[]): RoomViewState {
     inviteCount,
     roomName,
     joinRequests: [...joinRequests.values()].filter((r) => r.status === "pending"),
-    pendingRoundtableRequest
+    pendingRoundtableRequest,
+    claudeSessionCatalog,
+    claudeSessionSelection,
+    claudeImports: [...claudeImports.values()],
+    claudeRuntimeStatuses: [...claudeRuntimeStatuses.values()]
   };
 }
 
