@@ -5,7 +5,9 @@ import {
   AiCollectionRequestApprovedPayloadSchema,
   AiCollectionRequestRejectedPayloadSchema,
   ClaudeSessionCatalogUpdatedPayloadSchema,
+  ClaudeSessionImportStartedPayloadSchema,
   ClaudeSessionSelectedPayloadSchema,
+  ClaudeSessionReadyPayloadSchema,
   ClaudeSessionImportMessagePayloadSchema,
   ClaudeRuntimeStatusChangedPayloadSchema,
   evaluatePolicy,
@@ -161,6 +163,25 @@ describe("CACP event schema", () => {
     }).type).toBe("claude.session_catalog.updated");
   });
 
+  it("strips transcript previews from Claude session catalog payloads", () => {
+    const parsed = ClaudeSessionCatalogUpdatedPayloadSchema.parse({
+      agent_id: "agent_1",
+      working_dir: "D:\\Development\\2",
+      sessions: [{
+        session_id: "session_1",
+        title: "CACP planning",
+        project_dir: "D:\\Development\\2",
+        updated_at: "2026-04-29T00:00:00.000Z",
+        message_count: 12,
+        byte_size: 34567,
+        importable: true,
+        messages: [{ author_role: "user", text: "should not be catalog metadata" }]
+      }]
+    });
+
+    expect(parsed.sessions[0]).not.toHaveProperty("messages");
+  });
+
   it("accepts Claude session selection events", () => {
     expect(ClaudeSessionSelectedPayloadSchema.parse({
       agent_id: "agent_1",
@@ -173,6 +194,23 @@ describe("CACP event schema", () => {
       mode: "fresh",
       selected_by: "owner_1"
     }).mode).toBe("fresh");
+  });
+
+
+
+  it("accepts Claude session ready payloads after connector startup", () => {
+    expect(ClaudeSessionReadyPayloadSchema.parse({
+      agent_id: "agent_1",
+      mode: "fresh",
+      session_id: "session_new",
+      ready_at: "2026-04-29T00:00:00.000Z"
+    }).mode).toBe("fresh");
+    expect(ClaudeSessionReadyPayloadSchema.parse({
+      agent_id: "agent_1",
+      mode: "resume",
+      session_id: "session_1",
+      ready_at: "2026-04-29T00:00:00.000Z"
+    }).mode).toBe("resume");
   });
 
   it("accepts imported Claude transcript message payloads", () => {
@@ -188,6 +226,19 @@ describe("CACP event schema", () => {
       text: "Visible Claude answer"
     };
     expect(ClaudeSessionImportMessagePayloadSchema.parse(payload)).toEqual(payload);
+  });
+
+  it("limits a single Claude session import to a bounded number of visible messages", () => {
+    const payload = {
+      import_id: "import_1",
+      agent_id: "agent_1",
+      session_id: "session_1",
+      title: "Large session",
+      message_count: 1001,
+      started_at: "2026-04-29T00:00:00.000Z"
+    };
+
+    expect(() => ClaudeSessionImportStartedPayloadSchema.parse(payload)).toThrow();
   });
 
   it("accepts rolling Claude runtime status payloads", () => {

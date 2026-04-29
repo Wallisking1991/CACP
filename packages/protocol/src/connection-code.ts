@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AgentTypeSchema } from "./schemas.js";
 
 const Prefix = "CACP-CONNECT:v1:";
 
@@ -7,7 +8,7 @@ export const ConnectionCodePayloadSchema = z.object({
   pairing_token: z.string().min(1),
   expires_at: z.string().datetime(),
   room_id: z.string().min(1).optional(),
-  agent_type: z.string().min(1).optional(),
+  agent_type: AgentTypeSchema.optional(),
   permission_level: z.string().min(1).optional()
 });
 

@@ -4,6 +4,7 @@ export const ProtocolVersionSchema = z.enum(["0.1.0", "0.2.0"]);
 
 export const ParticipantTypeSchema = z.enum(["human", "agent", "system", "observer"]);
 export const ParticipantRoleSchema = z.enum(["owner", "admin", "member", "observer", "agent"]);
+export const AgentTypeSchema = z.enum(["claude-code", "llm-api", "llm-openai-compatible", "llm-anthropic-compatible"]);
 export const ParticipantSchema = z.object({
   id: z.string().min(1),
   type: ParticipantTypeSchema,
@@ -19,7 +20,12 @@ export const EventTypeSchema = z.enum([
   "agent.registered", "agent.unregistered", "agent.disconnected", "agent.pairing_created", "agent.status_changed", "agent.action_approval_requested", "agent.action_approval_resolved",
   "agent.turn.requested", "agent.turn.followup_queued", "agent.turn.started", "agent.output.delta", "agent.turn.completed", "agent.turn.failed",
   "claude.session_catalog.updated",
+  "claude.session_preview.requested",
+  "claude.session_preview.message",
+  "claude.session_preview.completed",
+  "claude.session_preview.failed",
   "claude.session_selected",
+  "claude.session_ready",
   "claude.session_import.started",
   "claude.session_import.message",
   "claude.session_import.completed",
@@ -116,12 +122,37 @@ export const ClaudeSessionSelectedPayloadSchema = z.discriminatedUnion("mode", [
   })
 ]);
 
+export const ClaudeSessionReadyPayloadSchema = z.discriminatedUnion("mode", [
+  z.object({
+    agent_id: z.string().min(1),
+    mode: z.literal("fresh"),
+    session_id: z.string().min(1).optional(),
+    ready_at: z.string().datetime()
+  }),
+  z.object({
+    agent_id: z.string().min(1),
+    mode: z.literal("resume"),
+    session_id: z.string().min(1),
+    ready_at: z.string().datetime()
+  })
+]);
+
+export const ClaudeSessionPreviewRequestedPayloadSchema = z.object({
+  preview_id: z.string().min(1),
+  agent_id: z.string().min(1),
+  session_id: z.string().min(1),
+  requested_by: z.string().min(1),
+  requested_at: z.string().datetime()
+});
+
+export const ClaudeSessionImportMaxMessages = 1000;
+
 export const ClaudeSessionImportStartedPayloadSchema = z.object({
   import_id: z.string().min(1),
   agent_id: z.string().min(1),
   session_id: z.string().min(1),
   title: z.string().min(1).max(200),
-  message_count: z.number().int().nonnegative(),
+  message_count: z.number().int().nonnegative().max(ClaudeSessionImportMaxMessages),
   started_at: z.string().datetime()
 });
 
@@ -137,7 +168,30 @@ export const ClaudeSessionImportMessagePayloadSchema = z.object({
   original_created_at: z.string().datetime().optional(),
   author_role: ClaudeSessionImportAuthorRoleSchema,
   source_kind: ClaudeSessionImportSourceKindSchema,
-  text: z.string().min(1).max(20000)
+  text: z.string().min(1).max(20000),
+  part_index: z.number().int().nonnegative().optional(),
+  part_count: z.number().int().positive().optional(),
+  truncated: z.boolean().optional()
+});
+
+export const ClaudeSessionPreviewMessagePayloadSchema = ClaudeSessionImportMessagePayloadSchema.omit({ import_id: true }).extend({
+  preview_id: z.string().min(1)
+});
+
+export const ClaudeSessionPreviewCompletedPayloadSchema = z.object({
+  preview_id: z.string().min(1),
+  agent_id: z.string().min(1),
+  session_id: z.string().min(1),
+  previewed_message_count: z.number().int().nonnegative(),
+  completed_at: z.string().datetime()
+});
+
+export const ClaudeSessionPreviewFailedPayloadSchema = z.object({
+  preview_id: z.string().min(1),
+  agent_id: z.string().min(1),
+  session_id: z.string().min(1),
+  error: z.string().min(1).max(2000),
+  failed_at: z.string().datetime()
 });
 
 export const ClaudeSessionImportCompletedPayloadSchema = z.object({
@@ -210,6 +264,7 @@ export type ProtocolVersion = z.infer<typeof ProtocolVersionSchema>;
 export type ParticipantType = z.infer<typeof ParticipantTypeSchema>;
 export type ParticipantRole = z.infer<typeof ParticipantRoleSchema>;
 export type Participant = z.infer<typeof ParticipantSchema>;
+export type AgentType = z.infer<typeof AgentTypeSchema>;
 export type EventType = z.infer<typeof EventTypeSchema>;
 export type CacpEvent = z.infer<typeof CacpEventSchema>;
 export type VoteValue = z.infer<typeof VoteValueSchema>;
@@ -223,6 +278,11 @@ export type AiCollectionRequestRejectedPayload = z.infer<typeof AiCollectionRequ
 export type ClaudeSessionSummary = z.infer<typeof ClaudeSessionSummarySchema>;
 export type ClaudeSessionCatalogUpdatedPayload = z.infer<typeof ClaudeSessionCatalogUpdatedPayloadSchema>;
 export type ClaudeSessionSelectedPayload = z.infer<typeof ClaudeSessionSelectedPayloadSchema>;
+export type ClaudeSessionReadyPayload = z.infer<typeof ClaudeSessionReadyPayloadSchema>;
+export type ClaudeSessionPreviewRequestedPayload = z.infer<typeof ClaudeSessionPreviewRequestedPayloadSchema>;
+export type ClaudeSessionPreviewMessagePayload = z.infer<typeof ClaudeSessionPreviewMessagePayloadSchema>;
+export type ClaudeSessionPreviewCompletedPayload = z.infer<typeof ClaudeSessionPreviewCompletedPayloadSchema>;
+export type ClaudeSessionPreviewFailedPayload = z.infer<typeof ClaudeSessionPreviewFailedPayloadSchema>;
 export type ClaudeSessionImportStartedPayload = z.infer<typeof ClaudeSessionImportStartedPayloadSchema>;
 export type ClaudeSessionImportMessagePayload = z.infer<typeof ClaudeSessionImportMessagePayloadSchema>;
 export type ClaudeSessionImportCompletedPayload = z.infer<typeof ClaudeSessionImportCompletedPayloadSchema>;

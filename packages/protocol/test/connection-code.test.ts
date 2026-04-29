@@ -9,7 +9,7 @@ describe("connection code", () => {
       pairing_token: "cacp_pairing_secret",
       expires_at: "2026-04-27T08:15:00.000Z",
       room_id: "room_alpha",
-      agent_type: "codex",
+      agent_type: "claude-code",
       permission_level: "read_only"
     };
     const code = buildConnectionCode(payload);
@@ -20,6 +20,19 @@ describe("connection code", () => {
   it("rejects malformed codes", () => {
     expect(() => parseConnectionCode("bad")).toThrow("invalid_connection_code");
     expect(() => parseConnectionCode("CACP-CONNECT:v2:e30")).toThrow("invalid_connection_code");
+  });
+
+  it("rejects removed generic local command agent types", () => {
+    for (const agentType of ["codex", "opencode", "echo"]) {
+      expect(() => buildConnectionCode({
+        server_url: "https://cacp.example.com",
+        pairing_token: "cacp_pairing_secret",
+        expires_at: "2026-04-27T08:15:00.000Z",
+        room_id: "room_alpha",
+        agent_type: agentType,
+        permission_level: "read_only"
+      })).toThrow();
+    }
   });
 
   it("accepts invite approval and removal event types", () => {
