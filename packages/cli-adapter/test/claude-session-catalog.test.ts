@@ -5,8 +5,8 @@ describe("Claude session catalog", () => {
   it("normalizes SDK sessions and sorts newest first", async () => {
     const sdk = {
       listSessions: async () => [
-        { session_id: "old", title: "Old", updated_at: "2026-04-28T00:00:00.000Z", message_count: 1, byte_size: 10, project_dir: "D:\\Development\\2" },
-        { session_id: "new", title: "New", updated_at: "2026-04-29T00:00:00.000Z", message_count: 2, byte_size: 20, project_dir: "D:\\Development\\2" }
+        { sessionId: "old", summary: "Old", lastModified: "2026-04-28T00:00:00.000Z", fileSize: 10, cwd: "D:\\Development\\2" },
+        { sessionId: "new", summary: "New", lastModified: "2026-04-29T00:00:00.000Z", fileSize: 20, cwd: "D:\\Development\\2" }
       ]
     };
 
@@ -17,7 +17,6 @@ describe("Claude session catalog", () => {
     expect(catalog.sessions[0]).toMatchObject({
       title: "New",
       importable: true,
-      message_count: 2,
       byte_size: 20
     });
   });

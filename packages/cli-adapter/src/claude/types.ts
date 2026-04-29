@@ -38,33 +38,28 @@ export interface ClaudeRuntimeCallbacks {
 
 export interface ClaudePersistentSession {
   sessionId: string | undefined;
-  send(prompt: string, callbacks: ClaudeRuntimeCallbacks): Promise<string>;
+  send(prompt: string): Promise<void>;
+  stream(): AsyncIterable<unknown>;
   close(): Promise<void>;
 }
 
 export interface ClaudeSdkSessionMessage {
-  id?: string;
-  role?: string;
+  uuid?: string;
   type?: string;
-  content?: unknown;
-  timestamp?: string;
-  created_at?: string;
+  message?: unknown;
 }
 
 export interface ClaudeSdkSessionSummary {
-  id?: string;
-  session_id?: string;
-  title?: string;
-  updated_at?: string;
-  message_count?: number;
-  byte_size?: number;
-  project_dir?: string;
+  sessionId?: string;
+  summary?: string;
+  lastModified?: string;
+  fileSize?: number;
   cwd?: string;
 }
 
 export interface ClaudeSdk {
   createSession(input: { workingDir: string; systemPrompt?: string; permissionLevel: string }): Promise<ClaudePersistentSession>;
   resumeSession(input: { workingDir: string; sessionId: string; systemPrompt?: string; permissionLevel: string }): Promise<ClaudePersistentSession>;
-  listSessions(input: { workingDir: string }): Promise<ClaudeSdkSessionSummary[]>;
-  getSessionMessages(input: { workingDir: string; sessionId: string }): Promise<ClaudeSdkSessionMessage[]>;
+  listSessions(input: { dir: string }): Promise<ClaudeSdkSessionSummary[]>;
+  getSessionMessages(sessionId: string, input: { dir: string }): Promise<ClaudeSdkSessionMessage[]>;
 }

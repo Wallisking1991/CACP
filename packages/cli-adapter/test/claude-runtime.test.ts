@@ -11,10 +11,9 @@ describe("Claude persistent runtime", () => {
         createCalls += 1;
         return {
           sessionId: "fresh",
-          send: async (prompt: string, callbacks: { onDelta: (chunk: string) => Promise<void>; onStatus: (status: unknown) => Promise<void> }) => {
-            prompts.push(prompt);
-            await callbacks.onDelta("fresh answer");
-            return "fresh answer";
+          send: async (prompt: string) => { prompts.push(prompt); },
+          stream: async function* () {
+            yield { type: "assistant", message: "fresh answer" };
           },
           close: async () => undefined
         };
@@ -23,10 +22,9 @@ describe("Claude persistent runtime", () => {
         resumeCalls += 1;
         return {
           sessionId: "session_1",
-          send: async (prompt: string, callbacks: { onDelta: (chunk: string) => Promise<void>; onStatus: (status: unknown) => Promise<void> }) => {
-            prompts.push(prompt);
-            await callbacks.onDelta("resumed answer");
-            return "resumed answer";
+          send: async (prompt: string) => { prompts.push(prompt); },
+          stream: async function* () {
+            yield { type: "assistant", message: "resumed answer" };
           },
           close: async () => undefined
         };

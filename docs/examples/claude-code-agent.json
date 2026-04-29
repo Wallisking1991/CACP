@@ -7,6 +7,6 @@
     "command": "claude",
     "args": [],
     "working_dir": "D:\\Development\\2",
-    "capabilities": ["claude-code.print", "repo.read", "analysis"]
+    "capabilities": ["claude-code", "claude.persistent_session", "repo.read"]
   }
 }

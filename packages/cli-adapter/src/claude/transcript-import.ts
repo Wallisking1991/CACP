@@ -40,8 +40,8 @@ function contentToVisibleParts(content: unknown): { text: string; sourceKind: So
 
 function authorRoleFor(message: ClaudeSdkSessionMessage, sourceKind: SourceKind): ClaudeImportedMessage["author_role"] {
   if (sourceKind === "tool_use" || sourceKind === "tool_result") return "tool";
-  if (message.role === "user") return "user";
-  if (message.role === "assistant") return "assistant";
+  if (message.type === "user") return "user";
+  if (message.type === "assistant") return "assistant";
   return "system";
 }
 
@@ -55,14 +55,15 @@ export async function buildClaudeImportFromSessionMessages(input: {
 }): Promise<ClaudeImportResult> {
   const sdk = input.sdk ?? await loadClaudeSdk();
   const importId = input.importId ?? `import_${randomUUID()}`;
-  const messages = await sdk.getSessionMessages({ workingDir: input.workingDir, sessionId: input.sessionId });
+  const messages = await sdk.getSessionMessages(input.sessionId, { dir: input.workingDir });
   const imported: ClaudeImportedMessage[] = [];
   for (const message of messages) {
-    const sourceMessageId = message.id;
-    const originalCreatedAt = message.timestamp ?? message.created_at;
-    const parts = message.role === "user"
-      ? [{ text: typeof message.content === "string" ? message.content : JSON.stringify(message.content), sourceKind: "user" as const }]
-      : contentToVisibleParts(message.content);
+    const sourceMessageId = message.uuid;
+    const msgRecord = record(message.message);
+    const content = msgRecord.content ?? message.message;
+    const parts = message.type === "user"
+      ? [{ text: typeof content === "string" ? content : JSON.stringify(content), sourceKind: "user" as const }]
+      : contentToVisibleParts(content);
     for (const part of parts) {
       const text = part.text.trim();
       if (!text) continue;
@@ -72,7 +73,6 @@ export async function buildClaudeImportFromSessionMessages(input: {
         session_id: input.sessionId,
         sequence: imported.length,
         ...(sourceMessageId ? { source_message_id: sourceMessageId } : {}),
-        ...(originalCreatedAt ? { original_created_at: originalCreatedAt } : {}),
         author_role: authorRoleFor(message, part.sourceKind),
         source_kind: part.sourceKind,
         text: text.slice(0, 20000)

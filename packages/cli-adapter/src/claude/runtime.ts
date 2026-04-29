@@ -34,6 +34,32 @@ function trimRecent(recent: string[]): string[] {
   return recent.slice(-10);
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? value as Record<string, unknown> : {};
+}
+
+function extractTextFromMessageContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content.map((item) => {
+      const record = asRecord(item);
+      if (typeof record.text === "string") return record.text;
+      if (typeof record.content === "string") return record.content;
+      return "";
+    }).filter(Boolean).join("");
+  }
+  const record = asRecord(content);
+  if (typeof record.text === "string") return record.text;
+  if (typeof record.content === "string") return record.content;
+  return "";
+}
+
+function extractTextFromStreamMessage(raw: unknown): string {
+  const record = asRecord(raw);
+  const message = record.message ?? record.content ?? raw;
+  return extractTextFromMessageContent(message);
+}
+
 function promptForTurn(input: ClaudeTurnInput): string {
   return [
     "CACP room message",
@@ -94,18 +120,40 @@ export class ClaudeRuntime {
 
     await publish(this.session?.sessionId ? "resuming_session" : "connecting", this.session?.sessionId ? `Using Claude session ${this.session.sessionId}` : "Starting Claude session");
     await publish("thinking", "Sending room message to Claude Code");
-    const finalText = await this.session!.send(promptForTurn(turn), {
-      onStatus: async (status) => {
-        metrics.files_read += status.metrics.files_read ?? 0;
-        metrics.searches += status.metrics.searches ?? 0;
-        metrics.commands += status.metrics.commands ?? 0;
-        await publish(status.phase, status.current);
-      },
-      onDelta: async (chunk) => {
-        await publish("generating_answer", "Claude Code is generating an answer");
-        await this.input.publishDelta(turn.turnId, chunk);
+
+    await this.session!.send(promptForTurn(turn));
+
+    let finalText = "";
+    for await (const rawMessage of this.session!.stream()) {
+      const record = asRecord(rawMessage);
+      const msgType = typeof record.type === "string" ? record.type : "";
+
+      if (msgType === "assistant") {
+        const text = extractTextFromStreamMessage(rawMessage);
+        if (text) {
+          finalText += text;
+          await this.input.publishDelta(turn.turnId, text);
+          await publish("generating_answer", "Claude Code is generating an answer");
+        }
+      } else if (msgType === "tool_use") {
+        const toolName = typeof record.name === "string" ? record.name : "";
+        if (toolName === "Read" || toolName === "LS") metrics.files_read += 1;
+        if (toolName === "Grep" || toolName === "Glob") metrics.searches += 1;
+        if (toolName === "Bash") metrics.commands += 1;
+        await publish("thinking", toolName ? `Claude Code using tool: ${toolName}` : "Claude Code is thinking");
+      } else if (msgType === "system") {
+        const sysRecord = asRecord(record.message);
+        const phase = typeof sysRecord.phase === "string" ? sysRecord.phase : "";
+        const current = typeof sysRecord.current === "string" ? sysRecord.current : "";
+        if (current) await publish("thinking", current);
+        if (phase) {
+          if (phase === "reading_files") metrics.files_read += 1;
+          if (phase === "searching") metrics.searches += 1;
+          if (phase === "running_command") metrics.commands += 1;
+        }
       }
-    });
+    }
+
     await publish("completed", `Claude Code completed in ${Math.max(1, Math.round((Date.now() - started) / 1000))}s`);
     return { finalText, sessionId: this.session?.sessionId };
   }
