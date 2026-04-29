@@ -51,7 +51,7 @@ Possible use cases:
 - Discussing software requirements with business and technical stakeholders.
 - Exploring a game, app, or creative concept with people from different backgrounds.
 - Letting observers learn how an AI-assisted project discussion unfolds.
-- Testing how local CLI agents or LLM API agents behave inside a shared room.
+- Testing how a local Claude Code session or LLM API agents behave inside a shared room.
 
 ### For developers
 
@@ -63,7 +63,7 @@ Developer areas include:
 - Fastify/WebSocket room server.
 - SQLite event store.
 - React + Vite room UI.
-- Local connector and CLI agent adapter.
+- Local Connector Claude Code runtime and LLM API provider adapters.
 - LLM API provider adapters.
 - Invite, pairing, participant, and room governance flows.
 
@@ -86,13 +86,13 @@ Enter:
 - A room name.
 - Your display name.
 - The type of agent you want to connect.
-- The permission level if you choose a local CLI agent.
+- The Claude Code permission level if you choose local execution.
 
 ### 2. Choose an agent type
 
 CACP can connect different kinds of agents.
 
-Local CLI agent:
+Local Claude Code agent:
 
 - Claude Code
 
@@ -168,7 +168,7 @@ CACP is designed around a local-first agent boundary, but users still need to be
 Important cautions:
 
 - The live demo is experimental. Do not use it for confidential work.
-- Local CLI agents run on your machine and may access the working directory you choose.
+- Claude Code runs on your machine through the Local Connector and may access the working directory you choose.
 - Use read-only permission for demos unless you intentionally want an agent to edit files.
 - Do not expose tokens, API keys, SSH keys, production configs, private room links, or sensitive files in chat, screenshots, or logs.
 - Only connect agents in directories you trust.
@@ -191,7 +191,7 @@ CACP is an early open-source experiment in how multiple humans and AI agents can
 packages/
   protocol      Shared TypeScript types, Zod schemas, protocol contracts, connection codes
   server        Fastify/WebSocket room server, SQLite event store, auth, pairing, governance
-  cli-adapter   Local connector and runner logic for CLI agents and LLM API agents
+  cli-adapter   Local connector runtime for Claude Code sessions and LLM API agents
   web           React + Vite room UI
 
 docs/
