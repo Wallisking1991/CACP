@@ -4,6 +4,10 @@ import {
   AiCollectionRequestedPayloadSchema,
   AiCollectionRequestApprovedPayloadSchema,
   AiCollectionRequestRejectedPayloadSchema,
+  ClaudeSessionCatalogUpdatedPayloadSchema,
+  ClaudeSessionSelectedPayloadSchema,
+  ClaudeSessionImportMessagePayloadSchema,
+  ClaudeRuntimeStatusChangedPayloadSchema,
   evaluatePolicy,
   type Participant,
   type Policy,
@@ -128,6 +132,77 @@ describe("CACP event schema", () => {
         payload: {}
       })).toThrow();
     }
+  });
+
+  it("accepts Claude session catalog events", () => {
+    const payload = {
+      agent_id: "agent_1",
+      working_dir: "D:\\Development\\2",
+      sessions: [{
+        session_id: "session_1",
+        title: "CACP planning",
+        project_dir: "D:\\Development\\2",
+        updated_at: "2026-04-29T00:00:00.000Z",
+        message_count: 12,
+        byte_size: 34567,
+        importable: true
+      }]
+    };
+    expect(ClaudeSessionCatalogUpdatedPayloadSchema.parse(payload)).toEqual(payload);
+    expect(CacpEventSchema.parse({
+      protocol: "cacp",
+      version: "0.2.0",
+      event_id: "evt_1",
+      room_id: "room_1",
+      type: "claude.session_catalog.updated",
+      actor_id: "agent_1",
+      created_at: "2026-04-29T00:00:00.000Z",
+      payload
+    }).type).toBe("claude.session_catalog.updated");
+  });
+
+  it("accepts Claude session selection events", () => {
+    expect(ClaudeSessionSelectedPayloadSchema.parse({
+      agent_id: "agent_1",
+      mode: "resume",
+      session_id: "session_1",
+      selected_by: "owner_1"
+    }).mode).toBe("resume");
+    expect(ClaudeSessionSelectedPayloadSchema.parse({
+      agent_id: "agent_1",
+      mode: "fresh",
+      selected_by: "owner_1"
+    }).mode).toBe("fresh");
+  });
+
+  it("accepts imported Claude transcript message payloads", () => {
+    const payload = {
+      import_id: "import_1",
+      agent_id: "agent_1",
+      session_id: "session_1",
+      sequence: 1,
+      source_message_id: "msg_sdk_1",
+      original_created_at: "2026-04-28T12:00:00.000Z",
+      author_role: "assistant",
+      source_kind: "assistant",
+      text: "Visible Claude answer"
+    };
+    expect(ClaudeSessionImportMessagePayloadSchema.parse(payload)).toEqual(payload);
+  });
+
+  it("accepts rolling Claude runtime status payloads", () => {
+    const payload = {
+      agent_id: "agent_1",
+      turn_id: "turn_1",
+      status_id: "status_turn_1",
+      phase: "reading_files",
+      current: "Reading packages/server/src/pairing.ts",
+      recent: ["Started turn", "Reading packages/server/src/pairing.ts"],
+      metrics: { files_read: 1, searches: 0, commands: 0 },
+      started_at: "2026-04-29T00:00:00.000Z",
+      updated_at: "2026-04-29T00:00:01.000Z"
+    };
+    expect(ClaudeRuntimeStatusChangedPayloadSchema.parse(payload)).toEqual(payload);
   });
 });
 
