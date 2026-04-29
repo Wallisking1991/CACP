@@ -3,6 +3,7 @@ import { parseInviteUrl } from "../api.js";
 import { LangContext } from "../i18n/LangProvider.js";
 import { useT } from "../i18n/useT.js";
 import { isCloudMode } from "../runtime-config.js";
+import CacpHeroLogo from "./CacpHeroLogo.js";
 
 interface LandingProps {
   onCreate: (params: { roomName: string; displayName: string; agentType: string; permissionLevel: string }) => void;
@@ -27,6 +28,12 @@ const permissionLevels = [
   { value: "full_access", labelKey: "permission.fullAccess" }
 ] as const;
 
+const valueTags = [
+  { labelKey: "landing.value.local" },
+  { labelKey: "landing.value.room" },
+  { labelKey: "landing.value.governed" }
+] as const;
+
 export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
   const t = useT();
   const langCtx = useContext(LangContext);
@@ -34,47 +41,20 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
   const inviteTarget = useMemo(() => parseInviteUrl(window.location.search) ?? parseInviteUrl(window.location.hash.replace(/^#/, "?")), []);
   const hasInviteInUrl = Boolean(inviteTarget);
 
-  const [activeTab, setActiveTab] = useState<"create" | "join">(hasInviteInUrl ? "join" : "create");
-
   const [roomName, setRoomName] = useState("CACP AI Room");
   const [ownerDisplayName, setOwnerDisplayName] = useState("");
   const [joinDisplayName, setJoinDisplayName] = useState("");
   const [agentType, setAgentType] = useState("claude-code");
   const [permissionLevel, setPermissionLevel] = useState("read_only");
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const selectedLlmApiAgent = llmAgentTypeValues.has(agentType);
-
-  const [joinRoomId, setJoinRoomId] = useState(inviteTarget?.room_id ?? "");
-  const [inviteToken, setInviteToken] = useState(inviteTarget?.invite_token ?? "");
-  const [inviteLink, setInviteLink] = useState("");
-
-  useEffect(() => {
-    if (hasInviteInUrl) {
-      setActiveTab("join");
-      if (inviteTarget) {
-        setJoinRoomId(inviteTarget.room_id);
-        setInviteToken(inviteTarget.invite_token);
-      }
-    }
-  }, [hasInviteInUrl, inviteTarget]);
-
-  useEffect(() => {
-    if (inviteLink.trim()) {
-      try {
-        const url = new URL(inviteLink.trim());
-        const parsed = parseInviteUrl(url.search);
-        if (parsed) {
-          setJoinRoomId(parsed.room_id);
-          setInviteToken(parsed.invite_token);
-        }
-      } catch {
-        // ignore invalid URL
-      }
-    }
-  }, [inviteLink]);
-
   const createValid = roomName.trim() && ownerDisplayName.trim();
-  const joinValid = joinRoomId.trim() && inviteToken.trim() && joinDisplayName.trim();
+  const joinValid = Boolean(inviteTarget && joinDisplayName.trim());
+
+  useEffect(() => {
+    if (hasInviteInUrl) setAdvancedOpen(false);
+  }, [hasInviteInUrl]);
 
   function handleCreateSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -89,188 +69,175 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
 
   function handleJoinSubmit(event: React.FormEvent) {
     event.preventDefault();
-    if (!joinValid || loading) return;
+    if (!joinValid || loading || !inviteTarget) return;
     onJoin({
-      roomId: joinRoomId.trim(),
-      inviteToken: inviteToken.trim(),
+      roomId: inviteTarget.room_id,
+      inviteToken: inviteTarget.invite_token,
       displayName: joinDisplayName.trim()
     });
   }
 
   return (
-    <main className="landing-shell">
-      <div className="landing-card">
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-          <button
-            type="button"
-            className="lang-toggle"
-            onClick={() => langCtx?.setLang(langCtx.lang === "en" ? "zh" : "en")}
-            title={t("lang.toggle")}
-            aria-label={t("lang.toggle")}
-          >
-            {t("lang.en")} / {t("lang.zh")}
-          </button>
+    <main className={`landing-shell ${hasInviteInUrl ? "landing-shell-invite" : ""}`}>
+      <div className="landing-orb landing-orb-primary" aria-hidden="true" />
+      <div className="landing-orb landing-orb-secondary" aria-hidden="true" />
+
+      <div className="landing-topbar">
+        <div className="landing-mini-brand" aria-label={t("landing.brand")}>
+          <span className="landing-mini-mark">C</span>
+          <span>{t("landing.brand")}</span>
         </div>
-
-        <p className="landing-eyebrow">{t("landing.eyebrow")}</p>
-        <h1 className="landing-headline">{t("landing.headline")}</h1>
-        <p className="landing-subcopy">{t("landing.subcopy")}</p>
-
-        <div className="tab-bar">
-          <button
-            type="button"
-            className={`tab-btn ${activeTab === "create" ? "active" : ""}`}
-            onClick={() => setActiveTab("create")}
-          >
-            {t("landing.tab.create")}
-          </button>
-          <button
-            type="button"
-            className={`tab-btn ${activeTab === "join" ? "active" : ""}`}
-            onClick={() => setActiveTab("join")}
-          >
-            {t("landing.tab.join")}
-          </button>
-        </div>
-
-        {activeTab === "create" ? (
-          <form onSubmit={handleCreateSubmit}>
-            <label className="section-label" htmlFor="landing-room-name">{t("landing.create.roomName")}</label>
-            <input
-              id="landing-room-name"
-              className="input"
-              value={roomName}
-              onChange={(e) => setRoomName(e.target.value)}
-              required
-            />
-
-            <label className="section-label" htmlFor="landing-display-name" style={{ marginTop: 12 }}>{t("landing.create.displayName")}</label>
-            <input
-              id="landing-display-name"
-              className="input"
-              value={ownerDisplayName}
-              onChange={(e) => setOwnerDisplayName(e.target.value)}
-              required
-            />
-
-            <label className="section-label" htmlFor="landing-agent-type" style={{ marginTop: 12 }}>{t("landing.create.agentType")}</label>
-            <select
-              id="landing-agent-type"
-              className="input"
-              value={agentType}
-              onChange={(e) => setAgentType(e.target.value)}
-            >
-              <optgroup label={t("agentType.group.localCommand")}>
-                {commandAgentTypes.map((item) => <option key={item.value} value={item.value}>{t(item.labelKey)}</option>)}
-              </optgroup>
-              <optgroup label={t("agentType.group.llmApi")}>
-                {llmAgentTypes.map((item) => <option key={item.value} value={item.value}>{t(item.labelKey)}</option>)}
-              </optgroup>
-            </select>
-
-            {!selectedLlmApiAgent && (
-              <>
-                <label className="section-label" htmlFor="landing-permission-level" style={{ marginTop: 12 }}>{t("landing.create.permissionLevel")}</label>
-                <select
-                  id="landing-permission-level"
-                  className="input"
-                  value={permissionLevel}
-                  onChange={(e) => setPermissionLevel(e.target.value)}
-                >
-                  {permissionLevels.map((item) => (
-                    <option key={item.value} value={item.value}>{t(item.labelKey)}</option>
-                  ))}
-                </select>
-              </>
-            )}
-
-            {selectedLlmApiAgent && (
-              <p style={{ fontSize: 12, color: "var(--ink-3)", margin: "12px 0 0" }}>
-                {t("landing.create.llmApiKeyLocalOnly")}
-              </p>
-            )}
-
-            {isCloudMode() && (
-              <div className="connector-setup" style={{ marginTop: 16, padding: 12, border: "1px solid var(--border-soft)", borderRadius: "var(--radius-card)", background: "var(--surface-warm)" }}>
-                <a className="btn btn-ghost" href="/downloads/CACP-Local-Connector.exe" download>
-                  {t("landing.connector.download")}
-                </a>
-                <p style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 8 }}>
-                  {selectedLlmApiAgent ? t("landing.connector.llmInstructions") : t("landing.connector.instructions")}
-                </p>
-              </div>
-            )}
-
-            <button
-              type="submit"
-              className="btn btn-warm"
-              disabled={!createValid || loading}
-              style={{ marginTop: 16 }}
-            >
-              {isCloudMode() ? t("landing.create.cloudCta") : t("landing.create.cta")}
-            </button>
-            {isCloudMode() && (
-              <p style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 8 }}>{t("landing.create.cloudAgentHint")}</p>
-            )}
-          </form>
-        ) : (
-          <form onSubmit={handleJoinSubmit}>
-            {!hasInviteInUrl && (
-              <>
-                <label className="section-label" htmlFor="landing-invite-link">{t("landing.join.inviteLink")}</label>
-                <input
-                  id="landing-invite-link"
-                  className="input"
-                  value={inviteLink}
-                  onChange={(e) => setInviteLink(e.target.value)}
-                  placeholder="https://..."
-                />
-              </>
-            )}
-
-            <label className="section-label" htmlFor="landing-join-room-id" style={{ marginTop: hasInviteInUrl ? 0 : 12 }}>{t("landing.join.roomId")}</label>
-            <input
-              id="landing-join-room-id"
-              className="input"
-              value={joinRoomId}
-              onChange={(e) => setJoinRoomId(e.target.value)}
-              required
-              readOnly={hasInviteInUrl}
-            />
-
-            <label className="section-label" htmlFor="landing-join-invite-token" style={{ marginTop: 12 }}>{t("landing.join.inviteToken")}</label>
-            <input
-              id="landing-join-invite-token"
-              className="input"
-              value={inviteToken}
-              onChange={(e) => setInviteToken(e.target.value)}
-              required
-              readOnly={hasInviteInUrl}
-            />
-
-            <label className="section-label" htmlFor="landing-join-display-name" style={{ marginTop: 12 }}>{t("landing.join.displayName")}</label>
-            <input
-              id="landing-join-display-name"
-              className="input"
-              value={joinDisplayName}
-              onChange={(e) => setJoinDisplayName(e.target.value)}
-              required
-            />
-
-            <button
-              type="submit"
-              className="btn btn-primary"
-              disabled={!joinValid || loading}
-              style={{ marginTop: 16 }}
-            >
-              {t("landing.join.cta")}
-            </button>
-          </form>
-        )}
+        <button
+          type="button"
+          className="lang-toggle"
+          onClick={() => langCtx?.setLang(langCtx.lang === "en" ? "zh" : "en")}
+          title={t("lang.toggle")}
+          aria-label={t("lang.toggle")}
+        >
+          {t("lang.en")} / {t("lang.zh")}
+        </button>
       </div>
+
+      <section className="landing-hero-grid">
+        <div className="landing-showcase">
+          <p className="landing-eyebrow">{t("landing.eyebrow")}</p>
+          <CacpHeroLogo />
+          <h1 className="landing-headline">{t("landing.headline")}</h1>
+          <p className="landing-subcopy">{t("landing.subcopy")}</p>
+          <div className="landing-value-tags" aria-label="CACP values">
+            {valueTags.map((item) => (
+              <span key={item.labelKey} className="landing-value-tag">{t(item.labelKey)}</span>
+            ))}
+          </div>
+        </div>
+
+        <article className="landing-card landing-console" aria-labelledby={hasInviteInUrl ? "landing-invite-title" : "landing-create-title"}>
+          {hasInviteInUrl && inviteTarget ? (
+            <form data-testid="landing-invite-card" className="landing-form" onSubmit={handleJoinSubmit}>
+              <p className="landing-console-kicker">{t("landing.tab.join")}</p>
+              <h2 id="landing-invite-title" className="landing-console-title">{t("landing.join.cardTitle")}</h2>
+              <p className="landing-console-copy">{t("landing.join.cardSubcopy")}</p>
+
+              <label className="section-label" htmlFor="landing-join-display-name">{t("landing.join.displayName")}</label>
+              <input
+                id="landing-join-display-name"
+                className="input landing-input"
+                value={joinDisplayName}
+                onChange={(e) => setJoinDisplayName(e.target.value)}
+                required
+                autoComplete="name"
+              />
+
+              <p className="landing-room-hint">{t("landing.join.invitedRoom", { roomId: inviteTarget.room_id })}</p>
+
+              <button type="submit" className="btn btn-primary landing-primary-action" disabled={!joinValid || loading}>
+                {t("landing.join.cta")}
+              </button>
+            </form>
+          ) : (
+            <form data-testid="landing-create-card" className="landing-form" onSubmit={handleCreateSubmit}>
+              <p className="landing-console-kicker">{t("room.create")}</p>
+              <h2 id="landing-create-title" className="landing-console-title">{t("landing.create.cardTitle")}</h2>
+              <p className="landing-console-copy">{t("landing.create.cardSubcopy")}</p>
+
+              <label className="section-label" htmlFor="landing-display-name">{t("landing.create.displayName")}</label>
+              <input
+                id="landing-display-name"
+                className="input landing-input"
+                value={ownerDisplayName}
+                onChange={(e) => setOwnerDisplayName(e.target.value)}
+                required
+                autoComplete="name"
+              />
+
+              <label className="section-label" htmlFor="landing-room-name">{t("landing.create.roomName")}</label>
+              <input
+                id="landing-room-name"
+                className="input landing-input"
+                value={roomName}
+                onChange={(e) => setRoomName(e.target.value)}
+                required
+              />
+
+              <button
+                type="button"
+                className="landing-advanced-toggle"
+                aria-expanded={advancedOpen}
+                aria-controls="landing-advanced-options"
+                onClick={() => setAdvancedOpen((open) => !open)}
+              >
+                <span>{advancedOpen ? t("landing.create.advancedHide") : t("landing.create.advancedToggle")}</span>
+                <span aria-hidden="true">{advancedOpen ? "−" : "+"}</span>
+              </button>
+
+              <div id="landing-advanced-options" className="landing-advanced" hidden={!advancedOpen}>
+                <p className="section-label">{t("landing.create.advancedTitle")}</p>
+
+                <label className="section-label" htmlFor="landing-agent-type">{t("landing.create.agentType")}</label>
+                <select
+                  id="landing-agent-type"
+                  className="input landing-input"
+                  value={agentType}
+                  onChange={(e) => setAgentType(e.target.value)}
+                >
+                  <optgroup label={t("agentType.group.localCommand")}>
+                    {commandAgentTypes.map((item) => <option key={item.value} value={item.value}>{t(item.labelKey)}</option>)}
+                  </optgroup>
+                  <optgroup label={t("agentType.group.llmApi")}>
+                    {llmAgentTypes.map((item) => <option key={item.value} value={item.value}>{t(item.labelKey)}</option>)}
+                  </optgroup>
+                </select>
+
+                {!selectedLlmApiAgent && (
+                  <>
+                    <label className="section-label" htmlFor="landing-permission-level">{t("landing.create.permissionLevel")}</label>
+                    <select
+                      id="landing-permission-level"
+                      className="input landing-input"
+                      value={permissionLevel}
+                      onChange={(e) => setPermissionLevel(e.target.value)}
+                    >
+                      {permissionLevels.map((item) => (
+                        <option key={item.value} value={item.value}>{t(item.labelKey)}</option>
+                      ))}
+                    </select>
+                  </>
+                )}
+
+                {selectedLlmApiAgent && (
+                  <p className="landing-safe-copy">{t("landing.create.llmApiKeyLocalOnly")}</p>
+                )}
+
+                {isCloudMode() && (
+                  <div className="connector-setup landing-connector-setup">
+                    <a className="btn btn-ghost" href="/downloads/CACP-Local-Connector.exe" download>
+                      {t("landing.connector.download")}
+                    </a>
+                    <p className="landing-safe-copy">
+                      {selectedLlmApiAgent ? t("landing.connector.llmInstructions") : t("landing.connector.instructions")}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <button
+                type="submit"
+                className="btn btn-warm landing-primary-action"
+                disabled={!createValid || loading}
+              >
+                {isCloudMode() ? t("landing.create.cloudCta") : t("landing.create.cta")}
+              </button>
+              {isCloudMode() && (
+                <p className="landing-safe-copy landing-cloud-hint">{t("landing.create.cloudAgentHint")}</p>
+              )}
+            </form>
+          )}
+        </article>
+      </section>
+
       <footer className="landing-footer">
-        <p>{t("landing.footer.copyright")}</p>
-        <p>{t("landing.footer.contact")}</p>
+        <span>{t("landing.footer.copyright")}</span>
+        <span>{t("landing.footer.contact")}</span>
       </footer>
     </main>
   );

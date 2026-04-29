@@ -19,6 +19,7 @@ describe("Landing cloud connector setup", () => {
       </LangProvider>
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Advanced options: Agent type and permission" }));
     expect(screen.getByRole("link", { name: "Download Local Connector" })).toHaveAttribute("href", "/downloads/CACP-Local-Connector.exe");
     expect(screen.getByText("Place the connector in your project folder, run it, then paste the room connection code.")).toBeInTheDocument();
     expect(screen.queryByLabelText("Working directory")).not.toBeInTheDocument();
@@ -33,6 +34,7 @@ describe("Landing cloud connector setup", () => {
       </LangProvider>
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Advanced options: Agent type and permission" }));
     expect(screen.getByRole("option", { name: "Claude Code CLI" })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "Codex CLI" })).not.toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "opencode CLI" })).not.toBeInTheDocument();
@@ -47,6 +49,7 @@ describe("Landing cloud connector setup", () => {
       </LangProvider>
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "高级选项：Agent 类型和权限" }));
     expect(screen.getByRole("option", { name: "只读" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "受限写入" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "完全访问" })).toBeInTheDocument();
@@ -64,15 +67,13 @@ describe("Landing cloud connector setup", () => {
     expect(createName).toHaveValue("");
     expect(createName).toBeRequired();
     expect(screen.getByRole("button", { name: "Create room and generate connector command" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Join with invite" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Invite link")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Room ID")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Invite token")).not.toBeInTheDocument();
 
     fireEvent.change(createName, { target: { value: "Alice" } });
     expect(screen.getByRole("button", { name: "Create room and generate connector command" })).not.toBeDisabled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Join with invite" }));
-    const joinName = screen.getByLabelText("Your name") as HTMLInputElement;
-    expect(joinName).toHaveValue("");
-    expect(joinName).toBeRequired();
-    expect(screen.getByRole("button", { name: "Join shared room" })).toBeDisabled();
   });
 
   it("renders landing copyright and contact information", () => {
@@ -104,6 +105,7 @@ describe("Landing cloud connector setup", () => {
         <Landing onCreate={() => {}} onJoin={() => {}} loading={false} />
       </LangProvider>
     );
+    fireEvent.click(screen.getByRole("button", { name: "Advanced options: Agent type and permission" }));
     fireEvent.change(screen.getByLabelText("Agent type"), { target: { value: "llm-api" } });
     expect(screen.queryByLabelText("Permission")).not.toBeInTheDocument();
     expect(screen.getByText("Download and run the connector, paste the connection code, then choose the LLM API provider and enter API settings in the connector console.")).toBeInTheDocument();
