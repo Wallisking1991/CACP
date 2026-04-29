@@ -284,6 +284,13 @@ export async function buildServer(options: BuildServerOptions = {}) {
     for (const socket of sockets) socket.close(4001, "participant_removed");
   }
 
+  function closeRoomSockets(roomId: string, code: number, reason: string): void {
+    for (const [key, sockets] of [...participantSockets.entries()]) {
+      if (!key.startsWith(`${roomId}:`)) continue;
+      for (const socket of [...sockets]) socket.close(code, reason);
+    }
+  }
+
   await app.register(websocket);
   app.addHook("onClose", async () => {
     clearInterval(joinRequestCleanupTimer);
@@ -1034,6 +1041,35 @@ export async function buildServer(options: BuildServerOptions = {}) {
 
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/join", async (request, reply) => {
     return deny(reply, "join_requires_owner_approval", 410);
+  });
+
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/leave", async (request, reply) => {
+    const actor = requireParticipant(store, request.params.roomId, request);
+    if (!actor) return deny(reply, "invalid_token");
+    if (!hasHumanRole(actor, ["owner"])) return deny(reply, "forbidden", 403);
+    z.object({}).parse(request.body ?? {});
+
+    const removedAt = new Date().toISOString();
+    const participants = store.getParticipants(request.params.roomId);
+    const storedEvents = store.transaction(() => {
+      const events: CacpEvent[] = [];
+      for (const target of participants) {
+        store.revokeParticipant(request.params.roomId, target.id, actor.id, removedAt, "owner_left_room");
+        events.push(store.appendEvent(event(request.params.roomId, "participant.removed", actor.id, {
+          participant_id: target.id,
+          removed_by: actor.id,
+          removed_at: removedAt,
+          reason: "owner_left_room"
+        })));
+        if (target.role === "agent") {
+          events.push(store.appendEvent(event(request.params.roomId, "agent.status_changed", target.id, { agent_id: target.id, status: "offline" })));
+        }
+      }
+      return events;
+    });
+    publishEvents(storedEvents);
+    closeRoomSockets(request.params.roomId, 4001, "owner_left_room");
+    return reply.code(201).send({ ok: true, status: "room_closed" });
   });
 
   app.post<{ Params: { roomId: string; participantId: string } }>("/rooms/:roomId/participants/:participantId/remove", async (request, reply) => {
