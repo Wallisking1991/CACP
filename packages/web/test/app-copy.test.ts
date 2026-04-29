@@ -78,6 +78,14 @@ describe("App room copy and layout source", () => {
     expect(source).not.toContain("height: auto; max-height: none;");
   });
 
+
+  it("keeps Claude session history and transcript preview independently scrollable", () => {
+    const source = cssSource();
+
+    expect(source).toMatch(/\.claude-session-list\s*\{[^}]*max-height:[^;}]+;[^}]*overflow-y:\s*auto/s);
+    expect(source).toMatch(/\.claude-session-preview-messages\s*\{[^}]*overflow-y:\s*auto/s);
+  });
+
   it("uses a premium workspace shell", () => {
     const app = allSource();
     const css = cssSource();

@@ -53,6 +53,52 @@ describe("ClaudeSessionPicker", () => {
     await waitFor(() => expect(onSelect).toHaveBeenCalledWith({ mode: "resume", sessionId: "session_1" }));
   });
 
+
+  it("opens inspected history in a modal outside the scrollable session list", async () => {
+    const onSelect = vi.fn().mockResolvedValue(undefined);
+    const onRequestPreview = vi.fn().mockResolvedValue(undefined);
+    const sessions = Array.from({ length: 24 }, (_, index) => ({
+      session_id: `session_${index}`,
+      title: `History ${index}`,
+      project_dir: "D:\\Development\\2",
+      updated_at: `2026-04-29T00:00:${String(index).padStart(2, "0")}.000Z`,
+      message_count: index + 1,
+      byte_size: 1024 * (index + 1),
+      importable: true
+    }));
+
+    const { container } = render(
+      <ClaudeSessionPicker
+        canManageRoom={true}
+        agentId="agent_1"
+        catalog={{ agent_id: "agent_1", working_dir: "D:\\Development\\2", sessions }}
+        selection={undefined}
+        previews={[{
+          preview_id: "preview_1",
+          agent_id: "agent_1",
+          session_id: "session_17",
+          status: "completed",
+          messages: [{ sequence: 0, author_role: "user", source_kind: "user", text: "Resume this long history" }]
+        }]}
+        onRequestPreview={onRequestPreview}
+        onSelect={onSelect}
+      />
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Inspect" })[17]);
+
+    const dialog = screen.getByRole("dialog", { name: /Session details/ });
+    expect(dialog.closest(".claude-session-modal-overlay")).not.toBeNull();
+    expect(dialog.closest(".claude-session-list")).toBeNull();
+    expect(container.querySelector(".claude-session-list")?.contains(dialog)).toBe(false);
+    expect(screen.getByRole("heading", { name: "History 17" })).toBeInTheDocument();
+    await waitFor(() => expect(onRequestPreview).toHaveBeenCalledWith("session_17"));
+    expect(screen.getByText("Resume this long history")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Select and resume/ }));
+    await waitFor(() => expect(onSelect).toHaveBeenCalledWith({ mode: "resume", sessionId: "session_17" }));
+  });
+
   it("does not hide the active agent picker when a different agent has a selection", () => {
     render(
       <ClaudeSessionPicker

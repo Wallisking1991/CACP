@@ -71,73 +71,81 @@ export function ClaudeSessionPicker({ canManageRoom, agentId, catalog, selection
     }
   }
 
-  return (
-    <section className="claude-session-picker" aria-label={t("claude.session.title")}>
-      <div>
-        <p className="eyebrow">{t("claude.session.eyebrow")}</p>
-        <h2>{t("claude.session.headline")}</h2>
-        <p>{t("claude.session.workingDir")}: <code>{catalog.working_dir}</code></p>
-      </div>
-      <div className="claude-session-actions">
-        <button type="button" className="btn btn-primary" disabled={busy} onClick={() => submit({ mode: "fresh" })}>{t("claude.session.startFreshBtn")}</button>
-        {latest ? <button type="button" className="btn btn-ghost" disabled={busy || !latest.importable} onClick={() => void inspect(latest)}>{t("claude.session.inspectLatestBtn", { title: latest.title })}</button> : null}
-      </div>
-      {catalog.sessions.length ? (
-        <ul className="claude-session-list">
-          {catalog.sessions.map((session) => (
-            <li key={session.session_id}>
-              <span>{session.title}</span>
-              <span>{session.message_count} messages · {Math.round(session.byte_size / 1024)} KB</span>
-              <button type="button" className="btn btn-ghost" disabled={busy || !session.importable} onClick={() => void inspect(session)}>{t("claude.session.inspectBtn")}</button>
-            </li>
-          ))}
-        </ul>
-      ) : <p>{t("claude.session.noSessions")}</p>}
-      {inspectedSession ? (
-        <div className="claude-session-inspect" role="dialog" aria-modal="true" aria-label={t("claude.session.inspectTitle")}>
-          <h3>{inspectedSession.title}</h3>
-          <dl className="claude-session-details">
-            <div>
-              <dt>{t("claude.session.projectDir")}</dt>
-              <dd><code>{inspectedSession.project_dir}</code></dd>
-            </div>
-            <div>
-              <dt>{t("claude.session.lastModified")}</dt>
-              <dd>{formatDate(inspectedSession.updated_at)}</dd>
-            </div>
-            <div>
-              <dt>{t("claude.session.messageCount")}</dt>
-              <dd>{inspectedSession.message_count}</dd>
-            </div>
-            <div>
-              <dt>{t("claude.session.byteSize")}</dt>
-              <dd>{Math.round(inspectedSession.byte_size / 1024)} KB</dd>
-            </div>
-          </dl>
-          <div className="claude-session-preview">
-            <h4>{t("claude.session.transcript")}</h4>
-            {!inspectedPreview && !previewError && !previewLoading ? <p>{t("claude.session.previewLoading")}</p> : null}
-            {previewError ? <p className="error">{t("claude.session.previewFailed", { error: previewError })}</p> : null}
-            {inspectedPreview?.status === "requested" || previewLoading ? <p>{t("claude.session.previewLoading")}</p> : null}
-            {inspectedPreview?.status === "completed" && inspectedPreview.messages.length === 0 ? <p>{t("claude.session.previewEmpty")}</p> : null}
-            {inspectedPreview?.messages.length ? (
-              <ol className="claude-session-preview-messages">
-                {inspectedPreview.messages.map((message) => (
-                  <li key={`${message.sequence}-${message.part_index ?? 0}`}>
-                    <strong>{message.author_role}</strong>
-                    <p>{message.text}</p>
-                  </li>
-                ))}
-              </ol>
-            ) : null}
+  const inspectDialog = inspectedSession ? (
+    <div className="claude-session-modal-overlay">
+      <div className="claude-session-inspect" role="dialog" aria-modal="true" aria-label={t("claude.session.inspectTitle")}>
+        <h3>{inspectedSession.title}</h3>
+        <dl className="claude-session-details">
+          <div>
+            <dt>{t("claude.session.projectDir")}</dt>
+            <dd><code>{inspectedSession.project_dir}</code></dd>
           </div>
-          <p className="claude-session-inspect-hint">{t("claude.session.confirmUpload")}</p>
-          <div className="claude-session-inspect-actions">
-            <button type="button" className="btn btn-primary" disabled={busy || !canResumeInspected} onClick={() => submit({ mode: "resume", sessionId: inspectedSession.session_id })}>{t("claude.session.confirmResume")}</button>
-            <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setInspectedSession(undefined)}>{t("claude.session.cancel")}</button>
+          <div>
+            <dt>{t("claude.session.lastModified")}</dt>
+            <dd>{formatDate(inspectedSession.updated_at)}</dd>
           </div>
+          <div>
+            <dt>{t("claude.session.messageCount")}</dt>
+            <dd>{inspectedSession.message_count}</dd>
+          </div>
+          <div>
+            <dt>{t("claude.session.byteSize")}</dt>
+            <dd>{Math.round(inspectedSession.byte_size / 1024)} KB</dd>
+          </div>
+        </dl>
+        <div className="claude-session-preview">
+          <h4>{t("claude.session.transcript")}</h4>
+          {!inspectedPreview && !previewError && !previewLoading ? <p>{t("claude.session.previewLoading")}</p> : null}
+          {previewError ? <p className="error">{t("claude.session.previewFailed", { error: previewError })}</p> : null}
+          {inspectedPreview?.status === "requested" || previewLoading ? <p>{t("claude.session.previewLoading")}</p> : null}
+          {inspectedPreview?.status === "completed" && inspectedPreview.messages.length === 0 ? <p>{t("claude.session.previewEmpty")}</p> : null}
+          {inspectedPreview?.messages.length ? (
+            <ol className="claude-session-preview-messages">
+              {inspectedPreview.messages.map((message) => (
+                <li key={`${message.sequence}-${message.part_index ?? 0}`}>
+                  <strong>{message.author_role}</strong>
+                  <p>{message.text}</p>
+                </li>
+              ))}
+            </ol>
+          ) : null}
         </div>
-      ) : null}
-    </section>
+        <p className="claude-session-inspect-hint">{t("claude.session.confirmUpload")}</p>
+        <div className="claude-session-inspect-actions">
+          <button type="button" className="btn btn-primary" disabled={busy || !canResumeInspected} onClick={() => submit({ mode: "resume", sessionId: inspectedSession.session_id })}>{t("claude.session.confirmResume")}</button>
+          <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setInspectedSession(undefined)}>{t("claude.session.cancel")}</button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  return (
+    <>
+      <section className="claude-session-picker" aria-label={t("claude.session.title")}>
+        <div>
+          <p className="eyebrow">{t("claude.session.eyebrow")}</p>
+          <h2>{t("claude.session.headline")}</h2>
+          <p>{t("claude.session.workingDir")}: <code>{catalog.working_dir}</code></p>
+        </div>
+        <div className="claude-session-actions">
+          <button type="button" className="btn btn-primary" disabled={busy} onClick={() => submit({ mode: "fresh" })}>{t("claude.session.startFreshBtn")}</button>
+          {latest ? <button type="button" className="btn btn-ghost" disabled={busy || !latest.importable} onClick={() => void inspect(latest)}>{t("claude.session.inspectLatestBtn", { title: latest.title })}</button> : null}
+        </div>
+        {catalog.sessions.length ? (
+          <ul className="claude-session-list">
+            {catalog.sessions.map((session) => (
+              <li key={session.session_id}>
+                <div className="claude-session-list-main">
+                  <span>{session.title}</span>
+                  <span>{session.message_count} messages · {Math.round(session.byte_size / 1024)} KB</span>
+                </div>
+                <button type="button" className="btn btn-ghost" disabled={busy || !session.importable} onClick={() => void inspect(session)}>{t("claude.session.inspectBtn")}</button>
+              </li>
+            ))}
+          </ul>
+        ) : <p>{t("claude.session.noSessions")}</p>}
+      </section>
+      {inspectDialog}
+    </>
   );
 }

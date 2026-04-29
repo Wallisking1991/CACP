@@ -793,15 +793,18 @@ textarea.input {
 .claude-session-list {
   list-style: none;
   margin: 12px 0 0;
-  padding: 0;
+  padding: 0 4px 0 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  max-height: min(42vh, 420px);
+  overflow-y: auto;
+  scrollbar-color: var(--border-soft) transparent;
 }
 
 .claude-session-list li {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
   padding: 10px 12px;
@@ -811,12 +814,42 @@ textarea.input {
   font-size: 13px;
 }
 
+.claude-session-list-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.claude-session-list-main span:first-child {
+  overflow-wrap: anywhere;
+}
+
+.claude-session-list-main span:last-child {
+  color: var(--ink-3);
+}
+
+.claude-session-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(28, 24, 19, 0.32);
+}
+
 .claude-session-inspect {
-  margin-top: 12px;
+  width: min(860px, 100%);
+  max-height: min(760px, calc(100dvh - 48px));
+  display: flex;
+  flex-direction: column;
   padding: 14px;
   border: 1px solid var(--accent-border);
   border-radius: var(--radius-card);
-  background: var(--accent-soft);
+  background: var(--surface);
+  box-shadow: 0 18px 50px rgba(28, 24, 19, 0.18);
 }
 
 .claude-session-inspect h3 {
@@ -848,6 +881,33 @@ textarea.input {
   font-size: 13px;
   margin: 0;
   word-break: break-all;
+}
+
+.claude-session-preview {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 12px;
+}
+
+.claude-session-preview h4 {
+  margin-bottom: 8px;
+}
+
+.claude-session-preview-messages {
+  overflow-y: auto;
+  max-height: min(42vh, 360px);
+  margin: 0;
+  padding-left: 20px;
+  scrollbar-color: var(--border-soft) transparent;
+}
+
+.claude-session-preview-messages li {
+  margin-bottom: 10px;
+}
+
+.claude-session-preview-messages p {
+  white-space: pre-wrap;
 }
 
 .claude-session-inspect-hint {
