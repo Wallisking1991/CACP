@@ -39,6 +39,19 @@ describe("adapter config arguments", () => {
     expect(config.agent.name).toBe("Echo");
   });
 
+  it("extracts permission_level from pairing claim response", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      room_id: "room_1",
+      agent_id: "agent_1",
+      agent_token: "agent_token",
+      agent: { name: "Claude Code Agent", command: "claude", args: [], working_dir: ".", capabilities: ["claude-code"] },
+      permission_level: "read_only"
+    }), { status: 201, headers: { "content-type": "application/json" } }));
+
+    const config = await loadRuntimeConfigFromArgs(["--server", "http://127.0.0.1:3737", "--pair", "pair_1"], fetchMock as unknown as typeof fetch);
+    expect(config.permission_level).toBe("read_only");
+  });
+
   it("claims a pairing from a connection code", async () => {
     const code = buildConnectionCode({
       server_url: "https://cacp.example.com",

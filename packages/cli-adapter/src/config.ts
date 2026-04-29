@@ -21,6 +21,7 @@ export const AdapterConfigSchema = z.object({
     capabilities: z.array(z.string()).default(["shell.oneshot"]),
     system_prompt: z.string().optional()
   }),
+  permission_level: z.string().optional(),
   llm: z.object({
     providerId: z.enum(["siliconflow", "kimi", "minimax", "openai", "anthropic", "glm-official", "deepseek", "custom-openai-compatible", "custom-anthropic-compatible"]),
     protocol: z.enum(["openai-chat", "anthropic-messages"]),
@@ -37,7 +38,8 @@ const PairingClaimSchema = z.object({
   room_id: z.string().min(1),
   agent_id: z.string().min(1),
   agent_token: z.string().min(1),
-  agent: AdapterConfigSchema.shape.agent
+  agent: AdapterConfigSchema.shape.agent,
+  permission_level: z.string().optional()
 });
 
 export type ConfigureLlmAgent = (agentType: LlmAgentType) => Promise<LlmProviderConfig | undefined>;
@@ -113,7 +115,8 @@ async function claimPairing(serverUrl: string, pairingToken: string, workingDir:
     server_url: serverUrl,
     room_id: claim.room_id,
     registered_agent: { agent_id: claim.agent_id, agent_token: claim.agent_token },
-    agent: claim.agent
+    agent: claim.agent,
+    permission_level: claim.permission_level
   };
   if (llm) config.llm = llm;
   return config;

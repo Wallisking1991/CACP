@@ -1,8 +1,8 @@
 export interface ConnectedBannerInput {
   roomId: string;
-  chatPath: string;
-  chatAvailable: boolean;
-  transcriptError?: string;
+  agentName: string;
+  workingDir: string;
+  claudeSessionMode: "pending-selection" | "not-applicable";
   color?: boolean;
 }
 
@@ -23,15 +23,12 @@ function paint(value: string, color: ColorName, enabled: boolean): string {
 
 export function formatConnectedBanner(input: ConnectedBannerInput): string {
   const useColor = input.color ?? Boolean(process.stdout.isTTY);
-  const chatLines = input.chatAvailable
+  const claudeLines = input.claudeSessionMode === "pending-selection"
     ? [
-        "📄 Chat transcript is being saved to:",
-        paint(input.chatPath, "cyan", useColor)
+        paint("Claude Code session selection is pending in the web room.", "yellow", useColor),
+        "Open the CACP Web Room to select or resume a Claude session."
       ]
-    : [
-        paint("📄 Unable to save the chat transcript. Check this folder's permissions.", "red", useColor),
-        input.transcriptError ? paint(input.transcriptError, "red", useColor) : undefined
-      ].filter((line): line is string => Boolean(line));
+    : [];
 
   return [
     "",
@@ -39,10 +36,11 @@ export function formatConnectedBanner(input: ConnectedBannerInput): string {
     `║  ${paint("✅ CONNECTED SUCCESSFULLY", "green", useColor)}                 ║`,
     "╚══════════════════════════════════════════════╝",
     "",
-    `🤖 Local Agent is connected to room: ${input.roomId}`,
+    `🤖 ${input.agentName} is connected to room: ${input.roomId}`,
     paint("⚠️  Do not close this window. The Local Agent will disconnect if this window closes.", "yellow", useColor),
     "",
-    ...chatLines,
+    `📁 Working directory: ${input.workingDir}`,
+    ...claudeLines,
     "",
     "──────────────────────────────────────────────",
     "👥 The room owner can now return to the CACP Web Room",
@@ -58,7 +56,7 @@ export function formatConnectedBanner(input: ConnectedBannerInput): string {
     "        🤖 Local Agent",
     "              │",
     "              ▼",
-    "        📄 Local chat transcript chat.md",
+    "        💻 Claude Code persistent session",
     ""
   ].join("\n");
 }

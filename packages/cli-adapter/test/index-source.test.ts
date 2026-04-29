@@ -2,39 +2,51 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-describe("cli adapter stream wiring", () => {
-  const source = () => readFileSync(resolve(process.cwd(), "src/index.ts"), "utf8");
+const indexSource = readFileSync(resolve(__dirname, "../src/index.ts"), "utf8");
 
-  it("creates a transcript writer from the runtime room and working directory", () => {
-    expect(source()).toContain("new ChatTranscriptWriter({");
-    expect(source()).toContain("roomId: config.room_id");
-    expect(source()).toContain("baseDir: config.agent.working_dir");
+describe("connector index source", () => {
+  it("uses ClaudeRuntime for Claude Code turns instead of spawning one command per turn", () => {
+    expect(indexSource).toContain("ClaudeRuntime");
+    expect(indexSource).not.toContain("runCommandForTask({");
+  });
+
+  it("does not use chat.md transcript as Claude Code context storage", () => {
+    expect(indexSource).not.toContain("new ChatTranscriptWriter");
+    expect(indexSource).not.toContain("transcript.handleEvent");
+  });
+
+  it("creates a room client for posting Claude events to the server REST API", () => {
+    expect(indexSource).toContain("new RoomClient({");
+    expect(indexSource).toContain("roomClient.publishCatalog");
+    expect(indexSource).toContain("roomClient.startTurn");
   });
 
   it("routes agent turns through the LLM runner when llm config exists", () => {
-    expect(source()).toContain("runLlmTurn");
-    expect(source()).toContain("if (config.llm)");
-    expect(source()).toContain("/agent-turns/${payload.turn_id}/delta");
+    expect(indexSource).toContain("runLlmTurn");
+    expect(indexSource).toContain("if (config.llm)");
+    expect(indexSource).toContain("roomClient.publishTurnDelta");
   });
 
-  it("silently ignores task.created for LLM API agents instead of calling fail", () => {
-    expect(source()).not.toContain("llm_api_agents_do_not_run_tasks");
-    expect(source()).toContain("Pure conversation LLM API agents do not run tasks");
-    expect(source()).toContain("if (config.llm)");
+  it("silently ignores task.created for all agents instead of calling fail", () => {
+    expect(indexSource).toContain("Ignoring task.created because this connector no longer runs generic local command tasks.");
   });
 
   it("sanitizes LLM runtime errors before sending to server", () => {
-    expect(source()).toContain("sanitizeLlmError");
-    expect(source()).toContain("config.llm ? sanitizeLlmError");
+    expect(indexSource).toContain("sanitizeLlmError");
+    expect(indexSource).toContain("config.llm ? sanitizeLlmError");
   });
 
-  it("passes parsed stream events into the transcript writer before task handling", () => {
-    expect(source()).toContain("transcript.handleEvent(parsed.data)");
+  it("handles claude.session_selected events for persistent session management", () => {
+    expect(indexSource).toContain('parsed.data.type === "claude.session_selected"');
+    expect(indexSource).toContain("claudeRuntime.selectSession");
   });
 
-  it("prints the connected banner only from the websocket open handler", () => {
-    expect(source()).toContain("ws.on(\"open\", () => {");
-    expect(source()).toContain("printConnectedBanner({");
-    expect(source()).toContain("chatPath: transcript.chatPath");
+  it("publishes the connected banner only from the websocket open handler", () => {
+    expect(indexSource).toContain('ws.on("open", () => {');
+    expect(indexSource).toContain("printConnectedBanner({");
+  });
+
+  it("closes the Claude session gracefully on websocket close", () => {
+    expect(indexSource).toContain("claudeRuntime?.close()");
   });
 });
