@@ -7,6 +7,10 @@ import type {
 
 type UnknownSdkModule = Record<string, unknown>;
 
+export interface ClaudeSdkBoundaryOptions {
+  resolveClaudeCodeExecutablePath?: () => string | undefined;
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? value as Record<string, unknown> : {};
 }
@@ -47,7 +51,7 @@ function wrapSession(rawSession: unknown): ClaudePersistentSession {
   };
 }
 
-export function createClaudeSdkFromModule(module: UnknownSdkModule): ClaudeSdk {
+export function createClaudeSdkFromModule(module: UnknownSdkModule, options: ClaudeSdkBoundaryOptions = {}): ClaudeSdk {
   const createSession = module.unstable_v2_createSession;
   const resumeSession = module.unstable_v2_resumeSession;
   const listSessions = module.listSessions;
@@ -55,9 +59,11 @@ export function createClaudeSdkFromModule(module: UnknownSdkModule): ClaudeSdk {
   if (typeof createSession !== "function" || typeof resumeSession !== "function") {
     throw new Error("Claude Code Agent SDK session APIs were not found. Install a Claude Code Agent SDK version that exposes v2 create/resume session APIs.");
   }
+  const claudeCodeExecutablePath = options.resolveClaudeCodeExecutablePath?.() ?? "claude";
   return {
     async createSession(input) {
       return wrapSession(await createSession({
+        pathToClaudeCodeExecutable: claudeCodeExecutablePath,
         cwd: input.workingDir,
         permissionMode: input.permissionMode,
         model: input.model,
@@ -70,6 +76,7 @@ export function createClaudeSdkFromModule(module: UnknownSdkModule): ClaudeSdk {
     },
     async resumeSession(input) {
       return wrapSession(await resumeSession(input.sessionId, {
+        pathToClaudeCodeExecutable: claudeCodeExecutablePath,
         cwd: input.workingDir,
         permissionMode: input.permissionMode,
         model: input.model,

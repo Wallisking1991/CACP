@@ -52,6 +52,41 @@ describe("Claude SDK boundary", () => {
     expect(() => createClaudeSdkFromModule({})).toThrow(/Claude Code Agent SDK session APIs were not found/);
   });
 
+  it("passes an explicit Claude Code executable path so bundled sessions do not use SDK import.meta resolution", async () => {
+    const createOptions: unknown[] = [];
+    const resumeOptions: unknown[] = [];
+    const module = {
+      unstable_v2_createSession: async (options: unknown) => {
+        createOptions.push(options);
+        return {
+          sessionId: "fresh",
+          send: async () => undefined,
+          stream: async function* () {},
+          close: async () => undefined
+        };
+      },
+      unstable_v2_resumeSession: async (_sessionId: string, options: unknown) => {
+        resumeOptions.push(options);
+        return {
+          sessionId: "resumed",
+          send: async () => undefined,
+          stream: async function* () {},
+          close: async () => undefined
+        };
+      }
+    };
+
+    const sdk = createClaudeSdkFromModule(module, {
+      resolveClaudeCodeExecutablePath: () => "C:\\Claude\\claude.exe"
+    });
+
+    await sdk.createSession({ workingDir: ".", permissionMode: "dontAsk", model: "claude-sonnet-4-20250514" });
+    await sdk.resumeSession({ workingDir: ".", sessionId: "session_1", permissionMode: "dontAsk", model: "claude-sonnet-4-20250514" });
+
+    expect(createOptions[0]).toMatchObject({ pathToClaudeCodeExecutable: "C:\\Claude\\claude.exe" });
+    expect(resumeOptions[0]).toMatchObject({ pathToClaudeCodeExecutable: "C:\\Claude\\claude.exe" });
+  });
+
   it("handles fresh session sessionId getter throwing", async () => {
     const module = {
       unstable_v2_createSession: async () => ({
