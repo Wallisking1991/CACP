@@ -15,6 +15,7 @@ import {
   createRoomWithLocalAgent,
   inviteUrlFor,
   joinRequestStatus,
+  leaveRoom,
   parseInviteUrl,
   rejectAiCollectionRequest,
   rejectJoinRequest,
@@ -57,7 +58,7 @@ export default function App() {
       session,
       (event) => setEvents((current) => mergeEvent(current, event)),
       (code, reason) => {
-        if (code === 4001 || reason === "participant_removed") {
+        if (code === 4001 || reason === "participant_removed" || reason === "owner_left_room") {
           clearStoredSession(window.localStorage);
           setSession(undefined);
           setEvents([]);
@@ -66,7 +67,7 @@ export default function App() {
           setCreatedPairing(undefined);
           setConnectorModalPairing(undefined);
           setWaitingRoom(undefined);
-          setError("You have been removed from the room.");
+          setError(reason === "owner_left_room" ? "The room owner closed the room." : "You have been removed from the room.");
         }
       }
     );
@@ -138,7 +139,7 @@ export default function App() {
     if (inviteTarget) window.history.replaceState({}, {}, "/");
   }, [inviteTarget]);
 
-  const handleLeaveRoom = useCallback((): void => {
+  const clearActiveRoomSession = useCallback((): void => {
     clearStoredSession(window.localStorage);
     setSession(undefined);
     setEvents([]);
@@ -149,6 +150,17 @@ export default function App() {
     setWaitingRoom(undefined);
     setError(undefined);
   }, []);
+
+  const handleLeaveRoom = useCallback((): void => {
+    if (!session || session.role !== "owner") {
+      clearActiveRoomSession();
+      return;
+    }
+    void run(async () => {
+      await leaveRoom(session);
+      clearActiveRoomSession();
+    });
+  }, [clearActiveRoomSession, session]);
 
   const handleCreate = useCallback(async (params: {
     roomName: string;

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CacpEvent } from "@cacp/protocol";
-import { approveAiCollectionRequest, cancelAiCollection, clearEventSocket, clearRoom, createJoinRequest, createLocalAgentLaunch, createRoom, createRoomWithLocalAgent, joinRequestStatus, pairingServerUrlFor, parseCacpEventMessage, rejectAiCollectionRequest, requestAiCollection, startAiCollection, submitAiCollection, type RoomSession } from "../src/api.js";
+import { approveAiCollectionRequest, cancelAiCollection, clearEventSocket, clearRoom, createJoinRequest, createLocalAgentLaunch, createRoom, createRoomWithLocalAgent, joinRequestStatus, leaveRoom, pairingServerUrlFor, parseCacpEventMessage, rejectAiCollectionRequest, requestAiCollection, startAiCollection, submitAiCollection, type RoomSession } from "../src/api.js";
 
 const validEvent = {
   protocol: "cacp",
@@ -136,6 +136,19 @@ describe("room API", () => {
     await clearRoom(session);
 
     expect(fetch).toHaveBeenCalledWith("/rooms/room_1/history/clear", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer owner_secret" },
+      body: JSON.stringify({})
+    });
+  });
+
+  it("posts owner leave requests to the room leave endpoint", async () => {
+    mockJsonResponse({ ok: true, status: "room_closed" });
+    const session: RoomSession = { room_id: "room_1", token: "owner_secret", participant_id: "user_owner", role: "owner" };
+
+    await leaveRoom(session);
+
+    expect(fetch).toHaveBeenCalledWith("/rooms/room_1/leave", {
       method: "POST",
       headers: { "content-type": "application/json", authorization: "Bearer owner_secret" },
       body: JSON.stringify({})

@@ -67,6 +67,10 @@ export async function clearRoom(session: RoomSession): Promise<void> {
   await postJson(`/rooms/${session.room_id}/history/clear`, session.token, {});
 }
 
+export async function leaveRoom(session: RoomSession): Promise<void> {
+  await postJson(`/rooms/${session.room_id}/leave`, session.token, {});
+}
+
 export async function startAiCollection(session: RoomSession): Promise<{ collection_id: string }> {
   return await postJson(`/rooms/${session.room_id}/ai-collection/start`, session.token, {});
 }
