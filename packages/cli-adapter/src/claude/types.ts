@@ -52,14 +52,22 @@ export interface ClaudeSdkSessionMessage {
 export interface ClaudeSdkSessionSummary {
   sessionId?: string;
   summary?: string;
-  lastModified?: string;
+  lastModified?: number;
   fileSize?: number;
   cwd?: string;
 }
 
+export interface ClaudeSdkSessionOptions {
+  workingDir: string;
+  sessionId?: string;
+  systemPrompt?: string;
+  permissionMode: string;
+  model: string;
+}
+
 export interface ClaudeSdk {
-  createSession(input: { workingDir: string; systemPrompt?: string; permissionLevel: string }): Promise<ClaudePersistentSession>;
-  resumeSession(input: { workingDir: string; sessionId: string; systemPrompt?: string; permissionLevel: string }): Promise<ClaudePersistentSession>;
+  createSession(input: ClaudeSdkSessionOptions): Promise<ClaudePersistentSession>;
+  resumeSession(input: ClaudeSdkSessionOptions): Promise<ClaudePersistentSession>;
   listSessions(input: { dir: string }): Promise<ClaudeSdkSessionSummary[]>;
   getSessionMessages(sessionId: string, input: { dir: string }): Promise<ClaudeSdkSessionMessage[]>;
 }

@@ -18,13 +18,13 @@ describe("Claude SDK boundary", () => {
         stream: async function* () { yield { type: "assistant", message: "resumed answer" }; },
         close: async () => undefined
       }),
-      listSessions: async () => [{ sessionId: "session_1", summary: "Session", lastModified: "2026-04-29T00:00:00.000Z", fileSize: 100 }],
+      listSessions: async () => [{ sessionId: "session_1", summary: "Session", lastModified: 1764355200000, fileSize: 100 }],
       getSessionMessages: async (_sessionId: string, _input: { dir: string }) => [{ uuid: "m1", type: "assistant", message: "hello" }]
     };
 
     const sdk = createClaudeSdkFromModule(module);
-    const fresh = await sdk.createSession({ workingDir: ".", permissionLevel: "read_only" });
-    const resumed = await sdk.resumeSession({ workingDir: ".", sessionId: "session_1", permissionLevel: "read_only" });
+    const fresh = await sdk.createSession({ workingDir: ".", permissionMode: "read_only", model: "claude-sonnet-4-20250514" });
+    const resumed = await sdk.resumeSession({ workingDir: ".", sessionId: "session_1", permissionMode: "read_only", model: "claude-sonnet-4-20250514" });
 
     expect(fresh.sessionId).toBe("fresh_session");
     expect(resumed.sessionId).toBe("session_1");

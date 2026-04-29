@@ -36,7 +36,8 @@ describe("Claude persistent runtime", () => {
       sdk,
       agentId: "agent_1",
       workingDir: "D:\\Development\\2",
-      permissionLevel: "read_only",
+      permissionMode: "read_only",
+      model: "claude-sonnet-4-20250514",
       systemPrompt: "system",
       publishStatus: async (_turnId, status) => { statuses.push(status.phase); },
       publishDelta: async (_turnId, chunk) => { deltas.push(chunk); }

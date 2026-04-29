@@ -15,7 +15,8 @@ export interface ClaudeRuntimeInput {
   sdk?: Pick<ClaudeSdk, "createSession" | "resumeSession">;
   agentId: string;
   workingDir: string;
-  permissionLevel: string;
+  permissionMode: string;
+  model: string;
   systemPrompt?: string;
   publishStatus(turnId: string, status: ClaudeRuntimeStatus): Promise<void>;
   publishDelta(turnId: string, chunk: string): Promise<void>;
@@ -24,6 +25,7 @@ export interface ClaudeRuntimeInput {
 export interface ClaudeTurnResult {
   finalText: string;
   sessionId?: string;
+  metrics: ClaudeRuntimeMetrics;
 }
 
 function nowIso(): string {
@@ -88,7 +90,8 @@ export class ClaudeRuntime {
     if (selection.mode === "fresh") {
       this.session = await sdk.createSession({
         workingDir: this.input.workingDir,
-        permissionLevel: this.input.permissionLevel,
+        permissionMode: this.input.permissionMode,
+        model: this.input.model,
         systemPrompt: this.input.systemPrompt
       });
       return;
@@ -96,7 +99,8 @@ export class ClaudeRuntime {
     this.session = await sdk.resumeSession({
       workingDir: this.input.workingDir,
       sessionId: selection.sessionId,
-      permissionLevel: this.input.permissionLevel,
+      permissionMode: this.input.permissionMode,
+      model: this.input.model,
       systemPrompt: this.input.systemPrompt
     });
   }
@@ -137,25 +141,50 @@ export class ClaudeRuntime {
         }
       } else if (msgType === "tool_use") {
         const toolName = typeof record.name === "string" ? record.name : "";
-        if (toolName === "Read" || toolName === "LS") metrics.files_read += 1;
-        if (toolName === "Grep" || toolName === "Glob") metrics.searches += 1;
-        if (toolName === "Bash") metrics.commands += 1;
-        await publish("thinking", toolName ? `Claude Code using tool: ${toolName}` : "Claude Code is thinking");
+        if (toolName === "Read" || toolName === "LS") {
+          metrics.files_read += 1;
+          await publish("reading_files", toolName ? `Claude Code reading files: ${toolName}` : "Claude Code reading files");
+        } else if (toolName === "Grep" || toolName === "Glob") {
+          metrics.searches += 1;
+          await publish("searching", toolName ? `Claude Code searching: ${toolName}` : "Claude Code searching");
+        } else if (toolName === "Bash") {
+          metrics.commands += 1;
+          await publish("running_command", toolName ? `Claude Code running command: ${toolName}` : "Claude Code running command");
+        } else {
+          await publish("thinking", toolName ? `Claude Code using tool: ${toolName}` : "Claude Code is thinking");
+        }
+      } else if (msgType === "tool_result") {
+        const resultText = extractTextFromStreamMessage(rawMessage);
+        if (resultText) {
+          await publish("thinking", `Tool result: ${resultText.slice(0, 200)}`);
+        }
       } else if (msgType === "system") {
         const sysRecord = asRecord(record.message);
         const phase = typeof sysRecord.phase === "string" ? sysRecord.phase : "";
         const current = typeof sysRecord.current === "string" ? sysRecord.current : "";
-        if (current) await publish("thinking", current);
-        if (phase) {
-          if (phase === "reading_files") metrics.files_read += 1;
-          if (phase === "searching") metrics.searches += 1;
-          if (phase === "running_command") metrics.commands += 1;
+        if (phase === "reading_files") {
+          metrics.files_read += 1;
+          await publish("reading_files", current || "Claude Code reading files");
+        } else if (phase === "searching") {
+          metrics.searches += 1;
+          await publish("searching", current || "Claude Code searching");
+        } else if (phase === "running_command") {
+          metrics.commands += 1;
+          await publish("running_command", current || "Claude Code running command");
+        } else if (phase === "waiting_for_approval") {
+          await publish("waiting_for_approval", current || "Claude Code waiting for approval");
+        } else if (current) {
+          await publish("thinking", current);
         }
+      } else if (msgType === "error" || msgType === "failed") {
+        const errorText = typeof record.message === "string" ? record.message : typeof record.error === "string" ? record.error : "Claude Code encountered an error";
+        await publish("failed", errorText);
+        throw new Error(errorText);
       }
     }
 
     await publish("completed", `Claude Code completed in ${Math.max(1, Math.round((Date.now() - started) / 1000))}s`);
-    return { finalText, sessionId: this.session?.sessionId };
+    return { finalText, sessionId: this.session?.sessionId, metrics };
   }
 
   async close(): Promise<void> {

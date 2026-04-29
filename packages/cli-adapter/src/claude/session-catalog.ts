@@ -12,7 +12,10 @@ function titleOf(session: ClaudeSdkSessionSummary, sessionId: string): string {
 }
 
 function updatedAtOf(session: ClaudeSdkSessionSummary): string {
-  return session.lastModified ?? new Date(0).toISOString();
+  if (typeof session.lastModified === "number") {
+    return new Date(session.lastModified).toISOString();
+  }
+  return new Date(0).toISOString();
 }
 
 export function normalizeClaudeSession(session: ClaudeSdkSessionSummary, workingDir: string): ClaudeSessionSummary | undefined {
@@ -29,11 +32,22 @@ export function normalizeClaudeSession(session: ClaudeSdkSessionSummary, working
   };
 }
 
-export async function listClaudeSessions(input: ClaudeSessionCatalogInput & { sdk?: Pick<ClaudeSdk, "listSessions"> }): Promise<ClaudeSessionCatalogResult> {
+export async function listClaudeSessions(input: ClaudeSessionCatalogInput & { sdk?: Pick<ClaudeSdk, "listSessions" | "getSessionMessages"> }): Promise<ClaudeSessionCatalogResult> {
   const sdk = input.sdk ?? await loadClaudeSdk();
-  const sessions = (await sdk.listSessions({ dir: input.workingDir }))
-    .map((session) => normalizeClaudeSession(session, input.workingDir))
-    .filter((session): session is ClaudeSessionSummary => Boolean(session))
-    .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
+  const rawSessions = await sdk.listSessions({ dir: input.workingDir });
+  const sessions: ClaudeSessionSummary[] = [];
+  for (const raw of rawSessions) {
+    const normalized = normalizeClaudeSession(raw, input.workingDir);
+    if (!normalized) continue;
+    try {
+      const messages = await sdk.getSessionMessages(normalized.session_id, { dir: input.workingDir });
+      normalized.message_count = messages.length;
+      normalized.importable = messages.length > 0;
+    } catch {
+      normalized.importable = false;
+    }
+    sessions.push(normalized);
+  }
+  sessions.sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
   return { workingDir: input.workingDir, sessions };
 }

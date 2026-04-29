@@ -64,7 +64,7 @@ describe("adapter config arguments", () => {
         room_id: "room_alpha",
         agent_id: "agent_alpha",
         agent_token: "cacp_agent",
-        agent: { name: "Codex", command: "echo", args: [], working_dir: ".", capabilities: ["shell.oneshot"] }
+        agent: { name: "Codex", command: "echo", args: [], working_dir: ".", capabilities: ["claude-code", "claude.persistent_session", "repo.read"] }
       }), { status: 201, headers: { "content-type": "application/json" } });
     }) as typeof fetch;
     const config = await loadRuntimeConfigFromArgs(["--connect", code], fetchImpl);

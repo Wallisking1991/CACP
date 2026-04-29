@@ -49,14 +49,16 @@ export function createClaudeSdkFromModule(module: UnknownSdkModule): ClaudeSdk {
       return wrapSession(await createSession({
         cwd: input.workingDir,
         systemPrompt: input.systemPrompt,
-        permissionLevel: input.permissionLevel
+        permissionMode: input.permissionMode,
+        model: input.model
       }));
     },
     async resumeSession(input) {
       return wrapSession(await resumeSession(input.sessionId, {
         cwd: input.workingDir,
         systemPrompt: input.systemPrompt,
-        permissionLevel: input.permissionLevel
+        permissionMode: input.permissionMode,
+        model: input.model
       }));
     },
     async listSessions(input): Promise<ClaudeSdkSessionSummary[]> {

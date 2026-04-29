@@ -18,8 +18,9 @@ export const AdapterConfigSchema = z.object({
     command: z.string(),
     args: z.array(z.string()).default([]),
     working_dir: z.string().default(process.cwd()),
-    capabilities: z.array(z.string()).default(["shell.oneshot"]),
-    system_prompt: z.string().optional()
+    capabilities: z.array(z.string()).default([]),
+    system_prompt: z.string().optional(),
+    model: z.string().min(1).optional()
   }),
   permission_level: z.string().optional(),
   llm: z.object({
@@ -167,7 +168,7 @@ export function parseAdapterArgs(args: string[]): AdapterArgs {
     return { mode: "pair", server_url: serverUrl, pairing_token: pairingToken, cwd };
   }
   if (argsWithoutCwd.length === 0) return { mode: "prompt", cwd };
-  return { mode: "file", config_path: argsWithoutCwd[0] ?? "docs/examples/generic-cli-agent.json", cwd };
+  return { mode: "file", config_path: argsWithoutCwd[0] ?? "docs/examples/claude-code-agent.json", cwd };
 }
 
 export interface RuntimeConfigOptions {

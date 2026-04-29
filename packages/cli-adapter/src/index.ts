@@ -50,7 +50,8 @@ async function main() {
   const claudeRuntime = isClaudeCode ? new ClaudeRuntime({
     agentId: registered.agent_id,
     workingDir: config.agent.working_dir,
-    permissionLevel: config.permission_level ?? "read_only",
+    permissionMode: config.permission_level ?? "read_only",
+    model: config.agent.model ?? "claude-sonnet-4-20250514",
     systemPrompt: config.agent.system_prompt,
     publishDelta: async (turnId, chunk) => {
       await roomClient.publishTurnDelta(turnId, chunk);
@@ -142,8 +143,9 @@ async function main() {
       }
 
       if (parsed.data.type === "agent.turn.requested") {
-        const payload = parsed.data.payload as { turn_id?: string; agent_id?: string; context_prompt?: string; speaker_name?: string; speaker_role?: string; mode?: string };
-        if (!payload.turn_id || !payload.context_prompt || payload.agent_id !== registered.agent_id || runningTasks.has(payload.turn_id)) return;
+        const payload = parsed.data.payload as { turn_id?: string; agent_id?: string; context_prompt?: string; message_text?: string; speaker_name?: string; speaker_role?: string; mode?: string };
+        const turnText = payload.message_text ?? payload.context_prompt;
+        if (!payload.turn_id || !turnText || payload.agent_id !== registered.agent_id || runningTasks.has(payload.turn_id)) return;
         runningTasks.add(payload.turn_id);
         let finalText = "";
         const turnId = payload.turn_id;
@@ -152,7 +154,7 @@ async function main() {
             await roomClient.startTurn(turnId);
             const result = await runLlmTurn({
               llm: config.llm,
-              prompt: payload.context_prompt,
+              prompt: payload.context_prompt ?? payload.message_text ?? "",
               systemPrompt: config.agent.system_prompt,
               onDelta: async (chunk) => {
                 finalText += chunk;
@@ -168,14 +170,14 @@ async function main() {
               speakerName: typeof payload.speaker_name === "string" ? payload.speaker_name : "Room participant",
               speakerRole: typeof payload.speaker_role === "string" ? payload.speaker_role : "member",
               modeLabel: typeof payload.mode === "string" ? payload.mode : "normal",
-              text: payload.context_prompt
+              text: turnText
             });
             await roomClient.publishRuntimeStatus("completed", {
               agent_id: registered.agent_id,
               turn_id: turnId,
               status_id: `status_${turnId}`,
-              summary: statusSummary({ elapsedMs: Date.now() - startedAt, metrics: { files_read: 0, searches: 0, commands: 0 } }),
-              metrics: { files_read: 0, searches: 0, commands: 0 },
+              summary: statusSummary({ elapsedMs: Date.now() - startedAt, metrics: result.metrics }),
+              metrics: result.metrics,
               completed_at: new Date().toISOString()
             });
             await roomClient.completeTurn(turnId, result.finalText);
@@ -185,6 +187,16 @@ async function main() {
           const displayError = config.llm ? sanitizeLlmError(rawMessage, config.llm.apiKey) : rawMessage;
           console.error("Adapter turn failed", displayError);
           try {
+            if (claudeRuntime) {
+              await roomClient.publishRuntimeStatus("failed", {
+                agent_id: registered.agent_id,
+                turn_id: turnId,
+                status_id: `status_${turnId}`,
+                error: displayError,
+                metrics: { files_read: 0, searches: 0, commands: 0 },
+                failed_at: new Date().toISOString()
+              });
+            }
             await roomClient.failTurn(turnId, displayError);
           } catch (reportError) {
             console.error("Adapter failed to report turn failure", reportError);
