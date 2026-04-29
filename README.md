@@ -18,19 +18,24 @@ This is an early prototype and protocol experiment. The core experience is alrea
 
 ## What is CACP?
 
-CACP is a local-first collaborative AI room and protocol experiment.
+CACP is a local-first collaborative AI room. The public server hosts room state and the Web UI; agent execution stays local through the Local Connector.
 
 It includes:
 
 - A web room where multiple humans can join the same AI conversation.
 - A room server that stores room state as an append-only event log and broadcasts updates in real time.
-- A local connector that bridges the web room to local CLI agents or LLM API agents.
+- A local connector that bridges the web room to a persistent Claude Code session or LLM API agents.
 - A protocol package that defines shared event types, participant roles, connection codes, and room contracts.
 - Roundtable Mode, which lets people discuss first and send the collected human context to AI only when the room owner submits it.
 
-The important boundary is this:
+Local execution is Claude Code-first:
 
-The public cloud service should host the room experience, not the user’s agent execution. Local CLI agents should continue to run on the user’s own machine through the connector.
+- Claude Code runs in the owner’s project directory through the Local Connector.
+- The connector can start fresh or resume a detected Claude Code session.
+- Resumed Claude Code session history is uploaded into the shared room timeline only after the room owner confirms.
+- Imported Claude Code history is visible to all room members and should be treated as shared room content.
+
+Pure conversation LLM API agents remain supported for OpenAI-compatible and Anthropic-compatible providers. API keys stay local to the connector and are validated before pairing.
 
 ## Who is it for?
 
@@ -87,12 +92,9 @@ Enter:
 
 CACP can connect different kinds of agents.
 
-Local CLI agents:
+Local CLI agent:
 
 - Claude Code
-- Codex
-- opencode
-- Echo test agent
 
 LLM API agents:
 
@@ -100,7 +102,7 @@ LLM API agents:
 - Anthropic-compatible providers
 - Selected provider-specific adapters such as DeepSeek, Kimi, MiniMax, SiliconFlow, GLM, and others
 
-Integration maturity varies by agent and provider. Claude Code and the LLM API connector flow are the most important reference paths today.
+LLM API connector flow supports provider-specific adapters such as DeepSeek, Kimi, MiniMax, SiliconFlow, and GLM.
 
 ### 3. Download and start the Local Connector
 
@@ -177,7 +179,7 @@ Important cautions:
 
 CACP is not a hosted coding-agent platform.
 
-CACP is not a replacement for Claude Code, Codex, opencode, or other agents.
+CACP is not a replacement for Claude Code or other agents.
 
 CACP is not production-ready collaboration infrastructure.
 

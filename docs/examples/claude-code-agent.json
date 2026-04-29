@@ -5,18 +5,7 @@
   "agent": {
     "name": "Claude Code Agent",
     "command": "claude",
-    "args": [
-      "-p",
-      "--output-format",
-      "text",
-      "--no-session-persistence",
-      "--tools",
-      "Read,LS,Grep,Glob",
-      "--permission-mode",
-      "dontAsk",
-      "--append-system-prompt",
-      "你是通过 CACP 多人协作房间调用的 Claude Code CLI Agent。请优先给出简洁、可读的中文结果。除非任务明确要求，否则不要修改文件；当前测试阶段只做只读分析。"
-    ],
+    "args": [],
     "working_dir": "D:\\Development\\2",
     "capabilities": ["claude-code.print", "repo.read", "analysis"]
   }
