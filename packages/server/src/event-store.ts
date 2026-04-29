@@ -145,7 +145,7 @@ export class EventStore {
         room_id TEXT NOT NULL,
         token_hash TEXT NOT NULL UNIQUE,
         created_by TEXT NOT NULL,
-        agent_type TEXT NOT NULL CHECK(agent_type IN ('claude-code', 'codex', 'opencode', 'echo', 'llm-api', 'llm-openai-compatible', 'llm-anthropic-compatible')),
+        agent_type TEXT NOT NULL CHECK(agent_type IN ('claude-code', 'llm-api', 'llm-openai-compatible', 'llm-anthropic-compatible')),
         permission_level TEXT NOT NULL CHECK(permission_level IN ('read_only', 'limited_write', 'full_access')),
         working_dir TEXT NOT NULL CHECK(length(working_dir) <= 500),
         created_at TEXT NOT NULL,
@@ -466,24 +466,30 @@ export class EventStore {
 
   private migrateAgentPairingAgentTypes(): void {
     const table = this.db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'agent_pairings'`).get() as { sql: string } | undefined;
-    if (!table || table.sql.includes("llm-api")) return;
+    if (!table) return;
+    const hasNewConstraint = table.sql.includes("'llm-anthropic-compatible'") && !table.sql.includes("'codex'") && !table.sql.includes("'opencode'") && !table.sql.includes("'echo'");
+    if (hasNewConstraint) return;
     this.db.exec(`
       CREATE TABLE agent_pairings_next (
         pairing_id TEXT PRIMARY KEY,
         room_id TEXT NOT NULL,
         token_hash TEXT NOT NULL UNIQUE,
         created_by TEXT NOT NULL,
-        agent_type TEXT NOT NULL CHECK(agent_type IN ('claude-code', 'codex', 'opencode', 'echo', 'llm-api', 'llm-openai-compatible', 'llm-anthropic-compatible')),
+        agent_type TEXT NOT NULL CHECK(agent_type IN ('claude-code', 'llm-api', 'llm-openai-compatible', 'llm-anthropic-compatible')),
         permission_level TEXT NOT NULL CHECK(permission_level IN ('read_only', 'limited_write', 'full_access')),
         working_dir TEXT NOT NULL CHECK(length(working_dir) <= 500),
         created_at TEXT NOT NULL,
         expires_at TEXT NOT NULL,
         claimed_at TEXT
       );
-      INSERT INTO agent_pairings_next SELECT pairing_id, room_id, token_hash, created_by, agent_type, permission_level, working_dir, created_at, expires_at, claimed_at FROM agent_pairings;
+      INSERT INTO agent_pairings_next
+        SELECT pairing_id, room_id, token_hash, created_by, agent_type, permission_level, working_dir, created_at, expires_at, claimed_at
+        FROM agent_pairings
+        WHERE agent_type IN ('claude-code', 'llm-api', 'llm-openai-compatible', 'llm-anthropic-compatible');
       DROP TABLE agent_pairings;
       ALTER TABLE agent_pairings_next RENAME TO agent_pairings;
       CREATE INDEX IF NOT EXISTS idx_agent_pairings_room ON agent_pairings(room_id);
+      CREATE INDEX IF NOT EXISTS idx_agent_pairings_token_hash ON agent_pairings(token_hash);
     `);
   }
 }

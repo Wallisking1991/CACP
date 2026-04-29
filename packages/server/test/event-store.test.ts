@@ -100,4 +100,43 @@ describe("EventStore", () => {
       rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  it("migrates away legacy generic command pairings", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "cacp-event-store-legacy-"));
+    const dbPath = join(tempDir, "legacy.db");
+
+    try {
+      const legacy = new Database(dbPath);
+      legacy.exec(`
+        CREATE TABLE agent_pairings (
+          pairing_id TEXT PRIMARY KEY,
+          room_id TEXT NOT NULL,
+          token_hash TEXT NOT NULL UNIQUE,
+          created_by TEXT NOT NULL,
+          agent_type TEXT NOT NULL CHECK(agent_type IN ('claude-code', 'codex', 'opencode', 'echo')),
+          permission_level TEXT NOT NULL CHECK(permission_level IN ('read_only', 'limited_write', 'full_access')),
+          working_dir TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          claimed_at TEXT
+        );
+        INSERT INTO agent_pairings VALUES ('pair_claude', 'room_1', 'hash_1', 'owner', 'claude-code', 'read_only', '.', '2026-04-29T00:00:00.000Z', '2026-04-30T00:00:00.000Z', NULL);
+        INSERT INTO agent_pairings VALUES ('pair_codex', 'room_1', 'hash_2', 'owner', 'codex', 'read_only', '.', '2026-04-29T00:00:00.000Z', '2026-04-30T00:00:00.000Z', NULL);
+      `);
+      legacy.close();
+
+      const store = new EventStore(dbPath);
+      const claudePairing = store.getAgentPairingById("pair_claude");
+      const codexPairing = store.getAgentPairingById("pair_codex");
+      expect(claudePairing?.agent_type).toBe("claude-code");
+      expect(codexPairing).toBeUndefined();
+      store.close();
+    } finally {
+      try {
+        rmSync(tempDir, { recursive: true, force: true });
+      } catch {
+        // Ignore cleanup errors on Windows due to file handle timing
+      }
+    }
+  });
 });

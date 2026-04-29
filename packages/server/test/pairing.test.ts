@@ -2,91 +2,67 @@ import { describe, expect, it } from "vitest";
 import { AgentTypeValues, buildAgentProfile, isLlmAgentType } from "../src/pairing.js";
 
 describe("agent pairing profiles", () => {
-  it("uses Claude Code CLI permission modes supported by the installed CLI", () => {
-    const allowedModes = new Set(["acceptEdits", "auto", "bypassPermissions", "default", "dontAsk", "plan"]);
-
-    for (const permissionLevel of ["read_only", "limited_write", "full_access"] as const) {
-      const profile = buildAgentProfile({
-        agentType: "claude-code",
-        permissionLevel,
-        workingDir: "D:\\Development\\2",
-        hookUrl: "http://127.0.0.1:3737/rooms/room_1/agent-action-approvals?token=agent_token"
-      });
-      const mode = profile.args[profile.args.indexOf("--permission-mode") + 1];
-
-      expect(mode, `${permissionLevel} should not generate an invalid Claude permission mode`).not.toBe("ask");
-      expect(allowedModes.has(mode)).toBe(true);
-    }
+  it("supports only Claude Code as the local command agent while keeping LLM API agents", () => {
+    expect(AgentTypeValues).toEqual([
+      "claude-code",
+      "llm-api",
+      "llm-openai-compatible",
+      "llm-anthropic-compatible"
+    ]);
+    expect(isLlmAgentType("llm-api")).toBe(true);
+    expect(isLlmAgentType("llm-openai-compatible")).toBe(true);
+    expect(isLlmAgentType("llm-anthropic-compatible")).toBe(true);
+    expect(isLlmAgentType("claude-code")).toBe(false);
+    expect((AgentTypeValues as readonly string[]).includes("codex")).toBe(false);
+    expect((AgentTypeValues as readonly string[]).includes("opencode")).toBe(false);
+    expect((AgentTypeValues as readonly string[]).includes("echo")).toBe(false);
   });
 
-  it("maps writable room permissions to distinct Claude Code CLI modes", () => {
-    const readOnly = buildAgentProfile({ agentType: "claude-code", permissionLevel: "read_only", workingDir: "D:\\Development\\2" });
-    const limitedWrite = buildAgentProfile({ agentType: "claude-code", permissionLevel: "limited_write", workingDir: "D:\\Development\\2" });
-    const fullAccess = buildAgentProfile({ agentType: "claude-code", permissionLevel: "full_access", workingDir: "D:\\Development\\2" });
+  it("builds a Claude Code persistent-session profile instead of a per-turn print command", () => {
+    const profile = buildAgentProfile({
+      agentType: "claude-code",
+      permissionLevel: "limited_write",
+      workingDir: "D:\\Development\\2"
+    });
 
-    expect(readOnly.args).toEqual(expect.arrayContaining(["--permission-mode", "dontAsk"]));
-    expect(readOnly.args).toEqual(expect.arrayContaining(["--tools", "Read,LS,Grep,Glob"]));
-    expect(limitedWrite.args).toEqual(expect.arrayContaining(["--permission-mode", "acceptEdits"]));
-    expect(fullAccess.args).toEqual(expect.arrayContaining(["--permission-mode", "bypassPermissions"]));
-    expect(fullAccess.args).not.toContain("--tools");
+    expect(profile.name).toBe("Claude Code Agent");
+    expect(profile.command).toBe("claude");
+    expect(profile.args).toEqual([]);
+    expect(profile.capabilities).toEqual([
+      "claude-code",
+      "claude.persistent_session",
+      "limited_write",
+      "manual_flow_control"
+    ]);
+    expect(profile.system_prompt).toContain("CACP");
+    expect(profile.system_prompt).toContain("Roundtable Mode");
+    expect(profile.system_prompt).not.toContain("???");
   });
 
-  it("does not impose a Claude Code CLI USD budget cap", () => {
+  it("does not configure Claude Code with print mode or disabled session persistence", () => {
     const profile = buildAgentProfile({
       agentType: "claude-code",
       permissionLevel: "read_only",
       workingDir: "D:\\Development\\2"
     });
 
-    expect(profile.args).not.toContain("--max-budget-usd");
+    expect(profile.args).not.toContain("-p");
+    expect(profile.args).not.toContain("--print");
+    expect(profile.args).not.toContain("--output-format");
+    expect(profile.args).not.toContain("--no-session-persistence");
   });
 
-  it("generates a readable Claude Code system prompt that uses Roundtable Mode instead of structured decisions", () => {
-    const profile = buildAgentProfile({
-      agentType: "claude-code",
-      permissionLevel: "limited_write",
-      workingDir: "D:\\Development\\2",
-      hookUrl: "http://127.0.0.1:3737/rooms/room_1/agent-action-approvals?token=agent_token"
-    });
-    const prompt = profile.args[profile.args.indexOf("--append-system-prompt") + 1];
+  it("keeps permission intent in Claude profile capabilities", () => {
+    const readOnly = buildAgentProfile({ agentType: "claude-code", permissionLevel: "read_only", workingDir: "." });
+    const limitedWrite = buildAgentProfile({ agentType: "claude-code", permissionLevel: "limited_write", workingDir: "." });
+    const fullAccess = buildAgentProfile({ agentType: "claude-code", permissionLevel: "full_access", workingDir: "." });
 
-    expect(prompt).toContain("CACP");
-    expect(prompt).toContain("Roundtable Mode");
-    expect(prompt).not.toContain("cacp-decision");
-    expect(prompt).not.toContain("agent-action-approvals");
-    expect(prompt).not.toContain("???");
-  });
-
-  it("maps Codex CLI approval modes to permission levels", () => {
-    const readOnly = buildAgentProfile({ agentType: "codex", permissionLevel: "read_only", workingDir: "D:\\Development\\2" });
-    const limitedWrite = buildAgentProfile({ agentType: "codex", permissionLevel: "limited_write", workingDir: "D:\\Development\\2" });
-    const fullAccess = buildAgentProfile({ agentType: "codex", permissionLevel: "full_access", workingDir: "D:\\Development\\2" });
-
-    expect(readOnly.args).toEqual(expect.arrayContaining(["--approval-mode", "suggest"]));
-    expect(limitedWrite.args).toEqual(expect.arrayContaining(["--approval-mode", "auto-edit"]));
-    expect(fullAccess.args).toEqual(expect.arrayContaining(["--approval-mode", "full-auto"]));
-  });
-
-  it("generates a Codex CLI system prompt that references CACP and Roundtable Mode", () => {
-    const profile = buildAgentProfile({
-      agentType: "codex",
-      permissionLevel: "limited_write",
-      workingDir: "D:\\Development\\2"
-    });
-
-    expect(profile.system_prompt).toContain("CACP");
-    expect(profile.system_prompt).toContain("Roundtable Mode");
-    expect(profile.system_prompt).toContain("LIMITED WRITE");
-  });
-
-  it("produces distinct Codex system prompts for each permission level", () => {
-    const readOnly = buildAgentProfile({ agentType: "codex", permissionLevel: "read_only", workingDir: "." });
-    const limitedWrite = buildAgentProfile({ agentType: "codex", permissionLevel: "limited_write", workingDir: "." });
-    const fullAccess = buildAgentProfile({ agentType: "codex", permissionLevel: "full_access", workingDir: "." });
-
-    expect(readOnly.system_prompt).toContain("READ-ONLY");
-    expect(limitedWrite.system_prompt).toContain("LIMITED WRITE");
-    expect(fullAccess.system_prompt).toContain("FULL ACCESS");
+    expect(readOnly.capabilities).toContain("read_only");
+    expect(readOnly.capabilities).toContain("repo.read");
+    expect(limitedWrite.capabilities).toContain("limited_write");
+    expect(limitedWrite.capabilities).toContain("manual_flow_control");
+    expect(fullAccess.capabilities).toContain("full_access");
+    expect(fullAccess.capabilities).toContain("manual_flow_control");
   });
 
   it("declares LLM API agent types", () => {

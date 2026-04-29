@@ -26,7 +26,7 @@ describe("agent pairing connection codes", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/agent-pairings`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { agent_type: "codex", permission_level: "read_only", working_dir: ".", server_url: "https://cacp.example.com" }
+      payload: { agent_type: "claude-code", permission_level: "read_only", working_dir: ".", server_url: "https://cacp.example.com" }
     });
     expect(response.statusCode).toBe(201);
     const body = response.json() as { connection_code: string; pairing_token?: string; download_url: string; expires_at: string };
@@ -87,6 +87,24 @@ describe("agent pairing connection codes", () => {
     expect(connectIndex).toBeGreaterThanOrEqual(0);
     expect(parseConnectionCode(launches[0].args[connectIndex + 1]).agent_type).toBe("llm-anthropic-compatible");
     expect(launches[0].args).not.toContain("--pair");
+    await app.close();
+  });
+
+  it("rejects removed generic local command agent types", async () => {
+    const app = await buildServer({ dbPath: ":memory:" });
+    const roomResponse = await app.inject({ method: "POST", url: "/rooms", payload: { name: "Room", display_name: "Owner" } });
+    const room = roomResponse.json() as { room_id: string; owner_token: string };
+
+    for (const removedType of ["codex", "opencode", "echo"]) {
+      const response = await app.inject({
+        method: "POST",
+        url: `/rooms/${room.room_id}/agent-pairings`,
+        headers: { authorization: `Bearer ${room.owner_token}` },
+        payload: { agent_type: removedType, permission_level: "read_only", working_dir: "." }
+      });
+      expect(response.statusCode).toBe(400);
+    }
+
     await app.close();
   });
 });
