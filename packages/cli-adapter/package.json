@@ -2,7 +2,9 @@
   "name": "@cacp/cli-adapter",
   "version": "0.1.0",
   "type": "module",
-  "bin": { "cacp-cli-adapter": "./dist/index.js" },
+  "bin": {
+    "cacp-cli-adapter": "./dist/index.js"
+  },
   "scripts": {
     "build": "corepack pnpm --filter @cacp/protocol build && tsc -p tsconfig.json",
     "bundle:connector": "corepack pnpm exec esbuild src/index.ts --bundle --platform=node --target=node20 --format=cjs --outfile=dist/connector/index.cjs",
@@ -10,6 +12,7 @@
     "test": "corepack pnpm --filter @cacp/protocol build && vitest run"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.123",
     "@cacp/protocol": "workspace:*",
     "ws": "^8.18.0",
     "zod": "^3.24.1"
