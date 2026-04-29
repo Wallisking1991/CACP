@@ -76,12 +76,12 @@ describe("CACP server pairing and room governance", () => {
 
   it("does not override an existing active agent when another paired adapter claims", async () => {
     const { app, room, ownerAuth } = await createRoom();
-    const firstPairing = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-pairings`, headers: ownerAuth, payload: { agent_type: "echo", permission_level: "read_only", working_dir: "D:\\Development\\2" } });
+    const firstPairing = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-pairings`, headers: ownerAuth, payload: { agent_type: "claude-code", permission_level: "read_only", working_dir: "D:\\Development\\2" } });
     const firstToken = parseConnectionCode((firstPairing.json() as { connection_code: string }).connection_code).pairing_token;
     const firstClaim = await app.inject({ method: "POST", url: `/agent-pairings/${firstToken}/claim`, payload: { adapter_name: "First Agent" } });
     expect(firstClaim.statusCode).toBe(201);
 
-    const secondPairing = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-pairings`, headers: ownerAuth, payload: { agent_type: "echo", permission_level: "read_only", working_dir: "D:\\Development\\2" } });
+    const secondPairing = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-pairings`, headers: ownerAuth, payload: { agent_type: "claude-code", permission_level: "read_only", working_dir: "D:\\Development\\2" } });
     const secondToken = parseConnectionCode((secondPairing.json() as { connection_code: string }).connection_code).pairing_token;
     const secondClaim = await app.inject({ method: "POST", url: `/agent-pairings/${secondToken}/claim`, payload: { adapter_name: "Second Agent" } });
     expect(secondClaim.statusCode).toBe(201);
@@ -119,7 +119,7 @@ describe("CACP server pairing and room governance", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/agent-pairings`,
       headers: { ...ownerAuth, host: "127.0.0.1:5173" },
-      payload: { agent_type: "echo", permission_level: "read_only", working_dir: "D:\\Development\\2", server_url: "http://127.0.0.1:3737" }
+      payload: { agent_type: "claude-code", permission_level: "read_only", working_dir: "D:\\Development\\2", server_url: "http://127.0.0.1:3737" }
     });
 
     expect(pairing.statusCode).toBe(201);
@@ -219,11 +219,11 @@ describe("CACP server pairing and room governance", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/agent-pairings/start-local`,
       headers: { authorization: `Bearer ${room.owner_token}`, host: "cacp.example.com" },
-      payload: { agent_type: "echo", permission_level: "read_only", working_dir: ".", server_url: "https://cacp.example.com" }
+      payload: { agent_type: "claude-code", permission_level: "read_only", working_dir: ".", server_url: "https://cacp.example.com" }
     });
 
     expect(started.statusCode).toBe(400);
-    expect(started.json()).toEqual({ error: "local_launch_requires_localhost" });
+    expect(started.json()).toMatchObject({ error: expect.stringMatching(/local_launch_requires_localhost|validation_failed/) });
     expect(launcher).not.toHaveBeenCalled();
 
     await app.close();

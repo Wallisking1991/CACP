@@ -23,7 +23,7 @@ describe("cloud persistence records", () => {
 
   it("claims pairings once", () => {
     const store = new EventStore(":memory:");
-    store.createAgentPairing({ pairing_id: "pair_alpha", room_id: "room_alpha", token_hash: "pair_hash_alpha", created_by: "user_owner", agent_type: "echo", permission_level: "read_only", working_dir: ".", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-27T00:15:00.000Z" });
+    store.createAgentPairing({ pairing_id: "pair_alpha", room_id: "room_alpha", token_hash: "pair_hash_alpha", created_by: "user_owner", agent_type: "claude-code", permission_level: "read_only", working_dir: ".", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-27T00:15:00.000Z" });
     expect(store.claimAgentPairing("pair_alpha", "2026-04-27T00:01:00.000Z").claimed_at).toBe("2026-04-27T00:01:00.000Z");
     expect(() => store.claimAgentPairing("pair_alpha", "2026-04-27T00:02:00.000Z")).toThrow("pairing_claimed");
     store.close();
@@ -37,7 +37,7 @@ describe("cloud persistence records", () => {
       const firstStore = new EventStore(dbPath);
       firstStore.createRoom({ room_id: "room_file", name: "File Room", owner_participant_id: "user_owner", created_at: "2026-04-27T00:00:00.000Z", archived_at: null });
       firstStore.createInvite({ invite_id: "inv_file", room_id: "room_file", token_hash: "hash_file", role: "member", created_by: "user_owner", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-28T00:00:00.000Z", max_uses: null });
-      firstStore.createAgentPairing({ pairing_id: "pair_file", room_id: "room_file", token_hash: "pair_hash_file", created_by: "user_owner", agent_type: "echo", permission_level: "read_only", working_dir: ".", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-27T00:15:00.000Z" });
+      firstStore.createAgentPairing({ pairing_id: "pair_file", room_id: "room_file", token_hash: "pair_hash_file", created_by: "user_owner", agent_type: "claude-code", permission_level: "read_only", working_dir: ".", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-27T00:15:00.000Z" });
       firstStore.close();
 
       const reopenedStore = new EventStore(dbPath);
@@ -46,7 +46,11 @@ describe("cloud persistence records", () => {
       expect(reopenedStore.getAgentPairingByTokenHash("pair_hash_file")?.pairing_id).toBe("pair_file");
       reopenedStore.close();
     } finally {
-      rmSync(tempDir, { recursive: true, force: true });
+      try {
+        rmSync(tempDir, { recursive: true, force: true });
+      } catch {
+        // Ignore cleanup errors on Windows
+      }
     }
   });
 
@@ -60,7 +64,7 @@ describe("cloud persistence records", () => {
       const firstStore = new EventStore(dbPath);
       firstStore.createInvite({ invite_id: "inv_consumed_file", room_id: "room_file", token_hash: "hash_consumed_file", role: "member", created_by: "user_owner", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-28T00:00:00.000Z", max_uses: 2 });
       firstStore.createInvite({ invite_id: "inv_revoked_file", room_id: "room_file", token_hash: "hash_revoked_file", role: "member", created_by: "user_owner", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-28T00:00:00.000Z", max_uses: 2 });
-      firstStore.createAgentPairing({ pairing_id: "pair_claimed_file", room_id: "room_file", token_hash: "pair_hash_claimed_file", created_by: "user_owner", agent_type: "echo", permission_level: "read_only", working_dir: ".", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-27T00:15:00.000Z" });
+      firstStore.createAgentPairing({ pairing_id: "pair_claimed_file", room_id: "room_file", token_hash: "pair_hash_claimed_file", created_by: "user_owner", agent_type: "claude-code", permission_level: "read_only", working_dir: ".", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-27T00:15:00.000Z" });
       firstStore.consumeInvite("inv_consumed_file");
       firstStore.revokeInvite("inv_revoked_file", revokedAt);
       firstStore.claimAgentPairing("pair_claimed_file", claimedAt);
@@ -72,7 +76,11 @@ describe("cloud persistence records", () => {
       expect(reopenedStore.getAgentPairingById("pair_claimed_file")?.claimed_at).toBe(claimedAt);
       reopenedStore.close();
     } finally {
-      rmSync(tempDir, { recursive: true, force: true });
+      try {
+        rmSync(tempDir, { recursive: true, force: true });
+      } catch {
+        // Ignore cleanup errors on Windows
+      }
     }
   });
 

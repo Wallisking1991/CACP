@@ -252,7 +252,7 @@ describe("CACP server hardening", () => {
 
     const ownerAgent = await registerAgent(app, room.room_id, ownerAuth, "Owner Agent");
     const memberAttempts = [
-      app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-pairings`, headers: memberAuth, payload: { agent_type: "echo", permission_level: "read_only", working_dir: "." } }),
+      app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-pairings`, headers: memberAuth, payload: { agent_type: "claude-code", permission_level: "read_only", working_dir: "." } }),
       app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/register`, headers: memberAuth, payload: { name: "Member Agent", capabilities: [] } }),
       app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/select`, headers: memberAuth, payload: { agent_id: ownerAgent.agent_id } })
     ];
@@ -262,7 +262,7 @@ describe("CACP server hardening", () => {
     const adminAuth = memberAuth;
     const adminAgent = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/register`, headers: adminAuth, payload: { name: "Admin Agent", capabilities: [] } });
     expect(adminAgent.statusCode).toBe(201);
-    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-pairings`, headers: adminAuth, payload: { agent_type: "echo", permission_level: "read_only", working_dir: "." } })).statusCode).toBe(201);
+    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-pairings`, headers: adminAuth, payload: { agent_type: "claude-code", permission_level: "read_only", working_dir: "." } })).statusCode).toBe(201);
     expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/select`, headers: adminAuth, payload: { agent_id: adminAgent.json().agent_id } })).statusCode).toBe(201);
     expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/invites`, headers: adminAuth, payload: { role: "observer" } })).statusCode).toBe(201);
     expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/ai-collection/start`, headers: adminAuth, payload: {} })).statusCode).toBe(403);

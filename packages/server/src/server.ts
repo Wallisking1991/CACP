@@ -14,6 +14,16 @@ import { hasAllowedOrigin, loadServerConfig, type ServerConfig } from "./config.
 import { event, hashToken, openSecret, prefixedId, sealSecret, token } from "./ids.js";
 import { FixedWindowRateLimiter } from "./rate-limit.js";
 import { AgentTypeValues, PermissionLevelValues, buildAgentProfile, isLlmAgentType, type AgentType, type PermissionLevel } from "./pairing.js";
+import {
+  ClaudeRuntimeStatusBodySchema,
+  ClaudeSessionCatalogBodySchema,
+  ClaudeSessionImportCompleteBodySchema,
+  ClaudeSessionImportFailBodySchema,
+  ClaudeSessionImportMessagesBodySchema,
+  ClaudeSessionImportStartBodySchema,
+  ClaudeSessionSelectionBodySchema,
+  assertAgentOwnsPayload
+} from "./claude-events.js";
 
 const CreateRoomSchema = z.object({ name: z.string().min(1).max(200), display_name: z.string().min(1).max(100).default("Owner") });
 const CreateInviteSchema = z.object({ role: z.enum(["member", "observer"]).default("member"), expires_in_seconds: z.number().int().positive().max(60 * 60 * 24 * 7).default(60 * 60 * 24) });
@@ -1077,6 +1087,85 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!targetAgent || targetAgent.type !== "agent" || targetAgent.role !== "agent") return deny(reply, "invalid_target_agent", 400);
     appendAndPublish(event(request.params.roomId, "room.agent_selected", participant.id, { agent_id: body.agent_id }));
     return reply.code(201).send({ ok: true, agent_id: body.agent_id });
+  });
+
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/claude/session-catalog", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const body = ClaudeSessionCatalogBodySchema.parse(request.body);
+    if (!assertAgentOwnsPayload(participant, body.agent_id)) return deny(reply, "forbidden", 403);
+    appendAndPublish(event(request.params.roomId, "claude.session_catalog.updated", participant.id, body));
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/claude/session-selection", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    if (!hasHumanRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
+    const body = ClaudeSessionSelectionBodySchema.parse(request.body);
+    const targetAgent = findParticipant(request.params.roomId, body.agent_id);
+    if (!targetAgent || targetAgent.type !== "agent" || targetAgent.role !== "agent") return deny(reply, "invalid_target_agent", 400);
+    appendAndPublish(event(request.params.roomId, "claude.session_selected", participant.id, {
+      ...body,
+      selected_by: participant.id
+    }));
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/claude/session-imports/start", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const body = ClaudeSessionImportStartBodySchema.parse(request.body);
+    if (!assertAgentOwnsPayload(participant, body.agent_id)) return deny(reply, "forbidden", 403);
+    appendAndPublish(event(request.params.roomId, "claude.session_import.started", participant.id, body));
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string; importId: string } }>("/rooms/:roomId/claude/session-imports/:importId/messages", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const body = ClaudeSessionImportMessagesBodySchema.parse(request.body);
+    if (!body.every((message) => message.import_id === request.params.importId)) return deny(reply, "import_id_mismatch", 400);
+    if (!body.every((message) => assertAgentOwnsPayload(participant, message.agent_id))) return deny(reply, "forbidden", 403);
+    const storedEvents = store.transaction(() => body.map((message) => store.appendEvent(event(request.params.roomId, "claude.session_import.message", participant.id, message))));
+    publishEvents(storedEvents);
+    return reply.code(201).send({ ok: true, imported: body.length });
+  });
+
+  app.post<{ Params: { roomId: string; importId: string } }>("/rooms/:roomId/claude/session-imports/:importId/complete", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const body = ClaudeSessionImportCompleteBodySchema.parse(request.body);
+    if (body.import_id !== request.params.importId) return deny(reply, "import_id_mismatch", 400);
+    if (!assertAgentOwnsPayload(participant, body.agent_id)) return deny(reply, "forbidden", 403);
+    appendAndPublish(event(request.params.roomId, "claude.session_import.completed", participant.id, body));
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string; importId: string } }>("/rooms/:roomId/claude/session-imports/:importId/fail", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const body = ClaudeSessionImportFailBodySchema.parse(request.body);
+    if (body.import_id !== request.params.importId) return deny(reply, "import_id_mismatch", 400);
+    if (!assertAgentOwnsPayload(participant, body.agent_id)) return deny(reply, "forbidden", 403);
+    appendAndPublish(event(request.params.roomId, "claude.session_import.failed", participant.id, body));
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/claude/runtime-status", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const raw = request.body as { kind?: unknown; payload?: unknown };
+    if (raw.kind !== "changed" && raw.kind !== "completed" && raw.kind !== "failed") return deny(reply, "invalid_status_kind", 400);
+    const payload = ClaudeRuntimeStatusBodySchema[raw.kind].parse(raw.payload);
+    if (!assertAgentOwnsPayload(participant, payload.agent_id)) return deny(reply, "forbidden", 403);
+    const eventType = raw.kind === "changed"
+      ? "claude.runtime.status_changed"
+      : raw.kind === "completed"
+        ? "claude.runtime.status_completed"
+        : "claude.runtime.status_failed";
+    appendAndPublish(event(request.params.roomId, eventType, participant.id, payload));
+    return reply.code(201).send({ ok: true });
   });
 
   app.post<{ Params: { roomId: string }; Querystring: { token?: string; wait_ms?: string | number } }>("/rooms/:roomId/agent-action-approvals", async (request, reply) => {

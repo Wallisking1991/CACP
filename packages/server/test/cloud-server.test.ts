@@ -114,7 +114,7 @@ describe("cloud server endpoints", () => {
         method: "POST",
         url: `/rooms/${createdFirst.created.room_id}/agent-pairings`,
         headers: { authorization: `Bearer ${createdFirst.created.owner_token}` },
-        payload: { agent_type: "echo", permission_level: "read_only", working_dir: "." }
+        payload: { agent_type: "claude-code", permission_level: "read_only", working_dir: "." }
       });
       expect(pairingResponse.statusCode).toBe(201);
       const body = pairingResponse.json() as { connection_code: string };
@@ -130,7 +130,7 @@ describe("cloud server endpoints", () => {
         payload: { adapter_name: "Cloud Echo" }
       });
       expect(claimResponse.statusCode).toBe(201);
-      expect(claimResponse.json()).toMatchObject({ room_id: createdFirst.created.room_id, agent_type: "echo", permission_level: "read_only" });
+      expect(claimResponse.json()).toMatchObject({ room_id: createdFirst.created.room_id, agent_type: "claude-code", permission_level: "read_only" });
 
       const secondClaimResponse = await second.inject({
         method: "POST",
@@ -169,7 +169,7 @@ describe("cloud server endpoints", () => {
       method: "POST",
       url: `/rooms/${created.room_id}/agent-pairings/start-local`,
       headers: { authorization: `Bearer ${created.owner_token}` },
-      payload: { agent_type: "echo", permission_level: "read_only", working_dir: "." }
+      payload: { agent_type: "claude-code", permission_level: "read_only", working_dir: "." }
     });
 
     expect(response.statusCode).toBe(403);
@@ -245,7 +245,7 @@ describe("cloud server endpoints", () => {
       method: "POST",
       url: `/rooms/${created.room_id}/agent-pairings`,
       headers: { authorization: `Bearer ${created.owner_token}` },
-      payload: { agent_type: "echo", permission_level: "read_only", working_dir: "." }
+      payload: { agent_type: "claude-code", permission_level: "read_only", working_dir: "." }
     });
     expect(firstPairing.statusCode).toBe(201);
     const firstToken = parseConnectionCode((firstPairing.json() as { connection_code: string }).connection_code).pairing_token;
@@ -261,7 +261,7 @@ describe("cloud server endpoints", () => {
       method: "POST",
       url: `/rooms/${created.room_id}/agent-pairings`,
       headers: { authorization: `Bearer ${created.owner_token}` },
-      payload: { agent_type: "echo", permission_level: "read_only", working_dir: "." }
+      payload: { agent_type: "claude-code", permission_level: "read_only", working_dir: "." }
     });
     expect(secondPairing.statusCode).toBe(201);
     const secondToken = parseConnectionCode((secondPairing.json() as { connection_code: string }).connection_code).pairing_token;
@@ -300,7 +300,7 @@ describe("cloud server endpoints", () => {
       method: "POST",
       url: `/rooms/${created.room_id}/agent-pairings`,
       headers: { authorization: `Bearer ${created.owner_token}` },
-      payload: { agent_type: "echo", permission_level: "read_only", working_dir: "." }
+      payload: { agent_type: "claude-code", permission_level: "read_only", working_dir: "." }
     });
     expect(pairingResponse.statusCode).toBe(201);
     const pairingToken = parseConnectionCode((pairingResponse.json() as { connection_code: string }).connection_code).pairing_token;
@@ -335,7 +335,7 @@ describe("cloud server endpoints", () => {
       method: "POST",
       url: `/rooms/${created.room_id}/agent-pairings`,
       headers: { authorization: `Bearer ${created.owner_token}` },
-      payload: { agent_type: "echo", permission_level: "read_only", working_dir: "D:\\Projects\\fallback" }
+      payload: { agent_type: "claude-code", permission_level: "read_only", working_dir: "D:\\Projects\\fallback" }
     });
     expect(pairingResponse.statusCode).toBe(201);
     const pairingToken = parseConnectionCode((pairingResponse.json() as { connection_code: string }).connection_code).pairing_token;
