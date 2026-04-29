@@ -71,6 +71,41 @@ export function hasQueuedFollowup(events: CacpEvent[], turnId: string): boolean 
   return events.some((storedEvent) => storedEvent.type === "agent.turn.followup_queued" && storedEvent.payload.turn_id === turnId);
 }
 
+export function findQueuedFollowupMessage(events: CacpEvent[], turnId: string): ConversationMessage | undefined {
+  const followupIndex = events.findIndex((storedEvent) => storedEvent.type === "agent.turn.followup_queued" && storedEvent.payload.turn_id === turnId);
+  if (followupIndex < 0) return undefined;
+  for (let index = followupIndex - 1; index >= 0; index -= 1) {
+    const storedEvent = events[index];
+    if (storedEvent.type === "message.created" && typeof storedEvent.payload.text === "string" && storedEvent.payload.kind === "human") {
+      return {
+        actor_id: storedEvent.actor_id,
+        text: String(storedEvent.payload.text),
+        kind: "human"
+      };
+    }
+  }
+  return undefined;
+}
+
+export function findQueuedFollowupMessages(events: CacpEvent[], turnId: string): ConversationMessage[] {
+  const turnIndex = events.findIndex((storedEvent) => storedEvent.type === "agent.turn.requested" && storedEvent.payload.turn_id === turnId);
+  const followupIndex = events.findIndex((storedEvent) => storedEvent.type === "agent.turn.followup_queued" && storedEvent.payload.turn_id === turnId);
+  if (turnIndex < 0 || followupIndex < 0) return [];
+  const terminalIndex = events.findIndex((storedEvent, index) =>
+    index > turnIndex &&
+    (storedEvent.type === "agent.turn.completed" || storedEvent.type === "agent.turn.failed") &&
+    storedEvent.payload.turn_id === turnId
+  );
+  const endIndex = terminalIndex >= 0 ? terminalIndex : events.length;
+  return events.slice(turnIndex + 1, endIndex)
+    .filter((storedEvent) => storedEvent.type === "message.created" && typeof storedEvent.payload.text === "string" && storedEvent.payload.kind === "human")
+    .map((storedEvent) => ({
+      actor_id: storedEvent.actor_id,
+      text: String(storedEvent.payload.text),
+      kind: "human"
+    }));
+}
+
 export function findAgentCapabilities(events: CacpEvent[], agentId: string): string[] {
   for (const storedEvent of [...events].reverse()) {
     if (storedEvent.type === "agent.registered" && storedEvent.payload.agent_id === agentId) {

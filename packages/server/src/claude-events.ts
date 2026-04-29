@@ -8,6 +8,11 @@ import {
   ClaudeSessionImportFailedPayloadSchema,
   ClaudeSessionImportMessagePayloadSchema,
   ClaudeSessionImportStartedPayloadSchema,
+  ClaudeSessionPreviewCompletedPayloadSchema,
+  ClaudeSessionPreviewFailedPayloadSchema,
+  ClaudeSessionPreviewMessagePayloadSchema,
+  ClaudeSessionPreviewRequestedPayloadSchema,
+  ClaudeSessionReadyPayloadSchema,
   ClaudeSessionSelectedPayloadSchema,
   type CacpEvent,
   type Participant
@@ -15,6 +20,13 @@ import {
 import { event } from "./ids.js";
 
 export const ClaudeSessionCatalogBodySchema = ClaudeSessionCatalogUpdatedPayloadSchema;
+export const ClaudeSessionPreviewRequestBodySchema = ClaudeSessionPreviewRequestedPayloadSchema.pick({
+  agent_id: true,
+  session_id: true
+});
+export const ClaudeSessionPreviewMessagesBodySchema = ClaudeSessionPreviewMessagePayloadSchema.array().min(1).max(50);
+export const ClaudeSessionPreviewCompleteBodySchema = ClaudeSessionPreviewCompletedPayloadSchema;
+export const ClaudeSessionPreviewFailBodySchema = ClaudeSessionPreviewFailedPayloadSchema;
 export const ClaudeSessionSelectionBodySchema = z.discriminatedUnion("mode", [
   z.object({
     agent_id: z.string().min(1),
@@ -26,6 +38,7 @@ export const ClaudeSessionSelectionBodySchema = z.discriminatedUnion("mode", [
     session_id: z.string().min(1)
   })
 ]);
+export const ClaudeSessionReadyBodySchema = ClaudeSessionReadyPayloadSchema;
 
 export const ClaudeSessionImportStartBodySchema = ClaudeSessionImportStartedPayloadSchema;
 export const ClaudeSessionImportMessagesBodySchema = ClaudeSessionImportMessagePayloadSchema.array().min(1).max(50);

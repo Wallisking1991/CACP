@@ -186,10 +186,11 @@ describe("CACP server pairing and room governance", () => {
       showConsole: true
     });
 
-    expect(script).toContain("WARNING: CACP LOCAL AGENT BRIDGE IS RUNNING");
+    expect(script).toContain("WARNING: CACP LOCAL CONNECTOR IS RUNNING");
     expect(script).toContain("This console was opened by the AI Collaboration Platform Demo.");
+    expect(script).toContain("It runs the trusted Local Connector for your Claude Code or LLM API room.");
     expect(script).toContain("Do not close or delete this window while using the web room.");
-    expect(script).toContain("Closing it will disconnect the local CLI agent from the shared room.");
+    expect(script).toContain("Closing it will disconnect the local connector from the shared room.");
     expect(script).toContain("-ForegroundColor Red");
   });
 

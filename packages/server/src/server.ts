@@ -7,7 +7,7 @@ import websocket from "@fastify/websocket";
 import { z } from "zod";
 import { buildConnectionCode, evaluatePolicy, PolicySchema, VoteRecordSchema, type CacpEvent, type Participant, type Policy, type VoteRecord } from "@cacp/protocol";
 import { requireParticipant, hasAnyRole, hasHumanRole } from "./auth.js";
-import { buildAgentContextPrompt, buildCollectedAnswersPrompt, eventsAfterLastHistoryClear, findActiveAgentId, findAgentCapabilities, findAnyOpenTurn, findOpenTurn, hasQueuedFollowup, recentConversationMessages, type OpenTurn } from "./conversation.js";
+import { buildAgentContextPrompt, buildCollectedAnswersPrompt, eventsAfterLastHistoryClear, findActiveAgentId, findAgentCapabilities, findAnyOpenTurn, findOpenTurn, findQueuedFollowupMessage, findQueuedFollowupMessages, hasQueuedFollowup, recentConversationMessages, type ConversationMessage, type OpenTurn } from "./conversation.js";
 import { EventBus } from "./event-bus.js";
 import { EventStore, type StoredParticipant } from "./event-store.js";
 import { hasAllowedOrigin, loadServerConfig, type ServerConfig } from "./config.js";
@@ -21,6 +21,11 @@ import {
   ClaudeSessionImportFailBodySchema,
   ClaudeSessionImportMessagesBodySchema,
   ClaudeSessionImportStartBodySchema,
+  ClaudeSessionPreviewCompleteBodySchema,
+  ClaudeSessionPreviewFailBodySchema,
+  ClaudeSessionPreviewMessagesBodySchema,
+  ClaudeSessionPreviewRequestBodySchema,
+  ClaudeSessionReadyBodySchema,
   ClaudeSessionSelectionBodySchema,
   assertAgentOwnsPayload
 } from "./claude-events.js";
@@ -141,12 +146,12 @@ export function buildLocalAgentConsoleScript(input: LocalAgentLaunchInput): stri
     "Clear-Host",
     "Write-Host ''",
     "Write-Host '============================================================' -ForegroundColor Red",
-    "Write-Host 'WARNING: CACP LOCAL AGENT BRIDGE IS RUNNING' -ForegroundColor Red",
+    "Write-Host 'WARNING: CACP LOCAL CONNECTOR IS RUNNING' -ForegroundColor Red",
     "Write-Host '============================================================' -ForegroundColor Red",
     "Write-Host 'This console was opened by the AI Collaboration Platform Demo.' -ForegroundColor Cyan",
-    "Write-Host 'It runs the trusted local CLI agent bridge for your web room.' -ForegroundColor Cyan",
+    "Write-Host 'It runs the trusted Local Connector for your Claude Code or LLM API room.' -ForegroundColor Cyan",
     "Write-Host 'Do not close or delete this window while using the web room.' -ForegroundColor Yellow",
-    "Write-Host 'Closing it will disconnect the local CLI agent from the shared room.' -ForegroundColor Yellow",
+    "Write-Host 'Closing it will disconnect the local connector from the shared room.' -ForegroundColor Yellow",
     "Write-Host 'You may close it only after you are done with the room.' -ForegroundColor Yellow",
     "Write-Host '============================================================' -ForegroundColor Red",
     "Write-Host ''",
@@ -297,6 +302,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
 
   function canViewEvent(event: CacpEvent, participant: StoredParticipant): boolean {
     if (event.type === "claude.session_catalog.updated") {
+      return hasAnyRole(participant, ["owner", "admin"]);
+    }
+    if (event.type.startsWith("claude.session_preview.")) {
+      if (participant.role === "agent") return event.payload.agent_id === participant.id;
       return hasAnyRole(participant, ["owner", "admin"]);
     }
     return true;
@@ -489,7 +498,27 @@ export async function buildServer(options: BuildServerOptions = {}) {
       }));
   }
 
-  function createAgentTurnRequestEvents(roomId: string, actorId: string, reason: "human_message" | "queued_followup" | "collected_answers", contextPrompt?: string): CacpEvent[] {
+  function claudeQueuedFollowupDetails(messages: ConversationMessage[], names: Map<string, string>, roles: Map<string, string>): { messageText: string; speakerName: string; speakerRole: string } | undefined {
+    if (messages.length === 0) return undefined;
+    if (messages.length === 1) {
+      const [message] = messages;
+      return {
+        messageText: message.text,
+        speakerName: names.get(message.actor_id) ?? message.actor_id,
+        speakerRole: roles.get(message.actor_id) ?? "member"
+      };
+    }
+    return {
+      messageText: [
+        "Queued room messages:",
+        ...messages.map((message) => `${names.get(message.actor_id) ?? message.actor_id} (${roles.get(message.actor_id) ?? "member"}): ${message.text}`)
+      ].join("\n"),
+      speakerName: "Room participants",
+      speakerRole: "member"
+    };
+  }
+
+  function createAgentTurnRequestEvents(roomId: string, actorId: string, reason: "human_message" | "queued_followup" | "collected_answers", contextPrompt?: string, previousTurnId?: string): CacpEvent[] {
     const events = store.listEvents(roomId);
     const turnEvents = eventsAfterLastHistoryClear(events);
     const activeAgentId = findActiveAgentId(events);
@@ -509,6 +538,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const capabilities = findAgentCapabilities(events, activeAgentId);
     const isClaudeAgent = capabilities.includes("claude-code");
     if (isClaudeAgent) {
+      if (!hasClaudeSessionReady(events, activeAgentId)) return [];
       const room = store.getRoom(roomId);
       const participants = store.getParticipants(roomId);
       const names = new Map(participants.map((participant) => [participant.id, participant.display_name]));
@@ -523,6 +553,18 @@ export async function buildServer(options: BuildServerOptions = {}) {
           messageText = latestMessage.text;
           speakerName = names.get(latestMessage.actor_id) ?? latestMessage.actor_id;
           speakerRole = roles.get(latestMessage.actor_id) ?? "member";
+        }
+      } else if (reason === "queued_followup") {
+        const queuedMessages = previousTurnId ? findQueuedFollowupMessages(events, previousTurnId) : [];
+        const queuedDetails = claudeQueuedFollowupDetails(
+          queuedMessages.length > 0 ? queuedMessages : previousTurnId ? [findQueuedFollowupMessage(events, previousTurnId)].filter((message): message is ConversationMessage => Boolean(message)) : [],
+          names,
+          roles
+        );
+        if (queuedDetails) {
+          messageText = queuedDetails.messageText;
+          speakerName = queuedDetails.speakerName;
+          speakerRole = queuedDetails.speakerRole;
         }
       } else {
         messageText = contextPrompt ?? buildContextPrompt(roomId, activeAgentId);
@@ -547,6 +589,177 @@ export async function buildServer(options: BuildServerOptions = {}) {
       reason,
       context_prompt: contextPrompt ?? buildContextPrompt(roomId, activeAgentId)
     })];
+  }
+
+  function validateClaudeAgent(roomId: string, agentId: string): { ok: true } | { ok: false; error: string; status: number } {
+    const events = store.listEvents(roomId);
+    const activeAgentId = findActiveAgentId(events);
+    if (activeAgentId !== agentId) return { ok: false, error: "not_active_agent", status: 403 };
+    const capabilities = findAgentCapabilities(events, agentId);
+    if (!capabilities.includes("claude-code")) return { ok: false, error: "missing_claude_code_capability", status: 403 };
+    return { ok: true };
+  }
+
+  function validateClaudeRuntime(roomId: string, agentId: string, turnId: string): { ok: true } | { ok: false; error: string; status: number } {
+    const events = store.listEvents(roomId);
+    const activeAgentId = findActiveAgentId(events);
+    if (activeAgentId !== agentId) return { ok: false, error: "not_active_agent", status: 403 };
+    const capabilities = findAgentCapabilities(events, agentId);
+    if (!capabilities.includes("claude-code")) return { ok: false, error: "missing_claude_code_capability", status: 403 };
+    const openTurn = findAnyOpenTurn(eventsAfterLastHistoryClear(events));
+    if (!openTurn || openTurn.agent_id !== agentId) return { ok: false, error: "no_active_turn", status: 403 };
+    if (openTurn.turn_id !== turnId) return { ok: false, error: "turn_not_found", status: 403 };
+    return { ok: true };
+  }
+
+  function validateTurnBelongsToAgent(events: CacpEvent[], turnId: string, agentId: string): boolean {
+    return events.some((storedEvent) =>
+      (storedEvent.type === "agent.turn.requested" || storedEvent.type === "agent.turn.started") &&
+      storedEvent.payload.turn_id === turnId &&
+      storedEvent.payload.agent_id === agentId
+    );
+  }
+
+  function hasClaudeSessionReady(events: CacpEvent[], agentId: string): boolean {
+    let selectionIndex = -1;
+    let selection: { mode: "fresh" } | { mode: "resume"; session_id: string } | undefined;
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const storedEvent = events[index];
+      if (storedEvent.type !== "claude.session_selected" || storedEvent.payload.agent_id !== agentId) continue;
+      if (storedEvent.payload.mode === "fresh") {
+        selectionIndex = index;
+        selection = { mode: "fresh" };
+        break;
+      }
+      if (storedEvent.payload.mode === "resume" && typeof storedEvent.payload.session_id === "string") {
+        selectionIndex = index;
+        selection = { mode: "resume", session_id: storedEvent.payload.session_id };
+        break;
+      }
+    }
+    if (!selection || selectionIndex < 0) return false;
+    return events.slice(selectionIndex + 1).some((storedEvent) => {
+      if (storedEvent.type !== "claude.session_ready" || storedEvent.payload.agent_id !== agentId) return false;
+      if (selection.mode === "fresh") return storedEvent.payload.mode === "fresh";
+      return storedEvent.payload.mode === "resume" && storedEvent.payload.session_id === selection.session_id;
+    });
+  }
+
+  function latestClaudeSessionSelection(events: CacpEvent[], agentId: string): { mode: "fresh" } | { mode: "resume"; session_id: string } | undefined {
+    for (const storedEvent of [...events].reverse()) {
+      if (storedEvent.type !== "claude.session_selected" || storedEvent.payload.agent_id !== agentId) continue;
+      if (storedEvent.payload.mode === "fresh") return { mode: "fresh" };
+      if (storedEvent.payload.mode === "resume" && typeof storedEvent.payload.session_id === "string") {
+        return { mode: "resume", session_id: storedEvent.payload.session_id };
+      }
+    }
+    return undefined;
+  }
+
+  function validateSelectedClaudeResumeSession(roomId: string, agentId: string, sessionId: string): { ok: true } | { ok: false; error: string; status: number } {
+    const selection = latestClaudeSessionSelection(store.listEvents(roomId), agentId);
+    if (!selection || selection.mode !== "resume") {
+      return { ok: false, error: "claude_resume_session_not_selected", status: 409 };
+    }
+    if (selection.session_id !== sessionId) {
+      return { ok: false, error: "claude_resume_session_mismatch", status: 409 };
+    }
+    return { ok: true };
+  }
+
+  function validateSelectedClaudeSessionReady(roomId: string, agentId: string, body: { mode: "fresh" } | { mode: "resume"; session_id: string }): { ok: true } | { ok: false; error: string; status: number } {
+    const selection = latestClaudeSessionSelection(store.listEvents(roomId), agentId);
+    if (!selection) return { ok: false, error: "claude_session_not_selected", status: 409 };
+    if (body.mode !== selection.mode) return { ok: false, error: "claude_session_selection_mismatch", status: 409 };
+    if (body.mode === "resume" && selection.mode === "resume" && body.session_id !== selection.session_id) {
+      return { ok: false, error: "claude_session_selection_mismatch", status: 409 };
+    }
+    return { ok: true };
+  }
+
+  function claudeImportEvents(roomId: string, importId: string): CacpEvent[] {
+    return store.listEvents(roomId).filter((storedEvent) =>
+      typeof storedEvent.payload.import_id === "string" &&
+      storedEvent.payload.import_id === importId &&
+      storedEvent.type.startsWith("claude.session_import.")
+    );
+  }
+
+  function validateImportMessageBatch(roomId: string, importId: string, messages: Array<{ agent_id: string; session_id: string; sequence: number }>): { ok: true } | { ok: false; error: string; status: number } {
+    const related = claudeImportEvents(roomId, importId);
+    const started = related.find((storedEvent) => storedEvent.type === "claude.session_import.started");
+    if (!started) return { ok: false, error: "unknown_import", status: 404 };
+    if (related.some((storedEvent) => storedEvent.type === "claude.session_import.completed" || storedEvent.type === "claude.session_import.failed")) {
+      return { ok: false, error: "import_closed", status: 409 };
+    }
+    if (!messages.every((message) => message.agent_id === started.payload.agent_id && message.session_id === started.payload.session_id)) {
+      return { ok: false, error: "import_session_mismatch", status: 400 };
+    }
+    const existingCount = related.filter((storedEvent) => storedEvent.type === "claude.session_import.message").length;
+    const expectedSequences = messages.map((_, index) => existingCount + index);
+    if (!messages.every((message, index) => message.sequence === expectedSequences[index])) {
+      return { ok: false, error: "import_sequence_gap", status: 409 };
+    }
+    return { ok: true };
+  }
+
+  function validateImportComplete(roomId: string, importId: string, body: { agent_id: string; session_id: string; imported_message_count: number }): { ok: true } | { ok: false; error: string; status: number } {
+    const related = claudeImportEvents(roomId, importId);
+    const started = related.find((storedEvent) => storedEvent.type === "claude.session_import.started");
+    if (!started) return { ok: false, error: "unknown_import", status: 404 };
+    if (related.some((storedEvent) => storedEvent.type === "claude.session_import.completed" || storedEvent.type === "claude.session_import.failed")) {
+      return { ok: false, error: "import_closed", status: 409 };
+    }
+    if (body.agent_id !== started.payload.agent_id || body.session_id !== started.payload.session_id) {
+      return { ok: false, error: "import_session_mismatch", status: 400 };
+    }
+    const expectedCount = typeof started.payload.message_count === "number" ? started.payload.message_count : undefined;
+    const uploaded = related.filter((storedEvent) => storedEvent.type === "claude.session_import.message");
+    const sequenceSet = new Set(uploaded.map((storedEvent) => storedEvent.payload.sequence));
+    const hasContinuousSequence = uploaded.every((storedEvent) => typeof storedEvent.payload.sequence === "number") &&
+      Array.from({ length: uploaded.length }, (_, index) => index).every((sequence) => sequenceSet.has(sequence));
+    if (body.imported_message_count !== uploaded.length || expectedCount !== uploaded.length || !hasContinuousSequence) {
+      return { ok: false, error: "import_incomplete", status: 409 };
+    }
+    return { ok: true };
+  }
+
+  function claudePreviewEvents(roomId: string, previewId: string): CacpEvent[] {
+    return store.listEvents(roomId).filter((storedEvent) =>
+      typeof storedEvent.payload.preview_id === "string" &&
+      storedEvent.payload.preview_id === previewId &&
+      storedEvent.type.startsWith("claude.session_preview.")
+    );
+  }
+
+  function validatePreviewOpen(roomId: string, previewId: string, agentId: string, sessionId: string): { ok: true } | { ok: false; error: string; status: number } {
+    const related = claudePreviewEvents(roomId, previewId);
+    const requested = related.find((storedEvent) => storedEvent.type === "claude.session_preview.requested");
+    if (!requested) return { ok: false, error: "unknown_preview", status: 404 };
+    if (requested.payload.agent_id !== agentId || requested.payload.session_id !== sessionId) {
+      return { ok: false, error: "preview_session_mismatch", status: 400 };
+    }
+    if (related.some((storedEvent) => storedEvent.type === "claude.session_preview.completed" || storedEvent.type === "claude.session_preview.failed")) {
+      return { ok: false, error: "preview_closed", status: 409 };
+    }
+    return { ok: true };
+  }
+
+  function validatePreviewComplete(roomId: string, previewId: string, body: { agent_id: string; session_id: string; previewed_message_count: number }): { ok: true } | { ok: false; error: string; status: number } {
+    const related = claudePreviewEvents(roomId, previewId);
+    const requested = related.find((storedEvent) => storedEvent.type === "claude.session_preview.requested");
+    if (!requested) return { ok: false, error: "unknown_preview", status: 404 };
+    if (requested.payload.agent_id !== body.agent_id || requested.payload.session_id !== body.session_id) {
+      return { ok: false, error: "preview_session_mismatch", status: 400 };
+    }
+    const uploaded = related.filter((storedEvent) => storedEvent.type === "claude.session_preview.message");
+    const sequenceSet = new Set(uploaded.map((storedEvent) => storedEvent.payload.sequence));
+    const hasContinuousSequence = uploaded.every((storedEvent) => typeof storedEvent.payload.sequence === "number") &&
+      Array.from({ length: uploaded.length }, (_, index) => index).every((sequence) => sequenceSet.has(sequence));
+    if (body.previewed_message_count !== uploaded.length || !hasContinuousSequence) {
+      return { ok: false, error: "preview_incomplete", status: 409 };
+    }
+    return { ok: true };
   }
 
   function createStoredAgentPairing(roomId: string, actorId: string, body: z.infer<typeof AgentPairingCreateSchema>) {
@@ -1141,7 +1354,72 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!participant) return deny(reply, "invalid_token");
     const body = ClaudeSessionCatalogBodySchema.parse(request.body);
     if (!assertAgentOwnsPayload(participant, body.agent_id)) return deny(reply, "forbidden", 403);
+    const validation = validateClaudeAgent(request.params.roomId, body.agent_id);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
     appendAndPublish(event(request.params.roomId, "claude.session_catalog.updated", participant.id, body));
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/claude/session-previews", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    if (!hasHumanRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
+    const body = ClaudeSessionPreviewRequestBodySchema.parse(request.body);
+    const validation = validateClaudeAgent(request.params.roomId, body.agent_id);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    const previewId = prefixedId("preview");
+    const payload = {
+      preview_id: previewId,
+      agent_id: body.agent_id,
+      session_id: body.session_id,
+      requested_by: participant.id,
+      requested_at: new Date().toISOString()
+    };
+    appendAndPublish(event(request.params.roomId, "claude.session_preview.requested", participant.id, payload));
+    return reply.code(201).send({ ok: true, preview_id: previewId });
+  });
+
+  app.post<{ Params: { roomId: string; previewId: string } }>("/rooms/:roomId/claude/session-previews/:previewId/messages", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const body = ClaudeSessionPreviewMessagesBodySchema.parse(request.body);
+    if (!body.every((message) => message.preview_id === request.params.previewId)) return deny(reply, "preview_id_mismatch", 400);
+    if (!body.every((message) => assertAgentOwnsPayload(participant, message.agent_id))) return deny(reply, "forbidden", 403);
+    const first = body[0];
+    const validation = validateClaudeAgent(request.params.roomId, first.agent_id);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    const previewValidation = validatePreviewOpen(request.params.roomId, request.params.previewId, first.agent_id, first.session_id);
+    if (!previewValidation.ok) return deny(reply, previewValidation.error, previewValidation.status);
+    const storedEvents = store.transaction(() => body.map((message) => store.appendEvent(event(request.params.roomId, "claude.session_preview.message", participant.id, message))));
+    publishEvents(storedEvents);
+    return reply.code(201).send({ ok: true, previewed: body.length });
+  });
+
+  app.post<{ Params: { roomId: string; previewId: string } }>("/rooms/:roomId/claude/session-previews/:previewId/complete", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const body = ClaudeSessionPreviewCompleteBodySchema.parse(request.body);
+    if (body.preview_id !== request.params.previewId) return deny(reply, "preview_id_mismatch", 400);
+    if (!assertAgentOwnsPayload(participant, body.agent_id)) return deny(reply, "forbidden", 403);
+    const validation = validateClaudeAgent(request.params.roomId, body.agent_id);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    const previewValidation = validatePreviewOpen(request.params.roomId, request.params.previewId, body.agent_id, body.session_id);
+    if (!previewValidation.ok) return deny(reply, previewValidation.error, previewValidation.status);
+    const completeValidation = validatePreviewComplete(request.params.roomId, request.params.previewId, body);
+    if (!completeValidation.ok) return deny(reply, completeValidation.error, completeValidation.status);
+    appendAndPublish(event(request.params.roomId, "claude.session_preview.completed", participant.id, body));
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string; previewId: string } }>("/rooms/:roomId/claude/session-previews/:previewId/fail", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const body = ClaudeSessionPreviewFailBodySchema.parse(request.body);
+    if (body.preview_id !== request.params.previewId) return deny(reply, "preview_id_mismatch", 400);
+    if (!assertAgentOwnsPayload(participant, body.agent_id)) return deny(reply, "forbidden", 403);
+    const validation = validateClaudeAgent(request.params.roomId, body.agent_id);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    appendAndPublish(event(request.params.roomId, "claude.session_preview.failed", participant.id, body));
     return reply.code(201).send({ ok: true });
   });
 
@@ -1152,10 +1430,25 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const body = ClaudeSessionSelectionBodySchema.parse(request.body);
     const targetAgent = findParticipant(request.params.roomId, body.agent_id);
     if (!targetAgent || targetAgent.type !== "agent" || targetAgent.role !== "agent") return deny(reply, "invalid_target_agent", 400);
+    const validation = validateClaudeAgent(request.params.roomId, body.agent_id);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
     appendAndPublish(event(request.params.roomId, "claude.session_selected", participant.id, {
       ...body,
       selected_by: participant.id
     }));
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/claude/session-ready", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const body = ClaudeSessionReadyBodySchema.parse(request.body);
+    if (!assertAgentOwnsPayload(participant, body.agent_id)) return deny(reply, "forbidden", 403);
+    const validation = validateClaudeAgent(request.params.roomId, body.agent_id);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    const selectionValidation = validateSelectedClaudeSessionReady(request.params.roomId, body.agent_id, body);
+    if (!selectionValidation.ok) return deny(reply, selectionValidation.error, selectionValidation.status);
+    appendAndPublish(event(request.params.roomId, "claude.session_ready", participant.id, body));
     return reply.code(201).send({ ok: true });
   });
 
@@ -1164,6 +1457,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!participant) return deny(reply, "invalid_token");
     const body = ClaudeSessionImportStartBodySchema.parse(request.body);
     if (!assertAgentOwnsPayload(participant, body.agent_id)) return deny(reply, "forbidden", 403);
+    const validation = validateClaudeAgent(request.params.roomId, body.agent_id);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    const selectionValidation = validateSelectedClaudeResumeSession(request.params.roomId, body.agent_id, body.session_id);
+    if (!selectionValidation.ok) return deny(reply, selectionValidation.error, selectionValidation.status);
     appendAndPublish(event(request.params.roomId, "claude.session_import.started", participant.id, body));
     return reply.code(201).send({ ok: true });
   });
@@ -1174,6 +1471,13 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const body = ClaudeSessionImportMessagesBodySchema.parse(request.body);
     if (!body.every((message) => message.import_id === request.params.importId)) return deny(reply, "import_id_mismatch", 400);
     if (!body.every((message) => assertAgentOwnsPayload(participant, message.agent_id))) return deny(reply, "forbidden", 403);
+    const first = body[0];
+    const agentValidation = validateClaudeAgent(request.params.roomId, participant.id);
+    if (!agentValidation.ok) return deny(reply, agentValidation.error, agentValidation.status);
+    const selectionValidation = validateSelectedClaudeResumeSession(request.params.roomId, first.agent_id, first.session_id);
+    if (!selectionValidation.ok) return deny(reply, selectionValidation.error, selectionValidation.status);
+    const batchValidation = validateImportMessageBatch(request.params.roomId, request.params.importId, body);
+    if (!batchValidation.ok) return deny(reply, batchValidation.error, batchValidation.status);
     const storedEvents = store.transaction(() => body.map((message) => store.appendEvent(event(request.params.roomId, "claude.session_import.message", participant.id, message))));
     publishEvents(storedEvents);
     return reply.code(201).send({ ok: true, imported: body.length });
@@ -1185,6 +1489,12 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const body = ClaudeSessionImportCompleteBodySchema.parse(request.body);
     if (body.import_id !== request.params.importId) return deny(reply, "import_id_mismatch", 400);
     if (!assertAgentOwnsPayload(participant, body.agent_id)) return deny(reply, "forbidden", 403);
+    const validation = validateClaudeAgent(request.params.roomId, body.agent_id);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    const selectionValidation = validateSelectedClaudeResumeSession(request.params.roomId, body.agent_id, body.session_id);
+    if (!selectionValidation.ok) return deny(reply, selectionValidation.error, selectionValidation.status);
+    const completeValidation = validateImportComplete(request.params.roomId, request.params.importId, body);
+    if (!completeValidation.ok) return deny(reply, completeValidation.error, completeValidation.status);
     appendAndPublish(event(request.params.roomId, "claude.session_import.completed", participant.id, body));
     return reply.code(201).send({ ok: true });
   });
@@ -1195,6 +1505,12 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const body = ClaudeSessionImportFailBodySchema.parse(request.body);
     if (body.import_id !== request.params.importId) return deny(reply, "import_id_mismatch", 400);
     if (!assertAgentOwnsPayload(participant, body.agent_id)) return deny(reply, "forbidden", 403);
+    const validation = validateClaudeAgent(request.params.roomId, body.agent_id);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    if (body.session_id) {
+      const selectionValidation = validateSelectedClaudeResumeSession(request.params.roomId, body.agent_id, body.session_id);
+      if (!selectionValidation.ok) return deny(reply, selectionValidation.error, selectionValidation.status);
+    }
     appendAndPublish(event(request.params.roomId, "claude.session_import.failed", participant.id, body));
     return reply.code(201).send({ ok: true });
   });
@@ -1206,6 +1522,15 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (raw.kind !== "changed" && raw.kind !== "completed" && raw.kind !== "failed") return deny(reply, "invalid_status_kind", 400);
     const payload = ClaudeRuntimeStatusBodySchema[raw.kind].parse(raw.payload);
     if (!assertAgentOwnsPayload(participant, payload.agent_id)) return deny(reply, "forbidden", 403);
+    if (raw.kind === "changed") {
+      const runtimeValidation = validateClaudeRuntime(request.params.roomId, payload.agent_id, payload.turn_id);
+      if (!runtimeValidation.ok) return deny(reply, runtimeValidation.error, runtimeValidation.status);
+    } else {
+      const agentValidation = validateClaudeAgent(request.params.roomId, payload.agent_id);
+      if (!agentValidation.ok) return deny(reply, agentValidation.error, agentValidation.status);
+      const turnValid = validateTurnBelongsToAgent(store.listEvents(request.params.roomId), payload.turn_id, payload.agent_id);
+      if (!turnValid) return deny(reply, "turn_not_found", 403);
+    }
     const eventType = raw.kind === "changed"
       ? "claude.runtime.status_changed"
       : raw.kind === "completed"
@@ -1292,7 +1617,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
         turn_id: request.params.turnId
       }));
       const followupEvents = hasQueuedFollowup(store.listEvents(request.params.roomId), request.params.turnId)
-        ? createAgentTurnRequestEvents(request.params.roomId, participant.id, "queued_followup").map((nextEvent) => store.appendEvent(nextEvent))
+        ? createAgentTurnRequestEvents(request.params.roomId, participant.id, "queued_followup", undefined, request.params.turnId).map((nextEvent) => store.appendEvent(nextEvent))
         : [];
       return [completed, finalMessage, ...followupEvents];
     });
@@ -1314,7 +1639,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
         ...TurnFailedSchema.parse(request.body)
       }));
       const followupEvents = hasQueuedFollowup(store.listEvents(request.params.roomId), request.params.turnId)
-        ? createAgentTurnRequestEvents(request.params.roomId, participant.id, "queued_followup").map((nextEvent) => store.appendEvent(nextEvent))
+        ? createAgentTurnRequestEvents(request.params.roomId, participant.id, "queued_followup", undefined, request.params.turnId).map((nextEvent) => store.appendEvent(nextEvent))
         : [];
       return [failed, ...followupEvents];
     });
@@ -1329,6 +1654,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const body = TaskCreateSchema.parse(request.body);
     const targetAgent = findParticipant(request.params.roomId, body.target_agent_id);
     if (!targetAgent || targetAgent.type !== "agent" || targetAgent.role !== "agent") return deny(reply, "invalid_target_agent", 400);
+    const capabilities = findAgentCapabilities(store.listEvents(request.params.roomId), body.target_agent_id);
+    if (!capabilities.includes("legacy.task_runner")) return deny(reply, "generic_tasks_removed", 410);
     const taskId = prefixedId("task");
     appendAndPublish(event(request.params.roomId, "task.created", participant.id, { task_id: taskId, created_by: participant.id, ...body }));
     return reply.code(201).send({ task_id: taskId });

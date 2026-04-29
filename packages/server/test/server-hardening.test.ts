@@ -56,7 +56,7 @@ async function registerAgent(app: Awaited<ReturnType<typeof buildServer>>, roomI
     method: "POST",
     url: `/rooms/${roomId}/agents/register`,
     headers: ownerAuth,
-    payload: { name, capabilities: ["shell.oneshot"] }
+    payload: { name, capabilities: ["legacy.task_runner", "shell.oneshot"] }
   });
   expect(response.statusCode).toBe(201);
   return response.json() as { agent_id: string; agent_token: string };
@@ -95,6 +95,29 @@ async function joinViaApproval(app: Awaited<ReturnType<typeof buildServer>>, roo
 }
 
 describe("CACP server hardening", () => {
+
+
+  it("rejects generic task creation for Claude Code agents", async () => {
+    const { app, room, ownerAuth } = await createRoom();
+    const response = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agents/register`,
+      headers: ownerAuth,
+      payload: { name: "Claude Code Agent", capabilities: ["claude-code", "claude.persistent_session"] }
+    });
+    expect(response.statusCode).toBe(201);
+    const agent = response.json() as { agent_id: string };
+
+    const task = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/tasks`,
+      headers: ownerAuth,
+      payload: { target_agent_id: agent.agent_id, prompt: "Run a generic task", mode: "oneshot" }
+    });
+
+    expect(task.statusCode).toBe(410);
+    expect(task.json()).toEqual({ error: "generic_tasks_removed" });
+  });
 
   it("rejects additional votes on a terminal proposal without appending duplicate events", async () => {
     const { app, room, ownerAuth } = await createRoom();
