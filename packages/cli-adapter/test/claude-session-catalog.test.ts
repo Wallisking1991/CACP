@@ -24,4 +24,21 @@ describe("Claude session catalog", () => {
       byte_size: 20
     });
   });
+
+  it("keeps the catalog metadata-only and does not include transcript previews", async () => {
+    const sdk = {
+      listSessions: async () => [
+        { sessionId: "session_1", summary: "Planning", lastModified: 1764355200000, fileSize: 20, cwd: "D:\\Development\\2" }
+      ],
+      getSessionMessages: async () => [
+        { uuid: "m1", type: "user", message: { content: "sensitive prompt" } },
+        { uuid: "a1", type: "assistant", message: { content: [{ type: "text", text: "sensitive answer" }] } }
+      ]
+    };
+
+    const catalog = await listClaudeSessions({ workingDir: "D:\\Development\\2", sdk });
+
+    expect(catalog.sessions[0].message_count).toBe(2);
+    expect(catalog.sessions[0]).not.toHaveProperty("messages");
+  });
 });

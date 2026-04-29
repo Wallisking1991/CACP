@@ -5,6 +5,8 @@ import { loadClaudeSdk } from "./claude-sdk.js";
 import type { ClaudeImportResult, ClaudeImportedMessage, ClaudeSdk, ClaudeSdkSessionMessage } from "./types.js";
 
 type SourceKind = z.infer<typeof ClaudeSessionImportSourceKindSchema>;
+const MaxImportTextLength = 20000;
+type VisiblePart = { text: string; sourceKind: SourceKind };
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -18,20 +20,39 @@ function toolSummary(item: Record<string, unknown>): string {
   return `Tool use: ${name}${filePath}${command}`;
 }
 
-function contentToVisibleParts(content: unknown): { text: string; sourceKind: SourceKind }[] {
-  if (typeof content === "string") return [{ text: content, sourceKind: "assistant" }];
+function commandSummary(item: Record<string, unknown>): string {
+  const input = record(item.input);
+  const command = typeof input.command === "string" ? input.command : "";
+  return command ? `Command: ${command}` : "Command executed";
+}
+
+function visibleText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(visibleText).filter(Boolean).join("");
+  const valueRecord = record(value);
+  if (typeof valueRecord.text === "string") return valueRecord.text;
+  if ("content" in valueRecord) return visibleText(valueRecord.content);
+  return "";
+}
+
+function contentToVisibleParts(content: unknown, messageType: string | undefined): VisiblePart[] {
+  const textSourceKind: SourceKind = messageType === "user" ? "user" : messageType === "assistant" ? "assistant" : "system";
+  if (typeof content === "string") return [{ text: content, sourceKind: textSourceKind }];
   if (!Array.isArray(content)) return [];
-  const parts: { text: string; sourceKind: SourceKind }[] = [];
+  const parts: VisiblePart[] = [];
   for (const item of content) {
     const itemRecord = record(item);
     if (itemRecord.type === "text" && typeof itemRecord.text === "string") {
-      parts.push({ text: itemRecord.text, sourceKind: "assistant" });
+      parts.push({ text: itemRecord.text, sourceKind: textSourceKind });
     }
     if (itemRecord.type === "tool_use") {
-      parts.push({ text: toolSummary(itemRecord), sourceKind: "tool_use" });
+      const name = typeof itemRecord.name === "string" ? itemRecord.name : "";
+      parts.push(name === "Bash"
+        ? { text: commandSummary(itemRecord), sourceKind: "command" }
+        : { text: toolSummary(itemRecord), sourceKind: "tool_use" });
     }
     if (itemRecord.type === "tool_result") {
-      const text = typeof itemRecord.content === "string" ? itemRecord.content : "Tool result received";
+      const text = visibleText(itemRecord.content) || "Tool result received";
       parts.push({ text, sourceKind: "tool_result" });
     }
   }
@@ -39,6 +60,7 @@ function contentToVisibleParts(content: unknown): { text: string; sourceKind: So
 }
 
 function authorRoleFor(message: ClaudeSdkSessionMessage, sourceKind: SourceKind): ClaudeImportedMessage["author_role"] {
+  if (sourceKind === "command") return "command";
   if (sourceKind === "tool_use" || sourceKind === "tool_result") return "tool";
   if (message.type === "user") return "user";
   if (message.type === "assistant") return "assistant";
@@ -55,27 +77,33 @@ export async function buildClaudeImportFromSessionMessages(input: {
 }): Promise<ClaudeImportResult> {
   const sdk = input.sdk ?? await loadClaudeSdk();
   const importId = input.importId ?? `import_${randomUUID()}`;
-  const messages = await sdk.getSessionMessages(input.sessionId, { dir: input.workingDir });
+  const messages = await sdk.getSessionMessages(input.sessionId, { dir: input.workingDir, includeSystemMessages: true });
   const imported: ClaudeImportedMessage[] = [];
   for (const message of messages) {
     const sourceMessageId = message.uuid;
     const msgRecord = record(message.message);
     const content = msgRecord.content ?? message.message;
-    const parts = message.type === "user"
-      ? [{ text: typeof content === "string" ? content : JSON.stringify(content), sourceKind: "user" as const }]
-      : contentToVisibleParts(content);
+    const parts = contentToVisibleParts(content, message.type);
     for (const part of parts) {
       const text = part.text.trim();
       if (!text) continue;
-      imported.push({
-        import_id: importId,
-        agent_id: input.agentId,
-        session_id: input.sessionId,
-        sequence: imported.length,
-        ...(sourceMessageId ? { source_message_id: sourceMessageId } : {}),
-        author_role: authorRoleFor(message, part.sourceKind),
-        source_kind: part.sourceKind,
-        text: text.slice(0, 20000)
+      const chunks: string[] = [];
+      for (let offset = 0; offset < text.length; offset += MaxImportTextLength) {
+        chunks.push(text.slice(offset, offset + MaxImportTextLength));
+      }
+      const partCount = chunks.length;
+      chunks.forEach((chunk, index) => {
+        imported.push({
+          import_id: importId,
+          agent_id: input.agentId,
+          session_id: input.sessionId,
+          sequence: imported.length,
+          ...(sourceMessageId ? { source_message_id: sourceMessageId } : {}),
+          author_role: authorRoleFor(message, part.sourceKind),
+          source_kind: part.sourceKind,
+          text: chunk,
+          ...(partCount > 1 ? { part_index: index, part_count: partCount, truncated: false } : {})
+        });
       });
     }
   }

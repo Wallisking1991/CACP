@@ -28,7 +28,7 @@ describe("adapter config arguments", () => {
       room_id: "room_1",
       agent_id: "agent_1",
       agent_token: "agent_token",
-      agent: { name: "Echo", command: "node", args: ["-e", ""], working_dir: ".", capabilities: ["echo"] }
+      agent: { name: "Claude Code Agent", command: "claude", args: [], working_dir: ".", capabilities: ["claude-code", "claude.persistent_session"] }
     }), { status: 201, headers: { "content-type": "application/json" } }));
 
     const config = await loadRuntimeConfigFromArgs(["--server", "http://127.0.0.1:3737", "--pair", "pair_1"], fetchMock as unknown as typeof fetch);
@@ -36,7 +36,7 @@ describe("adapter config arguments", () => {
     expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:3737/agent-pairings/pair_1/claim?server_url=http%3A%2F%2F127.0.0.1%3A3737", expect.objectContaining({ method: "POST" }));
     expect(config.registered_agent).toEqual({ agent_id: "agent_1", agent_token: "agent_token" });
     expect(config.room_id).toBe("room_1");
-    expect(config.agent.name).toBe("Echo");
+    expect(config.agent.name).toBe("Claude Code Agent");
   });
 
   it("extracts permission_level from pairing claim response", async () => {
@@ -64,7 +64,7 @@ describe("adapter config arguments", () => {
         room_id: "room_alpha",
         agent_id: "agent_alpha",
         agent_token: "cacp_agent",
-        agent: { name: "Codex", command: "echo", args: [], working_dir: ".", capabilities: ["claude-code", "claude.persistent_session", "repo.read"] }
+        agent: { name: "Claude Code Agent", command: "claude", args: [], working_dir: ".", capabilities: ["claude-code", "claude.persistent_session", "repo.read"] }
       }), { status: 201, headers: { "content-type": "application/json" } });
     }) as typeof fetch;
     const config = await loadRuntimeConfigFromArgs(["--connect", code], fetchImpl);
@@ -92,7 +92,7 @@ describe("adapter config arguments", () => {
         room_id: "room_1",
         agent_id: "agent_1",
         agent_token: "agent_token",
-        agent: { name: "Echo", command: "node", args: ["-e", ""], working_dir: tempDir, capabilities: ["echo"] }
+        agent: { name: "Claude Code Agent", command: "claude", args: [], working_dir: tempDir, capabilities: ["claude-code", "claude.persistent_session"] }
       }), { status: 201, headers: { "content-type": "application/json" } });
     }) as unknown as typeof fetch;
 

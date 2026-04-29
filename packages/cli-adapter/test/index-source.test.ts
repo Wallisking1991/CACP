@@ -41,6 +41,22 @@ describe("connector index source", () => {
     expect(indexSource).toContain("claudeRuntime.selectSession");
   });
 
+  it("passes the server-provided room name into Claude turn prompts", () => {
+    expect(indexSource).toContain("room_name?: string");
+    expect(indexSource).toContain('roomName: typeof payload.room_name === "string" ? payload.room_name');
+  });
+
+  it("keeps one stable Claude runtime status start time per turn", () => {
+    expect(indexSource).toContain("turnStatusStartedAt");
+    expect(indexSource).toContain("started_at: startedAt");
+  });
+
+  it("can report Claude resume import failures before transcript messages are built", () => {
+    expect(indexSource).toContain("randomUUID");
+    expect(indexSource).toContain("const importId = `import_${randomUUID()}`");
+    expect(indexSource).toContain("await roomClient.failImport(importId");
+  });
+
   it("publishes the connected banner only from the websocket open handler", () => {
     expect(indexSource).toContain('ws.on("open", () => {');
     expect(indexSource).toContain("printConnectedBanner({");
@@ -49,4 +65,16 @@ describe("connector index source", () => {
   it("closes the Claude session gracefully on websocket close", () => {
     expect(indexSource).toContain("claudeRuntime?.close()");
   });
+
+  it("reports Claude session readiness only after the SDK session is selected", () => {
+    const selectIndex = indexSource.indexOf('await claudeRuntime.selectSession({ mode: "resume", sessionId: payload.session_id });');
+    const completeIndex = indexSource.indexOf("await roomClient.completeImport(importId");
+    const readyIndex = indexSource.indexOf("await roomClient.publishSessionReady", completeIndex);
+    expect(selectIndex).toBeGreaterThan(-1);
+    expect(completeIndex).toBeGreaterThan(-1);
+    expect(readyIndex).toBeGreaterThan(-1);
+    expect(selectIndex).toBeLessThan(completeIndex);
+    expect(completeIndex).toBeLessThan(readyIndex);
+  });
+
 });

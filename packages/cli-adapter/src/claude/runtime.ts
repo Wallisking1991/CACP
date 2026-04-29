@@ -1,6 +1,7 @@
 import type { ClaudeRuntimeMetrics, ClaudeRuntimePhase } from "@cacp/protocol";
 import { loadClaudeSdk } from "./claude-sdk.js";
-import type { ClaudePersistentSession, ClaudeRuntimeStatus, ClaudeSdk } from "./types.js";
+import type { ClaudePersistentSession, ClaudeRuntimeStatus, ClaudeSdk, ClaudeSdkSessionOptions } from "./types.js";
+import { toClaudeSdkSessionOptions } from "./types.js";
 
 export interface ClaudeTurnInput {
   turnId: string;
@@ -17,7 +18,6 @@ export interface ClaudeRuntimeInput {
   workingDir: string;
   permissionMode: string;
   model: string;
-  systemPrompt?: string;
   publishStatus(turnId: string, status: ClaudeRuntimeStatus): Promise<void>;
   publishDelta(turnId: string, chunk: string): Promise<void>;
 }
@@ -53,6 +53,7 @@ function extractTextFromMessageContent(content: unknown): string {
   const record = asRecord(content);
   if (typeof record.text === "string") return record.text;
   if (typeof record.content === "string") return record.content;
+  if (Array.isArray(record.content)) return extractTextFromMessageContent(record.content);
   return "";
 }
 
@@ -62,13 +63,33 @@ function extractTextFromStreamMessage(raw: unknown): string {
   return extractTextFromMessageContent(message);
 }
 
-function promptForTurn(input: ClaudeTurnInput): string {
+function contentBlocksFromStreamMessage(raw: unknown): Record<string, unknown>[] {
+  const record = asRecord(raw);
+  const message = asRecord(record.message);
+  const content = message.content ?? record.content;
+  if (!Array.isArray(content)) return [];
+  return content.map(asRecord);
+}
+
+function describeToolTarget(tool: Record<string, unknown>): string {
+  const input = asRecord(tool.input);
+  const filePath = typeof input.file_path === "string" ? input.file_path : typeof input.path === "string" ? input.path : "";
+  const pattern = typeof input.pattern === "string" ? input.pattern : "";
+  const command = typeof input.command === "string" ? input.command : "";
+  return filePath || pattern || command;
+}
+
+function promptForTurn(input: ClaudeTurnInput, permissionMode: string): string {
   return [
     "CACP room message",
     `Room: ${input.roomName ?? "Untitled room"}`,
     `Speaker: ${input.speakerName} (${input.speakerRole})`,
     `Mode: ${input.modeLabel}`,
     `Message: ${input.text}`,
+    "Safety/permission:",
+    `- Current permission mode: ${permissionMode}. Follow Claude Code SDK permission enforcement and the CACP room policy for this turn.`,
+    "- Do not run commands or modify files beyond the active permission mode or an explicit owner instruction.",
+    "- Do not reveal hidden chain-of-thought; share concise observable reasoning, actions, and results.",
     "Instruction: Continue from the current Claude Code session context and answer for the room."
   ].join("\n");
 }
@@ -81,33 +102,33 @@ export class ClaudeRuntime {
     this.sdkPromise = Promise.resolve(input.sdk ?? loadClaudeSdk());
   }
 
-  async selectSession(selection: { mode: "fresh" } | { mode: "resume"; sessionId: string }): Promise<void> {
+  async selectSession(selection: { mode: "fresh" } | { mode: "resume"; sessionId: string }): Promise<string | undefined> {
     const sdk = await this.sdkPromise;
     if (this.session) {
       await this.session.close();
       this.session = undefined;
     }
+    const sdkOptions: Omit<ClaudeSdkSessionOptions, "sessionId"> = {
+      workingDir: this.input.workingDir,
+      model: this.input.model,
+      settingSources: ["user", "project", "local"],
+      includePartialMessages: true,
+      ...toClaudeSdkSessionOptions(this.input.permissionMode)
+    };
     if (selection.mode === "fresh") {
-      this.session = await sdk.createSession({
-        workingDir: this.input.workingDir,
-        permissionMode: this.input.permissionMode,
-        model: this.input.model,
-        systemPrompt: this.input.systemPrompt
-      });
-      return;
+      this.session = await sdk.createSession(sdkOptions);
+      return this.session.sessionId;
     }
     this.session = await sdk.resumeSession({
-      workingDir: this.input.workingDir,
-      sessionId: selection.sessionId,
-      permissionMode: this.input.permissionMode,
-      model: this.input.model,
-      systemPrompt: this.input.systemPrompt
+      ...sdkOptions,
+      sessionId: selection.sessionId
     });
+    return this.session.sessionId;
   }
 
   async runTurn(turn: ClaudeTurnInput): Promise<ClaudeTurnResult> {
     if (!this.session) {
-      await this.selectSession({ mode: "fresh" });
+      throw new Error("claude_session_not_selected");
     }
     const started = Date.now();
     const recent: string[] = [];
@@ -121,11 +142,28 @@ export class ClaudeRuntime {
         metrics
       });
     };
+    const publishToolUse = async (tool: Record<string, unknown>) => {
+      const toolName = typeof tool.name === "string" ? tool.name : "";
+      const target = describeToolTarget(tool);
+      const suffix = target ? `: ${toolName} ${target}` : toolName ? `: ${toolName}` : "";
+      if (toolName === "Read" || toolName === "LS") {
+        metrics.files_read += 1;
+        await publish("reading_files", `Claude Code reading files${suffix}`);
+      } else if (toolName === "Grep" || toolName === "Glob") {
+        metrics.searches += 1;
+        await publish("searching", `Claude Code searching${suffix}`);
+      } else if (toolName === "Bash") {
+        metrics.commands += 1;
+        await publish("running_command", `Claude Code running command${suffix}`);
+      } else {
+        await publish("thinking", toolName ? `Claude Code using tool: ${toolName}` : "Claude Code is thinking");
+      }
+    };
 
     await publish(this.session?.sessionId ? "resuming_session" : "connecting", this.session?.sessionId ? `Using Claude session ${this.session.sessionId}` : "Starting Claude session");
     await publish("thinking", "Sending room message to Claude Code");
 
-    await this.session!.send(promptForTurn(turn));
+    await this.session!.send(promptForTurn(turn, this.input.permissionMode));
 
     let finalText = "";
     for await (const rawMessage of this.session!.stream()) {
@@ -139,26 +177,24 @@ export class ClaudeRuntime {
           await this.input.publishDelta(turn.turnId, text);
           await publish("generating_answer", "Claude Code is generating an answer");
         }
-      } else if (msgType === "tool_use") {
-        const toolName = typeof record.name === "string" ? record.name : "";
-        if (toolName === "Read" || toolName === "LS") {
-          metrics.files_read += 1;
-          await publish("reading_files", toolName ? `Claude Code reading files: ${toolName}` : "Claude Code reading files");
-        } else if (toolName === "Grep" || toolName === "Glob") {
-          metrics.searches += 1;
-          await publish("searching", toolName ? `Claude Code searching: ${toolName}` : "Claude Code searching");
-        } else if (toolName === "Bash") {
-          metrics.commands += 1;
-          await publish("running_command", toolName ? `Claude Code running command: ${toolName}` : "Claude Code running command");
-        } else {
-          await publish("thinking", toolName ? `Claude Code using tool: ${toolName}` : "Claude Code is thinking");
+        for (const block of contentBlocksFromStreamMessage(rawMessage)) {
+          if (block.type === "tool_use") {
+            await publishToolUse(block);
+          }
         }
+      } else if (msgType === "tool_use") {
+        await publishToolUse(record);
       } else if (msgType === "tool_result") {
         const resultText = extractTextFromStreamMessage(rawMessage);
         if (resultText) {
           await publish("thinking", `Tool result: ${resultText.slice(0, 200)}`);
         }
       } else if (msgType === "system") {
+        const subtype = typeof record.subtype === "string" ? record.subtype : "";
+        const state = typeof record.state === "string" ? record.state : "";
+        if (subtype === "session_state_changed" && state === "idle") {
+          break;
+        }
         const sysRecord = asRecord(record.message);
         const phase = typeof sysRecord.phase === "string" ? sysRecord.phase : "";
         const current = typeof sysRecord.current === "string" ? sysRecord.current : "";
@@ -175,6 +211,19 @@ export class ClaudeRuntime {
           await publish("waiting_for_approval", current || "Claude Code waiting for approval");
         } else if (current) {
           await publish("thinking", current);
+        }
+      } else if (msgType === "session_state_changed") {
+        const state = typeof record.state === "string" ? record.state : "";
+        if (state === "idle") {
+          break;
+        }
+        if (state) {
+          await publish("thinking", `Claude session state: ${state}`);
+        }
+      } else if (msgType === "stream_event" || msgType === "tool_progress" || msgType === "tool_use_summary") {
+        const text = extractTextFromStreamMessage(rawMessage);
+        if (text) {
+          await publish("thinking", text.slice(0, 200));
         }
       } else if (msgType === "error" || msgType === "failed") {
         const errorText = typeof record.message === "string" ? record.message : typeof record.error === "string" ? record.error : "Claude Code encountered an error";

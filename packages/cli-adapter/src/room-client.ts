@@ -5,7 +5,11 @@ import type {
   ClaudeSessionImportCompletedPayload,
   ClaudeSessionImportFailedPayload,
   ClaudeSessionImportMessagePayload,
-  ClaudeSessionImportStartedPayload
+  ClaudeSessionImportStartedPayload,
+  ClaudeSessionPreviewCompletedPayload,
+  ClaudeSessionPreviewFailedPayload,
+  ClaudeSessionPreviewMessagePayload,
+  ClaudeSessionReadyPayload
 } from "@cacp/protocol";
 
 export interface RoomClientInput {
@@ -31,6 +35,10 @@ export class RoomClient {
     return this.postJson(`/rooms/${this.input.roomId}/claude/session-catalog`, payload);
   }
 
+  publishSessionReady(payload: ClaudeSessionReadyPayload): Promise<{ ok: true }> {
+    return this.postJson(`/rooms/${this.input.roomId}/claude/session-ready`, payload);
+  }
+
   startImport(payload: ClaudeSessionImportStartedPayload): Promise<{ ok: true }> {
     return this.postJson(`/rooms/${this.input.roomId}/claude/session-imports/start`, payload);
   }
@@ -45,6 +53,18 @@ export class RoomClient {
 
   failImport(importId: string, payload: ClaudeSessionImportFailedPayload): Promise<{ ok: true }> {
     return this.postJson(`/rooms/${this.input.roomId}/claude/session-imports/${importId}/fail`, payload);
+  }
+
+  uploadPreviewMessages(previewId: string, messages: ClaudeSessionPreviewMessagePayload[]): Promise<{ ok: true; previewed: number }> {
+    return this.postJson(`/rooms/${this.input.roomId}/claude/session-previews/${previewId}/messages`, messages);
+  }
+
+  completePreview(previewId: string, payload: ClaudeSessionPreviewCompletedPayload): Promise<{ ok: true }> {
+    return this.postJson(`/rooms/${this.input.roomId}/claude/session-previews/${previewId}/complete`, payload);
+  }
+
+  failPreview(previewId: string, payload: ClaudeSessionPreviewFailedPayload): Promise<{ ok: true }> {
+    return this.postJson(`/rooms/${this.input.roomId}/claude/session-previews/${previewId}/fail`, payload);
   }
 
   publishRuntimeStatus(kind: "changed" | "completed" | "failed", payload: unknown): Promise<{ ok: true }> {

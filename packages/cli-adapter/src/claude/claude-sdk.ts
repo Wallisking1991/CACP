@@ -22,8 +22,19 @@ function wrapSession(rawSession: unknown): ClaudePersistentSession {
   if (typeof stream !== "function") {
     throw new Error("Claude Code Agent SDK session object does not expose stream");
   }
+  function readSessionId(): string | undefined {
+    try {
+      const id = session.sessionId ?? session.session_id;
+      return typeof id === "string" ? id : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   return {
-    sessionId: typeof session.sessionId === "string" ? session.sessionId : typeof session.session_id === "string" ? session.session_id : undefined,
+    get sessionId(): string | undefined {
+      return readSessionId();
+    },
     async send(prompt: string): Promise<void> {
       await send.call(rawSession, prompt);
     },
@@ -48,17 +59,25 @@ export function createClaudeSdkFromModule(module: UnknownSdkModule): ClaudeSdk {
     async createSession(input) {
       return wrapSession(await createSession({
         cwd: input.workingDir,
-        systemPrompt: input.systemPrompt,
         permissionMode: input.permissionMode,
-        model: input.model
+        model: input.model,
+        ...(input.settingSources ? { settingSources: input.settingSources } : {}),
+        ...(input.includePartialMessages ? { includePartialMessages: true } : {}),
+        ...(input.allowedTools ? { allowedTools: input.allowedTools } : {}),
+        ...(input.disallowedTools ? { disallowedTools: input.disallowedTools } : {}),
+        ...(input.allowDangerouslySkipPermissions ? { allowDangerouslySkipPermissions: true } : {})
       }));
     },
     async resumeSession(input) {
       return wrapSession(await resumeSession(input.sessionId, {
         cwd: input.workingDir,
-        systemPrompt: input.systemPrompt,
         permissionMode: input.permissionMode,
-        model: input.model
+        model: input.model,
+        ...(input.settingSources ? { settingSources: input.settingSources } : {}),
+        ...(input.includePartialMessages ? { includePartialMessages: true } : {}),
+        ...(input.allowedTools ? { allowedTools: input.allowedTools } : {}),
+        ...(input.disallowedTools ? { disallowedTools: input.disallowedTools } : {}),
+        ...(input.allowDangerouslySkipPermissions ? { allowDangerouslySkipPermissions: true } : {})
       }));
     },
     async listSessions(input): Promise<ClaudeSdkSessionSummary[]> {
@@ -67,7 +86,10 @@ export function createClaudeSdkFromModule(module: UnknownSdkModule): ClaudeSdk {
     },
     async getSessionMessages(sessionId, input): Promise<ClaudeSdkSessionMessage[]> {
       if (typeof getSessionMessages !== "function") return [];
-      return await getSessionMessages(sessionId, { dir: input.dir }) as ClaudeSdkSessionMessage[];
+      return await getSessionMessages(sessionId, {
+        dir: input.dir,
+        ...(input.includeSystemMessages ? { includeSystemMessages: true } : {})
+      }) as ClaudeSdkSessionMessage[];
     }
   };
 }
