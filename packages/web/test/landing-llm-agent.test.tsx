@@ -8,7 +8,7 @@ describe("Landing LLM API agent setup", () => {
 
   it("shows LLM API agent options including OpenAI-compatible and Anthropic-compatible", () => {
     render(<LangProvider><Landing onCreate={() => {}} onJoin={() => {}} /></LangProvider>);
-    expect(screen.getByRole("group", { name: "Local command agents" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Local Claude Code" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "LLM API agents" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "LLM API Agent" })).toHaveValue("llm-api");
     expect(screen.getByRole("option", { name: "OpenAI-compatible API" })).toHaveValue("llm-openai-compatible");

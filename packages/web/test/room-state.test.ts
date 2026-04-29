@@ -115,7 +115,7 @@ describe("room state", () => {
       event("invite.created", { role: "member", expires_at: "2026-04-26T00:00:00.000Z" }, 3, "user_1"),
       event("room.history_cleared", { cleared_by: "user_1", cleared_at: "2026-04-25T00:00:04.000Z", scope: "messages" }, 4, "user_1"),
       event("participant.joined", { participant: { id: "user_2", display_name: "Bob", role: "member", type: "human" } }, 5, "user_2"),
-      event("agent.registered", { agent_id: "agent_2", name: "Codex Agent", capabilities: ["repo.write"] }, 6, "agent_2"),
+      event("agent.registered", { agent_id: "agent_2", name: "Backup Agent", capabilities: ["repo.write"] }, 6, "agent_2"),
       event("invite.created", { role: "observer", expires_at: "2026-04-27T00:00:00.000Z" }, 7, "user_1")
     ]);
 
@@ -198,6 +198,42 @@ describe("room state", () => {
     });
   });
 
+  it("derives owner-only Claude session preview content outside the main timeline", () => {
+    const state = deriveRoomState([
+      event("claude.session_preview.requested" as CacpEvent["type"], {
+        preview_id: "preview_1",
+        agent_id: "agent_1",
+        session_id: "session_1",
+        requested_by: "owner",
+        requested_at: "2026-04-29T00:00:00.000Z"
+      }, 1, "owner"),
+      event("claude.session_preview.message" as CacpEvent["type"], {
+        preview_id: "preview_1",
+        agent_id: "agent_1",
+        session_id: "session_1",
+        sequence: 0,
+        author_role: "user",
+        source_kind: "user",
+        text: "Preview-only user message"
+      }, 2, "agent_1"),
+      event("claude.session_preview.completed" as CacpEvent["type"], {
+        preview_id: "preview_1",
+        agent_id: "agent_1",
+        session_id: "session_1",
+        previewed_message_count: 1,
+        completed_at: "2026-04-29T00:00:01.000Z"
+      }, 3, "agent_1")
+    ]);
+
+    expect(state.messages).toEqual([]);
+    expect(state.claudeSessionPreviews).toEqual([expect.objectContaining({
+      preview_id: "preview_1",
+      session_id: "session_1",
+      status: "completed",
+      messages: [expect.objectContaining({ text: "Preview-only user message" })]
+    })]);
+  });
+
   it("renders completed Claude imports in the main message timeline", () => {
     const state = deriveRoomState([
       event("claude.session_import.started", {
@@ -246,6 +282,79 @@ describe("room state", () => {
     ]);
     expect(state.messages[1].kind).toBe("claude_import_user");
     expect(state.messages[2].kind).toBe("claude_import_assistant");
+  });
+
+  it("keeps imported Claude transcript contiguous before room messages posted during import", () => {
+    const state = deriveRoomState([
+      event("claude.session_import.started", {
+        import_id: "import_1",
+        agent_id: "agent_1",
+        session_id: "session_1",
+        title: "Planning",
+        message_count: 2,
+        started_at: "2026-04-29T00:00:00.000Z"
+      }, 1, "agent_1"),
+      event("message.created", { message_id: "msg_during_import", text: "Human typed while import was running", kind: "human" }, 2, "owner"),
+      event("claude.session_import.message", {
+        import_id: "import_1",
+        agent_id: "agent_1",
+        session_id: "session_1",
+        sequence: 1,
+        original_created_at: "2026-04-28T00:00:01.000Z",
+        author_role: "assistant",
+        source_kind: "assistant",
+        text: "Imported answer"
+      }, 3, "agent_1"),
+      event("claude.session_import.message", {
+        import_id: "import_1",
+        agent_id: "agent_1",
+        session_id: "session_1",
+        sequence: 0,
+        original_created_at: "2026-04-28T00:00:00.000Z",
+        author_role: "user",
+        source_kind: "user",
+        text: "Imported question"
+      }, 4, "agent_1"),
+      event("claude.session_import.completed", {
+        import_id: "import_1",
+        agent_id: "agent_1",
+        session_id: "session_1",
+        imported_message_count: 2,
+        completed_at: "2026-04-29T00:00:02.000Z"
+      }, 5, "agent_1")
+    ]);
+
+    expect(state.messages.map((message) => message.text)).toEqual([
+      "__CLAUDE_IMPORT_BANNER__",
+      "Imported question",
+      "Imported answer",
+      "Human typed while import was running"
+    ]);
+  });
+
+  it("shows a failed Claude import even when failure happens before import start", () => {
+    const state = deriveRoomState([
+      event("claude.session_import.failed", {
+        import_id: "import_1",
+        agent_id: "agent_1",
+        session_id: "session_1",
+        error: "Could not read Claude session",
+        failed_at: "2026-04-29T00:00:00.000Z"
+      }, 1, "agent_1")
+    ]);
+
+    expect(state.claudeImports).toEqual([expect.objectContaining({
+      import_id: "import_1",
+      agent_id: "agent_1",
+      session_id: "session_1",
+      status: "failed",
+      error: "Could not read Claude session"
+    })]);
+    expect(state.messages).toEqual([expect.objectContaining({
+      message_id: "claude-import-banner-import_1",
+      kind: "claude_import_banner",
+      claudeImportId: "import_1"
+    })]);
   });
 
   it("derives one rolling Claude status per turn instead of messages", () => {

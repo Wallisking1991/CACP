@@ -122,6 +122,28 @@ export async function selectClaudeSession(input: {
   return await response.json() as { ok: true };
 }
 
+export async function requestClaudeSessionPreview(input: {
+  serverUrl: string;
+  roomId: string;
+  token: string;
+  agentId: string;
+  sessionId: string;
+}): Promise<{ ok: true; preview_id: string }> {
+  const response = await fetch(`${input.serverUrl}/rooms/${input.roomId}/claude/session-previews`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${input.token}`
+    },
+    body: JSON.stringify({
+      agent_id: input.agentId,
+      session_id: input.sessionId
+    })
+  });
+  if (!response.ok) throw new Error(`${response.status} ${response.statusText}: ${await response.text()}`);
+  return await response.json() as { ok: true; preview_id: string };
+}
+
 export function pairingServerUrlFor(origin: string): string {
   const url = new URL(origin);
   if ((url.hostname === "127.0.0.1" || url.hostname === "localhost") && (url.port === "5173" || url.port === "3000")) {

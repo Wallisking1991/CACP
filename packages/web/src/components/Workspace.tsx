@@ -3,7 +3,7 @@ import type { CacpEvent } from "@cacp/protocol";
 import type { RoomSession } from "../api.js";
 import { roomPermissionsForRole } from "../role-permissions.js";
 import { deriveRoomState, humanParticipants, isCollectionActive, isTurnInFlight } from "../room-state.js";
-import { selectClaudeSession } from "../api.js";
+import { requestClaudeSessionPreview, selectClaudeSession } from "../api.js";
 import Header from "./Header.js";
 import Thread from "./Thread.js";
 import Composer from "./Composer.js";
@@ -182,6 +182,14 @@ export default function Workspace({
             agentId={room.activeAgentId ?? ""}
             catalog={room.claudeSessionCatalog}
             selection={room.claudeSessionSelection}
+            previews={room.claudeSessionPreviews}
+            onRequestPreview={(sessionId) => requestClaudeSessionPreview({
+              serverUrl,
+              roomId: session.room_id,
+              token: session.token,
+              agentId: room.activeAgentId ?? "",
+              sessionId
+            })}
             onSelect={(selection) => selectClaudeSession({
               serverUrl,
               roomId: session.room_id,

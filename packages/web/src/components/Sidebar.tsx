@@ -26,9 +26,6 @@ export interface SidebarProps {
 function agentAvatarInitial(name: string): string {
   const map: Record<string, string> = {
     "Claude Code": "C",
-    "Codex": "X",
-    "opencode": "O",
-    "Echo": "E",
   };
   return map[name] ?? name.charAt(0).toUpperCase();
 }

@@ -811,7 +811,7 @@ textarea.input {
   font-size: 13px;
 }
 
-.claude-session-confirm {
+.claude-session-inspect {
   margin-top: 12px;
   padding: 14px;
   border: 1px solid var(--accent-border);
@@ -819,12 +819,44 @@ textarea.input {
   background: var(--accent-soft);
 }
 
-.claude-session-confirm p {
-  font-size: 13px;
+.claude-session-inspect h3 {
+  font-size: 14px;
   margin-bottom: 10px;
 }
 
-.claude-session-confirm-actions {
+.claude-session-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.claude-session-details div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.claude-session-details dt {
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.claude-session-details dd {
+  font-size: 13px;
+  margin: 0;
+  word-break: break-all;
+}
+
+.claude-session-inspect-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.claude-session-inspect-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
