@@ -198,7 +198,12 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
                 <span aria-hidden="true">{advancedOpen ? "−" : "+"}</span>
               </button>
 
-              <div id="landing-advanced-options" className={`landing-advanced ${advancedOpen ? "is-open" : ""}`}>
+              <div
+                id="landing-advanced-options"
+                className={`landing-advanced ${advancedOpen ? "is-open" : ""}`}
+                aria-hidden={advancedOpen ? undefined : true}
+                inert={advancedOpen ? undefined : true}
+              >
                 <p className="section-label">{t("landing.create.advancedTitle")}</p>
 
                 <label className="section-label" htmlFor="landing-agent-type">{t("landing.create.agentType")}</label>

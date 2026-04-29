@@ -49,6 +49,20 @@ describe("Landing redesign", () => {
     expect(screen.getByLabelText("Permission")).toBeInTheDocument();
   });
 
+  it("removes collapsed advanced controls from the accessibility tree and tab order", () => {
+    renderLanding();
+
+    const panel = screen.getByLabelText("Agent type", { hidden: true }).closest("#landing-advanced-options") as HTMLElement;
+    expect(panel).toHaveAttribute("aria-hidden", "true");
+    expect(panel).toHaveAttribute("inert");
+
+    const toggle = screen.getByRole("button", { name: "Advanced options: Agent type and permission" });
+    fireEvent.click(toggle);
+
+    expect(panel).not.toHaveAttribute("aria-hidden");
+    expect(panel).not.toHaveAttribute("inert");
+  });
+
   it("submits the quick-create defaults through the existing create handler", () => {
     const { onCreate } = renderLanding();
 
