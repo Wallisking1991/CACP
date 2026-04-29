@@ -201,6 +201,7 @@ export default function Workspace({
             actorNames={actorNames}
             showSlowStreamingNotice={showSlowStreamingNotice}
             activeCollectionId={room.activeCollection?.collection_id}
+            claudeImports={room.claudeImports}
           />
 
           <Composer

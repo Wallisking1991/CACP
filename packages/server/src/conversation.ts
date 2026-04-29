@@ -71,6 +71,16 @@ export function hasQueuedFollowup(events: CacpEvent[], turnId: string): boolean 
   return events.some((storedEvent) => storedEvent.type === "agent.turn.followup_queued" && storedEvent.payload.turn_id === turnId);
 }
 
+export function findAgentCapabilities(events: CacpEvent[], agentId: string): string[] {
+  for (const storedEvent of [...events].reverse()) {
+    if (storedEvent.type === "agent.registered" && storedEvent.payload.agent_id === agentId) {
+      const capabilities = storedEvent.payload.capabilities;
+      return Array.isArray(capabilities) ? capabilities.map(String) : [];
+    }
+  }
+  return [];
+}
+
 export function eventsAfterLastHistoryClear(events: CacpEvent[]): CacpEvent[] {
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const storedEvent = events[index];

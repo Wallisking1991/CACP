@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useT } from "../i18n/useT.js";
-import type { MessageView, StreamingTurnView } from "../room-state.js";
+import type { ClaudeImportView, MessageView, StreamingTurnView } from "../room-state.js";
 
 export interface ThreadProps {
   messages: MessageView[];
@@ -8,6 +8,7 @@ export interface ThreadProps {
   actorNames: Map<string, string>;
   showSlowStreamingNotice: boolean;
   activeCollectionId?: string;
+  claudeImports?: ClaudeImportView[];
 }
 
 function messageClass(kind: string, collectionId: string | undefined, activeCollectionId: string | undefined): string {
@@ -37,6 +38,7 @@ export default function Thread({
   actorNames,
   showSlowStreamingNotice,
   activeCollectionId,
+  claudeImports,
 }: ThreadProps) {
   const t = useT();
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -58,9 +60,15 @@ export default function Thread({
 
       {messages.map((msg) => {
         if (msg.kind === "claude_import_banner") {
+          const importView = claudeImports?.find((imp) => imp.import_id === msg.claudeImportId);
+          const bannerText = importView?.status === "failed"
+            ? t("claude.import.banner.failed", { title: importView.title, error: importView.error ?? "" })
+            : importView?.status === "completed"
+              ? t("claude.import.banner.completed", { title: importView.title, count: String(importView.imported_message_count ?? importView.message_count) })
+              : t("claude.import.banner.started", { title: importView?.title ?? "" });
           return (
-            <div key={msg.message_id} className="message message--claude-import-banner">
-              {t("claude.import.banner")}
+            <div key={msg.message_id} className={`message message--claude-import-banner ${importView?.status === "failed" ? "message--claude-import-banner--failed" : ""}`}>
+              {bannerText}
             </div>
           );
         }

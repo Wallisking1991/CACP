@@ -7,7 +7,7 @@ import websocket from "@fastify/websocket";
 import { z } from "zod";
 import { buildConnectionCode, evaluatePolicy, PolicySchema, VoteRecordSchema, type CacpEvent, type Participant, type Policy, type VoteRecord } from "@cacp/protocol";
 import { requireParticipant, hasAnyRole, hasHumanRole } from "./auth.js";
-import { buildAgentContextPrompt, buildCollectedAnswersPrompt, eventsAfterLastHistoryClear, findActiveAgentId, findAnyOpenTurn, findOpenTurn, hasQueuedFollowup, recentConversationMessages, type OpenTurn } from "./conversation.js";
+import { buildAgentContextPrompt, buildCollectedAnswersPrompt, eventsAfterLastHistoryClear, findActiveAgentId, findAgentCapabilities, findAnyOpenTurn, findOpenTurn, hasQueuedFollowup, recentConversationMessages, type OpenTurn } from "./conversation.js";
 import { EventBus } from "./event-bus.js";
 import { EventStore, type StoredParticipant } from "./event-store.js";
 import { hasAllowedOrigin, loadServerConfig, type ServerConfig } from "./config.js";
@@ -506,6 +506,41 @@ export async function buildServer(options: BuildServerOptions = {}) {
       return [event(roomId, "agent.turn.followup_queued", actorId, { turn_id: openTurn.turn_id, agent_id: openTurn.agent_id })];
     }
     const turnId = prefixedId("turn");
+    const capabilities = findAgentCapabilities(events, activeAgentId);
+    const isClaudeAgent = capabilities.includes("claude-code");
+    if (isClaudeAgent) {
+      const room = store.getRoom(roomId);
+      const participants = store.getParticipants(roomId);
+      const names = new Map(participants.map((participant) => [participant.id, participant.display_name]));
+      const roles = new Map(participants.map((participant) => [participant.id, participant.role]));
+      let messageText = "";
+      let speakerName = "";
+      let speakerRole = "";
+      const mode = reason === "collected_answers" ? "roundtable" : reason === "queued_followup" ? "followup" : "normal";
+      if (reason === "human_message") {
+        const latestMessage = recentConversationMessages(events, 1)[0];
+        if (latestMessage) {
+          messageText = latestMessage.text;
+          speakerName = names.get(latestMessage.actor_id) ?? latestMessage.actor_id;
+          speakerRole = roles.get(latestMessage.actor_id) ?? "member";
+        }
+      } else {
+        messageText = contextPrompt ?? buildContextPrompt(roomId, activeAgentId);
+        const latestMessage = recentConversationMessages(events, 1)[0];
+        speakerName = latestMessage ? (names.get(latestMessage.actor_id) ?? latestMessage.actor_id) : "Room";
+        speakerRole = latestMessage ? (roles.get(latestMessage.actor_id) ?? "member") : "member";
+      }
+      return [event(roomId, "agent.turn.requested", actorId, {
+        turn_id: turnId,
+        agent_id: activeAgentId,
+        reason,
+        speaker_name: speakerName,
+        speaker_role: speakerRole,
+        room_name: room?.name ?? "Untitled room",
+        mode,
+        message_text: messageText
+      })];
+    }
     return [event(roomId, "agent.turn.requested", actorId, {
       turn_id: turnId,
       agent_id: activeAgentId,

@@ -399,7 +399,6 @@ export function deriveRoomState(events: CacpEvent[]): RoomViewState {
     claudeSessionSelection,
     claudeImports: [...claudeImports.values()],
     claudeRuntimeStatuses: [...claudeRuntimeStatuses.values()]
-      .filter((s) => !s.completed_at && !s.failed_at)
       .sort((a, b) => (b.updated_at ?? b.started_at ?? "").localeCompare(a.updated_at ?? a.started_at ?? ""))
       .slice(0, 1)
   };
