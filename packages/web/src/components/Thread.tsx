@@ -60,17 +60,22 @@ export default function Thread({
         if (msg.kind === "claude_import_banner") {
           return (
             <div key={msg.message_id} className="message message--claude-import-banner">
-              Imported Claude Code session history · shared with all room members
+              {t("claude.import.banner")}
             </div>
           );
         }
 
         if (msg.kind.startsWith("claude_import_")) {
+          const label = msg.kind === "claude_import_user"
+            ? t("claude.import.user")
+            : msg.kind === "claude_import_assistant"
+              ? t("claude.import.assistant")
+              : t("claude.import.tool");
           return (
             <article key={msg.message_id} className={`message message--${msg.kind}`}>
               <div className="message-meta">
-                <span>{msg.kind === "claude_import_user" ? "Claude session user" : msg.kind === "claude_import_assistant" ? "Claude Code" : "Claude session tool"}</span>
-                <span>Imported</span>
+                <span>{label}</span>
+                <span>{t("claude.import.label")}</span>
               </div>
               <div className="message-body">{msg.text}</div>
             </article>

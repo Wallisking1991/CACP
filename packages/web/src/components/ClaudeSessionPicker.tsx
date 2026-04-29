@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useT } from "../i18n/useT.js";
 import type { ClaudeSessionCatalogView, ClaudeSessionSelectionView } from "../room-state.js";
 
 interface Props {
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export function ClaudeSessionPicker({ canManageRoom, agentId, catalog, selection, onSelect }: Props) {
+  const t = useT();
   const [pendingSessionId, setPendingSessionId] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
   if (!canManageRoom || selection || !catalog || catalog.agent_id !== agentId) return null;
@@ -26,15 +28,15 @@ export function ClaudeSessionPicker({ canManageRoom, agentId, catalog, selection
   }
 
   return (
-    <section className="claude-session-picker" aria-label="Claude Code session setup">
+    <section className="claude-session-picker" aria-label={t("claude.session.title")}>
       <div>
-        <p className="eyebrow">Claude Code session</p>
-        <h2>Choose how Claude joins this room</h2>
-        <p>Connector working directory: <code>{catalog.working_dir}</code></p>
+        <p className="eyebrow">{t("claude.session.eyebrow")}</p>
+        <h2>{t("claude.session.headline")}</h2>
+        <p>{t("claude.session.workingDir")}: <code>{catalog.working_dir}</code></p>
       </div>
       <div className="claude-session-actions">
-        <button type="button" disabled={busy} onClick={() => submit({ mode: "fresh" })}>Start fresh</button>
-        {latest ? <button type="button" disabled={busy || !latest.importable} onClick={() => setPendingSessionId(latest.session_id)}>Resume latest: {latest.title}</button> : null}
+        <button type="button" className="btn btn-primary" disabled={busy} onClick={() => submit({ mode: "fresh" })}>{t("claude.session.startFreshBtn")}</button>
+        {latest ? <button type="button" className="btn btn-ghost" disabled={busy || !latest.importable} onClick={() => setPendingSessionId(latest.session_id)}>{t("claude.session.resumeLatestBtn", { title: latest.title })}</button> : null}
       </div>
       {catalog.sessions.length ? (
         <ul className="claude-session-list">
@@ -42,16 +44,18 @@ export function ClaudeSessionPicker({ canManageRoom, agentId, catalog, selection
             <li key={session.session_id}>
               <span>{session.title}</span>
               <span>{session.message_count} messages · {Math.round(session.byte_size / 1024)} KB</span>
-              <button type="button" disabled={busy || !session.importable} onClick={() => setPendingSessionId(session.session_id)}>Resume {session.title}</button>
+              <button type="button" className="btn btn-ghost" disabled={busy || !session.importable} onClick={() => setPendingSessionId(session.session_id)}>{t("claude.session.resumeLatestBtn", { title: session.title })}</button>
             </li>
           ))}
         </ul>
-      ) : <p>No existing Claude Code sessions were detected for this project. Start fresh to continue.</p>}
+      ) : <p>{t("claude.session.noSessions")}</p>}
       {pending ? (
-        <div className="claude-session-confirm" role="dialog" aria-modal="true" aria-label="Confirm Claude session upload">
-          <p>This will upload the complete selected Claude Code session to the CACP room. All room members can view it. Continue?</p>
-          <button type="button" disabled={busy} onClick={() => submit({ mode: "resume", sessionId: pending.session_id })}>Confirm upload and resume</button>
-          <button type="button" disabled={busy} onClick={() => setPendingSessionId(undefined)}>Cancel</button>
+        <div className="claude-session-confirm" role="dialog" aria-modal="true" aria-label={t("claude.session.confirmUpload")}>
+          <p>{t("claude.session.confirmUpload")}</p>
+          <div className="claude-session-confirm-actions">
+            <button type="button" className="btn btn-primary" disabled={busy} onClick={() => submit({ mode: "resume", sessionId: pending.session_id })}>{t("claude.session.confirmResume")}</button>
+            <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setPendingSessionId(undefined)}>{t("claude.session.cancel")}</button>
+          </div>
         </div>
       ) : null}
     </section>

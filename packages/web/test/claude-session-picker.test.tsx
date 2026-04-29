@@ -28,7 +28,7 @@ describe("ClaudeSessionPicker", () => {
     );
 
     expect(screen.getByText(/Claude Code session/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Resume Planning/ }));
+    fireEvent.click(screen.getAllByRole("button", { name: /Resume latest: Planning/ })[0]);
     expect(screen.getByText(/upload the complete selected Claude Code session/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Confirm upload and resume/ }));
     await waitFor(() => expect(onSelect).toHaveBeenCalledWith({ mode: "resume", sessionId: "session_1" }));

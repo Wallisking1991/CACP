@@ -1,6 +1,7 @@
+import { useT } from "../i18n/useT.js";
 import type { ClaudeRuntimeStatusView } from "../room-state.js";
 
-const phaseLabels: Record<string, string> = {
+const phaseKeys: Record<string, string> = {
   connecting: "Connecting",
   resuming_session: "Resuming session",
   importing_session: "Importing session",
@@ -15,6 +16,7 @@ const phaseLabels: Record<string, string> = {
 };
 
 export function ClaudeStatusCard({ status }: { status: ClaudeRuntimeStatusView }) {
+  const t = useT();
   const recent = status.recent.slice(-5);
   const metrics = [
     status.metrics.files_read ? `read ${status.metrics.files_read} files` : "",
@@ -22,9 +24,9 @@ export function ClaudeStatusCard({ status }: { status: ClaudeRuntimeStatusView }
     status.metrics.commands ? `ran ${status.metrics.commands} commands` : ""
   ].filter(Boolean).join(" · ");
   return (
-    <section className={`claude-status-card claude-status-card--${status.phase}`} aria-label="Claude Code work status">
+    <section className={`claude-status-card claude-status-card--${status.phase}`} aria-label={t("claude.status.title")}>
       <div className="claude-status-card__header">
-        <strong>{phaseLabels[status.phase] ?? status.phase}</strong>
+        <strong>{phaseKeys[status.phase] ?? status.phase}</strong>
         {metrics ? <span>{metrics}</span> : null}
       </div>
       <p>{status.summary ?? status.error ?? status.current}</p>

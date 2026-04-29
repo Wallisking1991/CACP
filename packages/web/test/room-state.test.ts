@@ -282,4 +282,29 @@ describe("room state", () => {
       current: "Reading README.md"
     });
   });
+
+  it("hides completed or failed Claude statuses and keeps only the most recent active one", () => {
+    const state = deriveRoomState([
+      event("claude.runtime.status_changed", {
+        agent_id: "agent_1", turn_id: "turn_1", status_id: "status_turn_1",
+        phase: "thinking", current: "T1", recent: ["T1"],
+        metrics: { files_read: 0, searches: 0, commands: 0 },
+        started_at: "2026-04-29T00:00:00.000Z", updated_at: "2026-04-29T00:00:01.000Z"
+      }, 1, "agent_1"),
+      event("claude.runtime.status_completed", {
+        agent_id: "agent_1", turn_id: "turn_1", status_id: "status_turn_1",
+        summary: "Done", completed_at: "2026-04-29T00:00:02.000Z"
+      }, 2, "agent_1"),
+      event("claude.runtime.status_changed", {
+        agent_id: "agent_1", turn_id: "turn_2", status_id: "status_turn_2",
+        phase: "thinking", current: "T2", recent: ["T2"],
+        metrics: { files_read: 0, searches: 0, commands: 0 },
+        started_at: "2026-04-29T00:00:03.000Z", updated_at: "2026-04-29T00:00:04.000Z"
+      }, 3, "agent_1")
+    ]);
+
+    expect(state.claudeRuntimeStatuses).toHaveLength(1);
+    expect(state.claudeRuntimeStatuses[0].turn_id).toBe("turn_2");
+    expect(state.claudeRuntimeStatuses[0].phase).toBe("thinking");
+  });
 });

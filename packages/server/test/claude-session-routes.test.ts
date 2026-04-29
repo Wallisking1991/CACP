@@ -8,6 +8,33 @@ async function createRoomAndOwner() {
   return { app, room };
 }
 
+async function inviteMember(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerToken: string) {
+  const inviteResponse = await app.inject({
+    method: "POST",
+    url: `/rooms/${roomId}/invites`,
+    headers: { authorization: `Bearer ${ownerToken}` },
+    payload: { role: "member" }
+  });
+  const invite = inviteResponse.json() as { invite_token: string };
+  const pending = await app.inject({
+    method: "POST",
+    url: `/rooms/${roomId}/join-requests`,
+    payload: { invite_token: invite.invite_token, display_name: "Member" }
+  });
+  const request = pending.json() as { request_id: string; request_token: string };
+  await app.inject({
+    method: "POST",
+    url: `/rooms/${roomId}/join-requests/${request.request_id}/approve`,
+    headers: { authorization: `Bearer ${ownerToken}` },
+    payload: {}
+  });
+  const status = await app.inject({
+    method: "GET",
+    url: `/rooms/${roomId}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}`
+  });
+  return status.json() as { participant_token: string };
+}
+
 async function registerAgent(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerToken: string) {
   const response = await app.inject({
     method: "POST",
@@ -50,6 +77,48 @@ describe("Claude session room routes", () => {
       headers: { authorization: `Bearer ${room.owner_token}` }
     });
     expect(events.body).toContain("claude.session_catalog.updated");
+    await app.close();
+  });
+
+  it("hides catalog events from non-manager participants", async () => {
+    const { app, room } = await createRoomAndOwner();
+    const member = await inviteMember(app, room.room_id, room.owner_token);
+    const agent = await registerAgent(app, room.room_id, room.owner_token);
+
+    const catalogResponse = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/claude/session-catalog`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: {
+        agent_id: agent.agent_id,
+        working_dir: "D:\\Development\\2",
+        sessions: [{
+          session_id: "session_1",
+          title: "Planning",
+          project_dir: "D:\\Development\\2",
+          updated_at: "2026-04-29T00:00:00.000Z",
+          message_count: 2,
+          byte_size: 1000,
+          importable: true
+        }]
+      }
+    });
+    expect(catalogResponse.statusCode).toBe(201);
+
+    const ownerEvents = await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/events`,
+      headers: { authorization: `Bearer ${room.owner_token}` }
+    });
+    expect(ownerEvents.json().events.some((ev: { type: string }) => ev.type === "claude.session_catalog.updated")).toBe(true);
+
+    const memberEvents = await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/events`,
+      headers: { authorization: `Bearer ${member.participant_token}` }
+    });
+    expect(memberEvents.json().events.some((ev: { type: string }) => ev.type === "claude.session_catalog.updated")).toBe(false);
+
     await app.close();
   });
 

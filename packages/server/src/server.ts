@@ -9,7 +9,7 @@ import { buildConnectionCode, evaluatePolicy, PolicySchema, VoteRecordSchema, ty
 import { requireParticipant, hasAnyRole, hasHumanRole } from "./auth.js";
 import { buildAgentContextPrompt, buildCollectedAnswersPrompt, eventsAfterLastHistoryClear, findActiveAgentId, findAnyOpenTurn, findOpenTurn, hasQueuedFollowup, recentConversationMessages, type OpenTurn } from "./conversation.js";
 import { EventBus } from "./event-bus.js";
-import { EventStore } from "./event-store.js";
+import { EventStore, type StoredParticipant } from "./event-store.js";
 import { hasAllowedOrigin, loadServerConfig, type ServerConfig } from "./config.js";
 import { event, hashToken, openSecret, prefixedId, sealSecret, token } from "./ids.js";
 import { FixedWindowRateLimiter } from "./rate-limit.js";
@@ -295,6 +295,13 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return stored;
   }
 
+  function canViewEvent(event: CacpEvent, participant: StoredParticipant): boolean {
+    if (event.type === "claude.session_catalog.updated") {
+      return hasAnyRole(participant, ["owner", "admin"]);
+    }
+    return true;
+  }
+
   function findProposalState(roomId: string, proposalId: string): ProposalState | undefined {
     let policy: Policy | undefined;
     let terminalStatus: ProposalTerminalStatus | undefined;
@@ -577,7 +584,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.get<{ Params: { roomId: string } }>("/rooms/:roomId/events", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    return { events: store.listEvents(request.params.roomId), participant: publicParticipant(participant) };
+    const events = store.listEvents(request.params.roomId).filter((ev) => canViewEvent(ev, participant));
+    return { events, participant: publicParticipant(participant) };
   });
 
   app.get<{ Params: { roomId: string }; Querystring: { token?: string } }>("/rooms/:roomId/stream", { websocket: true }, (socket, request) => {
@@ -604,8 +612,12 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (participant.role === "agent") {
       appendAndPublish(event(roomId, "agent.status_changed", participant.id, { agent_id: participant.id, status: "online" }));
     }
-    for (const existingEvent of store.listEvents(roomId)) socket.send(JSON.stringify(existingEvent));
-    const unsubscribe = bus.subscribe(roomId, (nextEvent) => socket.send(JSON.stringify(nextEvent)));
+    for (const existingEvent of store.listEvents(roomId)) {
+      if (canViewEvent(existingEvent, participant)) socket.send(JSON.stringify(existingEvent));
+    }
+    const unsubscribe = bus.subscribe(roomId, (nextEvent) => {
+      if (canViewEvent(nextEvent, participant)) socket.send(JSON.stringify(nextEvent));
+    });
     const forgetSocket = rememberSocket(roomId, participant.id, socket);
     socket.on("close", () => {
       unsubscribe();
