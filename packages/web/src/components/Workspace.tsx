@@ -3,12 +3,15 @@ import type { CacpEvent } from "@cacp/protocol";
 import type { RoomSession } from "../api.js";
 import { roomPermissionsForRole } from "../role-permissions.js";
 import { deriveRoomState, humanParticipants, isCollectionActive, isTurnInFlight } from "../room-state.js";
+import { selectClaudeSession } from "../api.js";
 import Header from "./Header.js";
 import Thread from "./Thread.js";
 import Composer from "./Composer.js";
 import MobileDrawer from "./MobileDrawer.js";
 import JoinRequestModal from "./JoinRequestModal.js";
 import RoundtableRequestModal from "./RoundtableRequestModal.js";
+import { ClaudeSessionPicker } from "./ClaudeSessionPicker.js";
+import { ClaudeStatusCard } from "./ClaudeStatusCard.js";
 
 export interface WorkspaceProps {
   session: RoomSession;
@@ -154,6 +157,8 @@ export default function Workspace({
 
   const myDisplayName = peopleParticipants.find((p) => p.id === session.participant_id)?.display_name;
 
+  const serverUrl = typeof window !== "undefined" ? window.location.origin : "http://localhost:3737";
+
   return (
     <div className="workspace-shell">
       <div className="workspace-grid">
@@ -171,6 +176,24 @@ export default function Workspace({
             onLeaveRoom={onLeaveRoom}
             onOpenDrawer={() => setDrawerOpen(true)}
           />
+
+          <ClaudeSessionPicker
+            canManageRoom={permissions.canManageControls}
+            agentId={room.activeAgentId ?? ""}
+            catalog={room.claudeSessionCatalog}
+            selection={room.claudeSessionSelection}
+            onSelect={(selection) => selectClaudeSession({
+              serverUrl,
+              roomId: session.room_id,
+              token: session.token,
+              agentId: room.activeAgentId ?? "",
+              mode: selection.mode,
+              sessionId: selection.mode === "resume" ? selection.sessionId : undefined
+            })}
+          />
+          {room.claudeRuntimeStatuses.map((status) => (
+            <ClaudeStatusCard key={status.status_id} status={status} />
+          ))}
 
           <Thread
             messages={room.messages}

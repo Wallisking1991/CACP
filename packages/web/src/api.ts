@@ -98,6 +98,30 @@ export async function selectAgent(session: RoomSession, agentId: string): Promis
   await postJson(`/rooms/${session.room_id}/agents/select`, session.token, { agent_id: agentId });
 }
 
+export async function selectClaudeSession(input: {
+  serverUrl: string;
+  roomId: string;
+  token: string;
+  agentId: string;
+  mode: "fresh" | "resume";
+  sessionId?: string;
+}): Promise<{ ok: true }> {
+  const response = await fetch(`${input.serverUrl}/rooms/${input.roomId}/claude/session-selection`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${input.token}`
+    },
+    body: JSON.stringify({
+      agent_id: input.agentId,
+      mode: input.mode,
+      ...(input.mode === "resume" ? { session_id: input.sessionId } : {})
+    })
+  });
+  if (!response.ok) throw new Error(`${response.status} ${response.statusText}: ${await response.text()}`);
+  return await response.json() as { ok: true };
+}
+
 export function pairingServerUrlFor(origin: string): string {
   const url = new URL(origin);
   if ((url.hostname === "127.0.0.1" || url.hostname === "localhost") && (url.port === "5173" || url.port === "3000")) {

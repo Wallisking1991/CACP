@@ -11,14 +11,13 @@ interface LandingProps {
 }
 
 const commandAgentTypes = [
-  { value: "claude-code", labelKey: "agentType.claudeCode" },
-  { value: "codex", labelKey: "agentType.codex" },
-  { value: "opencode", labelKey: "agentType.opencode" },
-  { value: "echo", labelKey: "agentType.echo" }
+  { value: "claude-code", labelKey: "agentType.claudeCode" }
 ] as const;
 
 const llmAgentTypes = [
-  { value: "llm-api", labelKey: "agentType.llmApi" }
+  { value: "llm-api", labelKey: "agentType.llmApi" },
+  { value: "llm-openai-compatible", labelKey: "agentType.llmOpenAiCompatible" },
+  { value: "llm-anthropic-compatible", labelKey: "agentType.llmAnthropicCompatible" }
 ] as const;
 const llmAgentTypeValues = new Set<string>(llmAgentTypes.map((item) => item.value));
 

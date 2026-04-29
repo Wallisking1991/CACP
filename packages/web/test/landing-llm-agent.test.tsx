@@ -6,13 +6,13 @@ import Landing from "../src/components/Landing.js";
 describe("Landing LLM API agent setup", () => {
   beforeEach(() => window.localStorage.clear());
 
-  it("shows a single LLM API Agent option", () => {
+  it("shows LLM API agent options including OpenAI-compatible and Anthropic-compatible", () => {
     render(<LangProvider><Landing onCreate={() => {}} onJoin={() => {}} /></LangProvider>);
     expect(screen.getByRole("group", { name: "Local command agents" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "LLM API agents" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "LLM API Agent" })).toHaveValue("llm-api");
-    expect(screen.queryByRole("option", { name: "OpenAI-compatible API" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: "Anthropic-compatible API" })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "OpenAI-compatible API" })).toHaveValue("llm-openai-compatible");
+    expect(screen.getByRole("option", { name: "Anthropic-compatible API" })).toHaveValue("llm-anthropic-compatible");
   });
 
   it("hides permission selection and explains local API-key entry", () => {

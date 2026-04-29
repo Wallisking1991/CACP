@@ -26,6 +26,19 @@ describe("Landing cloud connector setup", () => {
     expect(container.querySelector("input[directory]")).toBeNull();
   });
 
+  it("shows only Claude Code as the local command agent option", () => {
+    render(
+      <LangProvider>
+        <Landing onCreate={() => {}} onJoin={() => {}} loading={false} />
+      </LangProvider>
+    );
+
+    expect(screen.getByRole("option", { name: "Claude Code CLI" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Codex CLI" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "opencode CLI" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Echo Test Agent" })).not.toBeInTheDocument();
+  });
+
   it("renders localized permission labels on the Chinese landing page", () => {
     window.localStorage.setItem("cacp.web.lang", "zh");
     render(

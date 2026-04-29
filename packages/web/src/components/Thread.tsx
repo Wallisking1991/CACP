@@ -57,6 +57,26 @@ export default function Thread({
       )}
 
       {messages.map((msg) => {
+        if (msg.kind === "claude_import_banner") {
+          return (
+            <div key={msg.message_id} className="message message--claude-import-banner">
+              Imported Claude Code session history · shared with all room members
+            </div>
+          );
+        }
+
+        if (msg.kind.startsWith("claude_import_")) {
+          return (
+            <article key={msg.message_id} className={`message message--${msg.kind}`}>
+              <div className="message-meta">
+                <span>{msg.kind === "claude_import_user" ? "Claude session user" : msg.kind === "claude_import_assistant" ? "Claude Code" : "Claude session tool"}</span>
+                <span>Imported</span>
+              </div>
+              <div className="message-body">{msg.text}</div>
+            </article>
+          );
+        }
+
         const actorName = actorNames.get(msg.actor_id) ?? msg.actor_id;
         const displayText = msg.text === "__CACP_COLLECTION_CANCELLED__"
           ? t("thread.collectionCancelled", { count: msg.cancelledMessageCount ?? 0 })
