@@ -683,6 +683,78 @@ textarea.input {
     flex-direction: column;
     gap: 2px;
   }
+
+  .workspace-shell {
+    width: calc(100% - 16px);
+    padding: 8px 0;
+  }
+
+  .workspace-header {
+    min-height: 56px;
+    padding: 10px 12px;
+    gap: 10px;
+  }
+
+  .header-title {
+    min-width: 0;
+  }
+
+  .header-title h2 {
+    max-width: 52vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 18px;
+  }
+
+  .header-sub {
+    max-width: 56vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .header-actions {
+    gap: 6px;
+    flex-wrap: nowrap;
+  }
+
+  .header-danger-action {
+    display: none;
+  }
+
+  .status-pill,
+  .lang-toggle {
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+
+  .composer {
+    padding: 10px 12px;
+  }
+
+  .composer-top {
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .composer-hint {
+    display: none;
+  }
+
+  .composer-bottom {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .composer-actions {
+    width: 100%;
+  }
+
+  .composer-actions .btn {
+    width: 100%;
+    min-height: 42px;
+  }
 }
 
 @media (max-width: 420px) {

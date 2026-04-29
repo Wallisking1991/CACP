@@ -38,4 +38,14 @@ describe("landing redesign source", () => {
     expect(source).toContain("gsap.context");
     expect(source).toContain("prefers-reduced-motion: reduce");
   });
+
+  it("adds small-screen workspace header and composer polish", () => {
+    const css = cssSource();
+    const header = readFileSync(resolve(process.cwd(), "src/components/Header.tsx"), "utf8");
+
+    expect(header).toContain("header-danger-action");
+    expect(css).toMatch(/@media\s*\(max-width:\s*767px\)[\s\S]*\.workspace-header/s);
+    expect(css).toMatch(/@media\s*\(max-width:\s*767px\)[\s\S]*\.header-danger-action\s*\{[\s\S]*display:\s*none/s);
+    expect(css).toMatch(/@media\s*\(max-width:\s*767px\)[\s\S]*\.composer-bottom\s*\{[\s\S]*grid-template-columns:\s*1fr/s);
+  });
 });

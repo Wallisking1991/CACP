@@ -110,7 +110,7 @@ export default function Header({
         {isOwner && (
           <button
             type="button"
-            className="btn btn-ghost"
+            className="btn btn-ghost header-danger-action"
             style={{ color: "var(--danger)" }}
             onClick={onClearRoom}
           >
