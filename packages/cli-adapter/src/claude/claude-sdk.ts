@@ -44,7 +44,8 @@ function wrapSession(rawSession: unknown): ClaudePersistentSession {
         return text;
       }
       let finalText = "";
-      const iterable = stream!.call(rawSession, prompt) as AsyncIterable<unknown>;
+      if (typeof stream !== "function") throw new Error("Claude session has neither send nor stream");
+      const iterable = stream.call(rawSession, prompt) as AsyncIterable<unknown>;
       for await (const item of iterable) {
         const record = asRecord(item);
         const chunk = messageTextFromUnknown(record.delta ?? record.content ?? item);

@@ -146,24 +146,25 @@ async function main() {
         if (!payload.turn_id || !payload.context_prompt || payload.agent_id !== registered.agent_id || runningTasks.has(payload.turn_id)) return;
         runningTasks.add(payload.turn_id);
         let finalText = "";
+        const turnId = payload.turn_id;
         try {
           if (config.llm) {
-            await roomClient.startTurn(payload.turn_id);
+            await roomClient.startTurn(turnId);
             const result = await runLlmTurn({
               llm: config.llm,
               prompt: payload.context_prompt,
               systemPrompt: config.agent.system_prompt,
               onDelta: async (chunk) => {
                 finalText += chunk;
-                await roomClient.publishTurnDelta(payload.turn_id, chunk);
+                await roomClient.publishTurnDelta(turnId, chunk);
               }
             });
-            await roomClient.completeTurn(payload.turn_id, result.finalText);
+            await roomClient.completeTurn(turnId, result.finalText);
           } else if (claudeRuntime) {
             const startedAt = Date.now();
-            await roomClient.startTurn(payload.turn_id);
+            await roomClient.startTurn(turnId);
             const result = await claudeRuntime.runTurn({
-              turnId: payload.turn_id,
+              turnId,
               speakerName: typeof payload.speaker_name === "string" ? payload.speaker_name : "Room participant",
               speakerRole: typeof payload.speaker_role === "string" ? payload.speaker_role : "member",
               modeLabel: typeof payload.mode === "string" ? payload.mode : "normal",
@@ -171,25 +172,25 @@ async function main() {
             });
             await roomClient.publishRuntimeStatus("completed", {
               agent_id: registered.agent_id,
-              turn_id: payload.turn_id,
-              status_id: `status_${payload.turn_id}`,
+              turn_id: turnId,
+              status_id: `status_${turnId}`,
               summary: statusSummary({ elapsedMs: Date.now() - startedAt, metrics: { files_read: 0, searches: 0, commands: 0 } }),
               metrics: { files_read: 0, searches: 0, commands: 0 },
               completed_at: new Date().toISOString()
             });
-            await roomClient.completeTurn(payload.turn_id, result.finalText);
+            await roomClient.completeTurn(turnId, result.finalText);
           }
         } catch (error) {
           const rawMessage = error instanceof Error ? error.message : String(error);
           const displayError = config.llm ? sanitizeLlmError(rawMessage, config.llm.apiKey) : rawMessage;
           console.error("Adapter turn failed", displayError);
           try {
-            await roomClient.failTurn(payload.turn_id, displayError);
+            await roomClient.failTurn(turnId, displayError);
           } catch (reportError) {
             console.error("Adapter failed to report turn failure", reportError);
           }
         } finally {
-          runningTasks.delete(payload.turn_id);
+          runningTasks.delete(turnId);
         }
       }
     } catch (error) {
