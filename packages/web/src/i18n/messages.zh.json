@@ -53,6 +53,7 @@
   "landing.value.local": "本地优先 Agent",
   "landing.value.room": "共享 AI 房间",
   "landing.value.governed": "受控协作",
+  "landing.valuesLabel": "CACP 价值",
   "landing.tab.create": "创建房间",
   "landing.tab.join": "通过邀请加入",
   "landing.create.cardTitle": "创建协作式 AI 房间",

@@ -1,9 +1,16 @@
-import { useContext, useEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import gsap from "gsap";
 import { parseInviteUrl } from "../api.js";
 import { LangContext } from "../i18n/LangProvider.js";
 import { useT } from "../i18n/useT.js";
 import { isCloudMode } from "../runtime-config.js";
 import CacpHeroLogo from "./CacpHeroLogo.js";
+
+function prefersReducedMotion(): boolean {
+  return typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
 
 interface LandingProps {
   onCreate: (params: { roomName: string; displayName: string; agentType: string; permissionLevel: string }) => void;
@@ -37,6 +44,7 @@ const valueTags = [
 export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
   const t = useT();
   const langCtx = useContext(LangContext);
+  const heroRef = useRef<HTMLElement>(null);
 
   const inviteTarget = useMemo(() => parseInviteUrl(window.location.search) ?? parseInviteUrl(window.location.hash.replace(/^#/, "?")), []);
   const hasInviteInUrl = Boolean(inviteTarget);
@@ -51,6 +59,26 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
   const selectedLlmApiAgent = llmAgentTypeValues.has(agentType);
   const createValid = roomName.trim() && ownerDisplayName.trim();
   const joinValid = Boolean(inviteTarget && joinDisplayName.trim());
+
+  useLayoutEffect(() => {
+    const hero = heroRef.current;
+    if (!hero || prefersReducedMotion()) return;
+
+    const ctx = gsap.context(() => {
+      gsap.set(".landing-headline, .landing-subcopy, .landing-value-tag, .landing-console", {
+        opacity: 0,
+        y: 16,
+      });
+
+      const tl = gsap.timeline({ defaults: { ease: "power2.out" }, delay: 0.4 });
+      tl.to(".landing-headline", { opacity: 1, y: 0, duration: 0.55 })
+        .to(".landing-subcopy", { opacity: 1, y: 0, duration: 0.5 }, "-=0.3")
+        .to(".landing-value-tag", { opacity: 1, y: 0, duration: 0.4, stagger: 0.08 }, "-=0.25")
+        .to(".landing-console", { opacity: 1, y: 0, duration: 0.6 }, "-=0.5");
+    }, hero);
+
+    return () => ctx.revert();
+  }, []);
 
   useEffect(() => {
     if (hasInviteInUrl) setAdvancedOpen(false);
@@ -98,13 +126,13 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
         </button>
       </div>
 
-      <section className="landing-hero-grid">
+      <section ref={heroRef} className="landing-hero-grid">
         <div className="landing-showcase">
           <p className="landing-eyebrow">{t("landing.eyebrow")}</p>
-          <CacpHeroLogo />
+          <CacpHeroLogo ariaLabel={t("landing.logoLabel")} />
           <h1 className="landing-headline">{t("landing.headline")}</h1>
           <p className="landing-subcopy">{t("landing.subcopy")}</p>
-          <div className="landing-value-tags" aria-label="CACP values">
+          <div className="landing-value-tags" aria-label={t("landing.valuesLabel")}>
             {valueTags.map((item) => (
               <span key={item.labelKey} className="landing-value-tag">{t(item.labelKey)}</span>
             ))}
@@ -170,7 +198,7 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
                 <span aria-hidden="true">{advancedOpen ? "−" : "+"}</span>
               </button>
 
-              <div id="landing-advanced-options" className="landing-advanced" hidden={!advancedOpen}>
+              <div id="landing-advanced-options" className={`landing-advanced ${advancedOpen ? "is-open" : ""}`}>
                 <p className="section-label">{t("landing.create.advancedTitle")}</p>
 
                 <label className="section-label" htmlFor="landing-agent-type">{t("landing.create.agentType")}</label>

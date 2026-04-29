@@ -53,6 +53,7 @@
   "landing.value.local": "Local-first Agent",
   "landing.value.room": "Shared AI Room",
   "landing.value.governed": "Governed Collaboration",
+  "landing.valuesLabel": "CACP values",
   "landing.tab.create": "Create room",
   "landing.tab.join": "Join with invite",
   "landing.create.cardTitle": "Create a collaborative AI room",

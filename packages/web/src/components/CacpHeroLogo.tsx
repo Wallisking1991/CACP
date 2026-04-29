@@ -7,7 +7,11 @@ function prefersReducedMotion(): boolean {
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-export default function CacpHeroLogo() {
+interface CacpHeroLogoProps {
+  ariaLabel?: string;
+}
+
+export default function CacpHeroLogo({ ariaLabel = "CACP protocol room logo" }: CacpHeroLogoProps) {
   const rootRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
@@ -64,7 +68,7 @@ export default function CacpHeroLogo() {
   }, []);
 
   return (
-    <div ref={rootRef} className="cacp-hero-logo" aria-label="CACP protocol room logo">
+    <div ref={rootRef} className="cacp-hero-logo" aria-label={ariaLabel} role="img">
       <svg className="cacp-hero-logo__mark" viewBox="0 0 200 200" role="img" aria-hidden="true">
         <defs>
           <radialGradient id="cacp-core-glow" cx="50%" cy="50%" r="50%">

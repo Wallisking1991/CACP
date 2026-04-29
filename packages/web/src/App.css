@@ -495,12 +495,18 @@ textarea.input {
   gap: 10px;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-card);
-  padding: 12px;
+  padding: 0 12px;
   background: rgba(253, 249, 241, 0.58);
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-height 380ms ease, opacity 280ms ease, padding 280ms ease;
 }
 
-.landing-advanced[hidden] {
-  display: none;
+.landing-advanced.is-open {
+  max-height: 520px;
+  opacity: 1;
+  padding: 12px;
 }
 
 .landing-connector-setup {
@@ -684,76 +690,32 @@ textarea.input {
     gap: 2px;
   }
 
-  .workspace-shell {
-    width: calc(100% - 16px);
-    padding: 8px 0;
-  }
-
-  .workspace-header {
-    min-height: 56px;
-    padding: 10px 12px;
-    gap: 10px;
-  }
-
-  .header-title {
-    min-width: 0;
-  }
-
-  .header-title h2 {
-    max-width: 52vw;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 18px;
-  }
-
-  .header-sub {
-    max-width: 56vw;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .header-actions {
-    gap: 6px;
-    flex-wrap: nowrap;
-  }
-
-  .header-danger-action {
+  .landing-shell-invite .landing-eyebrow,
+  .landing-shell-invite .landing-value-tags {
     display: none;
   }
 
-  .status-pill,
-  .lang-toggle {
-    padding: 6px 8px;
-    font-size: 11px;
-  }
-
-  .composer {
-    padding: 10px 12px;
-  }
-
-  .composer-top {
-    align-items: flex-start;
+  .landing-shell-invite .cacp-hero-logo {
+    width: min(100%, 280px);
     gap: 8px;
   }
 
-  .composer-hint {
-    display: none;
+  .landing-shell-invite .cacp-hero-logo__mark {
+    width: 90px;
   }
 
-  .composer-bottom {
-    grid-template-columns: 1fr;
-    gap: 8px;
+  .landing-shell-invite .logo-wordmark span {
+    font-size: 32px;
   }
 
-  .composer-actions {
-    width: 100%;
+  .landing-shell-invite .landing-headline {
+    font-size: clamp(26px, 8vw, 36px);
+    margin-top: 6px;
   }
 
-  .composer-actions .btn {
-    width: 100%;
-    min-height: 42px;
+  .landing-shell-invite .landing-subcopy {
+    margin-top: 6px;
+    font-size: 13px;
   }
 }
 
@@ -1524,3 +1486,77 @@ textarea.input {
 }
 
 /* Breakpoints */
+
+@media (max-width: 767px) {
+  .workspace-shell {
+    width: calc(100% - 16px);
+    padding: 8px 0;
+  }
+
+  .workspace-header {
+    min-height: 56px;
+    padding: 10px 12px;
+    gap: 10px;
+  }
+
+  .header-title {
+    min-width: 0;
+  }
+
+  .header-title h2 {
+    max-width: 52vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 18px;
+  }
+
+  .header-sub {
+    max-width: 56vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .header-actions {
+    gap: 6px;
+    flex-wrap: nowrap;
+  }
+
+  .header-danger-action {
+    display: none;
+  }
+
+  .status-pill,
+  .lang-toggle {
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+
+  .composer {
+    padding: 10px 12px;
+  }
+
+  .composer-top {
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .composer-hint {
+    display: none;
+  }
+
+  .composer-bottom {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .composer-actions {
+    width: 100%;
+  }
+
+  .composer-actions .btn {
+    width: 100%;
+    min-height: 42px;
+  }
+}
