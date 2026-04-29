@@ -104,7 +104,11 @@ export default function Header({
           onClick={handleToggleLang}
           aria-label={t("lang.toggle")}
         >
-          {langCtx?.lang === "zh" ? t("lang.en") : t("lang.zh")}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M2 12h20" />
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+          </svg>
         </button>
 
         {isOwner && (
@@ -113,13 +117,23 @@ export default function Header({
             className="btn btn-ghost header-danger-action"
             style={{ color: "var(--danger)" }}
             onClick={onClearRoom}
+            title={t("room.clear")}
           >
-            {t("room.clear")}
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            </svg>
+            <span className="btn-label">{t("room.clear")}</span>
           </button>
         )}
 
-        <button type="button" className="btn btn-ghost" onClick={onLeaveRoom}>
-          {t("room.leave")}
+        <button type="button" className="btn btn-ghost" onClick={onLeaveRoom} title={t("room.leave")}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+            <polyline points="16 17 21 12 16 7" />
+            <path d="M21 12H9" />
+          </svg>
+          <span className="btn-label">{t("room.leave")}</span>
         </button>
 
         {onOpenDrawer && (
