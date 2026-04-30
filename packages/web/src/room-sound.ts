@@ -3,11 +3,13 @@ export type RoomSoundCue = "message" | "ai-start" | "roundtable" | "agent-online
 export interface RoomSoundController {
   enabled: () => boolean;
   setEnabled: (enabled: boolean) => void;
+  volume: () => number;
+  setVolume: (volume: number) => void;
   play: (cue: RoomSoundCue) => void;
 }
 
 export interface RoomSoundControllerOptions {
-  playTone?: (cue: RoomSoundCue) => void;
+  playTone?: (cue: RoomSoundCue, volume: number) => void;
   now?: () => number;
   cooldownMs?: number;
 }
@@ -31,10 +33,23 @@ function storedVolume(): number {
   return Number.isFinite(parsed) ? Math.min(1, Math.max(0, parsed)) : 0.5;
 }
 
-function synthTone(cue: RoomSoundCue, volume: number): void {
+let sharedAudioContext: AudioContext | undefined;
+
+function getAudioContext(): AudioContext | undefined {
   const AudioContextCtor = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  if (!AudioContextCtor) return;
-  const context = new AudioContextCtor();
+  if (!AudioContextCtor) return undefined;
+  if (!sharedAudioContext) {
+    sharedAudioContext = new AudioContextCtor();
+  }
+  if (sharedAudioContext.state === "suspended") {
+    sharedAudioContext.resume().catch(() => {});
+  }
+  return sharedAudioContext;
+}
+
+function synthTone(cue: RoomSoundCue, volume: number): void {
+  const context = getAudioContext();
+  if (!context) return;
   const oscillator = context.createOscillator();
   const gain = context.createGain();
   const frequency = cue === "ai-start" ? 180 : cue === "roundtable" ? 330 : 260;
@@ -48,20 +63,6 @@ function synthTone(cue: RoomSoundCue, volume: number): void {
   gain.connect(context.destination);
   oscillator.start();
   oscillator.stop(context.currentTime + 0.18);
-}
-
-export interface RoomSoundController {
-  enabled: () => boolean;
-  setEnabled: (enabled: boolean) => void;
-  volume: () => number;
-  setVolume: (volume: number) => void;
-  play: (cue: RoomSoundCue) => void;
-}
-
-export interface RoomSoundControllerOptions {
-  playTone?: (cue: RoomSoundCue, volume: number) => void;
-  now?: () => number;
-  cooldownMs?: number;
 }
 
 export function createRoomSoundController({

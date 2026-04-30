@@ -91,11 +91,8 @@ export default function Workspace({
   const [soundEnabled, setSoundEnabled] = useState(soundControllerRef.current.enabled());
   const [soundVolume, setSoundVolume] = useState(soundControllerRef.current.volume());
   const typingControllerRef = useRef<TypingActivityController | undefined>();
-  const previousMessageCountRef = useRef(room.messages.length);
-  const previousStreamingCountRef = useRef(room.streamingTurns.length);
-  const hadJoinRequestRef = useRef(false);
-  const hadRoundtableRef = useRef(false);
-  const previousAgentStatusesRef = useRef<Map<string, string>>(new Map());
+  const seenSoundEventIdsRef = useRef<Set<string>>(new Set());
+  const [soundReady, setSoundReady] = useState(false);
 
   const [showSlowStreamingNotice, setShowSlowStreamingNotice] = useState(false);
   const [dismissedJoinRequestIds, setDismissedJoinRequestIds] = useState<Set<string>>(() => new Set());
@@ -124,6 +121,12 @@ export default function Workspace({
       ? room.pendingRoundtableRequest
       : undefined;
   }, [dismissedRoundtableRequestIds, isOwner, room.pendingRoundtableRequest]);
+
+  useEffect(() => {
+    if (visibleJoinRequest || visibleRoundtableRequest) {
+      setControlCenterOpen(false);
+    }
+  }, [visibleJoinRequest, visibleRoundtableRequest]);
 
   useEffect(() => {
     if (room.pendingRoundtableRequest) return;
@@ -161,39 +164,45 @@ export default function Workspace({
   }, [session.room_id, session.token, session.participant_id]);
 
   useEffect(() => {
-    const previousMessageCount = previousMessageCountRef.current;
-    const nextMessages = room.messages.slice(previousMessageCount);
-    for (const message of nextMessages) {
-      if (shouldPlayCueForMessage({ actorId: message.actor_id, currentParticipantId: session.participant_id })) {
-        soundControllerRef.current.play(message.kind === "agent" ? "message" : "message");
+    const timer = window.setTimeout(() => setSoundReady(true), 2000);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!soundReady) return;
+    const seen = seenSoundEventIdsRef.current;
+    for (const event of events) {
+      if (seen.has(event.event_id)) continue;
+      seen.add(event.event_id);
+      switch (event.type) {
+        case "message.created": {
+          if (shouldPlayCueForMessage({ actorId: event.actor_id, currentParticipantId: session.participant_id })) {
+            const kind = typeof event.payload.kind === "string" ? event.payload.kind : "human";
+            soundControllerRef.current.play(kind === "agent" ? "message" : "message");
+          }
+          break;
+        }
+        case "agent.turn.started": {
+          soundControllerRef.current.play("ai-start");
+          break;
+        }
+        case "join_request.created": {
+          soundControllerRef.current.play("join-request");
+          break;
+        }
+        case "ai.collection.started": {
+          soundControllerRef.current.play("roundtable");
+          break;
+        }
+        case "agent.status_changed": {
+          if (event.payload.status === "online") {
+            soundControllerRef.current.play("agent-online");
+          }
+          break;
+        }
       }
     }
-    previousMessageCountRef.current = room.messages.length;
-
-    if (room.streamingTurns.length > previousStreamingCountRef.current) {
-      soundControllerRef.current.play("ai-start");
-    }
-    previousStreamingCountRef.current = room.streamingTurns.length;
-
-    if (visibleJoinRequest && !hadJoinRequestRef.current) {
-      soundControllerRef.current.play("join-request");
-    }
-    hadJoinRequestRef.current = Boolean(visibleJoinRequest);
-
-    const hasRoundtable = Boolean(room.activeCollection);
-    if (hasRoundtable && !hadRoundtableRef.current) {
-      soundControllerRef.current.play("roundtable");
-    }
-    hadRoundtableRef.current = hasRoundtable;
-
-    for (const agent of room.agents) {
-      const previous = previousAgentStatusesRef.current.get(agent.agent_id);
-      if (previous !== "online" && agent.status === "online") {
-        soundControllerRef.current.play("agent-online");
-      }
-      previousAgentStatusesRef.current.set(agent.agent_id, agent.status);
-    }
-  }, [room.messages, room.streamingTurns, room.activeCollection, room.agents, visibleJoinRequest, session.participant_id]);
+  }, [events, soundReady, session.participant_id]);
 
   const collectCount = room.activeCollection?.messages.length ?? 0;
 

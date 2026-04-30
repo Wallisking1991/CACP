@@ -311,6 +311,13 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     }
     if (event.type === "room.history_cleared" && isHistoryClearScope(event.payload.scope)) {
       roundtableRequests.clear();
+      messages.push({
+        message_id: `cleared-${event.event_id}`,
+        actor_id: "system",
+        text: "__CACP_HISTORY_CLEARED__",
+        kind: "system",
+        created_at: event.created_at
+      });
     }
     if (event.type === "agent.registered" && typeof event.payload.agent_id === "string" && typeof event.payload.name === "string") {
       const existing = agents.get(event.payload.agent_id);
@@ -618,7 +625,7 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
         kind: "human",
         group: "humans",
         status,
-        active: status === "typing" || status === "roundtable" || participant.id === latestSenderId
+        active: status === "typing" || status === "roundtable" || participant.id === latestSenderId || participant.role === "owner"
       };
     }),
     ...[...agents.values()].map((agent): AvatarStatusView => {

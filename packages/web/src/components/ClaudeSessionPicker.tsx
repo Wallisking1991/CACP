@@ -28,7 +28,26 @@ export function ClaudeSessionPicker({ canManageRoom, agentId, catalog, selection
   const [previewLoadingSessionIds, setPreviewLoadingSessionIds] = useState<Set<string>>(() => new Set());
   const [previewErrors, setPreviewErrors] = useState<Record<string, string>>({});
   const activeSelection = selection?.agent_id === agentId ? selection : undefined;
-  if (!canManageRoom || activeSelection || !catalog || catalog.agent_id !== agentId) return null;
+  if (!canManageRoom || !catalog || catalog.agent_id !== agentId) return null;
+
+  if (activeSelection) {
+    const resumeSession = activeSelection.mode === "resume"
+      ? catalog.sessions.find((s) => s.session_id === activeSelection.session_id)
+      : undefined;
+    return (
+      <section className="claude-session-picker" aria-label={t("claude.session.title")}>
+        <div>
+          <p className="eyebrow">{t("claude.session.eyebrow")}</p>
+          <h2>{t("claude.session.selectedTitle")}</h2>
+          <p>
+            {activeSelection.mode === "fresh"
+              ? t("claude.session.selectedFresh")
+              : t("claude.session.selectedResume", { title: resumeSession?.title ?? activeSelection.session_id })}
+          </p>
+        </div>
+      </section>
+    );
+  }
   const latest = catalog.sessions[0];
   const inspectedPreview = inspectedSession
     ? previews.filter((preview) => preview.agent_id === agentId && preview.session_id === inspectedSession.session_id).at(-1)

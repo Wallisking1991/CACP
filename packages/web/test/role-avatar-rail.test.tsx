@@ -14,8 +14,8 @@ describe("RoleAvatarRail", () => {
   it("renders grouped avatars with accessible status labels", () => {
     render(<RoleAvatarRail avatars={avatars} maxVisible={6} />);
 
-    expect(screen.getByLabelText("Bob, member, typing")).toBeInTheDocument();
-    expect(screen.getByLabelText("Claude Code Agent, AI agent, working")).toBeInTheDocument();
+    expect(screen.getByLabelText("Bob, Member, typing")).toBeInTheDocument();
+    expect(screen.getByLabelText("Claude Code Agent, AI, working")).toBeInTheDocument();
     expect(screen.getByText("Humans")).toBeInTheDocument();
     expect(screen.getByText("Agents")).toBeInTheDocument();
   });

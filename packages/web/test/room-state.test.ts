@@ -80,7 +80,10 @@ describe("room state", () => {
     ]);
 
     expect(state.lastHistoryClearedAt).toBe("2026-04-25T00:00:02.000Z");
-    expect(state.messages).toEqual([{ message_id: "msg_new", actor_id: "user_1", text: "new message", kind: "human", created_at: "2026-04-25T00:00:03.000Z" }]);
+    expect(state.messages).toEqual([
+      { message_id: "cleared-evt_2", actor_id: "system", text: "__CACP_HISTORY_CLEARED__", kind: "system", created_at: "2026-04-25T00:00:02.000Z" },
+      { message_id: "msg_new", actor_id: "user_1", text: "new message", kind: "human", created_at: "2026-04-25T00:00:03.000Z" }
+    ]);
   });
 
   it("derives active and completed AI answer collections", () => {

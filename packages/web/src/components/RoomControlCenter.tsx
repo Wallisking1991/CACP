@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentView, ParticipantView, ClaudeSessionCatalogView, ClaudeSessionSelectionView, ClaudeSessionPreviewView, ClaudeRuntimeStatusView, JoinRequestView } from "../room-state.js";
 import { useT } from "../i18n/useT.js";
 import { SoundIcon } from "./RoomIcons.js";
@@ -74,6 +74,30 @@ export function RoomControlCenter(props: RoomControlCenterProps) {
   const [inviteRevealed, setInviteRevealed] = useState(false);
   const [inviteRole, setInviteRole] = useState("member");
   const [inviteTtl, setInviteTtl] = useState(3600);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const openerRef = useRef<Element | null>(null);
+
+  useEffect(() => {
+    if (props.open) {
+      openerRef.current = document.activeElement;
+      const timer = window.setTimeout(() => closeButtonRef.current?.focus(), 0);
+      return () => window.clearTimeout(timer);
+    } else if (openerRef.current instanceof HTMLElement) {
+      openerRef.current.focus();
+    }
+  }, [props.open]);
+
+  useEffect(() => {
+    if (!props.open) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        props.onClose();
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [props.open, props.onClose]);
 
   const handleCopyConnector = useCallback(() => {
     if (props.createdPairing) {
@@ -111,7 +135,7 @@ export function RoomControlCenter(props: RoomControlCenterProps) {
             <p className="section-label">CACP</p>
             <h2>{t("room.controlCenter")}</h2>
           </div>
-          <button type="button" className="room-icon-button" onClick={props.onClose} aria-label={t("sidebar.close")}>×</button>
+          <button ref={closeButtonRef} type="button" className="room-icon-button" onClick={props.onClose} aria-label={t("sidebar.close")}>×</button>
         </header>
         <nav className="room-control-center__tabs" aria-label={t("room.controls")}>
           {sections.map((item) => (
@@ -131,6 +155,7 @@ export function RoomControlCenter(props: RoomControlCenterProps) {
                   value={props.activeAgentId ?? ""}
                   onChange={(event) => props.onSelectAgent(event.target.value)}
                   aria-label={t("sidebar.selectAgent")}
+                  disabled={!props.canManageRoom}
                 >
                   {props.agents.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)}
                 </select>
@@ -258,7 +283,7 @@ export function RoomControlCenter(props: RoomControlCenterProps) {
                   </code>
                   <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
                     <button type="button" className="btn btn-ghost" style={{ fontSize: 11, padding: "4px 8px" }} onClick={() => setInviteRevealed((v) => !v)}>
-                      {t("sidebar.revealInvite")}
+                      {inviteRevealed ? t("sidebar.hideInvite") : t("sidebar.revealInvite")}
                     </button>
                     <button
                       type="button"

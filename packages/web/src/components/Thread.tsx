@@ -93,9 +93,12 @@ export default function Thread({
         }
 
         const actorName = actorNames.get(msg.actor_id) ?? msg.actor_id;
-        const displayText = msg.text === "__CACP_COLLECTION_CANCELLED__"
-          ? t("thread.collectionCancelled", { count: msg.cancelledMessageCount ?? 0 })
-          : msg.text;
+        let displayText = msg.text;
+        if (msg.text === "__CACP_COLLECTION_CANCELLED__") {
+          displayText = t("thread.collectionCancelled", { count: msg.cancelledMessageCount ?? 0 });
+        } else if (msg.text === "__CACP_HISTORY_CLEARED__") {
+          displayText = t("thread.historyCleared");
+        }
         return (
           <article
             key={msg.message_id ?? `${msg.actor_id}-${msg.created_at}`}

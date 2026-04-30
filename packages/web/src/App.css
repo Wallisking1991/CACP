@@ -1598,11 +1598,15 @@ textarea.input {
   margin-left: auto;
   background: var(--surface);
   border-color: var(--border-soft);
+  width: fit-content;
+  max-width: min(680px, 90%);
 }
 
 .message-human-other {
   margin-right: auto;
   background: var(--surface-warm);
+  width: fit-content;
+  max-width: min(680px, 90%);
 }
 
 .message-ai-card {
@@ -1686,20 +1690,11 @@ textarea.input {
 }
 
 .floating-logo-control__mark {
-  display: block;
-  transform: scale(0.34);
-  transform-origin: center;
-}
-
-.floating-logo-control__mark .logo-wordmark {
-  display: none;
-}
-
-.floating-logo-control__mark .logo-core,
-.floating-logo-control__mark .logo-node,
-.floating-logo-control__mark .logo-orbit-dot {
-  opacity: 1 !important;
-  transform: scale(1) !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
 }
 
 .floating-logo-control__badge {
@@ -1798,6 +1793,8 @@ textarea.input {
 
 @media (prefers-reduced-motion: reduce) {
   .role-avatar--working,
+  .role-avatar--typing .role-avatar__status,
+  .role-avatar--roundtable,
   .floating-logo-control {
     animation: none;
     transition: none;
@@ -1883,44 +1880,63 @@ textarea.input {
     min-height: 42px;
   }
 
-  /* Studio layout mobile */
+  /* Studio layout mobile — explicit grid: title+lang / chip / avatars */
   .workspace-header--studio {
-    align-items: center;
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: 8px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "title lang"
+      "chip  chip"
+      "avatars avatars";
+    gap: 6px 10px;
     padding: 10px 12px;
+    align-items: center;
   }
 
   .room-identity {
-    flex: 1;
+    display: contents;
+  }
+
+  .room-identity > div:first-child {
+    grid-area: title;
     min-width: 0;
-    justify-content: space-between;
+    overflow: hidden;
   }
 
   .room-identity h2 {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-size: 16px;
   }
 
   .room-identity p {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-size: 11px;
+  }
+
+  .room-identity .room-id-chip {
+    grid-area: chip;
+    justify-self: start;
+    font-size: 11px;
+    padding: 4px 8px;
+    min-height: 26px;
+  }
+
+  .workspace-header--studio .lang-toggle {
+    grid-area: lang;
+    flex-shrink: 0;
+    align-self: center;
   }
 
   .role-avatar-rail {
+    grid-area: avatars;
     width: 100%;
     justify-content: flex-start;
     overflow-x: auto;
     padding-bottom: 2px;
-    order: 3;
-  }
-
-  .workspace-header--studio .lang-toggle {
-    order: 2;
-    flex-shrink: 0;
   }
 
   .room-control-overlay {

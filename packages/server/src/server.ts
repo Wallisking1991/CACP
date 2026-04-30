@@ -266,9 +266,20 @@ export async function buildServer(options: BuildServerOptions = {}) {
   const typingLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.typingEventLimit });
   const socketCounts = new Map<string, number>();
   const participantSockets = new Map<string, Set<{ close: (code?: number, reason?: string) => void }>>();
+  const pendingOffline = new Map<string, ReturnType<typeof setTimeout>>();
+  const OFFLINE_GRACE_MS = 2000;
 
   function socketKey(roomId: string, participantId: string): string {
     return `${roomId}:${participantId}`;
+  }
+
+  function clearPendingOffline(roomId: string, participantId: string): void {
+    const key = socketKey(roomId, participantId);
+    const timer = pendingOffline.get(key);
+    if (timer) {
+      clearTimeout(timer);
+      pendingOffline.delete(key);
+    }
   }
 
   function rememberSocket(roomId: string, participantId: string, socket: { close: (code?: number, reason?: string) => void }): () => void {
@@ -298,6 +309,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
   await app.register(websocket);
   app.addHook("onClose", async () => {
     clearInterval(joinRequestCleanupTimer);
+    for (const timer of pendingOffline.values()) clearTimeout(timer);
+    pendingOffline.clear();
     store.close();
   });
 
@@ -932,20 +945,27 @@ export async function buildServer(options: BuildServerOptions = {}) {
       if (canViewEvent(nextEvent, participant)) socket.send(JSON.stringify(nextEvent));
     });
     const forgetSocket = rememberSocket(roomId, participant.id, socket);
+    clearPendingOffline(roomId, participant.id);
     socket.on("close", () => {
       unsubscribe();
       forgetSocket();
       socketCounts.set(roomId, (socketCounts.get(roomId) ?? 1) - 1);
-      const stillConnected = participantSockets.has(socketKey(roomId, participant.id));
+      const key = socketKey(roomId, participant.id);
+      const stillConnected = participantSockets.has(key);
       if (stillConnected) return;
       if (participant.role === "agent") {
         appendAndPublish(event(roomId, "agent.status_changed", participant.id, { agent_id: participant.id, status: "offline" }));
       } else {
-        appendAndPublish(event(roomId, "participant.presence_changed", participant.id, {
-          participant_id: participant.id,
-          presence: "offline",
-          updated_at: new Date().toISOString()
-        }));
+        if (pendingOffline.has(key)) return;
+        pendingOffline.set(key, setTimeout(() => {
+          pendingOffline.delete(key);
+          if (participantSockets.has(key)) return;
+          appendAndPublish(event(roomId, "participant.presence_changed", participant.id, {
+            participant_id: participant.id,
+            presence: "offline",
+            updated_at: new Date().toISOString()
+          }));
+        }, OFFLINE_GRACE_MS));
       }
     });
   });

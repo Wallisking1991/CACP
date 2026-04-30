@@ -235,11 +235,9 @@ export default function App() {
 
   const handleClearRoom = useCallback(() => {
     if (!session) return;
-    if (window.confirm("Clear all chat messages and Roundtable history for everyone?")) {
-      void run(async () => {
-        await clearRoom(session);
-      });
-    }
+    void run(async () => {
+      await clearRoom(session);
+    });
   }, [session]);
 
   const handleStartCollection = useCallback(() => {
