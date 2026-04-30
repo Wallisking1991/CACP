@@ -5,8 +5,8 @@ import { spawn } from "node:child_process";
 import Fastify, { type FastifyReply } from "fastify";
 import websocket from "@fastify/websocket";
 import { z } from "zod";
-import { buildConnectionCode, evaluatePolicy, PolicySchema, VoteRecordSchema, type CacpEvent, type Participant, type Policy, type VoteRecord } from "@cacp/protocol";
-import { requireParticipant, hasAnyRole, hasHumanRole } from "./auth.js";
+import { buildConnectionCode, evaluatePolicy, PolicySchema, VoteRecordSchema, ParticipantPresenceSchema, type CacpEvent, type Participant, type Policy, type VoteRecord } from "@cacp/protocol";
+import { bearerToken, requireParticipant, hasAnyRole, hasHumanRole } from "./auth.js";
 import { buildAgentContextPrompt, buildCollectedAnswersPrompt, eventsAfterLastHistoryClear, findActiveAgentId, findAgentCapabilities, findAnyOpenTurn, findOpenTurn, findQueuedFollowupMessage, findQueuedFollowupMessages, hasQueuedFollowup, recentConversationMessages, type ConversationMessage, type OpenTurn } from "./conversation.js";
 import { EventBus } from "./event-bus.js";
 import { EventStore, type StoredParticipant } from "./event-store.js";
@@ -63,6 +63,8 @@ const TaskFailedSchema = z.object({ error: z.string().min(1).max(2000), exit_cod
 const TurnOutputSchema = z.object({ chunk: z.string().max(10000) });
 const TurnCompleteSchema = z.object({ final_text: z.string(), exit_code: z.number().int().default(0) });
 const TurnFailedSchema = z.object({ error: z.string().min(1), exit_code: z.number().int().optional() });
+const PresenceBodySchema = z.object({ presence: ParticipantPresenceSchema });
+const EmptyObjectBodySchema = z.object({});
 
 export interface LocalAgentLaunchInput {
   launchId: string;
@@ -841,6 +843,57 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!participant) return deny(reply, "invalid_token");
     const events = store.listEvents(request.params.roomId).filter((ev) => canViewEvent(ev, participant));
     return { events, participant: publicParticipant(participant) };
+  });
+
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/activity/presence", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) {
+      const token = bearerToken(request);
+      const revoked = token ? store.getRevokedParticipantByToken(request.params.roomId, token) : undefined;
+      if (revoked) return deny(reply, "participant_removed", 403);
+      return deny(reply, "invalid_token");
+    }
+    const body = PresenceBodySchema.parse(request.body ?? {});
+    appendAndPublish(event(request.params.roomId, "participant.presence_changed", participant.id, {
+      participant_id: participant.id,
+      presence: body.presence,
+      updated_at: new Date().toISOString()
+    }));
+    return reply.code(201).send({ ok: true, event_type: "participant.presence_changed" });
+  });
+
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/activity/typing/start", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) {
+      const token = bearerToken(request);
+      const revoked = token ? store.getRevokedParticipantByToken(request.params.roomId, token) : undefined;
+      if (revoked) return deny(reply, "participant_removed", 403);
+      return deny(reply, "invalid_token");
+    }
+    EmptyObjectBodySchema.parse(request.body ?? {});
+    appendAndPublish(event(request.params.roomId, "participant.typing_started", participant.id, {
+      participant_id: participant.id,
+      scope: "room",
+      started_at: new Date().toISOString()
+    }));
+    return reply.code(201).send({ ok: true, event_type: "participant.typing_started" });
+  });
+
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/activity/typing/stop", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) {
+      const token = bearerToken(request);
+      const revoked = token ? store.getRevokedParticipantByToken(request.params.roomId, token) : undefined;
+      if (revoked) return deny(reply, "participant_removed", 403);
+      return deny(reply, "invalid_token");
+    }
+    EmptyObjectBodySchema.parse(request.body ?? {});
+    appendAndPublish(event(request.params.roomId, "participant.typing_stopped", participant.id, {
+      participant_id: participant.id,
+      scope: "room",
+      stopped_at: new Date().toISOString()
+    }));
+    return reply.code(201).send({ ok: true, event_type: "participant.typing_stopped" });
   });
 
   app.get<{ Params: { roomId: string }; Querystring: { token?: string } }>("/rooms/:roomId/stream", { websocket: true }, (socket, request) => {

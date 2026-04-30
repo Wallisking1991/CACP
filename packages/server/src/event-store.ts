@@ -225,6 +225,16 @@ export class EventStore {
     return participantFromRow(row);
   }
 
+  getRevokedParticipantByToken(roomId: string, participantToken: string): StoredParticipant | undefined {
+    const tokenHash = hashParticipantToken(participantToken);
+    const row = this.db.prepare(`
+      SELECT * FROM participants WHERE room_id = ? AND token_hash = ?
+    `).get(roomId, tokenHash) as ParticipantRow | undefined;
+    if (!row) return undefined;
+    if (!this.isParticipantRevoked(row.room_id, row.participant_id)) return undefined;
+    return participantFromRow(row);
+  }
+
   getParticipants(roomId: string): StoredParticipant[] {
     return (this.db.prepare(`
       SELECT * FROM participants WHERE room_id = ? ORDER BY participant_id ASC
