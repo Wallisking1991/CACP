@@ -14,6 +14,7 @@ import JoinRequestModal from "./JoinRequestModal.js";
 import RoundtableRequestModal from "./RoundtableRequestModal.js";
 import { ClaudeSessionPicker } from "./ClaudeSessionPicker.js";
 import { ClaudeStatusCard } from "./ClaudeStatusCard.js";
+import { AgentSessionRequiredModal } from "./AgentSessionRequiredModal.js";
 import { FloatingLogoControl } from "./FloatingLogoControl.js";
 import { RoomControlCenter } from "./RoomControlCenter.js";
 
@@ -235,6 +236,13 @@ export default function Workspace({
 
   const serverUrl = typeof window !== "undefined" ? window.location.origin : "http://localhost:3737";
 
+  const needsSessionSelection =
+    permissions.canManageControls &&
+    room.activeAgentId &&
+    room.claudeSessionCatalog &&
+    room.claudeSessionCatalog.agent_id === room.activeAgentId &&
+    (!room.claudeSessionSelection || room.claudeSessionSelection.agent_id !== room.activeAgentId);
+
   return (
     <div className="workspace-shell">
       <div className="workspace-grid">
@@ -307,6 +315,20 @@ export default function Workspace({
         onReject={onRejectRoundtableRequest}
         onLater={(requestId) => setDismissedRoundtableRequestIds((current) => new Set(current).add(requestId))}
       />
+
+      {needsSessionSelection && room.activeAgentId && room.claudeSessionCatalog && (
+        <AgentSessionRequiredModal
+          agentId={room.activeAgentId}
+          catalog={room.claudeSessionCatalog}
+          previews={room.claudeSessionPreviews}
+          onRequestPreview={(sessionId) =>
+            requestClaudeSessionPreview({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId, sessionId })
+          }
+          onSelect={(selection) =>
+            selectClaudeSession({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId, ...selection })
+          }
+        />
+      )}
 
       <FloatingLogoControl
         active={turnInFlight}

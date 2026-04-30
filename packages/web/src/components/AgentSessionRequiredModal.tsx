@@ -1,13 +1,11 @@
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import type { ClaudeSessionSummary } from "@cacp/protocol";
 import { useT } from "../i18n/useT.js";
-import type { ClaudeSessionCatalogView, ClaudeSessionPreviewView, ClaudeSessionSelectionView } from "../room-state.js";
+import type { ClaudeSessionCatalogView, ClaudeSessionPreviewView } from "../room-state.js";
 
 interface Props {
-  canManageRoom: boolean;
   agentId: string;
-  catalog?: ClaudeSessionCatalogView;
-  selection?: ClaudeSessionSelectionView;
+  catalog: ClaudeSessionCatalogView;
   previews?: ClaudeSessionPreviewView[];
   onRequestPreview?: (sessionId: string) => Promise<void>;
   onSelect(selection: { mode: "fresh" } | { mode: "resume"; sessionId: string }): Promise<void>;
@@ -21,49 +19,13 @@ function formatDate(iso: string): string {
   }
 }
 
-export function ClaudeSessionPicker({ canManageRoom, agentId, catalog, selection, previews = [], onRequestPreview, onSelect }: Props) {
+export function AgentSessionRequiredModal({ agentId, catalog, previews = [], onRequestPreview, onSelect }: Props) {
   const t = useT();
   const [inspectedSession, setInspectedSession] = useState<ClaudeSessionSummary | undefined>();
   const [busy, setBusy] = useState(false);
   const [previewLoadingSessionIds, setPreviewLoadingSessionIds] = useState<Set<string>>(() => new Set());
   const [previewErrors, setPreviewErrors] = useState<Record<string, string>>({});
-  const [wantsReselect, setWantsReselect] = useState(false);
-  const activeSelection = selection?.agent_id === agentId ? selection : undefined;
 
-  const prevSelectionRef = useRef(activeSelection);
-  useEffect(() => {
-    if (prevSelectionRef.current !== activeSelection) {
-      prevSelectionRef.current = activeSelection;
-      setWantsReselect(false);
-    }
-  }, [activeSelection]);
-
-  if (!canManageRoom || !catalog || catalog.agent_id !== agentId) return null;
-
-  if (activeSelection && !wantsReselect) {
-    const resumeSession = activeSelection.mode === "resume"
-      ? catalog.sessions.find((s) => s.session_id === activeSelection.session_id)
-      : undefined;
-    return (
-      <section className="claude-session-picker" aria-label={t("claude.session.title")}>
-        <div>
-          <p className="eyebrow">{t("claude.session.eyebrow")}</p>
-          <h2>{t("claude.session.selectedTitle")}</h2>
-          <p>
-            {activeSelection.mode === "fresh"
-              ? t("claude.session.selectedFresh")
-              : t("claude.session.selectedResume", { title: resumeSession?.title ?? activeSelection.session_id })}
-          </p>
-        </div>
-        <div className="claude-session-reselect-actions">
-          <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setWantsReselect(true)}>
-            {t("claude.session.reselect")}
-          </button>
-        </div>
-      </section>
-    );
-  }
-  const latest = catalog.sessions[0];
   const inspectedPreview = inspectedSession
     ? previews.filter((preview) => preview.agent_id === agentId && preview.session_id === inspectedSession.session_id).at(-1)
     : undefined;
@@ -105,8 +67,10 @@ export function ClaudeSessionPicker({ canManageRoom, agentId, catalog, selection
     }
   }
 
+  const latest = catalog.sessions[0];
+
   const inspectDialog = inspectedSession ? (
-    <div className="claude-session-modal-overlay">
+    <div className="claude-session-modal-overlay" style={{ zIndex: 100 }}>
       <div className="claude-session-inspect" role="dialog" aria-modal="true" aria-label={t("claude.session.inspectTitle")}>
         <h3>{inspectedSession.title}</h3>
         <dl className="claude-session-details">
@@ -154,32 +118,38 @@ export function ClaudeSessionPicker({ canManageRoom, agentId, catalog, selection
   ) : null;
 
   return (
-    <>
-      <section className="claude-session-picker" aria-label={t("claude.session.title")}>
-        <div>
+    <div className="agent-session-required-overlay" role="dialog" aria-modal="true" aria-label={t("claude.session.requiredTitle")}>
+      <div className="agent-session-required-modal">
+        <div className="agent-session-required-header">
           <p className="eyebrow">{t("claude.session.eyebrow")}</p>
-          <h2>{t("claude.session.headline")}</h2>
+          <h2>{t("claude.session.requiredHeadline")}</h2>
+          <p>{t("claude.session.requiredSubcopy")}</p>
+        </div>
+
+        <div className="agent-session-required-content">
           <p>{t("claude.session.workingDir")}: <code>{catalog.working_dir}</code></p>
+
+          <div className="claude-session-actions">
+            <button type="button" className="btn btn-primary" disabled={busy} onClick={() => submit({ mode: "fresh" })}>{t("claude.session.startFreshBtn")}</button>
+            {latest ? <button type="button" className="btn btn-ghost" disabled={busy || !latest.importable} onClick={() => void inspect(latest)}>{t("claude.session.inspectLatestBtn", { title: latest.title })}</button> : null}
+          </div>
+
+          {catalog.sessions.length ? (
+            <ul className="claude-session-list">
+              {catalog.sessions.map((session) => (
+                <li key={session.session_id}>
+                  <div className="claude-session-list-main">
+                    <span>{session.title}</span>
+                    <span>{session.message_count} messages · {Math.round(session.byte_size / 1024)} KB</span>
+                  </div>
+                  <button type="button" className="btn btn-ghost" disabled={busy || !session.importable} onClick={() => void inspect(session)}>{t("claude.session.inspectBtn")}</button>
+                </li>
+              ))}
+            </ul>
+          ) : <p>{t("claude.session.noSessions")}</p>}
         </div>
-        <div className="claude-session-actions">
-          <button type="button" className="btn btn-primary" disabled={busy} onClick={() => submit({ mode: "fresh" })}>{t("claude.session.startFreshBtn")}</button>
-          {latest ? <button type="button" className="btn btn-ghost" disabled={busy || !latest.importable} onClick={() => void inspect(latest)}>{t("claude.session.inspectLatestBtn", { title: latest.title })}</button> : null}
-        </div>
-        {catalog.sessions.length ? (
-          <ul className="claude-session-list">
-            {catalog.sessions.map((session) => (
-              <li key={session.session_id}>
-                <div className="claude-session-list-main">
-                  <span>{session.title}</span>
-                  <span>{session.message_count} messages · {Math.round(session.byte_size / 1024)} KB</span>
-                </div>
-                <button type="button" className="btn btn-ghost" disabled={busy || !session.importable} onClick={() => void inspect(session)}>{t("claude.session.inspectBtn")}</button>
-              </li>
-            ))}
-          </ul>
-        ) : <p>{t("claude.session.noSessions")}</p>}
-      </section>
+      </div>
       {inspectDialog}
-    </>
+    </div>
   );
 }

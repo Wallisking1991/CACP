@@ -1380,6 +1380,54 @@ textarea.input {
   gap: 8px;
 }
 
+.claude-session-reselect-actions {
+  margin-top: 12px;
+}
+
+.agent-session-required-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(28, 24, 19, 0.45);
+}
+
+.agent-session-required-modal {
+  width: min(640px, 100%);
+  max-height: min(80dvh, 700px);
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: 0 18px 50px rgba(28, 24, 19, 0.22);
+  overflow-y: auto;
+}
+
+.agent-session-required-header {
+  margin-bottom: 16px;
+}
+
+.agent-session-required-header h2 {
+  font-size: 18px;
+  margin: 4px 0 8px;
+}
+
+.agent-session-required-header p {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.agent-session-required-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 /* Claude status card */
 .claude-status-card {
   border: 1px solid var(--accent-border);
