@@ -13,6 +13,7 @@ export interface RoomSoundControllerOptions {
 }
 
 const storageKey = "cacp.room.sound.enabled";
+const volumeKey = "cacp.room.sound.volume";
 
 export function shouldPlayCueForMessage(input: { actorId: string; currentParticipantId: string }): boolean {
   return input.actorId !== input.currentParticipantId;
@@ -23,7 +24,14 @@ function storedEnabled(): boolean {
   return localStorage.getItem(storageKey) !== "false";
 }
 
-function synthTone(cue: RoomSoundCue): void {
+function storedVolume(): number {
+  if (typeof localStorage === "undefined") return 0.5;
+  const raw = localStorage.getItem(volumeKey);
+  const parsed = raw ? Number(raw) : 0.5;
+  return Number.isFinite(parsed) ? Math.min(1, Math.max(0, parsed)) : 0.5;
+}
+
+function synthTone(cue: RoomSoundCue, volume: number): void {
   const AudioContextCtor = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
   if (!AudioContextCtor) return;
   const context = new AudioContextCtor();
@@ -32,13 +40,28 @@ function synthTone(cue: RoomSoundCue): void {
   const frequency = cue === "ai-start" ? 180 : cue === "roundtable" ? 330 : 260;
   oscillator.frequency.value = frequency;
   oscillator.type = "sine";
+  const targetGain = 0.035 * volume;
   gain.gain.setValueAtTime(0.0001, context.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.035, context.currentTime + 0.01);
+  gain.gain.exponentialRampToValueAtTime(targetGain, context.currentTime + 0.01);
   gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.16);
   oscillator.connect(gain);
   gain.connect(context.destination);
   oscillator.start();
   oscillator.stop(context.currentTime + 0.18);
+}
+
+export interface RoomSoundController {
+  enabled: () => boolean;
+  setEnabled: (enabled: boolean) => void;
+  volume: () => number;
+  setVolume: (volume: number) => void;
+  play: (cue: RoomSoundCue) => void;
+}
+
+export interface RoomSoundControllerOptions {
+  playTone?: (cue: RoomSoundCue, volume: number) => void;
+  now?: () => number;
+  cooldownMs?: number;
 }
 
 export function createRoomSoundController({
@@ -47,6 +70,7 @@ export function createRoomSoundController({
   cooldownMs = 450
 }: RoomSoundControllerOptions = {}): RoomSoundController {
   let enabled = storedEnabled();
+  let volume = storedVolume();
   const lastPlayedAt = new Map<RoomSoundCue, number>();
 
   return {
@@ -55,6 +79,11 @@ export function createRoomSoundController({
       enabled = next;
       if (typeof localStorage !== "undefined") localStorage.setItem(storageKey, String(next));
     },
+    volume: () => volume,
+    setVolume(next: number): void {
+      volume = Math.min(1, Math.max(0, next));
+      if (typeof localStorage !== "undefined") localStorage.setItem(volumeKey, String(volume));
+    },
     play(cue: RoomSoundCue): void {
       if (!enabled) return;
       const current = now();
@@ -62,7 +91,7 @@ export function createRoomSoundController({
       if (current - last < cooldownMs) return;
       lastPlayedAt.set(cue, current);
       try {
-        playTone(cue);
+        playTone(cue, volume);
       } catch {
         return;
       }
