@@ -1,0 +1,62 @@
+import type { AvatarStatusView } from "../room-state.js";
+
+export interface RoleAvatarRailProps {
+  avatars: AvatarStatusView[];
+  maxVisible?: number;
+}
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+}
+
+function statusLabel(status: AvatarStatusView["status"]): string {
+  switch (status) {
+    case "working": return "working";
+    case "typing": return "typing";
+    case "roundtable": return "in Roundtable";
+    case "online": return "online";
+    case "idle": return "idle";
+    case "offline": return "offline";
+  }
+}
+
+function avatarLabel(avatar: AvatarStatusView): string {
+  const role = avatar.kind === "agent" ? "AI agent" : avatar.role;
+  return `${avatar.display_name}, ${role}, ${statusLabel(avatar.status)}`;
+}
+
+function splitVisible(avatars: AvatarStatusView[], maxVisible: number): { visible: AvatarStatusView[]; hiddenCount: number } {
+  const active = avatars.filter((avatar) => avatar.active);
+  const inactive = avatars.filter((avatar) => !avatar.active);
+  const visible = [...active, ...inactive].slice(0, maxVisible);
+  return { visible, hiddenCount: Math.max(0, avatars.length - visible.length) };
+}
+
+export function RoleAvatarRail({ avatars, maxVisible = 10 }: RoleAvatarRailProps) {
+  const humans = avatars.filter((avatar) => avatar.group === "humans");
+  const agents = avatars.filter((avatar) => avatar.group === "agents");
+  const { visible, hiddenCount } = splitVisible([...humans, ...agents], maxVisible);
+
+  return (
+    <div className="role-avatar-rail" aria-label="Room roles">
+      {humans.length > 0 ? <span className="avatar-group-label">Humans</span> : null}
+      {visible.filter((avatar) => avatar.group === "humans").map((avatar) => (
+        <span key={avatar.id} className={`role-avatar role-avatar--${avatar.kind} role-avatar--${avatar.status}`} aria-label={avatarLabel(avatar)} title={avatarLabel(avatar)}>
+          <span className="role-avatar__initials">{initials(avatar.display_name)}</span>
+          <span className="role-avatar__status" aria-hidden="true" />
+        </span>
+      ))}
+      {agents.length > 0 ? <span className="avatar-group-label">Agents</span> : null}
+      {visible.filter((avatar) => avatar.group === "agents").map((avatar) => (
+        <span key={avatar.id} className={`role-avatar role-avatar--${avatar.kind} role-avatar--${avatar.status}`} aria-label={avatarLabel(avatar)} title={avatarLabel(avatar)}>
+          <span className="role-avatar__initials">{initials(avatar.display_name)}</span>
+          <span className="role-avatar__status" aria-hidden="true" />
+        </span>
+      ))}
+      {hiddenCount > 0 ? <span className="role-avatar-overflow">+{hiddenCount}</span> : null}
+    </div>
+  );
+}
