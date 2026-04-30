@@ -296,6 +296,9 @@ export default function Workspace({
         onSelectAgent={onSelectAgent}
         onRemoveParticipant={onRemoveParticipant}
         onClearRoom={onClearRoom}
+        joinRequests={room.joinRequests}
+        onApproveJoinRequest={onApproveJoinRequest}
+        onRejectJoinRequest={onRejectJoinRequest}
         createdInvite={createdInvite}
         cloudMode={cloudMode}
         createdPairing={createdPairing}

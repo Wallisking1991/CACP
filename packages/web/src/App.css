@@ -1787,6 +1787,10 @@ textarea.input {
   color: #fff7ec;
 }
 
+.agent-cockpit .claude-session-picker {
+  color: var(--ink);
+}
+
 @keyframes studio-breathe {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.04); }
@@ -1892,6 +1896,18 @@ textarea.input {
     flex: 1;
     min-width: 0;
     justify-content: space-between;
+  }
+
+  .room-identity h2 {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .room-identity p {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .role-avatar-rail {

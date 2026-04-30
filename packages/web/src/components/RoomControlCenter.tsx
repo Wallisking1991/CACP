@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import type { AgentView, ParticipantView, ClaudeSessionCatalogView, ClaudeSessionSelectionView, ClaudeSessionPreviewView, ClaudeRuntimeStatusView } from "../room-state.js";
+import type { AgentView, ParticipantView, ClaudeSessionCatalogView, ClaudeSessionSelectionView, ClaudeSessionPreviewView, ClaudeRuntimeStatusView, JoinRequestView } from "../room-state.js";
 import { useT } from "../i18n/useT.js";
 import { SoundIcon } from "./RoomIcons.js";
 import { ClaudeSessionPicker } from "./ClaudeSessionPicker.js";
@@ -24,6 +24,9 @@ export interface RoomControlCenterProps {
   onSelectAgent: (agentId: string) => void;
   onRemoveParticipant: (participantId: string) => void;
   onClearRoom: () => void;
+  joinRequests: JoinRequestView[];
+  onApproveJoinRequest: (requestId: string) => void;
+  onRejectJoinRequest: (requestId: string) => void;
   createdInvite?: { url: string; role: string; ttl: number };
   cloudMode?: boolean;
   createdPairing?: { connection_code: string; download_url: string; expires_at: string };
@@ -158,38 +161,85 @@ export function RoomControlCenter(props: RoomControlCenterProps) {
                   ) : null}
                 </div>
               ))}
+              {props.isOwner && props.joinRequests.length > 0 ? (
+                <div style={{ marginTop: 16 }}>
+                  <div className="sidebar-card-title-row" style={{ marginBottom: 8 }}>
+                    <span className="section-label">{t("sidebar.joinRequestsLabel")}</span>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: "var(--ink-4)",
+                        background: "var(--surface-warm)",
+                        border: "1px solid var(--border-soft)",
+                        borderRadius: "var(--radius-chip)",
+                        padding: "2px 8px",
+                      }}
+                    >
+                      {props.joinRequests.length}
+                    </span>
+                  </div>
+                  {props.joinRequests.map((req) => (
+                    <div key={req.request_id} className="people-row">
+                      <span style={{ fontSize: 13 }}>{req.display_name}</span>
+                      <span style={{ display: "flex", gap: 4 }}>
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          style={{ padding: "2px 8px", fontSize: 11 }}
+                          onClick={() => props.onApproveJoinRequest(req.request_id)}
+                        >
+                          {t("sidebar.approve")}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          style={{ padding: "2px 8px", fontSize: 11 }}
+                          onClick={() => props.onRejectJoinRequest(req.request_id)}
+                        >
+                          {t("sidebar.reject")}
+                        </button>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </section>
           )}
           {section === "invite" && (
             <section>
               <h3>{t("sidebar.inviteLabel")}</h3>
               <p>{t("sidebar.inviteCount", { count: props.inviteCount })}</p>
-              <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-                <select
-                  className="input"
-                  value={inviteRole}
-                  onChange={(e) => setInviteRole(e.target.value)}
-                  aria-label={t("role.label")}
-                  style={{ fontSize: 12, padding: "6px 8px", minWidth: 100 }}
-                >
-                  <option value="member">{t("role.member")}</option>
-                  <option value="observer">{t("role.observer")}</option>
-                </select>
-                <select
-                  className="input"
-                  value={inviteTtl}
-                  onChange={(e) => setInviteTtl(Number(e.target.value))}
-                  aria-label={t("sidebar.ttlLabel")}
-                  style={{ fontSize: 12, padding: "6px 8px", minWidth: 100 }}
-                >
-                  <option value={3600}>{t("sidebar.ttl1h")}</option>
-                  <option value={86400}>{t("sidebar.ttl24h")}</option>
-                  <option value={604800}>{t("sidebar.ttl7d")}</option>
-                </select>
-                <button type="button" className="btn btn-warm" style={{ fontSize: 12, padding: "6px 12px" }} onClick={() => void handleCreateInvite()}>
-                  {t("sidebar.copyInvite")}
-                </button>
-              </div>
+              {props.canManageRoom ? (
+                <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                  <select
+                    className="input"
+                    value={inviteRole}
+                    onChange={(e) => setInviteRole(e.target.value)}
+                    aria-label={t("role.label")}
+                    style={{ fontSize: 12, padding: "6px 8px", minWidth: 100 }}
+                  >
+                    <option value="member">{t("role.member")}</option>
+                    <option value="observer">{t("role.observer")}</option>
+                  </select>
+                  <select
+                    className="input"
+                    value={inviteTtl}
+                    onChange={(e) => setInviteTtl(Number(e.target.value))}
+                    aria-label={t("sidebar.ttlLabel")}
+                    style={{ fontSize: 12, padding: "6px 8px", minWidth: 100 }}
+                  >
+                    <option value={3600}>{t("sidebar.ttl1h")}</option>
+                    <option value={86400}>{t("sidebar.ttl24h")}</option>
+                    <option value={604800}>{t("sidebar.ttl7d")}</option>
+                  </select>
+                  <button type="button" className="btn btn-warm" style={{ fontSize: 12, padding: "6px 12px" }} onClick={() => void handleCreateInvite()} aria-label={t("sidebar.createAndCopyInvite")}>
+                    {t("sidebar.copyInvite")}
+                  </button>
+                </div>
+              ) : (
+                <p style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 8 }}>{t("sidebar.inviteOwnerOnly")}</p>
+              )}
               {props.createdInvite ? (
                 <div style={{ marginTop: 8 }}>
                   <code
@@ -214,6 +264,7 @@ export function RoomControlCenter(props: RoomControlCenterProps) {
                       type="button"
                       className="btn btn-ghost"
                       style={{ fontSize: 11, padding: "4px 8px" }}
+                      aria-label={t("sidebar.copyInviteLink")}
                       onClick={() => navigator.clipboard.writeText(props.createdInvite!.url).catch(() => {})}
                     >
                       {t("sidebar.copyInvite")}
