@@ -12,8 +12,10 @@ export interface HeaderProps {
   roomId: string;
   userDisplayName?: string;
   userRole?: string;
+  isOwner?: boolean;
   avatarStatuses: AvatarStatusView[];
   onCopyRoomId: (roomId: string) => void;
+  onCreatePairing?: (agentType: string, permissionLevel: string) => Promise<string>;
 }
 
 export default function Header({
@@ -21,8 +23,10 @@ export default function Header({
   roomId,
   userDisplayName,
   userRole,
+  isOwner,
   avatarStatuses,
   onCopyRoomId,
+  onCreatePairing,
 }: HeaderProps) {
   const t = useT();
   const langCtx = useContext(LangContext);
@@ -39,7 +43,9 @@ export default function Header({
         roomId={roomId}
         userDisplayName={userDisplayName}
         userRole={userRole}
+        isOwner={isOwner}
         onCopyRoomId={onCopyRoomId}
+        onCreatePairing={onCreatePairing}
       />
 
       <RoleAvatarRail avatars={avatarStatuses} />

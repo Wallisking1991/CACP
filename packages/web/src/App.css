@@ -1494,6 +1494,56 @@ textarea.input {
   min-height: 32px;
   padding: 6px 10px;
   cursor: pointer;
+  transition: background 200ms ease, color 200ms ease, border-color 200ms ease;
+}
+
+.room-id-chip.copied {
+  background: #dcfce7;
+  color: #15803d;
+  border-color: #86efac;
+}
+
+.room-id-chip-wrapper {
+  position: relative;
+}
+
+.connection-code-panel {
+  z-index: 1000;
+  background: var(--surface-warm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  min-width: 260px;
+  max-width: calc(100vw - 24px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.connection-code-panel .section-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-4);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.connection-code-panel select {
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink-1);
+  font-size: 13px;
+}
+
+.connection-code-panel-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 4px;
 }
 
 .role-avatar-rail {
@@ -1923,6 +1973,10 @@ textarea.input {
     font-size: 11px;
     padding: 4px 8px;
     min-height: 26px;
+  }
+
+  .connection-code-panel {
+    min-width: 240px;
   }
 
   .workspace-header--studio .lang-toggle {

@@ -38,3 +38,12 @@ export function RoundtableIcon(props: IconProps) {
 export function SoundIcon(props: IconProps) {
   return <IconFrame {...props}><path d="M4 10v4h4l5 4V6L8 10H4Z" /><path d="M16 9c1 1 1 5 0 6" /><path d="M19 7c2 3 2 7 0 10" /></IconFrame>;
 }
+
+export function LinkIcon(props: IconProps) {
+  return (
+    <IconFrame {...props}>
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </IconFrame>
+  );
+}

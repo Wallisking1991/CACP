@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import type { CacpEvent } from "@cacp/protocol";
 import type { RoomSession } from "../api.js";
-import { startTyping, stopTyping, updatePresence } from "../api.js";
+import { startTyping, stopTyping, updatePresence, createAgentPairing } from "../api.js";
 import { roomPermissionsForRole } from "../role-permissions.js";
 import { deriveRoomState, humanParticipants, isCollectionActive, isTurnInFlight } from "../room-state.js";
 import { requestClaudeSessionPreview, selectClaudeSession } from "../api.js";
@@ -244,8 +244,17 @@ export default function Workspace({
             roomId={session.room_id}
             userDisplayName={myDisplayName}
             userRole={session.role}
+            isOwner={isOwner}
             avatarStatuses={room.avatarStatuses}
             onCopyRoomId={(roomId) => void navigator.clipboard.writeText(roomId).catch(() => {})}
+            onCreatePairing={async (agentType, permissionLevel) => {
+              const result = await createAgentPairing(session, {
+                agent_type: agentType,
+                permission_level: permissionLevel,
+                working_dir: ".",
+              });
+              return result.connection_code;
+            }}
           />
 
           <Thread
