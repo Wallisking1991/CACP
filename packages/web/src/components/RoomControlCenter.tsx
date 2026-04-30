@@ -50,12 +50,9 @@ function maskInviteUrl(url: string): string {
   try {
     const u = new URL(url);
     const token = u.searchParams.get("token");
-    if (token && token.length > 8) {
-      u.searchParams.set("token", token.slice(0, 4) + "••••" + token.slice(-4));
-    } else if (token) {
-      u.searchParams.set("token", "••••" + token.slice(-4));
-    }
-    return u.toString();
+    if (!token) return url;
+    const masked = token.length > 8 ? token.slice(0, 4) + "••••" + token.slice(-4) : "••••" + token.slice(-4);
+    return url.replace(token, masked);
   } catch {
     return url;
   }
@@ -176,7 +173,6 @@ export function RoomControlCenter(props: RoomControlCenterProps) {
                   style={{ fontSize: 12, padding: "6px 8px", minWidth: 100 }}
                 >
                   <option value="member">{t("role.member")}</option>
-                  <option value="admin">{t("role.admin")}</option>
                   <option value="observer">{t("role.observer")}</option>
                 </select>
                 <select

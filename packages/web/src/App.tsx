@@ -275,7 +275,8 @@ export default function App() {
     setError(undefined);
     setLoading(true);
     try {
-      const invite = await createInvite(session, role as "member" | "observer", ttl);
+      if (role !== "member" && role !== "observer") throw new Error("Invalid invite role");
+      const invite = await createInvite(session, role, ttl);
       const url = inviteUrlFor(window.location.origin, session.room_id, invite.invite_token);
       setCreatedInvite({ url, role, ttl });
       return url;
