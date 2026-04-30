@@ -1670,6 +1670,17 @@ textarea.input {
   transform-origin: center;
 }
 
+.floating-logo-control__mark .logo-wordmark {
+  display: none;
+}
+
+.floating-logo-control__mark .logo-core,
+.floating-logo-control__mark .logo-node,
+.floating-logo-control__mark .logo-orbit-dot {
+  opacity: 1 !important;
+  transform: scale(1) !important;
+}
+
 .floating-logo-control__badge {
   position: absolute;
   top: -4px;
@@ -1702,6 +1713,8 @@ textarea.input {
   width: min(920px, 96vw);
   max-height: min(760px, 92dvh);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--border);
   border-radius: 24px;
   background: var(--studio-panel-strong);
@@ -1712,6 +1725,9 @@ textarea.input {
 .room-control-center__tabs,
 .room-control-center__body {
   padding: 18px 22px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
 }
 
 .room-control-center__header {
@@ -1841,12 +1857,15 @@ textarea.input {
 
   /* Studio layout mobile */
   .workspace-header--studio {
-    align-items: flex-start;
-    flex-direction: column;
+    align-items: center;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 12px;
   }
 
   .room-identity {
-    width: 100%;
+    flex: 1;
     min-width: 0;
     justify-content: space-between;
   }
@@ -1856,6 +1875,12 @@ textarea.input {
     justify-content: flex-start;
     overflow-x: auto;
     padding-bottom: 2px;
+    order: 3;
+  }
+
+  .workspace-header--studio .lang-toggle {
+    order: 2;
+    flex-shrink: 0;
   }
 
   .room-control-overlay {

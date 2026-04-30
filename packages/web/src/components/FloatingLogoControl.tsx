@@ -8,6 +8,8 @@ export interface FloatingLogoControlProps {
   storageKey?: string;
 }
 
+const DRAG_THRESHOLD_PX = 5;
+
 function readY(storageKey: string): number {
   if (typeof localStorage === "undefined") return 50;
   const raw = localStorage.getItem(storageKey);
@@ -21,6 +23,8 @@ export function FloatingLogoControl({ active, pendingCount, onOpen, storageKey =
   const draggingRef = useRef(false);
   const dragStartYRef = useRef(0);
   const dragStartTopRef = useRef(0);
+  const dragStartXRef = useRef(0);
+  const hasDraggedRef = useRef(false);
 
   function persist(next: number): void {
     const clamped = Math.min(85, Math.max(15, next));
@@ -30,13 +34,20 @@ export function FloatingLogoControl({ active, pendingCount, onOpen, storageKey =
 
   function handlePointerDown(event: React.PointerEvent<HTMLButtonElement>): void {
     draggingRef.current = true;
+    hasDraggedRef.current = false;
     dragStartYRef.current = event.clientY;
+    dragStartXRef.current = event.clientX;
     dragStartTopRef.current = y;
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
   function handlePointerMove(event: React.PointerEvent<HTMLButtonElement>): void {
     if (!draggingRef.current) return;
+    const deltaY = Math.abs(event.clientY - dragStartYRef.current);
+    const deltaX = Math.abs(event.clientX - dragStartXRef.current);
+    if (deltaY > DRAG_THRESHOLD_PX || deltaX > DRAG_THRESHOLD_PX) {
+      hasDraggedRef.current = true;
+    }
     const deltaPx = event.clientY - dragStartYRef.current;
     const deltaPercent = (deltaPx / window.innerHeight) * 100;
     persist(dragStartTopRef.current + deltaPercent);
@@ -46,12 +57,21 @@ export function FloatingLogoControl({ active, pendingCount, onOpen, storageKey =
     draggingRef.current = false;
   }
 
+  function handleClick(event: React.MouseEvent<HTMLButtonElement>): void {
+    if (hasDraggedRef.current) {
+      event.stopPropagation();
+      hasDraggedRef.current = false;
+      return;
+    }
+    onOpen();
+  }
+
   return (
     <button
       type="button"
       className={`floating-logo-control ${active ? "is-active" : ""}`}
       style={{ top: `${y}%` }}
-      onClick={onOpen}
+      onClick={handleClick}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
