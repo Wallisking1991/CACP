@@ -89,6 +89,34 @@ export interface ClaudeRuntimeStatusView {
   error?: string;
 }
 
+export type ParticipantPresenceView = "online" | "idle" | "offline";
+export type AvatarStatusKind = "working" | "typing" | "roundtable" | "online" | "idle" | "offline";
+export type AvatarStatusGroup = "humans" | "agents";
+
+export interface ParticipantActivityView {
+  participant_id: string;
+  presence: ParticipantPresenceView;
+  typing: boolean;
+  typing_updated_at?: string;
+  updated_at?: string;
+}
+
+export interface AvatarStatusView {
+  id: string;
+  display_name: string;
+  role: string;
+  kind: "human" | "agent";
+  group: AvatarStatusGroup;
+  status: AvatarStatusKind;
+  capabilities?: string[];
+  active: boolean;
+}
+
+export interface DeriveRoomStateOptions {
+  now?: string;
+  typingTtlMs?: number;
+}
+
 export interface RoomViewState {
   participants: ParticipantView[];
   agents: AgentView[];
@@ -107,6 +135,9 @@ export interface RoomViewState {
   claudeSessionPreviews: ClaudeSessionPreviewView[];
   claudeImports: ClaudeImportView[];
   claudeRuntimeStatuses: ClaudeRuntimeStatusView[];
+  participantActivity: Map<string, ParticipantActivityView>;
+  avatarStatuses: AvatarStatusView[];
+  latestSenderId?: string;
 }
 
 function failedTurnMessage(event: CacpEvent, streamedText: string | undefined): MessageView | undefined {
@@ -192,7 +223,33 @@ function isValidJoinRequestStatus(value: unknown): value is JoinRequestView["sta
   return value === "pending" || value === "approved" || value === "rejected" || value === "expired";
 }
 
-export function deriveRoomState(events: CacpEvent[]): RoomViewState {
+function activityFor(activity: Map<string, ParticipantActivityView>, participantId: string): ParticipantActivityView {
+  const existing = activity.get(participantId);
+  if (existing) return existing;
+  const next: ParticipantActivityView = { participant_id: participantId, presence: "online", typing: false };
+  activity.set(participantId, next);
+  return next;
+}
+
+function typingIsFresh(typingAt: string | undefined, nowMs: number, ttlMs: number): boolean {
+  if (!typingAt) return false;
+  const started = Date.parse(typingAt);
+  if (Number.isNaN(started)) return false;
+  return nowMs - started <= ttlMs;
+}
+
+function avatarPriority(status: AvatarStatusKind): number {
+  switch (status) {
+    case "working": return 0;
+    case "typing": return 1;
+    case "roundtable": return 2;
+    case "online": return 3;
+    case "idle": return 4;
+    case "offline": return 5;
+  }
+}
+
+export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOptions = {}): RoomViewState {
   const participants = new Map<string, ParticipantView>();
   const agents = new Map<string, AgentView>();
   const messages: MessageView[] = [];
@@ -208,6 +265,10 @@ export function deriveRoomState(events: CacpEvent[]): RoomViewState {
   const claudeSessionPreviews = new Map<string, ClaudeSessionPreviewView>();
   const claudeImports = new Map<string, ClaudeImportView>();
   const claudeRuntimeStatuses = new Map<string, ClaudeRuntimeStatusView>();
+  const participantActivity = new Map<string, ParticipantActivityView>();
+  let latestSenderId: string | undefined;
+  const nowMs = Date.parse(options.now ?? new Date().toISOString());
+  const typingTtlMs = options.typingTtlMs ?? 5000;
   const historyClear = lastHistoryClear(events);
   const scopedEvents = events.slice(historyClear.index + 1);
 
@@ -270,6 +331,31 @@ export function deriveRoomState(events: CacpEvent[]): RoomViewState {
       agents.set(event.payload.agent_id, { ...existing, status: event.payload.status === "online" ? "online" : "offline", last_status_at: event.created_at });
     }
     if (event.type === "room.agent_selected" && typeof event.payload.agent_id === "string") activeAgentId = event.payload.agent_id;
+    if (event.type === "participant.presence_changed") {
+      const participantId = typeof event.payload.participant_id === "string" ? event.payload.participant_id : undefined;
+      const presence = event.payload.presence === "online" || event.payload.presence === "idle" || event.payload.presence === "offline" ? event.payload.presence : undefined;
+      if (participantId && presence) {
+        const activity = activityFor(participantActivity, participantId);
+        activity.presence = presence;
+        activity.updated_at = typeof event.payload.updated_at === "string" ? event.payload.updated_at : event.created_at;
+      }
+    }
+    if (event.type === "participant.typing_started") {
+      const participantId = typeof event.payload.participant_id === "string" ? event.payload.participant_id : undefined;
+      if (participantId) {
+        const activity = activityFor(participantActivity, participantId);
+        activity.typing = true;
+        activity.typing_updated_at = typeof event.payload.started_at === "string" ? event.payload.started_at : event.created_at;
+      }
+    }
+    if (event.type === "participant.typing_stopped") {
+      const participantId = typeof event.payload.participant_id === "string" ? event.payload.participant_id : undefined;
+      if (participantId) {
+        const activity = activityFor(participantActivity, participantId);
+        activity.typing = false;
+        activity.typing_updated_at = typeof event.payload.stopped_at === "string" ? event.payload.stopped_at : event.created_at;
+      }
+    }
     if (event.type === "claude.session_catalog.updated" && typeof event.payload.agent_id === "string" && typeof event.payload.working_dir === "string" && Array.isArray(event.payload.sessions)) {
       claudeSessionCatalog = {
         agent_id: event.payload.agent_id,
@@ -469,6 +555,9 @@ export function deriveRoomState(events: CacpEvent[]): RoomViewState {
         });
       }
     }
+    if (event.type === "message.created" && typeof event.payload.text === "string") {
+      latestSenderId = event.actor_id;
+    }
     if (event.type === "agent.turn.started" && typeof event.payload.turn_id === "string" && typeof event.payload.agent_id === "string") streamingTurns.set(event.payload.turn_id, { turn_id: event.payload.turn_id, agent_id: event.payload.agent_id, text: "" });
     if (event.type === "agent.output.delta" && typeof event.payload.turn_id === "string" && typeof event.payload.agent_id === "string" && typeof event.payload.chunk === "string") {
       const current = streamingTurns.get(event.payload.turn_id) ?? { turn_id: event.payload.turn_id, agent_id: event.payload.agent_id, text: "" };
@@ -482,12 +571,74 @@ export function deriveRoomState(events: CacpEvent[]): RoomViewState {
     }
   }
 
+  for (const activity of participantActivity.values()) {
+    if (activity.typing && !typingIsFresh(activity.typing_updated_at, nowMs, typingTtlMs)) {
+      activity.typing = false;
+    }
+  }
+
   const collectionViews = [...collections.values()];
   const activeCollection = [...collectionViews].reverse().find((collection) => !collection.submitted_at && !collection.cancelled_at);
   const collectionHistory = collectionViews.filter((collection) => Boolean(collection.submitted_at || collection.cancelled_at));
   // Only one pending Roundtable request is allowed per room in this version.
   // We intentionally expose only the first (oldest) pending request.
   const pendingRoundtableRequest = [...roundtableRequests.values()][0];
+
+  const workingAgentIds = new Set<string>([...streamingTurns.values()].map((turn) => turn.agent_id));
+  for (const status of claudeRuntimeStatuses.values()) {
+    if (status.phase !== "completed" && status.phase !== "failed") workingAgentIds.add(status.agent_id);
+  }
+
+  const roundtableParticipantIds = new Set<string>();
+  if (activeCollection) {
+    for (const participant of participants.values()) {
+      if (participant.type !== "agent") roundtableParticipantIds.add(participant.id);
+    }
+  }
+  if (pendingRoundtableRequest) roundtableParticipantIds.add(pendingRoundtableRequest.requested_by);
+
+  const avatarStatuses: AvatarStatusView[] = [
+    ...[...participants.values()].map((participant): AvatarStatusView => {
+      const activity = participantActivity.get(participant.id);
+      const status: AvatarStatusKind = activity?.typing
+        ? "typing"
+        : roundtableParticipantIds.has(participant.id)
+          ? "roundtable"
+          : activity?.presence === "idle"
+            ? "idle"
+            : activity?.presence === "offline"
+              ? "offline"
+              : "online";
+      return {
+        id: participant.id,
+        display_name: participant.display_name,
+        role: participant.role,
+        kind: "human",
+        group: "humans",
+        status,
+        active: status === "typing" || status === "roundtable" || participant.id === latestSenderId
+      };
+    }),
+    ...[...agents.values()].map((agent): AvatarStatusView => {
+      const status: AvatarStatusKind = workingAgentIds.has(agent.agent_id)
+        ? "working"
+        : agent.status === "offline"
+          ? "offline"
+          : agent.status === "online"
+            ? "online"
+            : "idle";
+      return {
+        id: agent.agent_id,
+        display_name: agent.name,
+        role: "agent",
+        kind: "agent",
+        group: "agents",
+        status,
+        capabilities: agent.capabilities,
+        active: status === "working" || agent.agent_id === activeAgentId
+      };
+    })
+  ].sort((a, b) => avatarPriority(a.status) - avatarPriority(b.status) || a.display_name.localeCompare(b.display_name));
 
   return {
     participants: [...participants.values()],
@@ -508,7 +659,10 @@ export function deriveRoomState(events: CacpEvent[]): RoomViewState {
     claudeImports: [...claudeImports.values()],
     claudeRuntimeStatuses: [...claudeRuntimeStatuses.values()]
       .sort((a, b) => (b.updated_at ?? b.started_at ?? "").localeCompare(a.updated_at ?? a.started_at ?? ""))
-      .slice(0, 1)
+      .slice(0, 1),
+    participantActivity,
+    avatarStatuses,
+    latestSenderId
   };
 }
 

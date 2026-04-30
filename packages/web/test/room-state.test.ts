@@ -416,4 +416,35 @@ describe("room state", () => {
     expect(state.claudeRuntimeStatuses[0].turn_id).toBe("turn_2");
     expect(state.claudeRuntimeStatuses[0].phase).toBe("thinking");
   });
+
+  it("derives participant activity and avatar statuses with priority", () => {
+    const state = deriveRoomState([
+      event("participant.joined", { participant: { id: "user_1", display_name: "Alice", role: "owner", type: "human" } }, 1, "user_1"),
+      event("participant.joined", { participant: { id: "user_2", display_name: "Bob", role: "member", type: "human" } }, 2, "user_2"),
+      event("agent.registered", { agent_id: "agent_1", name: "Claude Code Agent", capabilities: ["claude-code", "repo.read"] }, 3, "agent_1"),
+      event("room.agent_selected", { agent_id: "agent_1" }, 4, "user_1"),
+      event("participant.presence_changed", { participant_id: "user_2", presence: "idle", updated_at: "2026-04-25T00:00:05.000Z" }, 5, "user_2"),
+      event("participant.typing_started", { participant_id: "user_2", scope: "room", started_at: "2026-04-25T00:00:06.000Z" }, 6, "user_2"),
+      event("agent.turn.started", { turn_id: "turn_1", agent_id: "agent_1" }, 7, "agent_1")
+    ], { now: "2026-04-25T00:00:07.000Z" });
+
+    expect(state.participantActivity.get("user_2")).toMatchObject({ presence: "idle", typing: true });
+    expect(state.avatarStatuses.find((item) => item.id === "user_2")).toMatchObject({ kind: "human", status: "typing", group: "humans" });
+    expect(state.avatarStatuses.find((item) => item.id === "agent_1")).toMatchObject({ kind: "agent", status: "working", group: "agents" });
+  });
+
+  it("expires stale typing indicators and clears typing on stop", () => {
+    const stale = deriveRoomState([
+      event("participant.joined", { participant: { id: "user_2", display_name: "Bob", role: "member", type: "human" } }, 1, "user_2"),
+      event("participant.typing_started", { participant_id: "user_2", scope: "room", started_at: "2026-04-25T00:00:01.000Z" }, 2, "user_2")
+    ], { now: "2026-04-25T00:00:10.000Z" });
+    expect(stale.participantActivity.get("user_2")?.typing).toBe(false);
+
+    const stopped = deriveRoomState([
+      event("participant.joined", { participant: { id: "user_2", display_name: "Bob", role: "member", type: "human" } }, 1, "user_2"),
+      event("participant.typing_started", { participant_id: "user_2", scope: "room", started_at: "2026-04-25T00:00:01.000Z" }, 2, "user_2"),
+      event("participant.typing_stopped", { participant_id: "user_2", scope: "room", stopped_at: "2026-04-25T00:00:02.000Z" }, 3, "user_2")
+    ], { now: "2026-04-25T00:00:03.000Z" });
+    expect(stopped.participantActivity.get("user_2")?.typing).toBe(false);
+  });
 });
