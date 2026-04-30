@@ -3,6 +3,7 @@ import { useT } from "../i18n/useT.js";
 import type { ClaudeImportView, MessageView, StreamingTurnView } from "../room-state.js";
 
 export interface ThreadProps {
+  currentParticipantId: string;
   messages: MessageView[];
   streamingTurns: StreamingTurnView[];
   actorNames: Map<string, string>;
@@ -11,15 +12,13 @@ export interface ThreadProps {
   claudeImports?: ClaudeImportView[];
 }
 
-function messageClass(kind: string, collectionId: string | undefined, activeCollectionId: string | undefined): string {
-  const base = "message";
+function messageClass(kind: string, actorId: string, currentParticipantId: string, collectionId: string | undefined, activeCollectionId: string | undefined): string {
   const isQueued = Boolean(collectionId) && collectionId === activeCollectionId;
-  if (isQueued) return `${base} message-queued`;
-  switch (kind) {
-    case "agent": return `${base} message-agent`;
-    case "system": return `${base} message-system`;
-    default: return `${base} message-human`;
-  }
+  if (isQueued) return "message message-roundtable-queued";
+  if (kind === "agent") return "message message-ai-card";
+  if (kind === "system") return "message message-system-marker";
+  if (actorId === currentParticipantId) return "message message-own";
+  return "message message-human-other";
 }
 
 function roleLabel(kind: string, collectionId: string | undefined, activeCollectionId: string | undefined, t: ReturnType<typeof useT>): string {
@@ -33,6 +32,7 @@ function roleLabel(kind: string, collectionId: string | undefined, activeCollect
 }
 
 export default function Thread({
+  currentParticipantId,
   messages,
   streamingTurns,
   actorNames,
@@ -44,7 +44,9 @@ export default function Thread({
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (typeof bottomRef.current?.scrollIntoView === "function") {
+      bottomRef.current.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages.length, streamingTurns.length, streamingTurns.map((t) => t.text).join("|")]);
 
   const isEmpty = messages.length === 0 && streamingTurns.length === 0;
@@ -97,7 +99,7 @@ export default function Thread({
         return (
           <article
             key={msg.message_id ?? `${msg.actor_id}-${msg.created_at}`}
-            className={messageClass(msg.kind, msg.collection_id, activeCollectionId)}
+            className={messageClass(msg.kind, msg.actor_id, currentParticipantId, msg.collection_id, activeCollectionId)}
           >
             <div className="message-meta">
               <span>{actorName}</span>
@@ -111,7 +113,7 @@ export default function Thread({
       {streamingTurns.map((turn) => {
         const agentName = actorNames.get(turn.agent_id) ?? turn.agent_id;
         return (
-          <article key={turn.turn_id} className="message message-agent streaming-bubble">
+          <article key={turn.turn_id} className="message message-ai-card streaming-bubble">
             <div className="message-meta">
               <span>{agentName}</span>
               <span>{t("message.ai")}</span>
