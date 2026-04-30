@@ -262,6 +262,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
   const pairingClaimLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.joinAttemptLimit });
   const messageLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.messageCreateLimit });
   const joinRequestPollLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.joinAttemptLimit * 2 });
+  const presenceLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.presenceChangeLimit });
+  const typingLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.typingEventLimit });
   const socketCounts = new Map<string, number>();
   const participantSockets = new Map<string, Set<{ close: (code?: number, reason?: string) => void }>>();
 
@@ -853,6 +855,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       if (revoked) return deny(reply, "participant_removed", 403);
       return deny(reply, "invalid_token");
     }
+    if (!presenceLimiter.allow(participant.id)) return tooMany(reply);
     const body = PresenceBodySchema.parse(request.body ?? {});
     appendAndPublish(event(request.params.roomId, "participant.presence_changed", participant.id, {
       participant_id: participant.id,
@@ -870,6 +873,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       if (revoked) return deny(reply, "participant_removed", 403);
       return deny(reply, "invalid_token");
     }
+    if (!typingLimiter.allow(participant.id)) return tooMany(reply);
     EmptyObjectBodySchema.parse(request.body ?? {});
     appendAndPublish(event(request.params.roomId, "participant.typing_started", participant.id, {
       participant_id: participant.id,
@@ -887,6 +891,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       if (revoked) return deny(reply, "participant_removed", 403);
       return deny(reply, "invalid_token");
     }
+    if (!typingLimiter.allow(participant.id)) return tooMany(reply);
     EmptyObjectBodySchema.parse(request.body ?? {});
     appendAndPublish(event(request.params.roomId, "participant.typing_stopped", participant.id, {
       participant_id: participant.id,
