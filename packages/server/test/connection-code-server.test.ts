@@ -1,26 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { parseConnectionCode } from "@cacp/protocol";
 import { buildServer } from "../src/server.js";
+import { cloudTestConfig } from "./test-config.js";
 
 describe("agent pairing connection codes", () => {
   it("returns a connection code without exposing a raw pairing token", async () => {
-    const app = await buildServer({ dbPath: ":memory:", config: {
-      deploymentMode: "cloud",
-      enableLocalLaunch: false,
-      publicOrigin: "https://cacp.example.com",
-      tokenSecret: "0123456789abcdef0123456789abcdef",
-      bodyLimitBytes: 1024 * 1024,
-      maxMessageLength: 4000,
-      maxParticipantsPerRoom: 20,
-      maxAgentsPerRoom: 3,
-      maxSocketsPerRoom: 50,
-      rateLimitWindowMs: 60_000,
-      roomCreateLimit: 20,
-      inviteCreateLimit: 60,
-      joinAttemptLimit: 60,
-      pairingCreateLimit: 30,
-      messageCreateLimit: 120
-    } });
+    const app = await buildServer({ dbPath: ":memory:", config: cloudTestConfig() });
     const room = (await app.inject({ method: "POST", url: "/rooms", payload: { name: "Room", display_name: "Owner" } })).json() as { room_id: string; owner_token: string };
     const response = await app.inject({
       method: "POST",

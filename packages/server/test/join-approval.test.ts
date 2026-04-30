@@ -1,26 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildServer } from "../src/server.js";
-
-function cloudConfig() {
-  return {
-    deploymentMode: "cloud" as const,
-    enableLocalLaunch: false,
-    publicOrigin: "https://cacp.example.com",
-    tokenSecret: "0123456789abcdef0123456789abcdef",
-    bodyLimitBytes: 1024 * 1024,
-    maxMessageLength: 4000,
-    maxParticipantsPerRoom: 20,
-    maxAgentsPerRoom: 3,
-    maxSocketsPerRoom: 50,
-    rateLimitWindowMs: 60_000,
-    roomCreateLimit: 20,
-    inviteCreateLimit: 60,
-    joinAttemptLimit: 60,
-    pairingCreateLimit: 30,
-    messageCreateLimit: 120
-  };
-}
+import { cloudTestConfig } from "./test-config.js";
 
 async function owner(app: FastifyInstance) {
   const created = await app.inject({ method: "POST", url: "/rooms", payload: { name: "Room", display_name: "Owner" } });
@@ -43,7 +24,7 @@ describe("join approval endpoints", () => {
   afterEach(async () => { await app?.close(); app = undefined; });
 
   it("requires owner approval before returning a participant token", async () => {
-    app = await buildServer({ dbPath: ":memory:", config: cloudConfig() });
+    app = await buildServer({ dbPath: ":memory:", config: cloudTestConfig() });
     const room = await owner(app);
     const createdInvite = await invite(app, room.room_id, room.owner_token);
 
@@ -82,7 +63,7 @@ describe("join approval endpoints", () => {
   });
 
   it("makes each invite token single-use", async () => {
-    app = await buildServer({ dbPath: ":memory:", config: cloudConfig() });
+    app = await buildServer({ dbPath: ":memory:", config: cloudTestConfig() });
     const room = await owner(app);
     const createdInvite = await invite(app, room.room_id, room.owner_token);
     const first = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/join-requests`, payload: { invite_token: createdInvite.invite_token, display_name: "Alice" } });
@@ -93,7 +74,7 @@ describe("join approval endpoints", () => {
   });
 
   it("rejects and expires pending requests without issuing tokens", async () => {
-    app = await buildServer({ dbPath: ":memory:", config: cloudConfig() });
+    app = await buildServer({ dbPath: ":memory:", config: cloudTestConfig() });
     const room = await owner(app);
     const createdInvite = await invite(app, room.room_id, room.owner_token);
     const pending = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/join-requests`, payload: { invite_token: createdInvite.invite_token, display_name: "Alice" } });

@@ -5,25 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { EventStore } from "../src/event-store.js";
 import { buildServer } from "../src/server.js";
-
-function config() {
-  return {
-    deploymentMode: "local" as const,
-    enableLocalLaunch: true,
-    tokenSecret: "0123456789abcdef0123456789abcdef",
-    bodyLimitBytes: 1024 * 1024,
-    maxMessageLength: 4000,
-    maxParticipantsPerRoom: 20,
-    maxAgentsPerRoom: 3,
-    maxSocketsPerRoom: 50,
-    rateLimitWindowMs: 60_000,
-    roomCreateLimit: 20,
-    inviteCreateLimit: 60,
-    joinAttemptLimit: 60,
-    pairingCreateLimit: 30,
-    messageCreateLimit: 120
-  };
-}
+import { localTestConfig } from "./test-config.js";
 
 async function joinViaApproval(app: FastifyInstance, roomId: string, ownerToken: string, inviteToken: string, displayName: string) {
   const pending = await app.inject({ method: "POST", url: `/rooms/${roomId}/join-requests`, payload: { invite_token: inviteToken, display_name: displayName } });
@@ -41,7 +23,7 @@ describe("participant removal", () => {
   afterEach(async () => { await app?.close(); app = undefined; });
 
   it("revokes a member token and records a removal event", async () => {
-    app = await buildServer({ dbPath: ":memory:", config: config() });
+    app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     const room = (await app.inject({ method: "POST", url: "/rooms", payload: { name: "Room", display_name: "Owner" } })).json() as { room_id: string; owner_token: string };
     const invite = (await app.inject({ method: "POST", url: `/rooms/${room.room_id}/invites`, headers: { authorization: `Bearer ${room.owner_token}` }, payload: { role: "member" } })).json() as { invite_token: string };
     const joined = await joinViaApproval(app, room.room_id, room.owner_token, invite.invite_token, "Alice");
@@ -71,7 +53,7 @@ describe("participant removal", () => {
     const tempDir = mkdtempSync(join(tmpdir(), "cacp-owner-leave-"));
     const dbPath = join(tempDir, "room.db");
     try {
-      app = await buildServer({ dbPath, config: config() });
+      app = await buildServer({ dbPath, config: localTestConfig() });
       const room = (await app.inject({ method: "POST", url: "/rooms", payload: { name: "Room", display_name: "Owner" } })).json() as { room_id: string; owner_token: string; owner_id: string };
       const ownerAuth = { authorization: `Bearer ${room.owner_token}` };
       const invite = (await app.inject({ method: "POST", url: `/rooms/${room.room_id}/invites`, headers: ownerAuth, payload: { role: "member" } })).json() as { invite_token: string };
@@ -131,7 +113,7 @@ describe("participant removal", () => {
   });
 
   it("does not allow removing the owner", async () => {
-    app = await buildServer({ dbPath: ":memory:", config: config() });
+    app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     const room = (await app.inject({ method: "POST", url: "/rooms", payload: { name: "Room", display_name: "Owner" } })).json() as { room_id: string; owner_token: string; owner_id: string };
     const removed = await app.inject({
       method: "POST",

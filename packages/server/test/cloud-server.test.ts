@@ -5,29 +5,10 @@ import { describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { parseConnectionCode } from "@cacp/protocol";
 import { buildServer } from "../src/server.js";
-
-function cloudConfig() {
-  return {
-    deploymentMode: "cloud" as const,
-    enableLocalLaunch: false,
-    publicOrigin: "https://cacp.zuchongai.com",
-    tokenSecret: "0123456789abcdef0123456789abcdef",
-    bodyLimitBytes: 1024 * 1024,
-    maxMessageLength: 4000,
-    maxParticipantsPerRoom: 20,
-    maxAgentsPerRoom: 3,
-    maxSocketsPerRoom: 50,
-    rateLimitWindowMs: 60_000,
-    roomCreateLimit: 20,
-    inviteCreateLimit: 60,
-    joinAttemptLimit: 60,
-    pairingCreateLimit: 30,
-    messageCreateLimit: 120
-  };
-}
+import { cloudTestConfig } from "./test-config.js";
 
 async function createCloudRoom(dbPath: string) {
-  const app = await buildServer({ dbPath, config: cloudConfig() });
+  const app = await buildServer({ dbPath, config: cloudTestConfig() });
   const response = await app.inject({
     method: "POST",
     url: "/rooms",
@@ -59,7 +40,7 @@ describe("cloud server endpoints", () => {
       await first.close();
       first = undefined;
 
-      second = await buildServer({ dbPath, config: cloudConfig() });
+      second = await buildServer({ dbPath, config: cloudTestConfig() });
       const pending = await second.inject({ method: "POST", url: `/rooms/${createdFirst.created.room_id}/join-requests`, payload: { invite_token: inviteToken, display_name: "Bob" } });
       expect(pending.statusCode).toBe(201);
       const request = pending.json() as { request_id: string; request_token: string };
@@ -123,7 +104,7 @@ describe("cloud server endpoints", () => {
       await first.close();
       first = undefined;
 
-      second = await buildServer({ dbPath, config: cloudConfig() });
+      second = await buildServer({ dbPath, config: cloudTestConfig() });
       const claimResponse = await second.inject({
         method: "POST",
         url: `/agent-pairings/${pairingToken}/claim`,
@@ -152,7 +133,7 @@ describe("cloud server endpoints", () => {
     let launchCount = 0;
     const app = await buildServer({
       dbPath: ":memory:",
-      config: cloudConfig(),
+      config: cloudTestConfig(),
       localAgentLauncher: () => {
         launchCount += 1;
         return { pid: 12345 };
@@ -180,7 +161,7 @@ describe("cloud server endpoints", () => {
   });
 
   it("rejects messages longer than configured max", async () => {
-    const app = await buildServer({ dbPath: ":memory:", config: cloudConfig() });
+    const app = await buildServer({ dbPath: ":memory:", config: cloudTestConfig() });
     const roomResponse = await app.inject({ method: "POST", url: "/rooms", payload: { name: "Limit Room", display_name: "Alice" } });
     const created = roomResponse.json<{ room_id: string; owner_token: string }>();
 
@@ -197,7 +178,7 @@ describe("cloud server endpoints", () => {
   });
 
   it("rate limits room creation", async () => {
-    const limitedConfig = { ...cloudConfig(), roomCreateLimit: 1 };
+    const limitedConfig = { ...cloudTestConfig(), roomCreateLimit: 1 };
     const app = await buildServer({ dbPath: ":memory:", config: limitedConfig });
 
     const first = await app.inject({ method: "POST", url: "/rooms", payload: { name: "Room A", display_name: "Alice" } });
@@ -211,7 +192,7 @@ describe("cloud server endpoints", () => {
   });
 
   it("enforces max participants per room", async () => {
-    const limitedConfig = { ...cloudConfig(), maxParticipantsPerRoom: 1 };
+    const limitedConfig = { ...cloudTestConfig(), maxParticipantsPerRoom: 1 };
     const app = await buildServer({ dbPath: ":memory:", config: limitedConfig });
     const roomResponse = await app.inject({ method: "POST", url: "/rooms", payload: { name: "Small Room", display_name: "Alice" } });
     const created = roomResponse.json<{ room_id: string; owner_token: string }>();
@@ -236,7 +217,7 @@ describe("cloud server endpoints", () => {
   });
 
   it("enforces max agents per room", async () => {
-    const limitedConfig = { ...cloudConfig(), maxAgentsPerRoom: 1 };
+    const limitedConfig = { ...cloudTestConfig(), maxAgentsPerRoom: 1 };
     const app = await buildServer({ dbPath: ":memory:", config: limitedConfig });
     const roomResponse = await app.inject({ method: "POST", url: "/rooms", payload: { name: "Agent Room", display_name: "Alice" } });
     const created = roomResponse.json<{ room_id: string; owner_token: string }>();
@@ -287,7 +268,7 @@ describe("cloud server endpoints", () => {
   });
 
   it("uses connector claim working directory when building the agent profile", async () => {
-    const app = await buildServer({ dbPath: ":memory:", config: cloudConfig() });
+    const app = await buildServer({ dbPath: ":memory:", config: cloudTestConfig() });
     const roomResponse = await app.inject({
       method: "POST",
       url: "/rooms",
@@ -322,7 +303,7 @@ describe("cloud server endpoints", () => {
   });
 
   it("falls back to pairing working_dir when claim omits working_dir", async () => {
-    const app = await buildServer({ dbPath: ":memory:", config: cloudConfig() });
+    const app = await buildServer({ dbPath: ":memory:", config: cloudTestConfig() });
     const roomResponse = await app.inject({
       method: "POST",
       url: "/rooms",
