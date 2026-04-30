@@ -43,9 +43,9 @@ describe("landing redesign source", () => {
     const css = cssSource();
     const header = readFileSync(resolve(process.cwd(), "src/components/Header.tsx"), "utf8");
 
-    expect(header).toContain("header-danger-action");
+    expect(header).toContain("workspace-header--studio");
     expect(css).toMatch(/@media\s*\(max-width:\s*767px\)[\s\S]*\.workspace-header/s);
-    expect(css).toMatch(/@media\s*\(max-width:\s*767px\)[\s\S]*\.header-danger-action\s*\{[\s\S]*display:\s*none/s);
+    expect(css).toMatch(/@media\s*\(max-width:\s*767px\)[\s\S]*\.workspace-header--studio\s*\{[\s\S]*flex-direction:\s*column/s);
     expect(css).toMatch(/@media\s*\(max-width:\s*767px\)[\s\S]*\.composer-bottom\s*\{[\s\S]*grid-template-columns:\s*1fr/s);
   });
 });

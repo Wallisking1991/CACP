@@ -31,6 +31,20 @@
   --font-body: Inter, ui-sans-serif, system-ui, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
+  /* Studio */
+  --studio-bg: #fbf4e8;
+  --studio-panel: rgba(253, 250, 242, 0.88);
+  --studio-panel-strong: rgba(255, 252, 245, 0.96);
+  --studio-ink-soft: #736252;
+  --studio-agent: #15110d;
+  --studio-agent-2: #2a211a;
+  --studio-glow: rgba(194, 65, 12, 0.18);
+  --studio-shadow: 0 24px 70px rgba(70, 48, 27, 0.14);
+  --studio-shadow-soft: 0 12px 36px rgba(70, 48, 27, 0.08);
+  --motion-fast: 140ms;
+  --motion-med: 260ms;
+  --motion-slow: 440ms;
+
   /* Radii */
   --radius-chip: 6px;
   --radius-button: 8px;
