@@ -84,21 +84,17 @@ describe("Workspace join request modal", () => {
     expect(onRejectJoinRequest).toHaveBeenCalledWith("join_req_1");
   });
 
-  it("dismisses the modal locally while keeping the sidebar request", () => {
+  it("dismisses the modal locally", () => {
     renderWorkspace("owner");
 
     fireEvent.click(within(screen.getByRole("dialog", { name: "Join request" })).getByRole("button", { name: "Later" }));
 
     expect(screen.queryByRole("dialog", { name: "Join request" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
-    expect(screen.getByText("Join Requests")).toBeInTheDocument();
-    expect(screen.getByText("Bob")).toBeInTheDocument();
   });
 });
 
-describe("Workspace agent removal", () => {
-  it("excludes agents from people count but still allows removal from agent card", () => {
-    const onRemoveParticipant = vi.fn();
+describe("Workspace agent exclusion", () => {
+  it("shows agents separately in avatar rail and control center", () => {
     const session: RoomSession = {
       room_id: "room_1",
       token: "token_1",
@@ -124,7 +120,7 @@ describe("Workspace agent removal", () => {
       onCreateInvite: async () => undefined,
       onApproveJoinRequest: () => {},
       onRejectJoinRequest: () => {},
-      onRemoveParticipant
+      onRemoveParticipant: () => {}
     };
 
     render(
@@ -133,18 +129,22 @@ describe("Workspace agent removal", () => {
       </LangProvider>
     );
 
-    // People count excludes agent
-    expect(screen.getByText(/1 people/)).toBeInTheDocument();
+    // Avatar rail shows separate Humans and Agents groups
+    expect(screen.getByText("Humans")).toBeInTheDocument();
+    expect(screen.getByText("Agents")).toBeInTheDocument();
 
-    // Open drawer to inspect sidebar
-    fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
+    // Open Room Control Center
+    fireEvent.click(screen.getByRole("button", { name: /Room controls/i }));
+    const controlCenter = screen.getByRole("dialog", { name: /Room Control Center/i });
+    expect(controlCenter).toBeInTheDocument();
 
-    // Agent not in People list (check within People card specifically)
-    const peopleCard = screen.getByText("People").closest(".card") as HTMLElement;
-    expect(within(peopleCard).queryByText("Claude Code")).not.toBeInTheDocument();
+    // People tab shows only human participants
+    fireEvent.click(screen.getByRole("button", { name: /People/i }));
+    expect(within(controlCenter).getByText(/Owner/)).toBeInTheDocument();
+    expect(within(controlCenter).queryByText(/Claude Code/)).not.toBeInTheDocument();
 
-    // Remove Agent button present in Agent card
-    fireEvent.click(screen.getByRole("button", { name: "Remove Agent" }));
-    expect(onRemoveParticipant).toHaveBeenCalledWith("agent_1");
+    // Agent tab shows the agent
+    fireEvent.click(screen.getByRole("button", { name: /Agent/i }));
+    expect(within(controlCenter).getByText(/Claude Code/)).toBeInTheDocument();
   });
 });

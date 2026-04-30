@@ -1,17 +1,21 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import type { CacpEvent } from "@cacp/protocol";
 import type { RoomSession } from "../api.js";
+import { startTyping, stopTyping, updatePresence } from "../api.js";
 import { roomPermissionsForRole } from "../role-permissions.js";
 import { deriveRoomState, humanParticipants, isCollectionActive, isTurnInFlight } from "../room-state.js";
 import { requestClaudeSessionPreview, selectClaudeSession } from "../api.js";
+import { createTypingActivityController, type TypingActivityController } from "../activity-client.js";
+import { createRoomSoundController, shouldPlayCueForMessage } from "../room-sound.js";
 import Header from "./Header.js";
 import Thread from "./Thread.js";
 import Composer from "./Composer.js";
-import MobileDrawer from "./MobileDrawer.js";
 import JoinRequestModal from "./JoinRequestModal.js";
 import RoundtableRequestModal from "./RoundtableRequestModal.js";
 import { ClaudeSessionPicker } from "./ClaudeSessionPicker.js";
 import { ClaudeStatusCard } from "./ClaudeStatusCard.js";
+import { FloatingLogoControl } from "./FloatingLogoControl.js";
+import { RoomControlCenter } from "./RoomControlCenter.js";
 
 export interface WorkspaceProps {
   session: RoomSession;
@@ -67,12 +71,6 @@ export default function Workspace({
   const turnInFlight = isTurnInFlight(events);
   const collectionActive = isCollectionActive(events);
 
-  const mode: "live" | "collect" | "replying" = collectionActive
-    ? "collect"
-    : turnInFlight
-    ? "replying"
-    : "live";
-
   const composerMode: "live" | "collect" = collectionActive ? "collect" : "live";
 
   const actorNames = useMemo(() => {
@@ -82,7 +80,13 @@ export default function Workspace({
     return names;
   }, [room.participants, room.agents]);
 
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [controlCenterOpen, setControlCenterOpen] = useState(false);
+  const soundControllerRef = useRef(createRoomSoundController());
+  const [soundEnabled, setSoundEnabled] = useState(soundControllerRef.current.enabled());
+  const typingControllerRef = useRef<TypingActivityController | undefined>();
+  const previousMessageCountRef = useRef(room.messages.length);
+  const previousStreamingCountRef = useRef(room.streamingTurns.length);
+
   const [showSlowStreamingNotice, setShowSlowStreamingNotice] = useState(false);
   const [dismissedJoinRequestIds, setDismissedJoinRequestIds] = useState<Set<string>>(() => new Set());
   const [dismissedRoundtableRequestIds, setDismissedRoundtableRequestIds] = useState<Set<string>>(() => new Set());
@@ -102,24 +106,34 @@ export default function Workspace({
     return () => window.clearTimeout(timeout);
   }, [streamingKey]);
 
-  const sidebarProps = {
-    agents: room.agents,
-    activeAgentId: room.activeAgentId,
-    participants: peopleParticipants,
-    inviteCount: room.inviteCount,
-    joinRequests: room.joinRequests,
-    isOwner,
-    canManageRoom: permissions.canManageControls,
-    currentParticipantId: session.participant_id,
-    onSelectAgent,
-    onCreateInvite,
-    onApproveJoinRequest,
-    onRejectJoinRequest,
-    onRemoveParticipant,
-    createdInvite,
-    cloudMode,
-    createdPairing,
-  };
+  useEffect(() => {
+    typingControllerRef.current?.dispose();
+    typingControllerRef.current = createTypingActivityController({
+      startTyping: () => { void startTyping(session).catch(() => {}); },
+      stopTyping: () => { void stopTyping(session).catch(() => {}); }
+    });
+    void updatePresence(session, "online").catch(() => {});
+    return () => {
+      typingControllerRef.current?.dispose();
+      void updatePresence(session, "offline").catch(() => {});
+    };
+  }, [session.room_id, session.token, session.participant_id]);
+
+  useEffect(() => {
+    const previousMessageCount = previousMessageCountRef.current;
+    const nextMessages = room.messages.slice(previousMessageCount);
+    for (const message of nextMessages) {
+      if (shouldPlayCueForMessage({ actorId: message.actor_id, currentParticipantId: session.participant_id })) {
+        soundControllerRef.current.play(message.kind === "agent" ? "ai-start" : "message");
+      }
+    }
+    previousMessageCountRef.current = room.messages.length;
+
+    if (room.streamingTurns.length > previousStreamingCountRef.current) {
+      soundControllerRef.current.play("ai-start");
+    }
+    previousStreamingCountRef.current = room.streamingTurns.length;
+  }, [room.messages, room.streamingTurns, session.participant_id]);
 
   const visibleJoinRequest = useMemo(() => {
     if (!isOwner) return undefined;
@@ -167,14 +181,9 @@ export default function Workspace({
             roomName={room.roomName ?? session.room_id}
             roomId={session.room_id}
             userDisplayName={myDisplayName}
-            participantCount={peopleParticipants.length}
-            agentName={activeAgent?.name}
-            agentOnline={activeAgent?.status === "online"}
-            mode={mode}
-            isOwner={isOwner}
-            onClearRoom={onClearRoom}
-            onLeaveRoom={onLeaveRoom}
-            onOpenDrawer={() => setDrawerOpen(true)}
+            userRole={session.role}
+            avatarStatuses={room.avatarStatuses}
+            onCopyRoomId={(roomId) => void navigator.clipboard.writeText(roomId).catch(() => {})}
           />
 
           <ClaudeSessionPicker
@@ -204,6 +213,7 @@ export default function Workspace({
           ))}
 
           <Thread
+            currentParticipantId={session.participant_id}
             messages={room.messages}
             streamingTurns={room.streamingTurns}
             actorNames={actorNames}
@@ -224,6 +234,9 @@ export default function Workspace({
             onSubmitCollection={onSubmitCollection}
             onCancelCollection={onCancelCollection}
             onRequestRoundtable={onRequestRoundtable}
+            onTypingInput={(value) => typingControllerRef.current?.inputChanged(value)}
+            onStopTyping={() => typingControllerRef.current?.stopNow()}
+            onClearConversation={onClearRoom}
           />
 
           {error && (
@@ -250,10 +263,32 @@ export default function Workspace({
         onLater={(requestId) => setDismissedRoundtableRequestIds((current) => new Set(current).add(requestId))}
       />
 
-      <MobileDrawer
-        {...sidebarProps}
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
+      <FloatingLogoControl
+        active={turnInFlight}
+        pendingCount={(visibleJoinRequest ? 1 : 0) + (visibleRoundtableRequest ? 1 : 0)}
+        onOpen={() => setControlCenterOpen(true)}
+      />
+
+      <RoomControlCenter
+        open={controlCenterOpen}
+        onClose={() => setControlCenterOpen(false)}
+        soundEnabled={soundEnabled}
+        onSoundEnabledChange={(enabled) => {
+          soundControllerRef.current.setEnabled(enabled);
+          setSoundEnabled(enabled);
+        }}
+        onTestSound={() => soundControllerRef.current.play("message")}
+        agents={room.agents}
+        activeAgentId={room.activeAgentId}
+        participants={peopleParticipants}
+        inviteCount={room.inviteCount}
+        isOwner={isOwner}
+        roomId={session.room_id}
+        onLeaveRoom={onLeaveRoom}
+        onCreateInvite={onCreateInvite}
+        onSelectAgent={onSelectAgent}
+        onRemoveParticipant={onRemoveParticipant}
+        onClearRoom={onClearRoom}
       />
     </div>
   );
