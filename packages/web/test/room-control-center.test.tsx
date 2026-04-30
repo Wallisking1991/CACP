@@ -8,7 +8,9 @@ const baseProps = {
   open: true,
   onClose: vi.fn(),
   soundEnabled: true,
+  soundVolume: 0.5,
   onSoundEnabledChange: vi.fn(),
+  onSoundVolumeChange: vi.fn(),
   onTestSound: vi.fn(),
   agents: [{ agent_id: "agent_1", name: "Claude Code Agent", capabilities: ["repo.read"], status: "online" as const }],
   activeAgentId: "agent_1",
@@ -20,7 +22,15 @@ const baseProps = {
   onCreateInvite: vi.fn(async () => "http://localhost/invite"),
   onSelectAgent: vi.fn(),
   onRemoveParticipant: vi.fn(),
-  onClearRoom: vi.fn()
+  onClearRoom: vi.fn(),
+  canManageRoom: true,
+  claudeSessionPreviews: [],
+  claudeRuntimeStatuses: [],
+  serverUrl: "http://localhost:3737",
+  roomSessionToken: "test-token",
+  roomSessionParticipantId: "user_1",
+  onRequestClaudeSessionPreview: vi.fn(async () => {}),
+  onSelectClaudeSession: vi.fn(async () => {})
 };
 
 describe("RoomControlCenter", () => {

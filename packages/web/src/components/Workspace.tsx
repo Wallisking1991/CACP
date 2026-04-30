@@ -89,6 +89,7 @@ export default function Workspace({
   const [controlCenterOpen, setControlCenterOpen] = useState(false);
   const soundControllerRef = useRef(createRoomSoundController());
   const [soundEnabled, setSoundEnabled] = useState(soundControllerRef.current.enabled());
+  const [soundVolume, setSoundVolume] = useState(soundControllerRef.current.volume());
   const typingControllerRef = useRef<TypingActivityController | undefined>();
   const previousMessageCountRef = useRef(room.messages.length);
   const previousStreamingCountRef = useRef(room.streamingTurns.length);
@@ -214,32 +215,6 @@ export default function Workspace({
             onCopyRoomId={(roomId) => void navigator.clipboard.writeText(roomId).catch(() => {})}
           />
 
-          <ClaudeSessionPicker
-            canManageRoom={permissions.canManageControls}
-            agentId={room.activeAgentId ?? ""}
-            catalog={room.claudeSessionCatalog}
-            selection={room.claudeSessionSelection}
-            previews={room.claudeSessionPreviews}
-            onRequestPreview={(sessionId) => requestClaudeSessionPreview({
-              serverUrl,
-              roomId: session.room_id,
-              token: session.token,
-              agentId: room.activeAgentId ?? "",
-              sessionId
-            })}
-            onSelect={(selection) => selectClaudeSession({
-              serverUrl,
-              roomId: session.room_id,
-              token: session.token,
-              agentId: room.activeAgentId ?? "",
-              mode: selection.mode,
-              sessionId: selection.mode === "resume" ? selection.sessionId : undefined
-            })}
-          />
-          {room.claudeRuntimeStatuses.map((status) => (
-            <ClaudeStatusCard key={status.status_id} status={status} />
-          ))}
-
           <Thread
             currentParticipantId={session.participant_id}
             messages={room.messages}
@@ -301,9 +276,14 @@ export default function Workspace({
         open={controlCenterOpen}
         onClose={() => setControlCenterOpen(false)}
         soundEnabled={soundEnabled}
+        soundVolume={soundVolume}
         onSoundEnabledChange={(enabled) => {
           soundControllerRef.current.setEnabled(enabled);
           setSoundEnabled(enabled);
+        }}
+        onSoundVolumeChange={(volume) => {
+          soundControllerRef.current.setVolume(volume);
+          setSoundVolume(volume);
         }}
         onTestSound={() => soundControllerRef.current.play("message")}
         agents={room.agents}
@@ -320,6 +300,20 @@ export default function Workspace({
         createdInvite={createdInvite}
         cloudMode={cloudMode}
         createdPairing={createdPairing}
+        canManageRoom={permissions.canManageControls}
+        claudeSessionCatalog={room.claudeSessionCatalog}
+        claudeSessionSelection={room.claudeSessionSelection}
+        claudeSessionPreviews={room.claudeSessionPreviews}
+        claudeRuntimeStatuses={room.claudeRuntimeStatuses}
+        serverUrl={serverUrl}
+        roomSessionToken={session.token}
+        roomSessionParticipantId={session.participant_id}
+        onRequestClaudeSessionPreview={(sessionId) =>
+          requestClaudeSessionPreview({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId ?? "", sessionId })
+        }
+        onSelectClaudeSession={(selection) =>
+          selectClaudeSession({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId ?? "", ...selection })
+        }
       />
     </div>
   );

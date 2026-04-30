@@ -1,13 +1,17 @@
 import { useCallback, useState } from "react";
-import type { AgentView, ParticipantView } from "../room-state.js";
+import type { AgentView, ParticipantView, ClaudeSessionCatalogView, ClaudeSessionSelectionView, ClaudeSessionPreviewView, ClaudeRuntimeStatusView } from "../room-state.js";
 import { useT } from "../i18n/useT.js";
 import { SoundIcon } from "./RoomIcons.js";
+import { ClaudeSessionPicker } from "./ClaudeSessionPicker.js";
+import { ClaudeStatusCard } from "./ClaudeStatusCard.js";
 
 export interface RoomControlCenterProps {
   open: boolean;
   onClose: () => void;
   soundEnabled: boolean;
+  soundVolume: number;
   onSoundEnabledChange: (enabled: boolean) => void;
+  onSoundVolumeChange: (volume: number) => void;
   onTestSound: () => void;
   agents: AgentView[];
   activeAgentId?: string;
@@ -23,6 +27,16 @@ export interface RoomControlCenterProps {
   createdInvite?: { url: string; role: string; ttl: number };
   cloudMode?: boolean;
   createdPairing?: { connection_code: string; download_url: string; expires_at: string };
+  canManageRoom: boolean;
+  claudeSessionCatalog?: ClaudeSessionCatalogView;
+  claudeSessionSelection?: ClaudeSessionSelectionView;
+  claudeSessionPreviews: ClaudeSessionPreviewView[];
+  claudeRuntimeStatuses: ClaudeRuntimeStatusView[];
+  serverUrl: string;
+  roomSessionToken: string;
+  roomSessionParticipantId: string;
+  onRequestClaudeSessionPreview?: (sessionId: string) => Promise<void>;
+  onSelectClaudeSession?: (selection: { mode: "fresh" } | { mode: "resume"; sessionId: string }) => Promise<void>;
 }
 
 type ControlSection = "agent" | "people" | "invite" | "room" | "sound" | "advanced";
@@ -32,11 +46,34 @@ function maskConnectionCode(code: string): string {
   return code.slice(0, 4) + "••••" + code.slice(-4);
 }
 
+function maskInviteUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    const token = u.searchParams.get("token");
+    if (token && token.length > 8) {
+      u.searchParams.set("token", token.slice(0, 4) + "••••" + token.slice(-4));
+    } else if (token) {
+      u.searchParams.set("token", "••••" + token.slice(-4));
+    }
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
+const dateTimeFormat = new Intl.DateTimeFormat(typeof navigator !== "undefined" ? navigator.language : "en", {
+  dateStyle: "medium",
+  timeStyle: "short"
+});
+
 export function RoomControlCenter(props: RoomControlCenterProps) {
   const t = useT();
   const [section, setSection] = useState<ControlSection>("agent");
   const [confirmingClear, setConfirmingClear] = useState(false);
   const [connectorCopied, setConnectorCopied] = useState(false);
+  const [inviteRevealed, setInviteRevealed] = useState(false);
+  const [inviteRole, setInviteRole] = useState("member");
+  const [inviteTtl, setInviteTtl] = useState(3600);
 
   const handleCopyConnector = useCallback(() => {
     if (props.createdPairing) {
@@ -48,11 +85,11 @@ export function RoomControlCenter(props: RoomControlCenterProps) {
   }, [props.createdPairing]);
 
   const handleCreateInvite = useCallback(async () => {
-    const url = await props.onCreateInvite("member", 3600);
+    const url = await props.onCreateInvite(inviteRole, inviteTtl);
     if (url && typeof navigator !== "undefined") {
       await navigator.clipboard.writeText(url).catch(() => {});
     }
-  }, [props.onCreateInvite]);
+  }, [props.onCreateInvite, inviteRole, inviteTtl]);
 
   const activeAgent = props.agents.find((agent) => agent.agent_id === props.activeAgentId);
   if (!props.open) return null;
@@ -98,6 +135,19 @@ export function RoomControlCenter(props: RoomControlCenterProps) {
                   {props.agents.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)}
                 </select>
               ) : null}
+
+              <ClaudeSessionPicker
+                canManageRoom={props.canManageRoom}
+                agentId={props.activeAgentId ?? ""}
+                catalog={props.claudeSessionCatalog}
+                selection={props.claudeSessionSelection}
+                previews={props.claudeSessionPreviews}
+                onRequestPreview={props.onRequestClaudeSessionPreview}
+                onSelect={props.onSelectClaudeSession ?? (async () => {})}
+              />
+              {props.claudeRuntimeStatuses.map((status) => (
+                <ClaudeStatusCard key={status.status_id} status={status} />
+              ))}
             </section>
           )}
           {section === "people" && (
@@ -117,23 +167,63 @@ export function RoomControlCenter(props: RoomControlCenterProps) {
             <section>
               <h3>{t("sidebar.inviteLabel")}</h3>
               <p>{t("sidebar.inviteCount", { count: props.inviteCount })}</p>
-              <button type="button" className="btn btn-warm" onClick={() => void handleCreateInvite()}>{t("sidebar.copyInvite")}</button>
-              {props.createdInvite ? (
-                <code
-                  style={{
-                    display: "block",
-                    marginTop: 8,
-                    fontSize: 11,
-                    wordBreak: "break-all",
-                    padding: 8,
-                    background: "var(--surface-warm)",
-                    border: "1px solid var(--border-soft)",
-                    borderRadius: "var(--radius-chip)",
-                    color: "var(--ink-2)",
-                  }}
+              <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                <select
+                  className="input"
+                  value={inviteRole}
+                  onChange={(e) => setInviteRole(e.target.value)}
+                  aria-label={t("role.label")}
+                  style={{ fontSize: 12, padding: "6px 8px", minWidth: 100 }}
                 >
-                  {props.createdInvite.url}
-                </code>
+                  <option value="member">{t("role.member")}</option>
+                  <option value="admin">{t("role.admin")}</option>
+                  <option value="observer">{t("role.observer")}</option>
+                </select>
+                <select
+                  className="input"
+                  value={inviteTtl}
+                  onChange={(e) => setInviteTtl(Number(e.target.value))}
+                  aria-label={t("sidebar.ttlLabel")}
+                  style={{ fontSize: 12, padding: "6px 8px", minWidth: 100 }}
+                >
+                  <option value={3600}>{t("sidebar.ttl1h")}</option>
+                  <option value={86400}>{t("sidebar.ttl24h")}</option>
+                  <option value={604800}>{t("sidebar.ttl7d")}</option>
+                </select>
+                <button type="button" className="btn btn-warm" style={{ fontSize: 12, padding: "6px 12px" }} onClick={() => void handleCreateInvite()}>
+                  {t("sidebar.copyInvite")}
+                </button>
+              </div>
+              {props.createdInvite ? (
+                <div style={{ marginTop: 8 }}>
+                  <code
+                    style={{
+                      display: "block",
+                      fontSize: 11,
+                      wordBreak: "break-all",
+                      padding: 8,
+                      background: "var(--surface-warm)",
+                      border: "1px solid var(--border-soft)",
+                      borderRadius: "var(--radius-chip)",
+                      color: "var(--ink-2)",
+                    }}
+                  >
+                    {inviteRevealed ? props.createdInvite.url : maskInviteUrl(props.createdInvite.url)}
+                  </code>
+                  <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                    <button type="button" className="btn btn-ghost" style={{ fontSize: 11, padding: "4px 8px" }} onClick={() => setInviteRevealed((v) => !v)}>
+                      {t("sidebar.revealInvite")}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      style={{ fontSize: 11, padding: "4px 8px" }}
+                      onClick={() => navigator.clipboard.writeText(props.createdInvite!.url).catch(() => {})}
+                    >
+                      {t("sidebar.copyInvite")}
+                    </button>
+                  </div>
+                </div>
               ) : null}
 
               {props.cloudMode && props.isOwner && props.createdPairing ? (
@@ -165,7 +255,7 @@ export function RoomControlCenter(props: RoomControlCenterProps) {
                     {maskConnectionCode(props.createdPairing.connection_code)}
                   </code>
                   <p style={{ fontSize: 11, color: "var(--ink-3)", margin: "0 0 8px" }}>
-                    {t("sidebar.connectorHelp", { expiresAt: new Date(props.createdPairing.expires_at).toLocaleString() })}
+                    {t("sidebar.connectorHelp", { expiresAt: dateTimeFormat.format(new Date(props.createdPairing.expires_at)) })}
                   </p>
                   <button
                     type="button"
@@ -209,7 +299,21 @@ export function RoomControlCenter(props: RoomControlCenterProps) {
               <button type="button" role="switch" aria-checked={props.soundEnabled} onClick={() => props.onSoundEnabledChange(!props.soundEnabled)}>
                 {t("room.soundCues")}
               </button>
-              <button type="button" className="btn btn-ghost" onClick={props.onTestSound}>{t("room.testSound")}</button>
+              <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                <label htmlFor="sound-volume" style={{ fontSize: 12, color: "var(--ink-3)" }}>{t("room.soundVolume")}</label>
+                <input
+                  id="sound-volume"
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={props.soundVolume}
+                  onChange={(e) => props.onSoundVolumeChange(Number(e.target.value))}
+                  style={{ flex: 1 }}
+                />
+                <span style={{ fontSize: 12, color: "var(--ink-3)", minWidth: 36, textAlign: "right" }}>{Math.round(props.soundVolume * 100)}%</span>
+              </div>
+              <button type="button" className="btn btn-ghost" onClick={props.onTestSound} style={{ marginTop: 8 }}>{t("room.testSound")}</button>
             </section>
           )}
           {section === "advanced" && (
