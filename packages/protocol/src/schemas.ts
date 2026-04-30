@@ -12,8 +12,29 @@ export const ParticipantSchema = z.object({
   role: ParticipantRoleSchema
 });
 
+export const ParticipantPresenceSchema = z.enum(["online", "idle", "offline"]);
+export const ParticipantActivityScopeSchema = z.enum(["room"]);
+
+export const ParticipantPresenceChangedPayloadSchema = z.object({
+  participant_id: z.string().min(1),
+  presence: ParticipantPresenceSchema,
+  updated_at: z.string().datetime()
+});
+
+export const ParticipantTypingStartedPayloadSchema = z.object({
+  participant_id: z.string().min(1),
+  scope: ParticipantActivityScopeSchema,
+  started_at: z.string().datetime()
+});
+
+export const ParticipantTypingStoppedPayloadSchema = z.object({
+  participant_id: z.string().min(1),
+  scope: ParticipantActivityScopeSchema,
+  stopped_at: z.string().datetime()
+});
+
 export const EventTypeSchema = z.enum([
-  "room.created", "room.configured", "room.agent_selected", "participant.joined", "participant.left", "participant.role_updated", "invite.created",
+  "room.created", "room.configured", "room.agent_selected", "participant.joined", "participant.left", "participant.role_updated", "participant.presence_changed", "participant.typing_started", "participant.typing_stopped", "invite.created",
   "message.created",
   "ai.collection.started", "ai.collection.submitted", "ai.collection.cancelled", "ai.collection.requested", "ai.collection.request_approved", "ai.collection.request_rejected",
   "proposal.created", "proposal.vote_cast", "proposal.approved", "proposal.rejected", "proposal.expired",
@@ -292,3 +313,8 @@ export type ClaudeRuntimeMetrics = z.infer<typeof ClaudeRuntimeMetricsSchema>;
 export type ClaudeRuntimeStatusChangedPayload = z.infer<typeof ClaudeRuntimeStatusChangedPayloadSchema>;
 export type ClaudeRuntimeStatusCompletedPayload = z.infer<typeof ClaudeRuntimeStatusCompletedPayloadSchema>;
 export type ClaudeRuntimeStatusFailedPayload = z.infer<typeof ClaudeRuntimeStatusFailedPayloadSchema>;
+export type ParticipantPresence = z.infer<typeof ParticipantPresenceSchema>;
+export type ParticipantActivityScope = z.infer<typeof ParticipantActivityScopeSchema>;
+export type ParticipantPresenceChangedPayload = z.infer<typeof ParticipantPresenceChangedPayloadSchema>;
+export type ParticipantTypingStartedPayload = z.infer<typeof ParticipantTypingStartedPayloadSchema>;
+export type ParticipantTypingStoppedPayload = z.infer<typeof ParticipantTypingStoppedPayloadSchema>;

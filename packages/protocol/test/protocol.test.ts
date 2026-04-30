@@ -10,6 +10,9 @@ import {
   ClaudeSessionReadyPayloadSchema,
   ClaudeSessionImportMessagePayloadSchema,
   ClaudeRuntimeStatusChangedPayloadSchema,
+  ParticipantPresenceChangedPayloadSchema,
+  ParticipantTypingStartedPayloadSchema,
+  ParticipantTypingStoppedPayloadSchema,
   evaluatePolicy,
   type Participant,
   type Policy,
@@ -254,6 +257,46 @@ describe("CACP event schema", () => {
       updated_at: "2026-04-29T00:00:01.000Z"
     };
     expect(ClaudeRuntimeStatusChangedPayloadSchema.parse(payload)).toEqual(payload);
+  });
+
+  it("accepts participant presence and typing activity events", () => {
+    const presencePayload = ParticipantPresenceChangedPayloadSchema.parse({
+      participant_id: "user_1",
+      presence: "idle",
+      updated_at: "2026-04-30T00:00:00.000Z"
+    });
+    expect(presencePayload.presence).toBe("idle");
+
+    const typingStartedPayload = ParticipantTypingStartedPayloadSchema.parse({
+      participant_id: "user_1",
+      scope: "room",
+      started_at: "2026-04-30T00:00:01.000Z"
+    });
+    expect(typingStartedPayload.scope).toBe("room");
+
+    const typingStoppedPayload = ParticipantTypingStoppedPayloadSchema.parse({
+      participant_id: "user_1",
+      scope: "room",
+      stopped_at: "2026-04-30T00:00:02.000Z"
+    });
+    expect(typingStoppedPayload.participant_id).toBe("user_1");
+
+    for (const type of [
+      "participant.presence_changed",
+      "participant.typing_started",
+      "participant.typing_stopped"
+    ] as const) {
+      expect(CacpEventSchema.parse({
+        protocol: "cacp",
+        version: "0.2.0",
+        event_id: `evt_${type}`,
+        room_id: "room_1",
+        type,
+        actor_id: "user_1",
+        created_at: "2026-04-30T00:00:00.000Z",
+        payload: {}
+      }).type).toBe(type);
+    }
   });
 });
 
