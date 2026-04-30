@@ -931,6 +931,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
       unsubscribe();
       forgetSocket();
       socketCounts.set(roomId, (socketCounts.get(roomId) ?? 1) - 1);
+      const stillConnected = participantSockets.has(socketKey(roomId, participant.id));
+      if (stillConnected) return;
       if (participant.role === "agent") {
         appendAndPublish(event(roomId, "agent.status_changed", participant.id, { agent_id: participant.id, status: "offline" }));
       } else {
