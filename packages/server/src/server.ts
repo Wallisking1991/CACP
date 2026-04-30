@@ -267,7 +267,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   const socketCounts = new Map<string, number>();
   const participantSockets = new Map<string, Set<{ close: (code?: number, reason?: string) => void }>>();
   const pendingOffline = new Map<string, ReturnType<typeof setTimeout>>();
-  const OFFLINE_GRACE_MS = 2000;
+  const REMOVAL_GRACE_MS = 10000;
 
   function socketKey(roomId: string, participantId: string): string {
     return `${roomId}:${participantId}`;
@@ -304,6 +304,56 @@ export async function buildServer(options: BuildServerOptions = {}) {
       if (!key.startsWith(`${roomId}:`)) continue;
       for (const socket of [...sockets]) socket.close(code, reason);
     }
+  }
+
+  function autoRemoveParticipant(roomId: string, participant: StoredParticipant): void {
+    const key = socketKey(roomId, participant.id);
+    const stillConnected = participantSockets.has(key) && participantSockets.get(key)!.size > 0;
+    if (stillConnected) return;
+
+    const removedAt = new Date().toISOString();
+
+    if (participant.role === "owner") {
+      const allParticipants = store.getParticipants(roomId);
+      const storedEvents = store.transaction(() => {
+        const events: CacpEvent[] = [];
+        for (const target of allParticipants) {
+          store.revokeParticipant(roomId, target.id, participant.id, removedAt, "owner_disconnected");
+          events.push(store.appendEvent(event(roomId, "participant.removed", participant.id, {
+            participant_id: target.id,
+            removed_by: participant.id,
+            removed_at: removedAt,
+            reason: "owner_disconnected"
+          })));
+          if (target.role === "agent") {
+            events.push(store.appendEvent(event(roomId, "agent.status_changed", target.id, { agent_id: target.id, status: "offline" })));
+            store.deleteAgentPairingByParticipantId(roomId, target.id);
+          }
+        }
+        return events;
+      });
+      publishEvents(storedEvents);
+      closeRoomSockets(roomId, 4001, "owner_disconnected");
+      return;
+    }
+
+    const storedEvents = store.transaction(() => {
+      store.revokeParticipant(roomId, participant.id, participant.id, removedAt, "disconnected");
+      const events: CacpEvent[] = [
+        store.appendEvent(event(roomId, "participant.removed", participant.id, {
+          participant_id: participant.id,
+          removed_by: participant.id,
+          removed_at: removedAt,
+          reason: "disconnected"
+        }))
+      ];
+      if (participant.role === "agent") {
+        store.deleteAgentPairingByParticipantId(roomId, participant.id);
+      }
+      return events;
+    });
+    publishEvents(storedEvents);
+    closeParticipantSockets(roomId, participant.id);
   }
 
   await app.register(websocket);
@@ -951,21 +1001,18 @@ export async function buildServer(options: BuildServerOptions = {}) {
       forgetSocket();
       socketCounts.set(roomId, (socketCounts.get(roomId) ?? 1) - 1);
       const key = socketKey(roomId, participant.id);
-      const stillConnected = participantSockets.has(key);
-      if (stillConnected) return;
-      if (participant.role === "agent") {
+
+      // Start / reset the auto-removal timer for this participant
+      if (pendingOffline.has(key)) clearTimeout(pendingOffline.get(key));
+      pendingOffline.set(key, setTimeout(() => {
+        pendingOffline.delete(key);
+        autoRemoveParticipant(roomId, participant);
+      }, REMOVAL_GRACE_MS));
+
+      // If this was the last socket for an agent, mark it offline immediately
+      const stillConnected = participantSockets.has(key) && participantSockets.get(key)!.size > 0;
+      if (!stillConnected && participant.role === "agent") {
         appendAndPublish(event(roomId, "agent.status_changed", participant.id, { agent_id: participant.id, status: "offline" }));
-      } else {
-        if (pendingOffline.has(key)) return;
-        pendingOffline.set(key, setTimeout(() => {
-          pendingOffline.delete(key);
-          if (participantSockets.has(key)) return;
-          appendAndPublish(event(roomId, "participant.presence_changed", participant.id, {
-            participant_id: participant.id,
-            presence: "offline",
-            updated_at: new Date().toISOString()
-          }));
-        }, OFFLINE_GRACE_MS));
       }
     });
   });
@@ -1436,7 +1483,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
         workingDir,
         hookUrl
       });
-      store.claimAgentPairing(pairing.pairing_id, new Date().toISOString());
+      store.claimAgentPairing(pairing.pairing_id, new Date().toISOString(), agentId);
       const added = store.addParticipant({ room_id: roomId, id: agentId, token: agentToken, display_name: body.adapter_name ?? profile.name, type: "agent", role: "agent" });
       const shouldSelectAgent = !findActiveAgentId(store.listEvents(roomId));
       const events = [

@@ -299,8 +299,8 @@ async function main() {
   ws.on("close", (code, reason) => {
     const reasonText = reason.toString();
     console.log(`Adapter stream closed${reasonText ? `: ${reasonText}` : ""}`);
-    if (code === 4001 || reasonText === "participant_removed") {
-      console.log("This local Agent session was removed by the room owner.");
+    if (code === 4001 || reasonText === "participant_removed" || reasonText === "disconnected" || reasonText === "owner_disconnected") {
+      console.log("This local Agent session was removed from the room.");
     }
     void claudeRuntime?.close().catch((error) => {
       console.error("Failed to close Claude session", error);

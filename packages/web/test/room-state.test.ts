@@ -72,6 +72,20 @@ describe("room state", () => {
     expect(state.agents[0]).toMatchObject({ agent_id: "agent_1", status: "online" });
   });
 
+  it("removes agent from agents map when participant.removed is followed by agent.status_changed", () => {
+    const state = deriveRoomState([
+      event("participant.joined", { participant: { id: "user_1", display_name: "Alice", role: "owner", type: "human" } }, 1),
+      event("agent.registered", { agent_id: "agent_1", name: "Claude", capabilities: ["repo.read"] }, 2, "user_1"),
+      event("participant.joined", { participant: { id: "agent_1", display_name: "Claude", role: "agent", type: "agent" } }, 3, "agent_1"),
+      event("agent.status_changed", { agent_id: "agent_1", status: "offline" }, 4, "agent_1"),
+      event("participant.removed", { participant_id: "agent_1", removed_by: "agent_1", removed_at: "2026-04-25T00:00:05.000Z", reason: "disconnected" }, 5, "agent_1"),
+      event("agent.status_changed", { agent_id: "agent_1", status: "offline" }, 6, "agent_1")
+    ]);
+
+    expect(state.participants).toEqual([{ id: "user_1", display_name: "Alice", role: "owner", type: "human" }]);
+    expect(state.agents).toEqual([]);
+  });
+
   it("excludes messages before the last history clear", () => {
     const state = deriveRoomState([
       event("message.created", { message_id: "msg_old", text: "old message", kind: "human" }, 1, "user_1"),

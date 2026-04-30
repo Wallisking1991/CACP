@@ -48,6 +48,7 @@ export interface NewAgentPairing {
 
 export interface StoredAgentPairing extends NewAgentPairing {
   claimed_at: string | null;
+  participant_id: string | null;
 }
 
 export type JoinRequestStatus = "pending" | "approved" | "rejected" | "expired";
@@ -150,7 +151,8 @@ export class EventStore {
         working_dir TEXT NOT NULL CHECK(length(working_dir) <= 500),
         created_at TEXT NOT NULL,
         expires_at TEXT NOT NULL,
-        claimed_at TEXT
+        claimed_at TEXT,
+        participant_id TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_agent_pairings_room ON agent_pairings(room_id);
       CREATE TABLE IF NOT EXISTS join_requests (
@@ -181,6 +183,7 @@ export class EventStore {
       );
     `);
     this.migrateAgentPairingAgentTypes();
+    this.migrateAgentPairingParticipantId();
   }
 
   close(): void {
@@ -358,12 +361,12 @@ export class EventStore {
     `).get(tokenHash) as StoredAgentPairing | undefined;
   }
 
-  claimAgentPairing(pairingId: string, claimedAt: string): StoredAgentPairing {
+  claimAgentPairing(pairingId: string, claimedAt: string, participantId?: string): StoredAgentPairing {
     const result = this.db.prepare(`
       UPDATE agent_pairings
-      SET claimed_at = ?
+      SET claimed_at = ?, participant_id = ?
       WHERE pairing_id = ? AND claimed_at IS NULL
-    `).run(claimedAt, pairingId);
+    `).run(claimedAt, participantId ?? null, pairingId);
 
     if (result.changes > 0) {
       return this.getAgentPairingById(pairingId) as StoredAgentPairing;
@@ -374,6 +377,12 @@ export class EventStore {
       throw new Error("pairing_not_found");
     }
     throw new Error("pairing_claimed");
+  }
+
+  deleteAgentPairingByParticipantId(roomId: string, participantId: string): void {
+    this.db.prepare(`
+      DELETE FROM agent_pairings WHERE room_id = ? AND participant_id = ?
+    `).run(roomId, participantId);
   }
 
   createJoinRequest(input: NewJoinRequest): StoredJoinRequest {
@@ -501,6 +510,13 @@ export class EventStore {
       CREATE INDEX IF NOT EXISTS idx_agent_pairings_room ON agent_pairings(room_id);
       CREATE INDEX IF NOT EXISTS idx_agent_pairings_token_hash ON agent_pairings(token_hash);
     `);
+  }
+
+  private migrateAgentPairingParticipantId(): void {
+    const columns = this.db.prepare(`PRAGMA table_info(agent_pairings)`).all() as Array<{ name: string }>;
+    if (!columns.some((col) => col.name === "participant_id")) {
+      this.db.exec(`ALTER TABLE agent_pairings ADD COLUMN participant_id TEXT;`);
+    }
   }
 }
 

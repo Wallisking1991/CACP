@@ -276,7 +276,11 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     if (event.type === "room.created" && typeof event.payload.name === "string") roomName = event.payload.name;
     if (event.type === "participant.joined" && isParticipant(event.payload.participant)) participants.set(event.payload.participant.id, event.payload.participant);
     if (event.type === "participant.left" && typeof event.payload.participant_id === "string") participants.delete(event.payload.participant_id);
-    if (event.type === "participant.removed" && typeof event.payload.participant_id === "string") participants.delete(event.payload.participant_id);
+    if (event.type === "participant.removed" && typeof event.payload.participant_id === "string") {
+      const removed = participants.get(event.payload.participant_id);
+      if (removed?.type === "agent") agents.delete(event.payload.participant_id);
+      participants.delete(event.payload.participant_id);
+    }
     if (event.type === "participant.role_updated" && typeof event.payload.participant_id === "string" && typeof event.payload.role === "string") {
       const participant = participants.get(event.payload.participant_id);
       if (participant) participants.set(participant.id, { ...participant, role: event.payload.role });
@@ -327,8 +331,10 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
       if (existing) agents.set(event.payload.agent_id, { ...existing, status: "offline", last_status_at: event.created_at });
     }
     if (event.type === "agent.status_changed" && typeof event.payload.agent_id === "string") {
-      const existing = agents.get(event.payload.agent_id) ?? { agent_id: event.payload.agent_id, name: event.payload.agent_id, capabilities: [], status: "unknown" as const };
-      agents.set(event.payload.agent_id, { ...existing, status: event.payload.status === "online" ? "online" : "offline", last_status_at: event.created_at });
+      const existing = agents.get(event.payload.agent_id);
+      if (!existing && !participants.has(event.payload.agent_id)) continue;
+      const agent = existing ?? { agent_id: event.payload.agent_id, name: event.payload.agent_id, capabilities: [], status: "unknown" as const };
+      agents.set(event.payload.agent_id, { ...agent, status: event.payload.status === "online" ? "online" : "offline", last_status_at: event.created_at });
     }
     if (event.type === "room.agent_selected" && typeof event.payload.agent_id === "string") activeAgentId = event.payload.agent_id;
     if (event.type === "participant.presence_changed") {
