@@ -157,7 +157,6 @@ export default function Workspace({
     void updatePresence(session, "online").catch(() => {});
     return () => {
       typingControllerRef.current?.dispose();
-      void updatePresence(session, "offline").catch(() => {});
     };
   }, [session.room_id, session.token, session.participant_id]);
 
@@ -182,7 +181,7 @@ export default function Workspace({
     hadJoinRequestRef.current = Boolean(visibleJoinRequest);
 
     const hasRoundtable = Boolean(room.activeCollection);
-    if (!hasRoundtable && hadRoundtableRef.current) {
+    if (hasRoundtable && !hadRoundtableRef.current) {
       soundControllerRef.current.play("roundtable");
     }
     hadRoundtableRef.current = hasRoundtable;
