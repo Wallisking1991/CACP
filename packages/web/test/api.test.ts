@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CacpEvent } from "@cacp/protocol";
-import { approveAiCollectionRequest, cancelAiCollection, clearEventSocket, clearRoom, createJoinRequest, createLocalAgentLaunch, createRoom, createRoomWithLocalAgent, joinRequestStatus, leaveRoom, pairingServerUrlFor, parseCacpEventMessage, rejectAiCollectionRequest, requestAiCollection, startAiCollection, submitAiCollection, type RoomSession } from "../src/api.js";
+import { approveAiCollectionRequest, cancelAiCollection, clearEventSocket, clearRoom, createJoinRequest, createLocalAgentLaunch, createRoom, createRoomWithLocalAgent, joinRequestStatus, leaveRoom, pairingServerUrlFor, parseCacpEventMessage, rejectAiCollectionRequest, requestAiCollection, startAiCollection, startTyping, stopTyping, submitAiCollection, updatePresence, type RoomSession } from "../src/api.js";
 
 const validEvent = {
   protocol: "cacp",
@@ -232,6 +232,34 @@ describe("room API", () => {
     mockJsonResponse({ ok: true });
     await cancelAiCollection(session);
     expect(fetch).toHaveBeenLastCalledWith("/rooms/room_1/ai-collection/cancel", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer owner_secret" },
+      body: JSON.stringify({})
+    });
+  });
+
+  it("posts participant activity requests", async () => {
+    const session: RoomSession = { room_id: "room_1", token: "owner_secret", participant_id: "user_owner", role: "owner" };
+
+    mockJsonResponse({ ok: true, event_type: "participant.presence_changed" });
+    await updatePresence(session, "idle");
+    expect(fetch).toHaveBeenLastCalledWith("/rooms/room_1/activity/presence", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer owner_secret" },
+      body: JSON.stringify({ presence: "idle" })
+    });
+
+    mockJsonResponse({ ok: true, event_type: "participant.typing_started" });
+    await startTyping(session);
+    expect(fetch).toHaveBeenLastCalledWith("/rooms/room_1/activity/typing/start", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer owner_secret" },
+      body: JSON.stringify({})
+    });
+
+    mockJsonResponse({ ok: true, event_type: "participant.typing_stopped" });
+    await stopTyping(session);
+    expect(fetch).toHaveBeenLastCalledWith("/rooms/room_1/activity/typing/stop", {
       method: "POST",
       headers: { "content-type": "application/json", authorization: "Bearer owner_secret" },
       body: JSON.stringify({})

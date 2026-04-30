@@ -71,6 +71,20 @@ export async function leaveRoom(session: RoomSession): Promise<void> {
   await postJson(`/rooms/${session.room_id}/leave`, session.token, {});
 }
 
+export type ParticipantPresence = "online" | "idle" | "offline";
+
+export async function updatePresence(session: RoomSession, presence: ParticipantPresence): Promise<void> {
+  await postJson(`/rooms/${session.room_id}/activity/presence`, session.token, { presence });
+}
+
+export async function startTyping(session: RoomSession): Promise<void> {
+  await postJson(`/rooms/${session.room_id}/activity/typing/start`, session.token, {});
+}
+
+export async function stopTyping(session: RoomSession): Promise<void> {
+  await postJson(`/rooms/${session.room_id}/activity/typing/stop`, session.token, {});
+}
+
 export async function startAiCollection(session: RoomSession): Promise<{ collection_id: string }> {
   return await postJson(`/rooms/${session.room_id}/ai-collection/start`, session.token, {});
 }
