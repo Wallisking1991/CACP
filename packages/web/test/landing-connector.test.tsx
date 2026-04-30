@@ -83,7 +83,7 @@ describe("Landing cloud connector setup", () => {
       </LangProvider>
     );
 
-    expect(screen.getByText("© 2026 CACP. All rights reserved.")).toBeInTheDocument();
+    expect(screen.getByText("© 2026 ZuchongAI. All rights reserved.")).toBeInTheDocument();
     expect(screen.getByText("Contact: 453043662@qq.com, 1023289914@qq.com")).toBeInTheDocument();
   });
 
@@ -95,7 +95,7 @@ describe("Landing cloud connector setup", () => {
       </LangProvider>
     );
 
-    expect(screen.getByText("© 2026 CACP。保留所有权利。")).toBeInTheDocument();
+    expect(screen.getByText("© 2026 ZuchongAI。保留所有权利。")).toBeInTheDocument();
     expect(screen.getByText("联系方式：453043662@qq.com，1023289914@qq.com")).toBeInTheDocument();
   });
 
