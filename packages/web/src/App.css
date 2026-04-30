@@ -1550,14 +1550,35 @@ textarea.input {
   background: var(--success);
 }
 
-.role-avatar--typing .role-avatar__status,
-.role-avatar--roundtable .role-avatar__status {
+.role-avatar--typing .role-avatar__status {
   background: var(--accent);
+  animation: status-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes status-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.4); opacity: 0.7; }
+}
+
+.role-avatar--roundtable {
+  box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.35);
+  animation: studio-breathe 2s ease-in-out infinite;
+}
+
+.role-avatar--roundtable .role-avatar__status {
+  background: var(--amber-6, #d97706);
+  border-color: rgba(217, 119, 6, 0.5);
+  width: 12px;
+  height: 12px;
 }
 
 .role-avatar--working {
   box-shadow: 0 0 0 3px rgba(194, 65, 12, 0.14), 0 0 24px rgba(194, 65, 12, 0.24);
   animation: studio-breathe 1.8s ease-in-out infinite;
+}
+
+.role-avatar--working .role-avatar__status {
+  background: var(--warm-6, #c2410c);
 }
 
 .role-avatar--offline {
@@ -1725,6 +1746,9 @@ textarea.input {
 .room-control-center__tabs,
 .room-control-center__body {
   padding: 18px 22px;
+}
+
+.room-control-center__body {
   overflow-y: auto;
   flex: 1;
   min-height: 0;
