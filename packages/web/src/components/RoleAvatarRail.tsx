@@ -42,17 +42,23 @@ export function RoleAvatarRail({ avatars, maxVisible = 10 }: RoleAvatarRailProps
     <div className="role-avatar-rail" aria-label={t("room.controls")}>
       {humans.length > 0 ? <span className="avatar-group-label">{t("avatar.group.humans")}</span> : null}
       {visible.filter((avatar) => avatar.group === "humans").map((avatar) => (
-        <span key={avatar.id} className={`role-avatar role-avatar--${avatar.kind} role-avatar--${avatar.status}`} aria-label={avatarLabel(avatar)} title={avatarLabel(avatar)}>
-          <span className="role-avatar__initials">{initials(avatar.display_name)}</span>
-          <span className="role-avatar__status" aria-hidden="true" />
-        </span>
+        <div key={avatar.id} className="role-avatar-stack" title={avatarLabel(avatar)}>
+          <span className={`role-avatar role-avatar--${avatar.kind} role-avatar--${avatar.status}`} aria-label={avatarLabel(avatar)}>
+            <span className="role-avatar__initials">{initials(avatar.display_name)}</span>
+            <span className="role-avatar__status" aria-hidden="true" />
+          </span>
+          <span className="role-avatar__name">{avatar.display_name}</span>
+        </div>
       ))}
       {agents.length > 0 ? <span className="avatar-group-label">{t("avatar.group.agents")}</span> : null}
       {visible.filter((avatar) => avatar.group === "agents").map((avatar) => (
-        <span key={avatar.id} className={`role-avatar role-avatar--${avatar.kind} role-avatar--${avatar.status}`} aria-label={avatarLabel(avatar)} title={avatarLabel(avatar)}>
-          <span className="role-avatar__initials">{initials(avatar.display_name)}</span>
-          <span className="role-avatar__status" aria-hidden="true" />
-        </span>
+        <div key={avatar.id} className="role-avatar-stack" title={avatarLabel(avatar)}>
+          <span className={`role-avatar role-avatar--${avatar.kind} role-avatar--${avatar.status}`} aria-label={avatarLabel(avatar)}>
+            <span className="role-avatar__initials">{initials(avatar.display_name)}</span>
+            <span className="role-avatar__status" aria-hidden="true" />
+          </span>
+          <span className="role-avatar__name">{avatar.display_name}</span>
+        </div>
       ))}
       {hiddenCount > 0 ? <span className="role-avatar-overflow">+{hiddenCount}</span> : null}
     </div>

@@ -796,6 +796,12 @@ textarea.input {
   color: var(--ink);
 }
 
+.leave-room-btn:hover {
+  color: #dc2626;
+  border-color: #fca5a5;
+  background: #fef2f2;
+}
+
 /* Workspace grid */
 .workspace-grid {
   flex: 1;
@@ -1512,6 +1518,11 @@ textarea.input {
   box-shadow: var(--studio-shadow-soft);
 }
 
+.workspace-header--studio .role-avatar-rail {
+  justify-content: flex-start;
+  margin-left: 20px;
+}
+
 .room-identity {
   display: flex;
   align-items: center;
@@ -1604,7 +1615,7 @@ textarea.input {
 }
 
 .avatar-group-label {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.14em;
   color: var(--ink-5);
@@ -1614,13 +1625,13 @@ textarea.input {
 
 .role-avatar {
   position: relative;
-  width: 34px;
-  height: 34px;
+  width: 40px;
+  height: 40px;
   border-radius: 999px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--border);
+  border: 2px solid var(--border);
   background: var(--surface);
   color: var(--ink-2);
   box-shadow: 0 4px 16px rgba(70, 48, 27, 0.08);
@@ -1633,55 +1644,88 @@ textarea.input {
 }
 
 .role-avatar__initials {
-  font-size: 11px;
-  font-weight: 800;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.role-avatar-stack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.role-avatar__name {
+  font-size: 10px;
+  color: var(--ink-4);
+  max-width: 40px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+  line-height: 1.2;
 }
 
 .role-avatar__status {
   position: absolute;
-  right: -1px;
-  bottom: -1px;
-  width: 10px;
-  height: 10px;
+  right: 2px;
+  bottom: 2px;
+  width: 8px;
+  height: 8px;
   border-radius: 999px;
-  border: 2px solid var(--surface);
+  border: 1.5px solid var(--surface);
   background: var(--success);
 }
 
-.role-avatar--typing .role-avatar__status {
-  background: var(--accent);
-  animation: status-pulse 1.2s ease-in-out infinite;
+/* Status ring colors on the avatar border */
+.role-avatar--online {
+  border-color: #22c55e;
 }
 
-@keyframes status-pulse {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.4); opacity: 0.7; }
+.role-avatar--idle {
+  border-color: #f59e0b;
 }
 
-.role-avatar--roundtable {
-  box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.35);
-  animation: studio-breathe 2s ease-in-out infinite;
-}
-
-.role-avatar--roundtable .role-avatar__status {
-  background: var(--amber-6, #d97706);
-  border-color: rgba(217, 119, 6, 0.5);
-  width: 12px;
-  height: 12px;
+.role-avatar--offline {
+  border-color: #9ca3af;
+  filter: grayscale(1);
+  opacity: 0.56;
 }
 
 .role-avatar--working {
-  box-shadow: 0 0 0 3px rgba(194, 65, 12, 0.14), 0 0 24px rgba(194, 65, 12, 0.24);
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.14), 0 0 24px rgba(59, 130, 246, 0.24);
   animation: studio-breathe 1.8s ease-in-out infinite;
 }
 
 .role-avatar--working .role-avatar__status {
-  background: var(--warm-6, #c2410c);
+  background: #3b82f6;
 }
 
-.role-avatar--offline {
-  filter: grayscale(1);
-  opacity: 0.56;
+.role-avatar--typing {
+  border-color: #3b82f6;
+  animation: avatarTypingPulse 1.6s ease-in-out infinite;
+}
+
+.role-avatar--typing .role-avatar__status {
+  background: #3b82f6;
+}
+
+@keyframes avatarTypingPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.35); }
+  50% { box-shadow: 0 0 0 4px rgba(59, 130, 246, 0); }
+}
+
+.role-avatar--roundtable {
+  border-color: #a855f7;
+  box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.35);
+  animation: studio-breathe 2s ease-in-out infinite;
+}
+
+.role-avatar--roundtable .role-avatar__status {
+  background: #a855f7;
+  border-color: var(--surface);
+  width: 8px;
+  height: 8px;
 }
 
 .role-avatar-overflow {

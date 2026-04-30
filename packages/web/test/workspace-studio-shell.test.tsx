@@ -51,7 +51,7 @@ describe("Workspace studio shell", () => {
 
     expect(screen.getByText("CACP AI Room")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Toggle language/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Leave Room/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Leave Room/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Room controls/i })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Room controls/i }));

@@ -255,6 +255,7 @@ export default function Workspace({
             isOwner={isOwner}
             avatarStatuses={room.avatarStatuses}
             onCopyRoomId={(roomId) => void navigator.clipboard.writeText(roomId).catch(() => {})}
+            onLeaveRoom={onLeaveRoom}
             onCreatePairing={async (agentType, permissionLevel) => {
               const result = await createAgentPairing(session, {
                 agent_type: agentType,

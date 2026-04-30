@@ -3,7 +3,7 @@ import { useT } from "../i18n/useT.js";
 import { LangContext, type Lang } from "../i18n/LangProvider.js";
 import { useContext } from "react";
 import type { AvatarStatusView } from "../room-state.js";
-import { GlobeIcon } from "./RoomIcons.js";
+import { GlobeIcon, LogOutIcon } from "./RoomIcons.js";
 import { RoomIdentity } from "./RoomIdentity.js";
 import { RoleAvatarRail } from "./RoleAvatarRail.js";
 
@@ -16,6 +16,7 @@ export interface HeaderProps {
   avatarStatuses: AvatarStatusView[];
   onCopyRoomId: (roomId: string) => void;
   onCreatePairing?: (agentType: string, permissionLevel: string) => Promise<string>;
+  onLeaveRoom?: () => void;
 }
 
 export default function Header({
@@ -27,6 +28,7 @@ export default function Header({
   avatarStatuses,
   onCopyRoomId,
   onCreatePairing,
+  onLeaveRoom,
 }: HeaderProps) {
   const t = useT();
   const langCtx = useContext(LangContext);
@@ -50,15 +52,28 @@ export default function Header({
 
       <RoleAvatarRail avatars={avatarStatuses} />
 
-      <button
-        type="button"
-        className="lang-toggle room-icon-button"
-        onClick={handleToggleLang}
-        aria-label={t("lang.toggle")}
-        title={t("lang.toggle")}
-      >
-        <GlobeIcon />
-      </button>
+      <div className="header-actions">
+        <button
+          type="button"
+          className="lang-toggle room-icon-button"
+          onClick={handleToggleLang}
+          aria-label={t("lang.toggle")}
+          title={t("lang.toggle")}
+        >
+          <GlobeIcon />
+        </button>
+        {onLeaveRoom ? (
+          <button
+            type="button"
+            className="leave-room-btn room-icon-button"
+            onClick={onLeaveRoom}
+            aria-label={t("room.leave")}
+            title={t("room.leave")}
+          >
+            <LogOutIcon />
+          </button>
+        ) : null}
+      </div>
     </header>
   );
 }
