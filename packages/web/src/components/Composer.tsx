@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { useT } from "../i18n/useT.js";
 import { roomPermissionsForRole } from "../role-permissions.js";
 import type { RoomSession } from "../api.js";
+import { LiveIcon, RoundtableIcon, SendIcon, SweepIcon } from "./RoomIcons.js";
 
 export type ComposerMode = "live" | "collect";
 export type ComposerRole = RoomSession["role"];
@@ -18,6 +19,9 @@ export interface ComposerProps {
   onSubmitCollection: () => void;
   onCancelCollection: () => void;
   onRequestRoundtable: () => void;
+  onTypingInput: (text: string) => void;
+  onStopTyping: () => void;
+  onClearConversation: () => void;
 }
 
 export default function Composer({
@@ -32,9 +36,13 @@ export default function Composer({
   onSubmitCollection,
   onCancelCollection,
   onRequestRoundtable,
+  onTypingInput,
+  onStopTyping,
+  onClearConversation,
 }: ComposerProps) {
   const t = useT();
   const [text, setText] = useState("");
+  const [confirmingClear, setConfirmingClear] = useState(false);
 
   const perms = roomPermissionsForRole(role);
   const isOwner = role === "owner";
@@ -52,7 +60,8 @@ export default function Composer({
     if (!trimmed) return;
     onSend(trimmed);
     setText("");
-  }, [text, onSend]);
+    onStopTyping();
+  }, [text, onSend, onStopTyping]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -81,6 +90,20 @@ export default function Composer({
         </div>
       )}
 
+      {isOwner && (
+        <div className="composer-utility-row">
+          <button
+            type="button"
+            className="room-icon-button composer-clear-button"
+            onClick={() => setConfirmingClear(true)}
+            aria-label={t("composer.clearConversation")}
+            title={t("composer.clearConversation")}
+          >
+            <SweepIcon />
+          </button>
+        </div>
+      )}
+
       <div className="composer-top">
         <div className="mode-toggle">
           <button
@@ -90,7 +113,7 @@ export default function Composer({
             onClick={isLive ? undefined : onToggleMode}
             aria-pressed={isLive}
           >
-            {t("composer.live")}
+            <LiveIcon /> {t("composer.live")}
           </button>
           <button
             type="button"
@@ -99,7 +122,7 @@ export default function Composer({
             onClick={isOwner ? (!isLive ? undefined : onToggleMode) : onRequestRoundtable}
             aria-pressed={!isLive}
           >
-            {isOwner || !isLive ? t("composer.roundtable") : pendingRoundtableRequest ? t("composer.roundtablePending") : t("composer.requestRoundtable")}
+            <RoundtableIcon /> {isOwner || !isLive ? t("composer.roundtable") : pendingRoundtableRequest ? t("composer.roundtablePending") : t("composer.requestRoundtable")}
           </button>
         </div>
 
@@ -126,7 +149,10 @@ export default function Composer({
           placeholder={String(t("chat.placeholder"))}
           aria-label={t("composer.messageLabel")}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value);
+            onTypingInput(e.target.value);
+          }}
           onKeyDown={handleKeyDown}
           disabled={!canInput}
           rows={2}
@@ -139,7 +165,7 @@ export default function Composer({
               onClick={handleSend}
               disabled={!text.trim()}
             >
-              {t("chat.send")}
+              <SendIcon /> {t("chat.send")}
             </button>
           )}
           {isLive && isQueued && (
@@ -149,7 +175,7 @@ export default function Composer({
               onClick={handleSend}
               disabled={!text.trim()}
             >
-              {t("composer.queue")}
+              <SendIcon /> {t("composer.queue")}
             </button>
           )}
           {!isLive && (
@@ -164,6 +190,25 @@ export default function Composer({
           )}
         </div>
       </div>
+
+      {confirmingClear && (
+        <div className="composer-confirm-clear" role="dialog" aria-label={t("composer.clearConversation")}>
+          <p>{t("composer.clearConversationConfirm")}</p>
+          <button type="button" className="btn btn-warm-ghost" onClick={() => setConfirmingClear(false)}>
+            {t("common.cancel")}
+          </button>
+          <button
+            type="button"
+            className="btn btn-warm"
+            onClick={() => {
+              setConfirmingClear(false);
+              onClearConversation();
+            }}
+          >
+            {t("composer.clearConversationConfirmAction")}
+          </button>
+        </div>
+      )}
 
       {!isLive && isOwner && (
         <div className="composer-actions" style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border-soft)', justifyContent: 'space-between' }}>
