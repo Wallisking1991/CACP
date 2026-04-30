@@ -62,7 +62,13 @@ export default function Workspace({
   cloudMode,
   createdPairing,
 }: WorkspaceProps) {
-  const room = useMemo(() => deriveRoomState(events), [events]);
+  const [typingTick, setTypingTick] = useState(() => Date.now());
+  useEffect(() => {
+    const interval = window.setInterval(() => setTypingTick(Date.now()), 2000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const room = useMemo(() => deriveRoomState(events, { now: new Date(typingTick).toISOString() }), [events, typingTick]);
   const permissions = roomPermissionsForRole(session.role);
   const isOwner = session.role === "owner";
   const peopleParticipants = useMemo(() => humanParticipants(room.participants), [room.participants]);
@@ -86,10 +92,45 @@ export default function Workspace({
   const typingControllerRef = useRef<TypingActivityController | undefined>();
   const previousMessageCountRef = useRef(room.messages.length);
   const previousStreamingCountRef = useRef(room.streamingTurns.length);
+  const hadJoinRequestRef = useRef(false);
+  const hadRoundtableRef = useRef(false);
+  const previousAgentStatusesRef = useRef<Map<string, string>>(new Map());
 
   const [showSlowStreamingNotice, setShowSlowStreamingNotice] = useState(false);
   const [dismissedJoinRequestIds, setDismissedJoinRequestIds] = useState<Set<string>>(() => new Set());
   const [dismissedRoundtableRequestIds, setDismissedRoundtableRequestIds] = useState<Set<string>>(() => new Set());
+
+  const visibleJoinRequest = useMemo(() => {
+    if (!isOwner) return undefined;
+    return room.joinRequests.find((request) => !dismissedJoinRequestIds.has(request.request_id));
+  }, [dismissedJoinRequestIds, isOwner, room.joinRequests]);
+
+  const remainingJoinRequestCount = visibleJoinRequest
+    ? room.joinRequests.filter((request) => request.request_id !== visibleJoinRequest.request_id && !dismissedJoinRequestIds.has(request.request_id)).length
+    : 0;
+
+  useEffect(() => {
+    const pendingIds = new Set(room.joinRequests.map((request) => request.request_id));
+    setDismissedJoinRequestIds((current) => {
+      const next = new Set([...current].filter((requestId) => pendingIds.has(requestId)));
+      return next.size === current.size ? current : next;
+    });
+  }, [room.joinRequests]);
+
+  const visibleRoundtableRequest = useMemo(() => {
+    if (!isOwner) return undefined;
+    return room.pendingRoundtableRequest && !dismissedRoundtableRequestIds.has(room.pendingRoundtableRequest.request_id)
+      ? room.pendingRoundtableRequest
+      : undefined;
+  }, [dismissedRoundtableRequestIds, isOwner, room.pendingRoundtableRequest]);
+
+  useEffect(() => {
+    if (room.pendingRoundtableRequest) return;
+    setDismissedRoundtableRequestIds((current) => {
+      if (current.size === 0) return current;
+      return new Set();
+    });
+  }, [room.pendingRoundtableRequest]);
 
   const streamingKey = useMemo(
     () => room.streamingTurns.map((t) => t.turn_id).join("|"),
@@ -124,7 +165,7 @@ export default function Workspace({
     const nextMessages = room.messages.slice(previousMessageCount);
     for (const message of nextMessages) {
       if (shouldPlayCueForMessage({ actorId: message.actor_id, currentParticipantId: session.participant_id })) {
-        soundControllerRef.current.play(message.kind === "agent" ? "ai-start" : "message");
+        soundControllerRef.current.play(message.kind === "agent" ? "message" : "message");
       }
     }
     previousMessageCountRef.current = room.messages.length;
@@ -133,39 +174,26 @@ export default function Workspace({
       soundControllerRef.current.play("ai-start");
     }
     previousStreamingCountRef.current = room.streamingTurns.length;
-  }, [room.messages, room.streamingTurns, session.participant_id]);
 
-  const visibleJoinRequest = useMemo(() => {
-    if (!isOwner) return undefined;
-    return room.joinRequests.find((request) => !dismissedJoinRequestIds.has(request.request_id));
-  }, [dismissedJoinRequestIds, isOwner, room.joinRequests]);
+    if (visibleJoinRequest && !hadJoinRequestRef.current) {
+      soundControllerRef.current.play("join-request");
+    }
+    hadJoinRequestRef.current = Boolean(visibleJoinRequest);
 
-  const remainingJoinRequestCount = visibleJoinRequest
-    ? room.joinRequests.filter((request) => request.request_id !== visibleJoinRequest.request_id && !dismissedJoinRequestIds.has(request.request_id)).length
-    : 0;
+    const hasRoundtable = Boolean(room.activeCollection);
+    if (!hasRoundtable && hadRoundtableRef.current) {
+      soundControllerRef.current.play("roundtable");
+    }
+    hadRoundtableRef.current = hasRoundtable;
 
-  useEffect(() => {
-    const pendingIds = new Set(room.joinRequests.map((request) => request.request_id));
-    setDismissedJoinRequestIds((current) => {
-      const next = new Set([...current].filter((requestId) => pendingIds.has(requestId)));
-      return next.size === current.size ? current : next;
-    });
-  }, [room.joinRequests]);
-
-  const visibleRoundtableRequest = useMemo(() => {
-    if (!isOwner) return undefined;
-    return room.pendingRoundtableRequest && !dismissedRoundtableRequestIds.has(room.pendingRoundtableRequest.request_id)
-      ? room.pendingRoundtableRequest
-      : undefined;
-  }, [dismissedRoundtableRequestIds, isOwner, room.pendingRoundtableRequest]);
-
-  useEffect(() => {
-    if (room.pendingRoundtableRequest) return;
-    setDismissedRoundtableRequestIds((current) => {
-      if (current.size === 0) return current;
-      return new Set();
-    });
-  }, [room.pendingRoundtableRequest]);
+    for (const agent of room.agents) {
+      const previous = previousAgentStatusesRef.current.get(agent.agent_id);
+      if (previous !== "online" && agent.status === "online") {
+        soundControllerRef.current.play("agent-online");
+      }
+      previousAgentStatusesRef.current.set(agent.agent_id, agent.status);
+    }
+  }, [room.messages, room.streamingTurns, room.activeCollection, room.agents, visibleJoinRequest, session.participant_id]);
 
   const collectCount = room.activeCollection?.messages.length ?? 0;
 
@@ -289,6 +317,9 @@ export default function Workspace({
         onSelectAgent={onSelectAgent}
         onRemoveParticipant={onRemoveParticipant}
         onClearRoom={onClearRoom}
+        createdInvite={createdInvite}
+        cloudMode={cloudMode}
+        createdPairing={createdPairing}
       />
     </div>
   );

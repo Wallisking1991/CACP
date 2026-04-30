@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { AgentView, ParticipantView } from "../room-state.js";
 import { useT } from "../i18n/useT.js";
 import { SoundIcon } from "./RoomIcons.js";
@@ -20,36 +20,63 @@ export interface RoomControlCenterProps {
   onSelectAgent: (agentId: string) => void;
   onRemoveParticipant: (participantId: string) => void;
   onClearRoom: () => void;
+  createdInvite?: { url: string; role: string; ttl: number };
+  cloudMode?: boolean;
+  createdPairing?: { connection_code: string; download_url: string; expires_at: string };
 }
 
 type ControlSection = "agent" | "people" | "invite" | "room" | "sound" | "advanced";
 
+function maskConnectionCode(code: string): string {
+  if (code.length <= 8) return "••••" + code.slice(-4);
+  return code.slice(0, 4) + "••••" + code.slice(-4);
+}
+
 export function RoomControlCenter(props: RoomControlCenterProps) {
   const t = useT();
   const [section, setSection] = useState<ControlSection>("agent");
+  const [confirmingClear, setConfirmingClear] = useState(false);
+  const [connectorCopied, setConnectorCopied] = useState(false);
+
+  const handleCopyConnector = useCallback(() => {
+    if (props.createdPairing) {
+      navigator.clipboard.writeText(props.createdPairing.connection_code).then(() => {
+        setConnectorCopied(true);
+        window.setTimeout(() => setConnectorCopied(false), 2000);
+      }).catch(() => {});
+    }
+  }, [props.createdPairing]);
+
+  const handleCreateInvite = useCallback(async () => {
+    const url = await props.onCreateInvite("member", 3600);
+    if (url && typeof navigator !== "undefined") {
+      await navigator.clipboard.writeText(url).catch(() => {});
+    }
+  }, [props.onCreateInvite]);
+
   const activeAgent = props.agents.find((agent) => agent.agent_id === props.activeAgentId);
   if (!props.open) return null;
 
   const sections: Array<{ id: ControlSection; label: string }> = [
-    { id: "agent", label: "Agent" },
-    { id: "people", label: "People" },
-    { id: "invite", label: "Invite" },
-    { id: "room", label: "Room" },
-    { id: "sound", label: "Sound" },
-    { id: "advanced", label: "Advanced" }
+    { id: "agent", label: t("sidebar.agentLabel") },
+    { id: "people", label: t("sidebar.peopleLabel") },
+    { id: "invite", label: t("sidebar.inviteLabel") },
+    { id: "room", label: t("room.settings") },
+    { id: "sound", label: t("room.sound") },
+    { id: "advanced", label: t("sidebar.logsLink") }
   ];
 
   return (
     <div className="room-control-overlay" onClick={props.onClose}>
-      <section className="room-control-center" role="dialog" aria-modal="true" aria-label="Room Control Center" onClick={(event) => event.stopPropagation()}>
+      <section className="room-control-center" role="dialog" aria-modal="true" aria-label={t("room.controlCenter")} onClick={(event) => event.stopPropagation()}>
         <header className="room-control-center__header">
           <div>
             <p className="section-label">CACP</p>
-            <h2>Room Control Center</h2>
+            <h2>{t("room.controlCenter")}</h2>
           </div>
           <button type="button" className="room-icon-button" onClick={props.onClose} aria-label={t("sidebar.close")}>×</button>
         </header>
-        <nav className="room-control-center__tabs" aria-label="Room controls">
+        <nav className="room-control-center__tabs" aria-label={t("room.controls")}>
           {sections.map((item) => (
             <button key={item.id} type="button" className={section === item.id ? "is-active" : ""} onClick={() => setSection(item.id)} aria-label={item.label}>
               {item.label}
@@ -59,10 +86,15 @@ export function RoomControlCenter(props: RoomControlCenterProps) {
         <div className="room-control-center__body">
           {section === "agent" && (
             <section className="agent-cockpit">
-              <h3>{activeAgent?.name ?? "No active agent"}</h3>
-              <p>{activeAgent ? `${activeAgent.status} · ${activeAgent.capabilities.join(" · ") || "no capabilities"}` : "Connect an agent from the room setup flow."}</p>
+              <h3>{activeAgent?.name ?? t("sidebar.noActiveAgent")}</h3>
+              <p>{activeAgent ? `${activeAgent.status} · ${activeAgent.capabilities.join(" · ") || t("sidebar.noCapabilities")}` : t("sidebar.selectAgent")}</p>
               {props.agents.length > 1 ? (
-                <select className="input" value={props.activeAgentId ?? ""} onChange={(event) => props.onSelectAgent(event.target.value)}>
+                <select
+                  className="input"
+                  value={props.activeAgentId ?? ""}
+                  onChange={(event) => props.onSelectAgent(event.target.value)}
+                  aria-label={t("sidebar.selectAgent")}
+                >
                   {props.agents.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)}
                 </select>
               ) : null}
@@ -70,12 +102,12 @@ export function RoomControlCenter(props: RoomControlCenterProps) {
           )}
           {section === "people" && (
             <section>
-              <h3>People</h3>
+              <h3>{t("sidebar.peopleLabel")}</h3>
               {props.participants.map((participant) => (
                 <div key={participant.id} className="people-row">
-                  <span>{participant.display_name} · {participant.role}</span>
+                  <span>{participant.display_name} · {t(`role.${participant.role}` as Parameters<typeof t>[0]) ?? participant.role}</span>
                   {props.isOwner && participant.role !== "owner" ? (
-                    <button type="button" className="btn btn-ghost" onClick={() => props.onRemoveParticipant(participant.id)}>Remove</button>
+                    <button type="button" className="btn btn-ghost" onClick={() => props.onRemoveParticipant(participant.id)}>{t("sidebar.removeParticipant")}</button>
                   ) : null}
                 </div>
               ))}
@@ -83,32 +115,107 @@ export function RoomControlCenter(props: RoomControlCenterProps) {
           )}
           {section === "invite" && (
             <section>
-              <h3>Invite</h3>
-              <p>{props.inviteCount} invites</p>
-              <button type="button" className="btn btn-warm" onClick={() => void props.onCreateInvite("member", 3600)}>Copy member invite</button>
+              <h3>{t("sidebar.inviteLabel")}</h3>
+              <p>{t("sidebar.inviteCount", { count: props.inviteCount })}</p>
+              <button type="button" className="btn btn-warm" onClick={() => void handleCreateInvite()}>{t("sidebar.copyInvite")}</button>
+              {props.createdInvite ? (
+                <code
+                  style={{
+                    display: "block",
+                    marginTop: 8,
+                    fontSize: 11,
+                    wordBreak: "break-all",
+                    padding: 8,
+                    background: "var(--surface-warm)",
+                    border: "1px solid var(--border-soft)",
+                    borderRadius: "var(--radius-chip)",
+                    color: "var(--ink-2)",
+                  }}
+                >
+                  {props.createdInvite.url}
+                </code>
+              ) : null}
+
+              {props.cloudMode && props.isOwner && props.createdPairing ? (
+                <div style={{ marginTop: 16 }}>
+                  <h4>{t("sidebar.connectorLabel")}</h4>
+                  <a
+                    className="btn btn-warm"
+                    style={{ display: "block", textAlign: "center", marginBottom: 10, textDecoration: "none" }}
+                    href={props.createdPairing.download_url}
+                    download
+                  >
+                    {t("sidebar.downloadConnector")}
+                  </a>
+                  <code
+                    style={{
+                      display: "block",
+                      marginBottom: 8,
+                      padding: 8,
+                      fontSize: 11,
+                      background: "var(--surface-warm)",
+                      border: "1px solid var(--border-soft)",
+                      borderRadius: "var(--radius-chip)",
+                      color: "var(--ink-2)",
+                    }}
+                  >
+                    <span style={{ display: "block", marginBottom: 4, color: "var(--ink-4)" }}>
+                      {t("sidebar.connectionCodePreview")}
+                    </span>
+                    {maskConnectionCode(props.createdPairing.connection_code)}
+                  </code>
+                  <p style={{ fontSize: 11, color: "var(--ink-3)", margin: "0 0 8px" }}>
+                    {t("sidebar.connectorHelp", { expiresAt: new Date(props.createdPairing.expires_at).toLocaleString() })}
+                  </p>
+                  <button
+                    type="button"
+                    className="btn btn-warm"
+                    style={{ width: "100%" }}
+                    onClick={handleCopyConnector}
+                  >
+                    {connectorCopied ? t("sidebar.connectionCodeCopied") : t("sidebar.copyConnectionCode")}
+                  </button>
+                </div>
+              ) : null}
             </section>
           )}
           {section === "room" && (
             <section>
-              <h3>Room</h3>
+              <h3>{t("room.settings")}</h3>
               <p>{props.roomId}</p>
-              <button type="button" className="btn btn-ghost" onClick={props.onLeaveRoom}>Leave room</button>
-              {props.isOwner ? <button type="button" className="btn btn-warm-ghost" onClick={props.onClearRoom}>Clear conversation</button> : null}
+              <button type="button" className="btn btn-ghost" onClick={props.onLeaveRoom}>{t("room.leave")}</button>
+              {props.isOwner ? (
+                confirmingClear ? (
+                  <div className="composer-confirm-clear" style={{ marginTop: 8 }}>
+                    <p>{t("composer.clearConversationConfirm")}</p>
+                    <button type="button" className="btn btn-warm" onClick={() => { setConfirmingClear(false); props.onClearRoom(); }}>
+                      {t("composer.clearConversationConfirmAction")}
+                    </button>
+                    <button type="button" className="btn btn-ghost" onClick={() => setConfirmingClear(false)}>
+                      {t("common.cancel")}
+                    </button>
+                  </div>
+                ) : (
+                  <button type="button" className="btn btn-warm-ghost" onClick={() => setConfirmingClear(true)}>
+                    {t("composer.clearConversation")}
+                  </button>
+                )
+              ) : null}
             </section>
           )}
           {section === "sound" && (
             <section>
-              <h3><SoundIcon /> Sound</h3>
+              <h3><SoundIcon /> {t("room.sound")}</h3>
               <button type="button" role="switch" aria-checked={props.soundEnabled} onClick={() => props.onSoundEnabledChange(!props.soundEnabled)}>
-                Sound cues
+                {t("room.soundCues")}
               </button>
-              <button type="button" className="btn btn-ghost" onClick={props.onTestSound}>Test sound</button>
+              <button type="button" className="btn btn-ghost" onClick={props.onTestSound}>{t("room.testSound")}</button>
             </section>
           )}
           {section === "advanced" && (
             <section>
-              <h3>Advanced</h3>
-              <p>Agent logs and protocol diagnostics appear here as they become available.</p>
+              <h3>{t("sidebar.logsLink")}</h3>
+              <p>{t("sidebar.placeholderBody")}</p>
             </section>
           )}
         </div>

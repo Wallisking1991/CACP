@@ -933,6 +933,12 @@ export async function buildServer(options: BuildServerOptions = {}) {
       socketCounts.set(roomId, (socketCounts.get(roomId) ?? 1) - 1);
       if (participant.role === "agent") {
         appendAndPublish(event(roomId, "agent.status_changed", participant.id, { agent_id: participant.id, status: "offline" }));
+      } else {
+        appendAndPublish(event(roomId, "participant.presence_changed", participant.id, {
+          participant_id: participant.id,
+          presence: "offline",
+          updated_at: new Date().toISOString()
+        }));
       }
     });
   });

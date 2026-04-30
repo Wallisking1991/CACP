@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import CacpHeroLogo from "./CacpHeroLogo.js";
 
 export interface FloatingLogoControlProps {
@@ -18,11 +18,32 @@ function readY(storageKey: string): number {
 export function FloatingLogoControl({ active, pendingCount, onOpen, storageKey = "cacp.room.logoControl.y" }: FloatingLogoControlProps) {
   const initialY = useMemo(() => readY(storageKey), [storageKey]);
   const [y, setY] = useState(initialY);
+  const draggingRef = useRef(false);
+  const dragStartYRef = useRef(0);
+  const dragStartTopRef = useRef(0);
 
   function persist(next: number): void {
     const clamped = Math.min(85, Math.max(15, next));
     setY(clamped);
     localStorage.setItem(storageKey, String(clamped));
+  }
+
+  function handlePointerDown(event: React.PointerEvent<HTMLButtonElement>): void {
+    draggingRef.current = true;
+    dragStartYRef.current = event.clientY;
+    dragStartTopRef.current = y;
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handlePointerMove(event: React.PointerEvent<HTMLButtonElement>): void {
+    if (!draggingRef.current) return;
+    const deltaPx = event.clientY - dragStartYRef.current;
+    const deltaPercent = (deltaPx / window.innerHeight) * 100;
+    persist(dragStartTopRef.current + deltaPercent);
+  }
+
+  function handlePointerUp(): void {
+    draggingRef.current = false;
   }
 
   return (
@@ -31,6 +52,9 @@ export function FloatingLogoControl({ active, pendingCount, onOpen, storageKey =
       className={`floating-logo-control ${active ? "is-active" : ""}`}
       style={{ top: `${y}%` }}
       onClick={onOpen}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
       onKeyDown={(event) => {
         if (event.key === "ArrowDown") persist(y + 2);
         if (event.key === "ArrowUp") persist(y - 2);

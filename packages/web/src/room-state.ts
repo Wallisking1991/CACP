@@ -598,7 +598,9 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
   if (pendingRoundtableRequest) roundtableParticipantIds.add(pendingRoundtableRequest.requested_by);
 
   const avatarStatuses: AvatarStatusView[] = [
-    ...[...participants.values()].map((participant): AvatarStatusView => {
+    ...[...participants.values()]
+      .filter(isHumanParticipant)
+      .map((participant): AvatarStatusView => {
       const activity = participantActivity.get(participant.id);
       const status: AvatarStatusKind = activity?.typing
         ? "typing"
