@@ -47,6 +47,17 @@ function getAudioContext(): AudioContext | undefined {
   return sharedAudioContext;
 }
 
+if (typeof document !== "undefined") {
+  const unlockAudio = () => {
+    if (sharedAudioContext?.state === "suspended") {
+      sharedAudioContext.resume().catch(() => {});
+    }
+  };
+  document.addEventListener("click", unlockAudio, { once: true });
+  document.addEventListener("keydown", unlockAudio, { once: true });
+  document.addEventListener("touchstart", unlockAudio, { once: true });
+}
+
 function synthTone(cue: RoomSoundCue, volume: number): void {
   const context = getAudioContext();
   if (!context) return;

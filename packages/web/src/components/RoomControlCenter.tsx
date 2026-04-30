@@ -76,12 +76,17 @@ export function RoomControlCenter(props: RoomControlCenterProps) {
   const [inviteTtl, setInviteTtl] = useState(3600);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const openerRef = useRef<Element | null>(null);
+  const dialogRef = useRef<HTMLElement>(null);
+  const onCloseRef = useRef(props.onClose);
+  onCloseRef.current = props.onClose;
 
   useEffect(() => {
     if (props.open) {
       openerRef.current = document.activeElement;
-      const timer = window.setTimeout(() => closeButtonRef.current?.focus(), 0);
-      return () => window.clearTimeout(timer);
+      const raf = requestAnimationFrame(() => {
+        closeButtonRef.current?.focus();
+      });
+      return () => cancelAnimationFrame(raf);
     } else if (openerRef.current instanceof HTMLElement) {
       openerRef.current.focus();
     }
@@ -91,13 +96,37 @@ export function RoomControlCenter(props: RoomControlCenterProps) {
     if (!props.open) return;
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        event.stopPropagation();
-        props.onClose();
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key === "Tab") {
+        const dialog = dialogRef.current;
+        if (!dialog) return;
+        const focusable = Array.from(
+          dialog.querySelectorAll<HTMLElement>(
+            'button, input, select, textarea, [tabindex]:not([tabindex="-1"])'
+          )
+        ).filter((el) => !el.hasAttribute("disabled") && el.offsetParent !== null);
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey) {
+          if (document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+          }
+        }
       }
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [props.open, props.onClose]);
+  }, [props.open]);
 
   const handleCopyConnector = useCallback(() => {
     if (props.createdPairing) {
@@ -129,7 +158,7 @@ export function RoomControlCenter(props: RoomControlCenterProps) {
 
   return (
     <div className="room-control-overlay" onClick={props.onClose}>
-      <section className="room-control-center" role="dialog" aria-modal="true" aria-label={t("room.controlCenter")} onClick={(event) => event.stopPropagation()}>
+      <section ref={dialogRef} className="room-control-center" role="dialog" aria-modal="true" aria-label={t("room.controlCenter")} onClick={(event) => event.stopPropagation()}>
         <header className="room-control-center__header">
           <div>
             <p className="section-label">CACP</p>
@@ -149,13 +178,12 @@ export function RoomControlCenter(props: RoomControlCenterProps) {
             <section className="agent-cockpit">
               <h3>{activeAgent?.name ?? t("sidebar.noActiveAgent")}</h3>
               <p>{activeAgent ? `${activeAgent.status} · ${activeAgent.capabilities.join(" · ") || t("sidebar.noCapabilities")}` : t("sidebar.selectAgent")}</p>
-              {props.agents.length > 1 ? (
+              {props.agents.length > 1 && props.canManageRoom ? (
                 <select
                   className="input"
                   value={props.activeAgentId ?? ""}
                   onChange={(event) => props.onSelectAgent(event.target.value)}
                   aria-label={t("sidebar.selectAgent")}
-                  disabled={!props.canManageRoom}
                 >
                   {props.agents.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)}
                 </select>

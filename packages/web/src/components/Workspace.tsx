@@ -91,8 +91,10 @@ export default function Workspace({
   const [soundEnabled, setSoundEnabled] = useState(soundControllerRef.current.enabled());
   const [soundVolume, setSoundVolume] = useState(soundControllerRef.current.volume());
   const typingControllerRef = useRef<TypingActivityController | undefined>();
-  const seenSoundEventIdsRef = useRef<Set<string>>(new Set());
-  const [soundReady, setSoundReady] = useState(false);
+  const prevEventsRef = useRef<CacpEvent[]>([]);
+  const initialLoadCompleteRef = useRef(false);
+  const growthTimerRef = useRef<number>(0);
+  const lastRoomIdRef = useRef(session.room_id);
 
   const [showSlowStreamingNotice, setShowSlowStreamingNotice] = useState(false);
   const [dismissedJoinRequestIds, setDismissedJoinRequestIds] = useState<Set<string>>(() => new Set());
@@ -164,16 +166,39 @@ export default function Workspace({
   }, [session.room_id, session.token, session.participant_id]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setSoundReady(true), 2000);
-    return () => window.clearTimeout(timer);
+    return () => window.clearTimeout(growthTimerRef.current);
   }, []);
 
   useEffect(() => {
-    if (!soundReady) return;
-    const seen = seenSoundEventIdsRef.current;
-    for (const event of events) {
-      if (seen.has(event.event_id)) continue;
-      seen.add(event.event_id);
+    if (lastRoomIdRef.current !== session.room_id) {
+      lastRoomIdRef.current = session.room_id;
+      prevEventsRef.current = [];
+      initialLoadCompleteRef.current = false;
+      window.clearTimeout(growthTimerRef.current);
+    }
+
+    const prevEvents = prevEventsRef.current;
+    const newEvents = events.filter((e) => !prevEvents.some((pe) => pe.event_id === e.event_id));
+    const grew = newEvents.length > 0;
+    prevEventsRef.current = events;
+
+    if (grew) {
+      window.clearTimeout(growthTimerRef.current);
+      if (!initialLoadCompleteRef.current) {
+        const hasRecent = newEvents.some((e) => Date.now() - Date.parse(e.created_at) < 10000);
+        if (hasRecent) {
+          initialLoadCompleteRef.current = true;
+        } else {
+          growthTimerRef.current = window.setTimeout(() => {
+            initialLoadCompleteRef.current = true;
+          }, 300);
+        }
+      }
+    }
+
+    if (!initialLoadCompleteRef.current) return;
+
+    for (const event of newEvents) {
       switch (event.type) {
         case "message.created": {
           if (shouldPlayCueForMessage({ actorId: event.actor_id, currentParticipantId: session.participant_id })) {
@@ -202,7 +227,7 @@ export default function Workspace({
         }
       }
     }
-  }, [events, soundReady, session.participant_id]);
+  }, [events, session.room_id, session.participant_id]);
 
   const collectCount = room.activeCollection?.messages.length ?? 0;
 
