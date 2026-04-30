@@ -20,8 +20,9 @@ export interface PromptMessage {
 export function findActiveAgentId(events: CacpEvent[]): string | undefined {
   for (const storedEvent of [...events].reverse()) {
     if (storedEvent.type !== "room.agent_selected") continue;
-    if (typeof storedEvent.payload.agent_id === "string" && storedEvent.payload.agent_id.length > 0) {
-      return storedEvent.payload.agent_id;
+    if (typeof storedEvent.payload.agent_id === "string") {
+      if (storedEvent.payload.agent_id.length > 0) return storedEvent.payload.agent_id;
+      return undefined; // explicit deselection (empty agent_id)
     }
   }
   return undefined;

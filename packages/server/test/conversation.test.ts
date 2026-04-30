@@ -30,6 +30,13 @@ describe("conversation helpers", () => {
     ])).toBe("agent_new");
   });
 
+  it("returns undefined when the latest selection is a deselection (empty agent_id)", () => {
+    expect(findActiveAgentId([
+      event("room.agent_selected", { agent_id: "agent_old" }, 1),
+      event("room.agent_selected", { agent_id: "" }, 2)
+    ])).toBeUndefined();
+  });
+
   it("finds open turns and queued followups", () => {
     const open = [
       event("agent.turn.requested", { turn_id: "turn_1", agent_id: "agent_1", context_prompt: "hi" }, 1),

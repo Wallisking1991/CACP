@@ -349,6 +349,9 @@ export async function buildServer(options: BuildServerOptions = {}) {
       ];
       if (participant.role === "agent") {
         store.deleteAgentPairingByParticipantId(roomId, participant.id);
+        if (findActiveAgentId(store.listEvents(roomId)) === participant.id) {
+          events.push(store.appendEvent(event(roomId, "room.agent_selected", participant.id, { agent_id: "" })));
+        }
       }
       return events;
     });
@@ -1227,6 +1230,9 @@ export async function buildServer(options: BuildServerOptions = {}) {
       ];
       if (target.role === "agent") {
         events.push(store.appendEvent(event(request.params.roomId, "agent.status_changed", target.id, { agent_id: target.id, status: "offline" })));
+        if (findActiveAgentId(store.listEvents(request.params.roomId)) === target.id) {
+          events.push(store.appendEvent(event(request.params.roomId, "room.agent_selected", actor.id, { agent_id: "" })));
+        }
       }
       return events;
     });

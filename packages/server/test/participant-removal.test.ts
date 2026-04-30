@@ -124,4 +124,46 @@ describe("participant removal", () => {
     expect(removed.statusCode).toBe(409);
     expect(removed.json()).toMatchObject({ error: "cannot_remove_owner" });
   });
+
+  it("clears active agent selection when an agent is removed", async () => {
+    app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
+    const room = (await app.inject({ method: "POST", url: "/rooms", payload: { name: "Room", display_name: "Owner" } })).json() as { room_id: string; owner_token: string };
+    const ownerAuth = { authorization: `Bearer ${room.owner_token}` };
+
+    const agentResponse = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/register`, headers: ownerAuth, payload: { name: "Agent A", capabilities: ["claude-code"] } });
+    expect(agentResponse.statusCode).toBe(201);
+    const agentA = agentResponse.json() as { agent_id: string; agent_token: string };
+
+    const selectA = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/select`, headers: ownerAuth, payload: { agent_id: agentA.agent_id } });
+    expect(selectA.statusCode).toBe(201);
+
+    const removed = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/participants/${agentA.agent_id}/remove`,
+      headers: ownerAuth,
+      payload: { reason: "test" }
+    });
+    expect(removed.statusCode).toBe(201);
+
+    const eventsResponse = await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth });
+    const events = (eventsResponse.json() as { events: Array<{ type: string; payload: Record<string, unknown> }> }).events;
+
+    const deselectionEvents = events.filter((e) => e.type === "room.agent_selected" && e.payload.agent_id === "");
+    expect(deselectionEvents.length).toBeGreaterThanOrEqual(1);
+
+    const agentBResponse = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/register`, headers: ownerAuth, payload: { name: "Agent B", capabilities: ["claude-code"] } });
+    expect(agentBResponse.statusCode).toBe(201);
+    const agentB = agentBResponse.json() as { agent_id: string; agent_token: string };
+
+    const selectB = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/select`, headers: ownerAuth, payload: { agent_id: agentB.agent_id } });
+    expect(selectB.statusCode).toBe(201);
+
+    const catalog = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/claude/session-catalog`,
+      headers: { authorization: `Bearer ${agentB.agent_token}` },
+      payload: { agent_id: agentB.agent_id, working_dir: "/tmp", sessions: [] }
+    });
+    expect(catalog.statusCode).toBe(201);
+  });
 });
