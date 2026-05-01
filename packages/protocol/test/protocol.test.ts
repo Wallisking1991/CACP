@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  AgentTypeSchema,
   CacpEventSchema,
   AiCollectionRequestedPayloadSchema,
   AiCollectionRequestApprovedPayloadSchema,
@@ -10,6 +11,9 @@ import {
   ClaudeSessionReadyPayloadSchema,
   ClaudeSessionImportMessagePayloadSchema,
   ClaudeRuntimeStatusChangedPayloadSchema,
+  AgentSessionCatalogUpdatedPayloadSchema,
+  AgentSessionImportMessagePayloadSchema,
+  AgentRuntimeStatusChangedPayloadSchema,
   ParticipantPresenceChangedPayloadSchema,
   ParticipantTypingStartedPayloadSchema,
   ParticipantTypingStoppedPayloadSchema,
@@ -257,6 +261,67 @@ describe("CACP event schema", () => {
       updated_at: "2026-04-29T00:00:01.000Z"
     };
     expect(ClaudeRuntimeStatusChangedPayloadSchema.parse(payload)).toEqual(payload);
+  });
+
+  it("accepts Codex CLI as a local command agent type", () => {
+    expect(AgentTypeSchema.parse("codex-cli")).toBe("codex-cli");
+    expect(() => AgentTypeSchema.parse("codex")).toThrow();
+  });
+
+  it("accepts provider-neutral local agent session catalog events", () => {
+    const payload = {
+      agent_id: "agent_1",
+      provider: "codex-cli",
+      working_dir: "D:\\Development\\2",
+      sessions: [{
+        session_id: "019de11a-76d4-7ca3-96ea-27ad77a12187",
+        title: "Codex thread 019de11a",
+        project_dir: "D:\\Development\\2",
+        updated_at: "2026-05-01T01:15:01.643Z",
+        message_count: 3,
+        byte_size: 71545,
+        importable: true,
+        provider: "codex-cli"
+      }]
+    };
+
+    expect(AgentSessionCatalogUpdatedPayloadSchema.parse(payload)).toEqual(payload);
+    expect(CacpEventSchema.parse({
+      protocol: "cacp",
+      version: "0.2.0",
+      event_id: "evt_agent_catalog",
+      room_id: "room_1",
+      type: "agent.session_catalog.updated",
+      actor_id: "agent_1",
+      created_at: "2026-05-01T01:15:02.000Z",
+      payload
+    }).type).toBe("agent.session_catalog.updated");
+  });
+
+  it("accepts provider-neutral local agent import and runtime payloads", () => {
+    expect(AgentSessionImportMessagePayloadSchema.parse({
+      import_id: "import_1",
+      agent_id: "agent_1",
+      provider: "codex-cli",
+      session_id: "019de11a-76d4-7ca3-96ea-27ad77a12187",
+      sequence: 0,
+      author_role: "assistant",
+      source_kind: "assistant",
+      text: "Visible Codex answer"
+    })).toMatchObject({ provider: "codex-cli", author_role: "assistant" });
+
+    expect(AgentRuntimeStatusChangedPayloadSchema.parse({
+      agent_id: "agent_1",
+      provider: "codex-cli",
+      turn_id: "turn_1",
+      status_id: "status_turn_1",
+      phase: "running_command",
+      current: "Codex running command: Get-ChildItem -Force",
+      recent: ["Codex running command: Get-ChildItem -Force"],
+      metrics: { files_read: 0, searches: 0, commands: 1 },
+      started_at: "2026-05-01T01:17:00.000Z",
+      updated_at: "2026-05-01T01:17:02.000Z"
+    })).toMatchObject({ provider: "codex-cli", phase: "running_command" });
   });
 
   it("accepts participant presence and typing activity events", () => {

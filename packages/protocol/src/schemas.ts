@@ -4,7 +4,7 @@ export const ProtocolVersionSchema = z.enum(["0.1.0", "0.2.0"]);
 
 export const ParticipantTypeSchema = z.enum(["human", "agent", "system", "observer"]);
 export const ParticipantRoleSchema = z.enum(["owner", "admin", "member", "observer", "agent"]);
-export const AgentTypeSchema = z.enum(["claude-code", "llm-api", "llm-openai-compatible", "llm-anthropic-compatible"]);
+export const AgentTypeSchema = z.enum(["claude-code", "codex-cli", "llm-api", "llm-openai-compatible", "llm-anthropic-compatible"]);
 export const ParticipantSchema = z.object({
   id: z.string().min(1),
   type: ParticipantTypeSchema,
@@ -40,6 +40,20 @@ export const EventTypeSchema = z.enum([
   "proposal.created", "proposal.vote_cast", "proposal.approved", "proposal.rejected", "proposal.expired",
   "agent.registered", "agent.unregistered", "agent.disconnected", "agent.pairing_created", "agent.status_changed", "agent.action_approval_requested", "agent.action_approval_resolved",
   "agent.turn.requested", "agent.turn.followup_queued", "agent.turn.started", "agent.output.delta", "agent.turn.completed", "agent.turn.failed",
+  "agent.session_catalog.updated",
+  "agent.session_preview.requested",
+  "agent.session_preview.message",
+  "agent.session_preview.completed",
+  "agent.session_preview.failed",
+  "agent.session_selected",
+  "agent.session_ready",
+  "agent.session_import.started",
+  "agent.session_import.message",
+  "agent.session_import.completed",
+  "agent.session_import.failed",
+  "agent.runtime.status_changed",
+  "agent.runtime.status_completed",
+  "agent.runtime.status_failed",
   "claude.session_catalog.updated",
   "claude.session_preview.requested",
   "claude.session_preview.message",
@@ -281,6 +295,102 @@ export const ClaudeRuntimeStatusFailedPayloadSchema = z.object({
   failed_at: z.string().datetime()
 });
 
+export const LocalAgentProviderSchema = z.enum(["claude-code", "codex-cli"]);
+
+export const AgentSessionSummarySchema = ClaudeSessionSummarySchema.extend({
+  provider: LocalAgentProviderSchema.optional()
+});
+
+export const AgentSessionCatalogUpdatedPayloadSchema = z.object({
+  agent_id: z.string().min(1),
+  provider: LocalAgentProviderSchema,
+  working_dir: z.string().min(1).max(500),
+  sessions: z.array(AgentSessionSummarySchema).max(100)
+});
+
+export const AgentSessionSelectedPayloadSchema = z.discriminatedUnion("mode", [
+  z.object({
+    agent_id: z.string().min(1),
+    provider: LocalAgentProviderSchema,
+    mode: z.literal("fresh"),
+    selected_by: z.string().min(1)
+  }),
+  z.object({
+    agent_id: z.string().min(1),
+    provider: LocalAgentProviderSchema,
+    mode: z.literal("resume"),
+    session_id: z.string().min(1),
+    selected_by: z.string().min(1)
+  })
+]);
+
+export const AgentSessionReadyPayloadSchema = z.discriminatedUnion("mode", [
+  z.object({
+    agent_id: z.string().min(1),
+    provider: LocalAgentProviderSchema,
+    mode: z.literal("fresh"),
+    session_id: z.string().min(1).optional(),
+    ready_at: z.string().datetime()
+  }),
+  z.object({
+    agent_id: z.string().min(1),
+    provider: LocalAgentProviderSchema,
+    mode: z.literal("resume"),
+    session_id: z.string().min(1),
+    ready_at: z.string().datetime()
+  })
+]);
+
+export const AgentSessionPreviewRequestedPayloadSchema = ClaudeSessionPreviewRequestedPayloadSchema.extend({
+  provider: LocalAgentProviderSchema
+});
+
+export const AgentSessionImportStartedPayloadSchema = ClaudeSessionImportStartedPayloadSchema.extend({
+  provider: LocalAgentProviderSchema
+});
+
+export const AgentSessionImportAuthorRoleSchema = ClaudeSessionImportAuthorRoleSchema;
+export const AgentSessionImportSourceKindSchema = ClaudeSessionImportSourceKindSchema;
+
+export const AgentSessionImportMessagePayloadSchema = ClaudeSessionImportMessagePayloadSchema.extend({
+  provider: LocalAgentProviderSchema
+});
+
+export const AgentSessionPreviewMessagePayloadSchema = AgentSessionImportMessagePayloadSchema.omit({ import_id: true }).extend({
+  preview_id: z.string().min(1)
+});
+
+export const AgentSessionPreviewCompletedPayloadSchema = ClaudeSessionPreviewCompletedPayloadSchema.extend({
+  provider: LocalAgentProviderSchema
+});
+
+export const AgentSessionPreviewFailedPayloadSchema = ClaudeSessionPreviewFailedPayloadSchema.extend({
+  provider: LocalAgentProviderSchema
+});
+
+export const AgentSessionImportCompletedPayloadSchema = ClaudeSessionImportCompletedPayloadSchema.extend({
+  provider: LocalAgentProviderSchema
+});
+
+export const AgentSessionImportFailedPayloadSchema = ClaudeSessionImportFailedPayloadSchema.extend({
+  provider: LocalAgentProviderSchema
+});
+
+export const AgentRuntimePhaseSchema = ClaudeRuntimePhaseSchema;
+export const AgentRuntimeMetricsSchema = ClaudeRuntimeMetricsSchema;
+
+export const AgentRuntimeStatusChangedPayloadSchema = ClaudeRuntimeStatusChangedPayloadSchema.extend({
+  provider: LocalAgentProviderSchema
+});
+
+export const AgentRuntimeStatusCompletedPayloadSchema = ClaudeRuntimeStatusCompletedPayloadSchema.extend({
+  provider: LocalAgentProviderSchema
+});
+
+export const AgentRuntimeStatusFailedPayloadSchema = ClaudeRuntimeStatusFailedPayloadSchema.extend({
+  provider: LocalAgentProviderSchema
+});
+
 export type ProtocolVersion = z.infer<typeof ProtocolVersionSchema>;
 export type ParticipantType = z.infer<typeof ParticipantTypeSchema>;
 export type ParticipantRole = z.infer<typeof ParticipantRoleSchema>;
@@ -313,6 +423,24 @@ export type ClaudeRuntimeMetrics = z.infer<typeof ClaudeRuntimeMetricsSchema>;
 export type ClaudeRuntimeStatusChangedPayload = z.infer<typeof ClaudeRuntimeStatusChangedPayloadSchema>;
 export type ClaudeRuntimeStatusCompletedPayload = z.infer<typeof ClaudeRuntimeStatusCompletedPayloadSchema>;
 export type ClaudeRuntimeStatusFailedPayload = z.infer<typeof ClaudeRuntimeStatusFailedPayloadSchema>;
+export type LocalAgentProvider = z.infer<typeof LocalAgentProviderSchema>;
+export type AgentSessionSummary = z.infer<typeof AgentSessionSummarySchema>;
+export type AgentSessionCatalogUpdatedPayload = z.infer<typeof AgentSessionCatalogUpdatedPayloadSchema>;
+export type AgentSessionSelectedPayload = z.infer<typeof AgentSessionSelectedPayloadSchema>;
+export type AgentSessionReadyPayload = z.infer<typeof AgentSessionReadyPayloadSchema>;
+export type AgentSessionPreviewRequestedPayload = z.infer<typeof AgentSessionPreviewRequestedPayloadSchema>;
+export type AgentSessionPreviewMessagePayload = z.infer<typeof AgentSessionPreviewMessagePayloadSchema>;
+export type AgentSessionPreviewCompletedPayload = z.infer<typeof AgentSessionPreviewCompletedPayloadSchema>;
+export type AgentSessionPreviewFailedPayload = z.infer<typeof AgentSessionPreviewFailedPayloadSchema>;
+export type AgentSessionImportStartedPayload = z.infer<typeof AgentSessionImportStartedPayloadSchema>;
+export type AgentSessionImportMessagePayload = z.infer<typeof AgentSessionImportMessagePayloadSchema>;
+export type AgentSessionImportCompletedPayload = z.infer<typeof AgentSessionImportCompletedPayloadSchema>;
+export type AgentSessionImportFailedPayload = z.infer<typeof AgentSessionImportFailedPayloadSchema>;
+export type AgentRuntimePhase = z.infer<typeof AgentRuntimePhaseSchema>;
+export type AgentRuntimeMetrics = z.infer<typeof AgentRuntimeMetricsSchema>;
+export type AgentRuntimeStatusChangedPayload = z.infer<typeof AgentRuntimeStatusChangedPayloadSchema>;
+export type AgentRuntimeStatusCompletedPayload = z.infer<typeof AgentRuntimeStatusCompletedPayloadSchema>;
+export type AgentRuntimeStatusFailedPayload = z.infer<typeof AgentRuntimeStatusFailedPayloadSchema>;
 export type ParticipantPresence = z.infer<typeof ParticipantPresenceSchema>;
 export type ParticipantActivityScope = z.infer<typeof ParticipantActivityScopeSchema>;
 export type ParticipantPresenceChangedPayload = z.infer<typeof ParticipantPresenceChangedPayloadSchema>;
