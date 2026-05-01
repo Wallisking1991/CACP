@@ -1,4 +1,4 @@
-export const CommandAgentTypeValues = ["claude-code"] as const;
+export const CommandAgentTypeValues = ["claude-code", "codex-cli"] as const;
 export const LlmAgentTypeValues = ["llm-api", "llm-openai-compatible", "llm-anthropic-compatible"] as const;
 export const AgentTypeValues = [...CommandAgentTypeValues, ...LlmAgentTypeValues] as const;
 export type AgentType = typeof AgentTypeValues[number];
@@ -31,6 +31,22 @@ export function buildAgentProfile(input: { agentType: AgentType; permissionLevel
   if (input.agentType === "llm-anthropic-compatible") {
     return { name: "Anthropic-compatible LLM API Agent", command: "", args: [], working_dir: workingDir, capabilities: ["llm.api", "chat.stream", "llm.anthropic_compatible"], system_prompt: llmApiSystemPrompt() };
   }
+  if (input.agentType === "codex-cli") {
+    return {
+      name: "Codex CLI Agent",
+      command: "codex",
+      args: [],
+      working_dir: workingDir,
+      capabilities: [
+        "codex-cli",
+        "code-agent.persistent_session",
+        "code-agent.local_execution",
+        input.permissionLevel,
+        ...(input.permissionLevel === "read_only" ? ["repo.read"] : ["manual_flow_control"])
+      ],
+      system_prompt: codexSystemPrompt(input.permissionLevel)
+    };
+  }
 
   return {
     name: "Claude Code Agent",
@@ -59,6 +75,21 @@ function claudeSystemPrompt(permissionLevel: PermissionLevel, _hookUrl?: string)
     "请基于 Claude Code 自身会话上下文、项目上下文和房间新增消息帮助所有参与者推进任务。",
     "如果需要多人分别回答或形成共识，请提醒房主使用 Roundtable Mode 收集回答。",
     "不要输出结构化治理代码块；当前平台演示只使用普通聊天与 Roundtable Mode。",
+    approval
+  ].join("\n");
+}
+
+function codexSystemPrompt(permissionLevel: PermissionLevel): string {
+  const approval = permissionLevel === "read_only"
+    ? "Current permission is read-only: do not modify files and do not run write, delete, install, or environment-changing commands."
+    : permissionLevel === "limited_write"
+      ? "Current permission allows normal file creation and edits inside the workspace. For deletion, broad refactors, dependency installation, network access, or environment-changing commands, explain the risk and wait for explicit owner confirmation."
+      : "Current permission is full access: when the owner explicitly asks, you may create or modify files and run necessary commands. For destructive, irreversible, or broad operations, still explain the risk and wait for explicit owner confirmation.";
+  return [
+    "You are a Codex CLI Agent connected to a CACP multi-user AI room.",
+    "You run locally in the room owner's project directory.",
+    "Use local project context and the room message to help all participants move the task forward.",
+    "Do not reveal hidden chain-of-thought; share concise observable reasoning, actions, and results.",
     approval
   ].join("\n");
 }

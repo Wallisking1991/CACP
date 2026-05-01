@@ -101,6 +101,26 @@ describe("EventStore", () => {
     }
   });
 
+  it("persists Codex CLI agent pairings", () => {
+    const store = new EventStore(":memory:");
+    try {
+      const stored = store.createAgentPairing({
+        pairing_id: "pair_codex_cli",
+        room_id: "room_codex",
+        token_hash: "sha256:codex",
+        created_by: "user_owner",
+        agent_type: "codex-cli",
+        permission_level: "limited_write",
+        working_dir: "D:\\Development\\2",
+        created_at: "2026-05-01T00:00:00.000Z",
+        expires_at: "2026-05-01T00:15:00.000Z"
+      });
+      expect(stored.agent_type).toBe("codex-cli");
+    } finally {
+      store.close();
+    }
+  });
+
   it("migrates away legacy generic command pairings", () => {
     const tempDir = mkdtempSync(join(tmpdir(), "cacp-event-store-legacy-"));
     const dbPath = join(tempDir, "legacy.db");

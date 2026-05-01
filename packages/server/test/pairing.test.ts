@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 import { AgentTypeValues, buildAgentProfile, isLlmAgentType } from "../src/pairing.js";
 
 describe("agent pairing profiles", () => {
-  it("supports only Claude Code as the local command agent while keeping LLM API agents", () => {
+  it("supports Claude Code and Codex CLI as local command agents while keeping LLM API agents", () => {
     expect(AgentTypeValues).toEqual([
       "claude-code",
+      "codex-cli",
       "llm-api",
       "llm-openai-compatible",
       "llm-anthropic-compatible"
@@ -13,6 +14,7 @@ describe("agent pairing profiles", () => {
     expect(isLlmAgentType("llm-openai-compatible")).toBe(true);
     expect(isLlmAgentType("llm-anthropic-compatible")).toBe(true);
     expect(isLlmAgentType("claude-code")).toBe(false);
+    expect(isLlmAgentType("codex-cli")).toBe(false);
     expect((AgentTypeValues as readonly string[]).includes("codex")).toBe(false);
     expect((AgentTypeValues as readonly string[]).includes("opencode")).toBe(false);
     expect((AgentTypeValues as readonly string[]).includes("echo")).toBe(false);
@@ -65,6 +67,28 @@ describe("agent pairing profiles", () => {
     expect(fullAccess.capabilities).toContain("manual_flow_control");
   });
 
+  it("builds a Codex CLI local execution profile", () => {
+    const profile = buildAgentProfile({
+      agentType: "codex-cli",
+      permissionLevel: "limited_write",
+      workingDir: "D:\\Development\\2"
+    });
+
+    expect(profile.name).toBe("Codex CLI Agent");
+    expect(profile.command).toBe("codex");
+    expect(profile.args).toEqual([]);
+    expect(profile.working_dir).toBe("D:\\Development\\2");
+    expect(profile.capabilities).toEqual([
+      "codex-cli",
+      "code-agent.persistent_session",
+      "code-agent.local_execution",
+      "limited_write",
+      "manual_flow_control"
+    ]);
+    expect(profile.system_prompt).toContain("Codex CLI Agent");
+    expect(profile.system_prompt).toContain("CACP");
+  });
+
   it("declares LLM API agent types", () => {
     expect(AgentTypeValues).toContain("llm-api");
     expect(AgentTypeValues).toContain("llm-openai-compatible");
@@ -73,6 +97,7 @@ describe("agent pairing profiles", () => {
     expect(isLlmAgentType("llm-openai-compatible")).toBe(true);
     expect(isLlmAgentType("llm-anthropic-compatible")).toBe(true);
     expect(isLlmAgentType("codex")).toBe(false);
+    expect(isLlmAgentType("codex-cli")).toBe(false);
   });
 
   it("builds pure conversation profiles for LLM API agents", () => {
