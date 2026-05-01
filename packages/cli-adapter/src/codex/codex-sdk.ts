@@ -3,6 +3,12 @@ import type { CodexSdk, CodexThread, CodexThreadOptions } from "./types.js";
 type UnknownCodexModule = Record<string, unknown>;
 type CodexConstructor = new (options?: { codexPathOverride?: string }) => CodexSdk;
 
+function configuredCodexPath(input: { codexPath?: string }): string | undefined {
+  const candidate = input.codexPath ?? process.env.CACP_CODEX_PATH;
+  const trimmed = candidate?.trim();
+  return trimmed || undefined;
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? value as Record<string, unknown> : {};
 }
@@ -29,9 +35,8 @@ export function createCodexSdkFromModule(module: UnknownCodexModule, input: { co
   if (typeof Codex !== "function") {
     throw new Error("Codex SDK constructor was not found. Install @openai/codex-sdk.");
   }
-  const client = new (Codex as CodexConstructor)({
-    codexPathOverride: input.codexPath ?? process.env.CACP_CODEX_PATH ?? "codex"
-  });
+  const codexPathOverride = configuredCodexPath(input);
+  const client = new (Codex as CodexConstructor)(codexPathOverride ? { codexPathOverride } : {});
   return {
     startThread(options: CodexThreadOptions): CodexThread {
       return wrapThread(client.startThread(options));

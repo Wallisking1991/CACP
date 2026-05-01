@@ -182,4 +182,33 @@ describe("Workspace refactored shell", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getAllByText("Claude Code Agent")).toHaveLength(2);
   });
+
+  it("keeps the Codex session-required modal open after selection until the connector reports ready", () => {
+    const props = {
+      ...baseProps,
+      events: [
+        event("room.created", { name: "CACP AI Room" }, 1),
+        event("participant.joined", { participant: { id: "user_1", display_name: "Wei", role: "owner", type: "human" } }, 2),
+        event("agent.registered", { agent_id: "agent_1", name: "Codex CLI Agent", capabilities: ["codex-cli"] }, 3, "agent_1"),
+        event("room.agent_selected", { agent_id: "agent_1" }, 4),
+        event("agent.session_catalog.updated" as CacpEvent["type"], {
+          agent_id: "agent_1",
+          provider: "codex-cli",
+          working_dir: "D:\\Development\\2",
+          sessions: []
+        }, 5, "agent_1"),
+        event("agent.session_selected" as CacpEvent["type"], {
+          agent_id: "agent_1",
+          provider: "codex-cli",
+          mode: "fresh",
+          selected_by: "user_1"
+        }, 6, "user_1")
+      ]
+    };
+
+    render(<LangProvider><Workspace {...props} /></LangProvider>);
+
+    expect(screen.getByRole("dialog", { name: /Select Agent Session/i })).toBeInTheDocument();
+    expect(screen.getByText(/Choose how Codex CLI joins this room/i)).toBeInTheDocument();
+  });
 });

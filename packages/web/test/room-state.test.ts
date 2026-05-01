@@ -219,6 +219,32 @@ describe("room state", () => {
     });
   });
 
+  it("derives generic Codex session readiness separately from selection", () => {
+    const state = deriveRoomState([
+      event("agent.session_selected" as CacpEvent["type"], {
+        agent_id: "agent_1",
+        provider: "codex-cli",
+        mode: "fresh",
+        selected_by: "owner"
+      }, 1, "owner"),
+      event("agent.session_ready" as CacpEvent["type"], {
+        agent_id: "agent_1",
+        provider: "codex-cli",
+        mode: "fresh",
+        session_id: "thread_123",
+        ready_at: "2026-05-01T00:00:01.000Z"
+      }, 2, "agent_1")
+    ]);
+
+    expect((state as any).agentSessionReady).toEqual({
+      agent_id: "agent_1",
+      provider: "codex-cli",
+      mode: "fresh",
+      session_id: "thread_123",
+      ready_at: "2026-05-01T00:00:01.000Z"
+    });
+  });
+
   it("derives Claude session catalog and selection state", () => {
     const state = deriveRoomState([
       event("room.created", { name: "Room" }, 1, "owner"),
@@ -250,6 +276,30 @@ describe("room state", () => {
       mode: "resume",
       session_id: "session_1",
       selected_by: "owner"
+    });
+  });
+
+  it("derives Claude session readiness separately from selection", () => {
+    const state = deriveRoomState([
+      event("claude.session_selected", {
+        agent_id: "agent_1",
+        mode: "resume",
+        session_id: "session_1",
+        selected_by: "owner"
+      }, 1, "owner"),
+      event("claude.session_ready", {
+        agent_id: "agent_1",
+        mode: "resume",
+        session_id: "session_1",
+        ready_at: "2026-05-01T00:00:01.000Z"
+      }, 2, "agent_1")
+    ]);
+
+    expect((state as any).claudeSessionReady).toEqual({
+      agent_id: "agent_1",
+      mode: "resume",
+      session_id: "session_1",
+      ready_at: "2026-05-01T00:00:01.000Z"
     });
   });
 

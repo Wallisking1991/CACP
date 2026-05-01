@@ -22,6 +22,35 @@ describe("Codex SDK boundary", () => {
     expect(constructorOptions[0]).toMatchObject({ codexPathOverride: "codex-test" });
   });
 
+  it("does not force a bare codex executable override when no path is configured", () => {
+    const original = process.env.CACP_CODEX_PATH;
+    delete process.env.CACP_CODEX_PATH;
+    const constructorOptions: unknown[] = [];
+    class FakeCodex {
+      constructor(options: unknown) {
+        constructorOptions.push(options);
+      }
+      startThread() {
+        return { id: null, runStreamed: async function runStreamed() { return { events: async function* () {}() }; } };
+      }
+      resumeThread() {
+        return { id: "session_1", runStreamed: async function runStreamed() { return { events: async function* () {}() }; } };
+      }
+    }
+
+    try {
+      const sdk = createCodexSdkFromModule({ Codex: FakeCodex });
+      expect(sdk.startThread({ workingDirectory: "D:\\Development\\2" }).id).toBeNull();
+      expect(constructorOptions[0]).toEqual({});
+    } finally {
+      if (original === undefined) {
+        delete process.env.CACP_CODEX_PATH;
+      } else {
+        process.env.CACP_CODEX_PATH = original;
+      }
+    }
+  });
+
   it("maps CACP permission levels to Codex thread options", () => {
     expect(toCodexThreadOptions({ workingDir: "D:\\Development\\2", permissionLevel: "read_only" })).toMatchObject({
       workingDirectory: "D:\\Development\\2",

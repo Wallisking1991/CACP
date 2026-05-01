@@ -7,6 +7,7 @@ import { printConnectedBanner } from "./connected-banner.js";
 import { runLlmTurn } from "./llm/runner.js";
 import { sanitizeLlmError } from "./llm/sanitize.js";
 import { handleFatalError } from "./fatal-error.js";
+import { reportTurnFailure } from "./error-reporting.js";
 import { RoomClient, statusSummary } from "./room-client.js";
 import { listClaudeSessions } from "./claude/session-catalog.js";
 import { buildClaudeImportFromSessionMessages, chunkClaudeImportMessages } from "./claude/transcript-import.js";
@@ -410,32 +411,34 @@ async function main() {
           const rawMessage = error instanceof Error ? error.message : String(error);
           const displayError = config.llm ? sanitizeLlmError(rawMessage, config.llm.apiKey) : rawMessage;
           console.error("Adapter turn failed", displayError);
-          try {
-            if (claudeRuntime) {
-              await roomClient.publishRuntimeStatus("failed", {
-                agent_id: registered.agent_id,
-                turn_id: turnId,
-                status_id: `status_${turnId}`,
-                error: displayError,
-                metrics: { files_read: 0, searches: 0, commands: 0 },
-                failed_at: new Date().toISOString()
-              });
-            }
-            if (codexRuntime) {
-              await roomClient.publishAgentRuntimeStatus("failed", {
-                agent_id: registered.agent_id,
-                provider: "codex-cli",
-                turn_id: turnId,
-                status_id: `status_${turnId}`,
-                error: displayError,
-                metrics: { files_read: 0, searches: 0, commands: 0 },
-                failed_at: new Date().toISOString()
-              });
-            }
-            await roomClient.failTurn(turnId, displayError);
-          } catch (reportError) {
-            console.error("Adapter failed to report turn failure", reportError);
-          }
+          await reportTurnFailure({
+            displayError,
+            reportRuntimeFailure: async (safeError, failedAt) => {
+              if (claudeRuntime) {
+                await roomClient.publishRuntimeStatus("failed", {
+                  agent_id: registered.agent_id,
+                  turn_id: turnId,
+                  status_id: `status_${turnId}`,
+                  error: safeError,
+                  metrics: { files_read: 0, searches: 0, commands: 0 },
+                  failed_at: failedAt
+                });
+              }
+              if (codexRuntime) {
+                await roomClient.publishAgentRuntimeStatus("failed", {
+                  agent_id: registered.agent_id,
+                  provider: "codex-cli",
+                  turn_id: turnId,
+                  status_id: `status_${turnId}`,
+                  error: safeError,
+                  metrics: { files_read: 0, searches: 0, commands: 0 },
+                  failed_at: failedAt
+                });
+              }
+            },
+            failTurn: async (safeError) => { await roomClient.failTurn(turnId, safeError); },
+            log: (message, reportError) => console.error(message, reportError)
+          });
         } finally {
           turnStatusStartedAt.delete(turnId);
           runningTasks.delete(turnId);
@@ -457,7 +460,8 @@ async function main() {
       roomId: config.room_id,
       agentName: config.agent.name,
       workingDir: config.agent.working_dir,
-      claudeSessionMode: isClaudeCode ? "pending-selection" : "not-applicable"
+      claudeSessionMode: isClaudeCode ? "pending-selection" : "not-applicable",
+      agentSessionLabel: isCodexCli ? "Codex CLI session" : isClaudeCode ? "Claude Code persistent session" : "Local agent runtime"
     });
     console.log(`Connected adapter stream for room ${config.room_id}`);
     if (isClaudeCode) {

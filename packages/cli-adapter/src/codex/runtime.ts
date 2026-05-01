@@ -237,8 +237,15 @@ export class CodexRuntime {
         }
       }
 
-      // If we reach here without turn.completed, return what we have
-      return { finalText, sessionId, metrics };
+      if (abortController.signal.aborted) {
+        return { finalText, sessionId, metrics };
+      }
+
+      phase = "failed";
+      current = "codex_turn_incomplete";
+      pushRecent(current);
+      await publish(input.turnId, phase, current);
+      throw new Error(current);
     } finally {
       if (this.activeAbortController === abortController) {
         this.activeAbortController = undefined;

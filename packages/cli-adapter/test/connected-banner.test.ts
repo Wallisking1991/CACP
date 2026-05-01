@@ -36,6 +36,20 @@ describe("connected banner", () => {
     expect(banner).not.toContain("session selection is pending");
   });
 
+  it("uses a Codex-specific diagram endpoint for Codex CLI agents", () => {
+    const banner = formatConnectedBanner({
+      roomId: "room_1",
+      agentName: "Codex CLI Agent",
+      workingDir: "D:\\Projects\\my-app",
+      claudeSessionMode: "not-applicable",
+      agentSessionLabel: "Codex CLI session",
+      color: false
+    });
+
+    expect(banner).toContain("Codex CLI session");
+    expect(banner).not.toContain("Claude Code persistent session");
+  });
+
   it("prints the banner through an injectable logger", () => {
     const log = vi.fn();
     printConnectedBanner({

@@ -4,6 +4,7 @@ import type { RoomSession } from "../api.js";
 import { startTyping, stopTyping, updatePresence, createAgentPairing } from "../api.js";
 import { roomPermissionsForRole } from "../role-permissions.js";
 import { deriveRoomState, humanParticipants, isCollectionActive, isTurnInFlight } from "../room-state.js";
+import type { AgentSessionReadyView, AgentSessionSelectionView, ClaudeSessionReadyView, ClaudeSessionSelectionView } from "../room-state.js";
 import { requestClaudeSessionPreview, selectClaudeSession, requestAgentSessionPreview, selectAgentSession } from "../api.js";
 import { createTypingActivityController, type TypingActivityController } from "../activity-client.js";
 import { createRoomSoundController, shouldPlayCueForMessage } from "../room-sound.js";
@@ -37,6 +38,32 @@ export interface WorkspaceProps {
   error?: string;
   cloudMode?: boolean;
   createdPairing?: { connection_code: string; download_url: string; expires_at: string };
+}
+
+function claudeSelectionIsReady(
+  activeAgentId: string | undefined,
+  selection: ClaudeSessionSelectionView | undefined,
+  ready: ClaudeSessionReadyView | undefined
+): boolean {
+  if (!activeAgentId || !selection || !ready) return false;
+  if (selection.agent_id !== activeAgentId || ready.agent_id !== activeAgentId) return false;
+  if (selection.mode !== ready.mode) return false;
+  if (selection.mode === "resume") return ready.mode === "resume" && ready.session_id === selection.session_id;
+  return ready.mode === "fresh";
+}
+
+function agentSelectionIsReady(
+  activeAgentId: string | undefined,
+  activeAgentProvider: "claude-code" | "codex-cli" | undefined,
+  selection: AgentSessionSelectionView | undefined,
+  ready: AgentSessionReadyView | undefined
+): boolean {
+  if (!activeAgentId || !activeAgentProvider || !selection || !ready) return false;
+  if (selection.agent_id !== activeAgentId || ready.agent_id !== activeAgentId) return false;
+  if (selection.provider !== activeAgentProvider || ready.provider !== activeAgentProvider) return false;
+  if (selection.mode !== ready.mode) return false;
+  if (selection.mode === "resume") return ready.mode === "resume" && ready.session_id === selection.session_id;
+  return ready.mode === "fresh";
 }
 
 export default function Workspace({
@@ -213,14 +240,16 @@ export default function Workspace({
     room.activeAgentId &&
     room.claudeSessionCatalog &&
     room.claudeSessionCatalog.agent_id === room.activeAgentId &&
-    (!room.claudeSessionSelection || room.claudeSessionSelection.agent_id !== room.activeAgentId);
+    !claudeSelectionIsReady(room.activeAgentId, room.claudeSessionSelection, room.claudeSessionReady);
 
   const needsGenericSessionSelection =
     permissions.canManageControls &&
     room.activeAgentId &&
+    activeAgentProvider &&
     room.agentSessionCatalog &&
     room.agentSessionCatalog.agent_id === room.activeAgentId &&
-    (!room.agentSessionSelection || room.agentSessionSelection.agent_id !== room.activeAgentId);
+    room.agentSessionCatalog.provider === activeAgentProvider &&
+    !agentSelectionIsReady(room.activeAgentId, activeAgentProvider, room.agentSessionSelection, room.agentSessionReady);
 
   return (
     <div className="workspace-shell">

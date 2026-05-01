@@ -1,10 +1,12 @@
 import type {
   AgentSessionPreviewMessagePayload,
+  AgentSessionReadyPayload,
   AgentSessionSummary,
   CacpEvent,
   ClaudeRuntimeMetrics,
   ClaudeRuntimePhase,
   ClaudeSessionPreviewMessagePayload,
+  ClaudeSessionReadyPayload,
   ClaudeSessionSummary
 } from "@cacp/protocol";
 
@@ -67,6 +69,8 @@ export type ClaudeSessionSelectionView =
   | { agent_id: string; mode: "fresh"; selected_by: string }
   | { agent_id: string; mode: "resume"; session_id: string; selected_by: string };
 
+export type ClaudeSessionReadyView = ClaudeSessionReadyPayload;
+
 export interface ClaudeImportView {
   import_id: string;
   agent_id: string;
@@ -115,6 +119,8 @@ export interface AgentSessionCatalogView {
 export type AgentSessionSelectionView =
   | { agent_id: string; provider: string; mode: "fresh"; selected_by: string }
   | { agent_id: string; provider: string; mode: "resume"; session_id: string; selected_by: string };
+
+export type AgentSessionReadyView = AgentSessionReadyPayload;
 
 export interface AgentSessionPreviewView {
   preview_id: string;
@@ -201,11 +207,13 @@ export interface RoomViewState {
   pendingRoundtableRequest?: RoundtableRequestView;
   claudeSessionCatalog?: ClaudeSessionCatalogView;
   claudeSessionSelection?: ClaudeSessionSelectionView;
+  claudeSessionReady?: ClaudeSessionReadyView;
   claudeSessionPreviews: ClaudeSessionPreviewView[];
   claudeImports: ClaudeImportView[];
   claudeRuntimeStatuses: ClaudeRuntimeStatusView[];
   agentSessionCatalog?: AgentSessionCatalogView;
   agentSessionSelection?: AgentSessionSelectionView;
+  agentSessionReady?: AgentSessionReadyView;
   agentSessionPreviews: AgentSessionPreviewView[];
   agentImports: AgentImportView[];
   agentRuntimeStatuses: AgentRuntimeStatusView[];
@@ -283,6 +291,10 @@ function stringArray(value: unknown): string[] | undefined {
   return items.length === value.length ? items : undefined;
 }
 
+function isLocalAgentProvider(value: unknown): value is AgentSessionReadyView["provider"] {
+  return value === "claude-code" || value === "codex-cli";
+}
+
 function isHistoryClearScope(value: unknown): boolean {
   return value === undefined || value === "messages" || value === "messages_and_decisions";
 }
@@ -349,11 +361,13 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
   let roomName: string | undefined;
   let claudeSessionCatalog: ClaudeSessionCatalogView | undefined;
   let claudeSessionSelection: ClaudeSessionSelectionView | undefined;
+  let claudeSessionReady: ClaudeSessionReadyView | undefined;
   const claudeSessionPreviews = new Map<string, ClaudeSessionPreviewView>();
   const claudeImports = new Map<string, ClaudeImportView>();
   const claudeRuntimeStatuses = new Map<string, ClaudeRuntimeStatusView>();
   let agentSessionCatalog: AgentSessionCatalogView | undefined;
   let agentSessionSelection: AgentSessionSelectionView | undefined;
+  let agentSessionReady: AgentSessionReadyView | undefined;
   const agentSessionPreviews = new Map<string, AgentSessionPreviewView>();
   const agentImports = new Map<string, AgentImportView>();
   const agentRuntimeStatuses = new Map<string, AgentRuntimeStatusView>();
@@ -493,6 +507,24 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
         claudeSessionSelection = { agent_id: event.payload.agent_id, mode: "resume", session_id: event.payload.session_id, selected_by: event.payload.selected_by };
       }
     }
+    if (event.type === "claude.session_ready" && typeof event.payload.agent_id === "string" && typeof event.payload.mode === "string" && typeof event.payload.ready_at === "string") {
+      if (event.payload.mode === "fresh") {
+        claudeSessionReady = {
+          agent_id: event.payload.agent_id,
+          mode: "fresh",
+          ...(typeof event.payload.session_id === "string" ? { session_id: event.payload.session_id } : {}),
+          ready_at: event.payload.ready_at
+        };
+      }
+      if (event.payload.mode === "resume" && typeof event.payload.session_id === "string") {
+        claudeSessionReady = {
+          agent_id: event.payload.agent_id,
+          mode: "resume",
+          session_id: event.payload.session_id,
+          ready_at: event.payload.ready_at
+        };
+      }
+    }
     if (event.type === "agent.session_catalog.updated" && typeof event.payload.agent_id === "string" && typeof event.payload.provider === "string" && typeof event.payload.working_dir === "string" && Array.isArray(event.payload.sessions)) {
       agentSessionCatalog = {
         agent_id: event.payload.agent_id,
@@ -507,6 +539,26 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
       }
       if (event.payload.mode === "resume" && typeof event.payload.session_id === "string") {
         agentSessionSelection = { agent_id: event.payload.agent_id, provider: event.payload.provider, mode: "resume", session_id: event.payload.session_id, selected_by: event.payload.selected_by };
+      }
+    }
+    if (event.type === "agent.session_ready" && typeof event.payload.agent_id === "string" && isLocalAgentProvider(event.payload.provider) && typeof event.payload.mode === "string" && typeof event.payload.ready_at === "string") {
+      if (event.payload.mode === "fresh") {
+        agentSessionReady = {
+          agent_id: event.payload.agent_id,
+          provider: event.payload.provider,
+          mode: "fresh",
+          ...(typeof event.payload.session_id === "string" ? { session_id: event.payload.session_id } : {}),
+          ready_at: event.payload.ready_at
+        };
+      }
+      if (event.payload.mode === "resume" && typeof event.payload.session_id === "string") {
+        agentSessionReady = {
+          agent_id: event.payload.agent_id,
+          provider: event.payload.provider,
+          mode: "resume",
+          session_id: event.payload.session_id,
+          ready_at: event.payload.ready_at
+        };
       }
     }
   }
@@ -948,6 +1000,7 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     pendingRoundtableRequest,
     claudeSessionCatalog,
     claudeSessionSelection,
+    claudeSessionReady,
     claudeSessionPreviews: [...claudeSessionPreviews.values()],
     claudeImports: [...claudeImports.values()],
     claudeRuntimeStatuses: [...claudeRuntimeStatuses.values()]
@@ -955,6 +1008,7 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
       .slice(0, 1),
     agentSessionCatalog,
     agentSessionSelection,
+    agentSessionReady,
     agentSessionPreviews: [...agentSessionPreviews.values()],
     agentImports: [...agentImports.values()],
     agentRuntimeStatuses: [...agentRuntimeStatuses.values()]

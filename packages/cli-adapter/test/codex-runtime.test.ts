@@ -122,6 +122,42 @@ describe("Codex runtime", () => {
     expect(statuses.some((status) => status.phase === "running_command" && status.current === "Command completed with exit code 0")).toBe(true);
   });
 
+  it("fails the turn when the Codex stream ends before turn.completed", async () => {
+    const statuses: Array<{ phase: string; current: string }> = [];
+    const runtime = new CodexRuntime({
+      sdk: {
+        startThread: () => ({
+          id: null,
+          runStreamed: async () => ({
+            events: events([
+              { type: "thread.started", thread_id: "thread_123" },
+              { type: "turn.started" },
+              { type: "item.completed", item: { id: "msg_1", type: "agent_message", text: "Partial answer" } }
+            ])
+          })
+        }),
+        resumeThread: () => { throw new Error("unexpected"); }
+      },
+      agentId: "agent_1",
+      workingDir: "D:\\Development\\2",
+      permissionLevel: "read_only",
+      publishStatus: async (_turnId, status) => { statuses.push({ phase: status.phase, current: status.current }); },
+      publishDelta: async () => undefined
+    });
+
+    await runtime.selectSession({ mode: "fresh" });
+
+    await expect(runtime.runTurn({
+      turnId: "turn_1",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "list files"
+    })).rejects.toThrow("codex_turn_incomplete");
+    expect(statuses.at(-1)).toEqual({ phase: "failed", current: "codex_turn_incomplete" });
+  });
+
   it("aborts the active Codex turn when the runtime closes", async () => {
     let turnSignal: AbortSignal | undefined;
     async function* abortableEvents() {

@@ -41,21 +41,16 @@ Only the room server is public; agent execution should stay local through the co
 <claude-mem-context>
 # Memory Context
 
-# [2] recent context, 2026-05-01 8:11pm GMT+8
+# [2] recent context, 2026-05-01 10:10pm GMT+8
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 50 obs (15,273t read) | 4,229,484t work | 100% savings
+Stats: 50 obs (15,612t read) | 4,060,950t work | 100% savings
 
 ### May 1, 2026
-78 10:12a ⚖️ User approved expanded invite redesign with remaining-uses display and TDD approach
-79 10:21a 🔵 Join request schema already tracks invite_id, enabling pending count queries
-80 " 🟣 TDD test added for countPendingJoinRequestsByInvite EventStore method
-81 " 🟣 TDD test for countPendingJoinRequestsByInvite confirmed in cloud-store.test.ts
-82 " 🔵 Critical schema constraint: join_requests.invite_id is UNIQUE
-84 " 🟣 SQLite schema migration removes UNIQUE constraint from join_requests.invite_id
+80 10:21a 🟣 TDD test added for countPendingJoinRequestsByInvite EventStore method
 85 10:22a 🟣 EventStore.countPendingJoinRequestsByInvite implemented with schema migration
 83 10:23a 🔵 Existing migration pattern in EventStore constructor examined for schema change
 86 10:24a 🔵 Rate limiting and join request flow inspection
@@ -110,6 +105,11 @@ S103 Final status report for the 10-task Codex CLI integration plan — confirm 
 S104 Re-confirm Codex CLI integration completion — 10/10 tasks done, branch state stable, awaiting decision on manual smoke-test follow-up (May 1, 6:16 PM)
 126 6:23p ✅ Added @openai/codex-sdk to @cacp/cli-adapter
 127 6:24p 🔵 pnpm add was a manifest no-op; Codex SDK already committed
+128 9:34p ✅ Session initialized with using-superpowers skill
+129 9:53p 🔵 Codex smoke test fails with spawn codex ENOENT on Windows
+130 " 🔴 Codex SDK no longer forces bare "codex" executable override
+131 " 🔴 Server avoids appending events through closed SQLite during shutdown
+132 10:06p 🔵 PowerShell ConstrainedLanguage blocks UTF-8 console encoding setup in D:\Development\2
 
-Access 4229k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 4061k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>

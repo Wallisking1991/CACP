@@ -3,6 +3,7 @@ export interface ConnectedBannerInput {
   agentName: string;
   workingDir: string;
   claudeSessionMode: "pending-selection" | "not-applicable";
+  agentSessionLabel?: string;
   color?: boolean;
 }
 
@@ -23,6 +24,7 @@ function paint(value: string, color: ColorName, enabled: boolean): string {
 
 export function formatConnectedBanner(input: ConnectedBannerInput): string {
   const useColor = input.color ?? Boolean(process.stdout.isTTY);
+  const agentSessionLabel = input.agentSessionLabel ?? "Claude Code persistent session";
   const claudeLines = input.claudeSessionMode === "pending-selection"
     ? [
         paint("Claude Code session selection is pending in the web room.", "yellow", useColor),
@@ -56,7 +58,7 @@ export function formatConnectedBanner(input: ConnectedBannerInput): string {
     "        🤖 Local Agent",
     "              │",
     "              ▼",
-    "        💻 Claude Code persistent session",
+    `        💻 ${agentSessionLabel}`,
     ""
   ].join("\n");
 }

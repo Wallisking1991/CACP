@@ -322,6 +322,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   const participantSockets = new Map<string, Set<{ close: (code?: number, reason?: string) => void }>>();
   const pendingOffline = new Map<string, ReturnType<typeof setTimeout>>();
   const REMOVAL_GRACE_MS = 10000;
+  let isClosing = false;
 
   function socketKey(roomId: string, participantId: string): string {
     return `${roomId}:${participantId}`;
@@ -415,6 +416,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
 
   await app.register(websocket);
   app.addHook("onClose", async () => {
+    isClosing = true;
     clearInterval(joinRequestCleanupTimer);
     for (const timer of pendingOffline.values()) clearTimeout(timer);
     pendingOffline.clear();
@@ -1254,6 +1256,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       unsubscribe();
       forgetSocket();
       socketCounts.set(roomId, (socketCounts.get(roomId) ?? 1) - 1);
+      if (isClosing) return;
       const key = socketKey(roomId, participant.id);
 
       // Start / reset the auto-removal timer for this participant
