@@ -59,6 +59,40 @@ export interface AiCollectionView {
 }
 export interface RoundtableRequestView { request_id: string; requested_by: string; requester_name: string; created_at: string }
 
+export interface OrbitNoteView {
+  note_id: string;
+  text: string;
+  created_by: string;
+  created_at: string;
+  likes: number;
+  liked_by_me: boolean;
+  round_id?: string;
+}
+
+export interface OrbitRoundView {
+  round_id: string;
+  opened_at: string;
+  opened_by: string;
+  promoted_at?: string;
+  note_ids: string[];
+}
+
+export type MainInputStatus = "accepted" | "queued" | "triggered" | "cancelled" | "failed";
+
+export interface MainInputQueueItemView {
+  input_id: string;
+  text: string;
+  status: MainInputStatus;
+  created_at: string;
+  actor_id: string;
+}
+
+export interface ConnectorSyncCursor {
+  room_id: string;
+  last_event_id: string;
+  synced_at: string;
+}
+
 export interface ClaudeSessionCatalogView {
   agent_id: string;
   working_dir: string;
@@ -220,6 +254,10 @@ export interface RoomViewState {
   participantActivity: Map<string, ParticipantActivityView>;
   avatarStatuses: AvatarStatusView[];
   latestSenderId?: string;
+  orbitRounds: OrbitRoundView[];
+  orbitNotes: OrbitNoteView[];
+  mainInputQueue: MainInputQueueItemView[];
+  connectorSyncCursor?: ConnectorSyncCursor;
 }
 
 function failedTurnMessage(event: CacpEvent, streamedText: string | undefined): MessageView | undefined {
@@ -373,6 +411,10 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
   const agentRuntimeStatuses = new Map<string, AgentRuntimeStatusView>();
   const participantActivity = new Map<string, ParticipantActivityView>();
   let latestSenderId: string | undefined;
+  const orbitRounds = new Map<string, OrbitRoundView>();
+  const orbitNotes = new Map<string, OrbitNoteView>();
+  const mainInputQueue = new Map<string, MainInputQueueItemView>();
+  let connectorSyncCursor: ConnectorSyncCursor | undefined;
   const nowMs = Date.parse(options.now ?? new Date().toISOString());
   const typingTtlMs = options.typingTtlMs ?? 5000;
   const historyClear = lastHistoryClear(events);
@@ -445,6 +487,76 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     }
     if (event.type === "room.history_cleared" && isHistoryClearScope(event.payload.scope)) {
       roundtableRequests.clear();
+      orbitRounds.clear();
+      orbitNotes.clear();
+      mainInputQueue.clear();
+    }
+    if (event.type === "orbit.round.opened" && typeof event.payload.round_id === "string") {
+      orbitRounds.set(event.payload.round_id, {
+        round_id: event.payload.round_id,
+        opened_at: event.created_at,
+        opened_by: event.actor_id,
+        note_ids: []
+      });
+    }
+    if (event.type === "orbit.note.created" && typeof event.payload.note_id === "string" && typeof event.payload.text === "string") {
+      const note: OrbitNoteView = {
+        note_id: event.payload.note_id,
+        text: event.payload.text,
+        created_by: event.actor_id,
+        created_at: event.created_at,
+        likes: 0,
+        liked_by_me: false,
+        ...(typeof event.payload.round_id === "string" ? { round_id: event.payload.round_id } : {})
+      };
+      orbitNotes.set(event.payload.note_id, note);
+      if (typeof event.payload.round_id === "string") {
+        const round = orbitRounds.get(event.payload.round_id);
+        if (round) orbitRounds.set(event.payload.round_id, { ...round, note_ids: [...round.note_ids, event.payload.note_id] });
+      }
+    }
+    if (event.type === "orbit.like.changed" && typeof event.payload.note_id === "string") {
+      const note = orbitNotes.get(event.payload.note_id);
+      if (note) {
+        const likes = typeof event.payload.likes === "number" ? event.payload.likes : note.likes;
+        orbitNotes.set(event.payload.note_id, { ...note, likes });
+      }
+    }
+    if (event.type === "orbit.round.promoted" && typeof event.payload.round_id === "string") {
+      const round = orbitRounds.get(event.payload.round_id);
+      if (round) orbitRounds.set(event.payload.round_id, { ...round, promoted_at: event.created_at });
+    }
+    if (event.type === "main_input.accepted" && typeof event.payload.input_id === "string" && typeof event.payload.text === "string") {
+      mainInputQueue.set(event.payload.input_id, {
+        input_id: event.payload.input_id,
+        text: event.payload.text,
+        status: "accepted",
+        created_at: event.created_at,
+        actor_id: event.actor_id
+      });
+    }
+    if (event.type === "main_input.queued" && typeof event.payload.input_id === "string") {
+      const existing = mainInputQueue.get(event.payload.input_id);
+      if (existing) mainInputQueue.set(event.payload.input_id, { ...existing, status: "queued" });
+    }
+    if (event.type === "main_input.triggered" && typeof event.payload.input_id === "string") {
+      const existing = mainInputQueue.get(event.payload.input_id);
+      if (existing) mainInputQueue.set(event.payload.input_id, { ...existing, status: "triggered" });
+    }
+    if (event.type === "main_input.cancelled" && typeof event.payload.input_id === "string") {
+      const existing = mainInputQueue.get(event.payload.input_id);
+      if (existing) mainInputQueue.set(event.payload.input_id, { ...existing, status: "cancelled" });
+    }
+    if (event.type === "main_input.failed" && typeof event.payload.input_id === "string") {
+      const existing = mainInputQueue.get(event.payload.input_id);
+      if (existing) mainInputQueue.set(event.payload.input_id, { ...existing, status: "failed" });
+    }
+    if (event.type === "connector.snapshot.completed" && typeof event.payload.room_id === "string" && typeof event.payload.last_event_id === "string") {
+      connectorSyncCursor = {
+        room_id: event.payload.room_id,
+        last_event_id: event.payload.last_event_id,
+        synced_at: event.created_at
+      };
     }
     if (event.type === "agent.registered" && typeof event.payload.agent_id === "string" && typeof event.payload.name === "string") {
       const existing = agents.get(event.payload.agent_id);
@@ -1016,7 +1128,11 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
       .slice(0, 1),
     participantActivity,
     avatarStatuses,
-    latestSenderId
+    latestSenderId,
+    orbitRounds: [...orbitRounds.values()],
+    orbitNotes: [...orbitNotes.values()],
+    mainInputQueue: [...mainInputQueue.values()],
+    connectorSyncCursor
   };
 }
 

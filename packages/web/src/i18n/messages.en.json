@@ -291,5 +291,14 @@
   "roundtableRequestModal.title": "Roundtable request",
   "roundtableRequestModal.body": "{name} wants to start Roundtable Mode.",
   "roundtableRequestModal.start": "Start Roundtable",
-  "roundtableRequestModal.waitForTurn": "AI is replying. Start Roundtable after this turn finishes."
+  "roundtableRequestModal.waitForTurn": "AI is replying. Start Roundtable after this turn finishes.",
+  "composer.sendToPeople": "Send to People",
+  "composer.sendToAgent": "Send to Agent",
+  "orbit.title": "Orbit",
+  "orbit.empty": "No orbit notes yet",
+  "orbit.like": "Like",
+  "orbit.unlike": "Unlike",
+  "orbitPromote.title": "Promote to Main Thread",
+  "orbitPromote.empty": "No notes to promote",
+  "orbitPromote.promote": "Promote"
 }

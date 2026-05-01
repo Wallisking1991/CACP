@@ -5,7 +5,7 @@ import { startTyping, stopTyping, updatePresence, createAgentPairing } from "../
 import { roomPermissionsForRole } from "../role-permissions.js";
 import { deriveRoomState, humanParticipants, isCollectionActive, isTurnInFlight } from "../room-state.js";
 import type { AgentSessionReadyView, AgentSessionSelectionView, ClaudeSessionReadyView, ClaudeSessionSelectionView } from "../room-state.js";
-import { requestClaudeSessionPreview, selectClaudeSession, requestAgentSessionPreview, selectAgentSession } from "../api.js";
+import { requestClaudeSessionPreview, selectClaudeSession, requestAgentSessionPreview, selectAgentSession, sendOrbitNote, likeOrbitNote, unlikeOrbitNote, promoteOrbitRound, sendMainInput } from "../api.js";
 import { createTypingActivityController, type TypingActivityController } from "../activity-client.js";
 import { createRoomSoundController, shouldPlayCueForMessage } from "../room-sound.js";
 import Header from "./Header.js";
@@ -16,6 +16,8 @@ import { FloatingLogoControl } from "./FloatingLogoControl.js";
 import { Popover } from "./Popover.js";
 import { AgentAvatarPopover } from "./AgentAvatarPopover.js";
 import { PeopleAvatarPopover } from "./PeopleAvatarPopover.js";
+import { OrbitLayer } from "./OrbitLayer.js";
+import { OrbitPromoteTray } from "./OrbitPromoteTray.js";
 
 export interface WorkspaceProps {
   session: RoomSession;
@@ -38,6 +40,8 @@ export interface WorkspaceProps {
   error?: string;
   cloudMode?: boolean;
   createdPairing?: { connection_code: string; download_url: string; expires_at: string };
+  showOrbit?: boolean;
+  onToggleOrbit?: () => void;
 }
 
 function claudeSelectionIsReady(
@@ -87,6 +91,8 @@ export default function Workspace({
   error,
   cloudMode,
   createdPairing,
+  showOrbit,
+  onToggleOrbit,
 }: WorkspaceProps) {
   const [typingTick, setTypingTick] = useState(() => Date.now());
   useEffect(() => {
@@ -251,6 +257,8 @@ export default function Workspace({
     room.agentSessionCatalog.provider === activeAgentProvider &&
     !agentSelectionIsReady(room.activeAgentId, activeAgentProvider, room.agentSessionSelection, room.agentSessionReady);
 
+  const canPromoteOrbit = permissions.canManageControls;
+
   return (
     <div className="workspace-shell">
       <div className="workspace-grid">
@@ -327,6 +335,8 @@ export default function Workspace({
             onTypingInput={(value) => typingControllerRef.current?.inputChanged(value)}
             onStopTyping={() => typingControllerRef.current?.stopNow()}
             onClearConversation={onClearRoom}
+            onSendOrbitNote={showOrbit ? (text) => { void sendOrbitNote(session, text).catch(() => {}); } : undefined}
+            onSendMainInput={(text) => { void sendMainInput(session, text).catch(() => {}); }}
           />
 
           {error && (
@@ -407,6 +417,25 @@ export default function Workspace({
           }
         />
       </Popover>
+
+      {showOrbit && (
+        <div className="orbit-panel">
+          <OrbitLayer
+            notes={room.orbitNotes}
+            currentParticipantId={session.participant_id}
+            actorNames={actorNames}
+            onLike={(noteId) => { void likeOrbitNote(session, noteId).catch(() => {}); }}
+            onUnlike={(noteId) => { void unlikeOrbitNote(session, noteId).catch(() => {}); }}
+          />
+          {canPromoteOrbit && (
+            <OrbitPromoteTray
+              notes={room.orbitNotes.filter((n) => !n.round_id)}
+              onPromote={(noteIds) => { void promoteOrbitRound(session, noteIds).catch(() => {}); }}
+              canPromote={canPromoteOrbit}
+            />
+          )}
+        </div>
+      )}
 
       <FloatingLogoControl active={turnInFlight} pendingCount={0} onOpen={() => {}} />
     </div>

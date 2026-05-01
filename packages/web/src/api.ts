@@ -94,6 +94,18 @@ export async function cancelMainInput(session: RoomSession, inputId: string): Pr
   await postJson(`/rooms/${session.room_id}/main-inputs/${inputId}/cancel`, session.token, {});
 }
 
+export async function requestConnectorSnapshot(session: RoomSession): Promise<{ ok: true }> {
+  const response = await fetch(`/rooms/${session.room_id}/connector-snapshot`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${session.token}`
+    }
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return await response.json() as { ok: true };
+}
+
 export async function clearRoom(session: RoomSession): Promise<void> {
   await postJson(`/rooms/${session.room_id}/history/clear`, session.token, {});
 }

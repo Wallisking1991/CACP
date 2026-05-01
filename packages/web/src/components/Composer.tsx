@@ -22,6 +22,8 @@ export interface ComposerProps {
   onTypingInput: (text: string) => void;
   onStopTyping: () => void;
   onClearConversation: () => void;
+  onSendOrbitNote?: (text: string) => void;
+  onSendMainInput?: (text: string) => void;
 }
 
 export default function Composer({
@@ -39,6 +41,8 @@ export default function Composer({
   onTypingInput,
   onStopTyping,
   onClearConversation,
+  onSendOrbitNote,
+  onSendMainInput,
 }: ComposerProps) {
   const t = useT();
   const [text, setText] = useState("");
@@ -62,6 +66,22 @@ export default function Composer({
     setText("");
     onStopTyping();
   }, [text, onSend, onStopTyping]);
+
+  const handleSendOrbit = useCallback(() => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    onSendOrbitNote?.(trimmed);
+    setText("");
+    onStopTyping();
+  }, [text, onSendOrbitNote, onStopTyping]);
+
+  const handleSendMainInput = useCallback(() => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    onSendMainInput?.(trimmed);
+    setText("");
+    onStopTyping();
+  }, [text, onSendMainInput, onStopTyping]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -158,7 +178,29 @@ export default function Composer({
           rows={2}
         />
         <div className="composer-actions">
-          {isLive && !isQueued && (
+          {isLive && !isQueued && onSendOrbitNote && (
+            <>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={handleSendOrbit}
+                disabled={!text.trim()}
+                aria-label={t("composer.sendToPeople")}
+              >
+                {t("composer.sendToPeople")}
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={onSendMainInput ? handleSendMainInput : handleSend}
+                disabled={!text.trim()}
+                aria-label={t("composer.sendToAgent")}
+              >
+                <SendIcon /> {t("composer.sendToAgent")}
+              </button>
+            </>
+          )}
+          {isLive && !isQueued && !onSendOrbitNote && (
             <button
               type="button"
               className="btn btn-primary"

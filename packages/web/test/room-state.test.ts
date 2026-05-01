@@ -680,4 +680,107 @@ describe("room state", () => {
     expect(inv2!.remaining).toBe(5);
     expect(inv2!.revoked).toBe(false);
   });
+
+  describe("Orbit events", () => {
+    it("derives orbit rounds from orbit.round.opened", () => {
+      const state = deriveRoomState([
+        event("orbit.round.opened", { round_id: "round_1" }, 1, "user_1")
+      ]);
+      expect(state.orbitRounds).toHaveLength(1);
+      expect(state.orbitRounds[0]).toMatchObject({ round_id: "round_1", opened_by: "user_1", note_ids: [] });
+    });
+
+    it("derives orbit notes from orbit.note.created", () => {
+      const state = deriveRoomState([
+        event("orbit.note.created", { note_id: "note_1", text: "Hello orbit" }, 1, "user_1")
+      ]);
+      expect(state.orbitNotes).toHaveLength(1);
+      expect(state.orbitNotes[0]).toMatchObject({ note_id: "note_1", text: "Hello orbit", created_by: "user_1", likes: 0, liked_by_me: false });
+    });
+
+    it("associates orbit notes with rounds", () => {
+      const state = deriveRoomState([
+        event("orbit.round.opened", { round_id: "round_1" }, 1, "user_1"),
+        event("orbit.note.created", { note_id: "note_1", text: "Round note", round_id: "round_1" }, 2, "user_1")
+      ]);
+      expect(state.orbitRounds[0].note_ids).toEqual(["note_1"]);
+      expect(state.orbitNotes[0].round_id).toBe("round_1");
+    });
+
+    it("updates note likes from orbit.like.changed", () => {
+      const state = deriveRoomState([
+        event("orbit.note.created", { note_id: "note_1", text: "Note" }, 1, "user_1"),
+        event("orbit.like.changed", { note_id: "note_1", likes: 3 }, 2, "user_2")
+      ]);
+      expect(state.orbitNotes[0].likes).toBe(3);
+    });
+
+    it("marks round as promoted from orbit.round.promoted", () => {
+      const state = deriveRoomState([
+        event("orbit.round.opened", { round_id: "round_1" }, 1, "user_1"),
+        event("orbit.round.promoted", { round_id: "round_1" }, 2, "user_1")
+      ]);
+      expect(state.orbitRounds[0].promoted_at).toBe("2026-04-25T00:00:02.000Z");
+    });
+  });
+
+  describe("Main input queue events", () => {
+    it("derives main input queue from main_input.accepted", () => {
+      const state = deriveRoomState([
+        event("main_input.accepted", { input_id: "input_1", text: "Hello agent" }, 1, "user_1")
+      ]);
+      expect(state.mainInputQueue).toHaveLength(1);
+      expect(state.mainInputQueue[0]).toMatchObject({ input_id: "input_1", text: "Hello agent", status: "accepted", actor_id: "user_1" });
+    });
+
+    it("updates input status through lifecycle events", () => {
+      const events = [
+        event("main_input.accepted", { input_id: "input_1", text: "Hello" }, 1, "user_1"),
+        event("main_input.queued", { input_id: "input_1" }, 2, "system"),
+        event("main_input.triggered", { input_id: "input_1" }, 3, "system")
+      ];
+      const queued = deriveRoomState(events.slice(0, 2));
+      expect(queued.mainInputQueue[0].status).toBe("queued");
+
+      const triggered = deriveRoomState(events);
+      expect(triggered.mainInputQueue[0].status).toBe("triggered");
+    });
+
+    it("marks input as cancelled or failed", () => {
+      const cancelled = deriveRoomState([
+        event("main_input.accepted", { input_id: "input_1", text: "Hello" }, 1, "user_1"),
+        event("main_input.cancelled", { input_id: "input_1" }, 2, "user_1")
+      ]);
+      expect(cancelled.mainInputQueue[0].status).toBe("cancelled");
+
+      const failed = deriveRoomState([
+        event("main_input.accepted", { input_id: "input_1", text: "Hello" }, 1, "user_1"),
+        event("main_input.failed", { input_id: "input_1" }, 2, "system")
+      ]);
+      expect(failed.mainInputQueue[0].status).toBe("failed");
+    });
+  });
+
+  describe("Connector sync events", () => {
+    it("derives connector sync cursor from connector.snapshot.completed", () => {
+      const state = deriveRoomState([
+        event("connector.snapshot.completed", { room_id: "room_1", last_event_id: "evt_10" }, 1, "system")
+      ]);
+      expect(state.connectorSyncCursor).toMatchObject({ room_id: "room_1", last_event_id: "evt_10" });
+    });
+  });
+
+  describe("History clear clears orbit and main input state", () => {
+    it("clears orbit rounds, notes, and main input queue on room.history_cleared", () => {
+      const state = deriveRoomState([
+        event("orbit.round.opened", { round_id: "round_1" }, 1, "user_1"),
+        event("orbit.note.created", { note_id: "note_1", text: "Note" }, 2, "user_1"),
+        event("main_input.accepted", { input_id: "input_1", text: "Hello" }, 3, "user_1"),
+        event("room.history_cleared", { cleared_by: "user_1", cleared_at: "2026-04-25T00:00:04.000Z", scope: "messages" }, 4, "user_1")
+      ]);
+      expect(state.orbitRounds).toHaveLength(0);
+      expect(state.orbitNotes).toHaveLength(0);
+      expect(state.mainInputQueue).toHaveLength(0);
+    });
+  });
 });

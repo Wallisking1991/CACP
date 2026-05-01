@@ -291,5 +291,14 @@
   "roundtableRequestModal.title": "圆桌申请",
   "roundtableRequestModal.body": "{name} 想开启圆桌模式。",
   "roundtableRequestModal.start": "开启圆桌",
-  "roundtableRequestModal.waitForTurn": "AI 正在回复，请在本轮结束后开启圆桌。"
+  "roundtableRequestModal.waitForTurn": "AI 正在回复，请在本轮结束后开启圆桌。",
+  "composer.sendToPeople": "发送给成员",
+  "composer.sendToAgent": "发送给 Agent",
+  "orbit.title": "轨道",
+  "orbit.empty": "暂无轨道笔记",
+  "orbit.like": "点赞",
+  "orbit.unlike": "取消点赞",
+  "orbitPromote.title": "提升到主线程",
+  "orbitPromote.empty": "没有可提升的笔记",
+  "orbitPromote.promote": "提升"
 }
