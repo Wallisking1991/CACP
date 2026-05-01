@@ -466,6 +466,11 @@ export async function buildServer(options: BuildServerOptions = {}) {
       if (participant.role === "agent") return event.payload.agent_id === participant.id;
       return hasAnyRole(participant, ["owner", "admin"]);
     }
+    if (event.type === "claude.session_import.message" || event.type === "agent.session_import.message") {
+      if (hasAnyRole(participant, ["owner", "admin"])) return true;
+      if (participant.role === "agent" && typeof event.payload.agent_id === "string") return event.payload.agent_id === participant.id;
+      return participant.main_thread_history_access === "allowed";
+    }
     return true;
   }
 

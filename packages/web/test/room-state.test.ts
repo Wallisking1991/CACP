@@ -783,4 +783,49 @@ describe("room state", () => {
       expect(state.mainInputQueue).toHaveLength(0);
     });
   });
+
+  describe("Main thread cleared at", () => {
+    it("exposes mainThreadClearedAt matching lastHistoryClearedAt", () => {
+      const state = deriveRoomState([
+        event("room.created", { name: "Room" }, 1, "user_1"),
+        event("message.created", { message_id: "msg_1", text: "Hello", kind: "human" }, 2, "user_1"),
+        event("room.history_cleared", { cleared_by: "user_1", cleared_at: "2026-04-25T00:00:03.000Z", scope: "messages" }, 3, "user_1")
+      ]);
+      expect(state.mainThreadClearedAt).toBe("2026-04-25T00:00:03.000Z");
+      expect(state.lastHistoryClearedAt).toBe(state.mainThreadClearedAt);
+    });
+
+    it("hides imported messages that appear before history clear", () => {
+      const state = deriveRoomState([
+        event("claude.session_import.started", {
+          import_id: "import_1",
+          agent_id: "agent_1",
+          session_id: "session_1",
+          title: "Old",
+          message_count: 1,
+          started_at: "2026-04-25T00:00:00.000Z"
+        }, 1, "agent_1"),
+        event("claude.session_import.message", {
+          import_id: "import_1",
+          agent_id: "agent_1",
+          session_id: "session_1",
+          sequence: 0,
+          author_role: "assistant",
+          source_kind: "assistant",
+          text: "Old import"
+        }, 2, "agent_1"),
+        event("claude.session_import.completed", {
+          import_id: "import_1",
+          agent_id: "agent_1",
+          session_id: "session_1",
+          imported_message_count: 1,
+          completed_at: "2026-04-25T00:00:01.000Z"
+        }, 3, "agent_1"),
+        event("room.history_cleared", { cleared_by: "user_1", cleared_at: "2026-04-25T00:00:02.000Z", scope: "messages" }, 4, "user_1"),
+        event("message.created", { message_id: "msg_1", text: "After clear", kind: "human" }, 5, "user_1")
+      ]);
+      expect(state.messages.some((m) => m.text === "Old import")).toBe(false);
+      expect(state.messages.some((m) => m.text === "After clear")).toBe(true);
+    });
+  });
 });

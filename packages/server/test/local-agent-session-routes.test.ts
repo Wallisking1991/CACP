@@ -34,6 +34,62 @@ async function selectAgent(app: Awaited<ReturnType<typeof buildServer>>, roomId:
   expect(response.statusCode).toBe(201);
 }
 
+async function inviteMember(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerToken: string, historyAccess?: "allowed" | "denied") {
+  const body: Record<string, unknown> = { role: "member", expires_in_seconds: 3600, max_uses: 1 };
+  if (historyAccess) body.main_thread_history_access = historyAccess;
+  const inviteResponse = await app.inject({
+    method: "POST",
+    url: `/rooms/${roomId}/invites`,
+    headers: { authorization: `Bearer ${ownerToken}` },
+    payload: body
+  });
+  const invite = inviteResponse.json() as { invite_token: string };
+  const pending = await app.inject({
+    method: "POST",
+    url: `/rooms/${roomId}/join-requests`,
+    payload: { invite_token: invite.invite_token, display_name: "Member" }
+  });
+  const request = pending.json() as { request_id: string; request_token: string };
+  await app.inject({
+    method: "POST",
+    url: `/rooms/${roomId}/join-requests/${request.request_id}/approve`,
+    headers: { authorization: `Bearer ${ownerToken}` },
+    payload: {}
+  });
+  const status = await app.inject({
+    method: "GET",
+    url: `/rooms/${roomId}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}`
+  });
+  return status.json() as { participant_token: string };
+}
+
+async function inviteObserver(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerToken: string) {
+  const inviteResponse = await app.inject({
+    method: "POST",
+    url: `/rooms/${roomId}/invites`,
+    headers: { authorization: `Bearer ${ownerToken}` },
+    payload: { role: "observer", expires_in_seconds: 3600, max_uses: 1 }
+  });
+  const invite = inviteResponse.json() as { invite_token: string };
+  const pending = await app.inject({
+    method: "POST",
+    url: `/rooms/${roomId}/join-requests`,
+    payload: { invite_token: invite.invite_token, display_name: "Observer" }
+  });
+  const request = pending.json() as { request_id: string; request_token: string };
+  await app.inject({
+    method: "POST",
+    url: `/rooms/${roomId}/join-requests/${request.request_id}/approve`,
+    headers: { authorization: `Bearer ${ownerToken}` },
+    payload: {}
+  });
+  const status = await app.inject({
+    method: "GET",
+    url: `/rooms/${roomId}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}`
+  });
+  return status.json() as { participant_token: string };
+}
+
 describe("generic local agent session routes", () => {
   it("lets a Codex connector publish a generic session catalog", async () => {
     const { app, room } = await createRoomAndOwner();
@@ -472,6 +528,90 @@ describe("generic local agent session routes", () => {
     })).json().events as Array<{ type: string }>;
 
     expect(memberEvents.some((event) => event.type === "agent.session_catalog.updated")).toBe(false);
+    await app.close();
+  });
+
+  it("hides agent import messages from members with denied history access and observers", async () => {
+    const { app, room } = await createRoomAndOwner();
+    const agent = await registerLocalAgent(app, room.room_id, room.owner_token, "codex-cli");
+    await selectAgent(app, room.room_id, room.owner_token, agent.agent_id);
+
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-sessions/selection`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: { agent_id: agent.agent_id, provider: "codex-cli", mode: "resume", session_id: "session_codex" }
+    });
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-sessions/ready`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: { agent_id: agent.agent_id, provider: "codex-cli", mode: "resume", session_id: "session_codex", ready_at: "2026-05-01T01:15:02.000Z" }
+    });
+
+    const allowedMember = await inviteMember(app, room.room_id, room.owner_token, "allowed");
+    const deniedMember = await inviteMember(app, room.room_id, room.owner_token, "denied");
+    const observer = await inviteObserver(app, room.room_id, room.owner_token);
+
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-sessions/imports/start`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: {
+        import_id: "import_vis_agent",
+        agent_id: agent.agent_id,
+        provider: "codex-cli",
+        session_id: "session_codex",
+        title: "Imported",
+        message_count: 1,
+        started_at: "2026-04-29T00:00:00.000Z"
+      }
+    });
+
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-sessions/imports/import_vis_agent/messages`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: [{
+        import_id: "import_vis_agent",
+        agent_id: agent.agent_id,
+        provider: "codex-cli",
+        session_id: "session_codex",
+        sequence: 0,
+        author_role: "assistant",
+        source_kind: "assistant",
+        text: "Secret agent import message"
+      }]
+    });
+
+    const ownerEvents = (await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/events`,
+      headers: { authorization: `Bearer ${room.owner_token}` }
+    })).json().events as Array<{ type: string }>;
+    expect(ownerEvents.some((e) => e.type === "agent.session_import.message")).toBe(true);
+
+    const allowedEvents = (await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/events`,
+      headers: { authorization: `Bearer ${allowedMember.participant_token}` }
+    })).json().events as Array<{ type: string }>;
+    expect(allowedEvents.some((e) => e.type === "agent.session_import.message")).toBe(true);
+
+    const deniedEvents = (await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/events`,
+      headers: { authorization: `Bearer ${deniedMember.participant_token}` }
+    })).json().events as Array<{ type: string }>;
+    expect(deniedEvents.some((e) => e.type === "agent.session_import.message")).toBe(false);
+
+    const observerEvents = (await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/events`,
+      headers: { authorization: `Bearer ${observer.participant_token}` }
+    })).json().events as Array<{ type: string }>;
+    expect(observerEvents.some((e) => e.type === "agent.session_import.message")).toBe(false);
+
     await app.close();
   });
 });

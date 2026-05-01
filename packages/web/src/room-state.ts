@@ -234,6 +234,7 @@ export interface RoomViewState {
   activeCollection?: AiCollectionView;
   collectionHistory: AiCollectionView[];
   lastHistoryClearedAt?: string;
+  mainThreadClearedAt?: string;
   inviteCount: number;
   invites: InviteView[];
   roomName?: string;
@@ -1105,6 +1106,7 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     activeCollection,
     collectionHistory,
     lastHistoryClearedAt: historyClear.clearedAt,
+    mainThreadClearedAt: historyClear.clearedAt,
     inviteCount,
     invites: [...invites.values()],
     roomName,

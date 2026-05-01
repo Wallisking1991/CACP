@@ -8,18 +8,47 @@ async function createRoomAndOwner() {
   return { app, room };
 }
 
-async function inviteMember(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerToken: string) {
+async function inviteMember(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerToken: string, historyAccess?: "allowed" | "denied") {
+  const body: Record<string, unknown> = { role: "member" };
+  if (historyAccess) body.main_thread_history_access = historyAccess;
   const inviteResponse = await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/invites`,
     headers: { authorization: `Bearer ${ownerToken}` },
-    payload: { role: "member" }
+    payload: body
   });
   const invite = inviteResponse.json() as { invite_token: string };
   const pending = await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/join-requests`,
     payload: { invite_token: invite.invite_token, display_name: "Member" }
+  });
+  const request = pending.json() as { request_id: string; request_token: string };
+  await app.inject({
+    method: "POST",
+    url: `/rooms/${roomId}/join-requests/${request.request_id}/approve`,
+    headers: { authorization: `Bearer ${ownerToken}` },
+    payload: {}
+  });
+  const status = await app.inject({
+    method: "GET",
+    url: `/rooms/${roomId}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}`
+  });
+  return status.json() as { participant_token: string };
+}
+
+async function inviteObserver(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerToken: string) {
+  const inviteResponse = await app.inject({
+    method: "POST",
+    url: `/rooms/${roomId}/invites`,
+    headers: { authorization: `Bearer ${ownerToken}` },
+    payload: { role: "observer" }
+  });
+  const invite = inviteResponse.json() as { invite_token: string };
+  const pending = await app.inject({
+    method: "POST",
+    url: `/rooms/${roomId}/join-requests`,
+    payload: { invite_token: invite.invite_token, display_name: "Observer" }
   });
   const request = pending.json() as { request_id: string; request_token: string };
   await app.inject({
@@ -582,6 +611,77 @@ describe("Claude session room routes", () => {
     });
     expect(incompleteComplete.statusCode).toBe(409);
     expect(incompleteComplete.json()).toMatchObject({ error: "import_incomplete" });
+
+    await app.close();
+  });
+
+  it("hides Claude import messages from members with denied history access and observers", async () => {
+    const { app, room } = await createRoomAndOwner();
+    const agent = await registerAgent(app, room.room_id, room.owner_token);
+    await selectAgent(app, room.room_id, room.owner_token, agent.agent_id);
+    await selectClaudeSession(app, room.room_id, room.owner_token, agent.agent_id, "session_1");
+
+    const allowedMember = await inviteMember(app, room.room_id, room.owner_token, "allowed");
+    const deniedMember = await inviteMember(app, room.room_id, room.owner_token, "denied");
+    const observer = await inviteObserver(app, room.room_id, room.owner_token);
+
+    const importStart = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/claude/session-imports/start`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: {
+        import_id: "import_vis",
+        agent_id: agent.agent_id,
+        session_id: "session_1",
+        title: "Imported",
+        message_count: 1,
+        started_at: "2026-04-29T00:00:00.000Z"
+      }
+    });
+    expect(importStart.statusCode).toBe(201);
+
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/claude/session-imports/import_vis/messages`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: [{
+        import_id: "import_vis",
+        agent_id: agent.agent_id,
+        session_id: "session_1",
+        sequence: 0,
+        author_role: "assistant",
+        source_kind: "assistant",
+        text: "Secret imported message"
+      }]
+    });
+
+    const ownerEvents = (await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/events`,
+      headers: { authorization: `Bearer ${room.owner_token}` }
+    })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
+    expect(ownerEvents.some((e) => e.type === "claude.session_import.message")).toBe(true);
+
+    const allowedEvents = (await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/events`,
+      headers: { authorization: `Bearer ${allowedMember.participant_token}` }
+    })).json().events as Array<{ type: string }>;
+    expect(allowedEvents.some((e) => e.type === "claude.session_import.message")).toBe(true);
+
+    const deniedEvents = (await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/events`,
+      headers: { authorization: `Bearer ${deniedMember.participant_token}` }
+    })).json().events as Array<{ type: string }>;
+    expect(deniedEvents.some((e) => e.type === "claude.session_import.message")).toBe(false);
+
+    const observerEvents = (await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/events`,
+      headers: { authorization: `Bearer ${observer.participant_token}` }
+    })).json().events as Array<{ type: string }>;
+    expect(observerEvents.some((e) => e.type === "claude.session_import.message")).toBe(false);
 
     await app.close();
   });
