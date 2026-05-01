@@ -744,7 +744,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
   function validateLocalAgentProvider(roomId: string, agentId: string, provider: "claude-code" | "codex-cli"): { ok: true } | { ok: false; error: string; status: number } {
     const target = findParticipant(roomId, agentId);
     if (!target || target.type !== "agent" || target.role !== "agent") return { ok: false, error: "invalid_target_agent", status: 400 };
-    const capabilities = findAgentCapabilities(store.listEvents(roomId), agentId);
+    const events = store.listEvents(roomId);
+    const activeAgentId = findActiveAgentId(events);
+    if (activeAgentId !== agentId) return { ok: false, error: "not_active_agent", status: 403 };
+    const capabilities = findAgentCapabilities(events, agentId);
     const actualProvider = providerForCapabilities(capabilities);
     if (!actualProvider) return { ok: false, error: "missing_local_agent_capability", status: 403 };
     if (actualProvider !== provider) return { ok: false, error: "provider_mismatch", status: 403 };
@@ -2060,6 +2063,9 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!body.every((message) => message.preview_id === request.params.previewId)) return deny(reply, "preview_id_mismatch", 400);
     if (!body.every((message) => assertAgentOwnsPayload(participant, message.agent_id))) return deny(reply, "forbidden", 403);
     const first = body[0];
+    if (!body.every((message) => message.agent_id === first.agent_id && message.provider === first.provider && message.session_id === first.session_id)) {
+      return deny(reply, "preview_session_mismatch", 400);
+    }
     const validation = validateLocalAgentProvider(request.params.roomId, first.agent_id, first.provider);
     if (!validation.ok) return deny(reply, validation.error, validation.status);
     const previewValidation = validateAgentPreviewOpen(request.params.roomId, request.params.previewId, first.agent_id, first.provider, first.session_id);

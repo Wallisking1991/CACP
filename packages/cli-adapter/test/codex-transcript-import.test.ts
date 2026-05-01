@@ -77,4 +77,51 @@ describe("Codex transcript import", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("uses CODEX_HOME when finding Codex session files", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cacp-codex-find-env-"));
+    const previousCodexHome = process.env.CODEX_HOME;
+    try {
+      process.env.CODEX_HOME = root;
+      const sessionsDir = join(root, "sessions", "2026", "05", "01");
+      mkdirSync(sessionsDir, { recursive: true });
+      const filePath = join(sessionsDir, "rollout-session_env_lookup.jsonl");
+      writeFileSync(filePath, JSON.stringify({
+        type: "session_meta",
+        payload: { id: "session_env_lookup", cwd: "D:\\Development\\2" }
+      }), "utf8");
+
+      await expect(findCodexSessionFile({
+        sessionId: "session_env_lookup",
+        workingDir: "D:\\Development\\2"
+      })).resolves.toBe(filePath);
+    } finally {
+      if (previousCodexHome === undefined) {
+        delete process.env.CODEX_HOME;
+      } else {
+        process.env.CODEX_HOME = previousCodexHome;
+      }
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not find a Codex session outside the connector working directory", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cacp-codex-find-cwd-"));
+    try {
+      const sessionsDir = join(root, "sessions", "2026", "05", "01");
+      mkdirSync(sessionsDir, { recursive: true });
+      writeFileSync(join(sessionsDir, "rollout-session_private_project.jsonl"), JSON.stringify({
+        type: "session_meta",
+        payload: { id: "session_private_project", cwd: "D:\\PrivateProject" }
+      }), "utf8");
+
+      await expect(findCodexSessionFile({
+        codexHome: root,
+        sessionId: "session_private_project",
+        workingDir: "D:\\Development\\2"
+      })).resolves.toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

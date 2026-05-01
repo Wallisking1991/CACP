@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, normalize } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { ClaudeSessionImportAuthorRoleSchema, ClaudeSessionImportSourceKindSchema } from "@cacp/protocol";
 import type { z } from "zod";
@@ -13,6 +13,11 @@ interface CodexRecord {
   timestamp?: string;
   type?: string;
   payload?: Record<string, unknown>;
+}
+
+interface CodexSessionMeta {
+  id?: string;
+  cwd?: string;
 }
 
 function parseRecords(filePath: string): CodexRecord[] {
@@ -138,6 +143,32 @@ function chunkImportedMessage(message: ClaudeImportedMessage, sequenceStart: num
   }));
 }
 
+function normalizeWorkingDir(value: string): string {
+  return normalize(value).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
+function readSessionMeta(filePath: string): CodexSessionMeta | undefined {
+  try {
+    const firstLine = readFileSync(filePath, "utf8").split("\n")[0];
+    if (!firstLine) return undefined;
+    const record = JSON.parse(firstLine) as CodexRecord;
+    if (record.type !== "session_meta") return undefined;
+    const payload = record.payload ?? {};
+    return {
+      id: typeof payload.id === "string" ? payload.id : undefined,
+      cwd: typeof payload.cwd === "string" ? payload.cwd : undefined
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function sessionMetaMatches(input: { sessionId: string; workingDir?: string }, meta: CodexSessionMeta | undefined): boolean {
+  if (!meta || meta.id !== input.sessionId) return false;
+  if (!input.workingDir) return true;
+  return typeof meta.cwd === "string" && normalizeWorkingDir(meta.cwd) === normalizeWorkingDir(input.workingDir);
+}
+
 export async function buildCodexImportFromSessionFile(input: {
   importId?: string;
   agentId: string;
@@ -161,9 +192,10 @@ export async function buildCodexImportFromSessionFile(input: {
 
 export async function findCodexSessionFile(input: {
   sessionId: string;
+  workingDir?: string;
   codexHome?: string;
 }): Promise<string | undefined> {
-  const root = input.codexHome ?? join(homedir(), ".codex");
+  const root = input.codexHome ?? process.env.CODEX_HOME ?? join(homedir(), ".codex");
   const sessionsDir = join(root, "sessions");
 
   function scan(dir: string): string | undefined {
@@ -175,20 +207,15 @@ export async function findCodexSessionFile(input: {
           const found = scan(fullPath);
           if (found) return found;
         } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
-          if (entry.name.includes(input.sessionId)) return fullPath;
-          const firstLine = readFileSync(fullPath, "utf8").split("\n")[0];
-          if (!firstLine) continue;
-          try {
-            const record = JSON.parse(firstLine) as CodexRecord;
-            if (record.type === "session_meta") {
-              const payload = record.payload ?? {};
-              if (typeof payload.id === "string" && payload.id === input.sessionId) {
-                return fullPath;
-              }
+          const meta = readSessionMeta(fullPath);
+          if (entry.name.includes(input.sessionId)) {
+            if (input.workingDir) {
+              if (sessionMetaMatches(input, meta)) return fullPath;
+              continue;
             }
-          } catch {
-            // Skip malformed lines
+            if (!meta || meta.id === input.sessionId) return fullPath;
           }
+          if (sessionMetaMatches(input, meta)) return fullPath;
         }
       }
     } catch {

@@ -227,7 +227,7 @@ async function main() {
         const payload = parsed.data.payload as { preview_id?: string; agent_id?: string; session_id?: string; provider?: string };
         if (!payload.preview_id || !payload.session_id || payload.agent_id !== registered.agent_id || payload.provider !== "codex-cli") return;
         try {
-          const filePath = await findCodexSessionFile({ sessionId: payload.session_id });
+          const filePath = await findCodexSessionFile({ sessionId: payload.session_id, workingDir: config.agent.working_dir });
           if (!filePath) throw new Error("Codex session file not found");
           const previewResult = await buildCodexImportFromSessionFile({
             importId: payload.preview_id,
@@ -281,7 +281,7 @@ async function main() {
           const fallbackTitle = `Codex session ${payload.session_id.slice(0, 8)}`;
           let importClosed = false;
           try {
-            const filePath = await findCodexSessionFile({ sessionId: payload.session_id });
+            const filePath = await findCodexSessionFile({ sessionId: payload.session_id, workingDir: config.agent.working_dir });
             if (!filePath) throw new Error("Codex session file not found");
             const importResult = await buildCodexImportFromSessionFile({
               importId,

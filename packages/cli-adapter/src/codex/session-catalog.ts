@@ -111,11 +111,22 @@ function titleFromUserMessage(payload: Record<string, unknown>): string | undefi
   return text.length > 80 ? `${text.slice(0, 77)}...` : text;
 }
 
-function readVisibleSessionStats(filePath: string): { messageCount: number; title?: string } {
+function newestTimestamp(current: string | undefined, candidate: unknown): string | undefined {
+  if (typeof candidate !== "string") return current;
+  const candidateMs = Date.parse(candidate);
+  if (Number.isNaN(candidateMs)) return current;
+  if (!current) return candidate;
+  const currentMs = Date.parse(current);
+  if (Number.isNaN(currentMs) || candidateMs > currentMs) return candidate;
+  return current;
+}
+
+function readVisibleSessionStats(filePath: string): { messageCount: number; title?: string; lastVisibleAt?: string } {
   try {
     const content = readFileSync(filePath, "utf8");
     let messageCount = 0;
     let title: string | undefined;
+    let lastVisibleAt: string | undefined;
     for (const line of content.split("\n")) {
       if (!line.trim()) continue;
       try {
@@ -125,6 +136,7 @@ function readVisibleSessionStats(filePath: string): { messageCount: number; titl
           const payloadType = typeof payload.type === "string" ? payload.type : "";
           if (payloadType === "message" || payloadType === "function_call" || payloadType === "function_call_output") {
             messageCount++;
+            lastVisibleAt = newestTimestamp(lastVisibleAt, record.timestamp);
           }
           if (!title && payloadType === "message") {
             title = titleFromUserMessage(payload);
@@ -134,7 +146,7 @@ function readVisibleSessionStats(filePath: string): { messageCount: number; titl
         // Skip malformed lines
       }
     }
-    return { messageCount, title };
+    return { messageCount, title, lastVisibleAt };
   } catch {
     return { messageCount: 0 };
   }
@@ -152,12 +164,20 @@ function fileSize(filePath: string): number {
   }
 }
 
+function fileModifiedAt(filePath: string): string {
+  try {
+    return statSync(filePath).mtime.toISOString();
+  } catch {
+    return new Date(0).toISOString();
+  }
+}
+
 export async function listCodexSessions(input: {
   workingDir: string;
   codexHome?: string;
   limit?: number;
 }): Promise<{ workingDir: string; sessions: Array<AgentSessionSummary & { provider: "codex-cli" }> }> {
-  const root = input.codexHome ?? join(homedir(), ".codex");
+  const root = input.codexHome ?? process.env.CODEX_HOME ?? join(homedir(), ".codex");
   const sessionsDir = join(root, "sessions");
   const files = scanJsonlFiles(sessionsDir);
   const requestedWorkingDir = normalizeWorkingDir(input.workingDir);
@@ -170,8 +190,8 @@ export async function listCodexSessions(input: {
     const meta = parseMeta(firstLine);
     if (!meta || !meta.cwd || normalizeWorkingDir(meta.cwd) !== requestedWorkingDir) continue;
 
-    const { messageCount, title } = readVisibleSessionStats(filePath);
-    const updatedAt = meta.timestamp ?? new Date(0).toISOString();
+    const { messageCount, title, lastVisibleAt } = readVisibleSessionStats(filePath);
+    const updatedAt = lastVisibleAt ?? meta.timestamp ?? fileModifiedAt(filePath);
 
     sessions.push({
       session_id: meta.id,

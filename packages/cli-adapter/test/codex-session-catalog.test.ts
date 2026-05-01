@@ -53,4 +53,55 @@ describe("Codex session catalog", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("uses CODEX_HOME when no explicit Codex home is provided", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cacp-codex-catalog-env-"));
+    const previousCodexHome = process.env.CODEX_HOME;
+    try {
+      process.env.CODEX_HOME = root;
+      const sessionDir = join(root, "sessions", "2026", "05", "01");
+      mkdirSync(sessionDir, { recursive: true });
+      writeFileSync(join(sessionDir, "rollout-session_env_home.jsonl"), [
+        JSON.stringify({ type: "session_meta", payload: { id: "session_env_home", timestamp: "2026-05-01T01:15:01.373Z", cwd: "D:\\Development\\2" } }),
+        JSON.stringify({ type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Env home" }] } })
+      ].join("\n"), "utf8");
+
+      const catalog = await listCodexSessions({ workingDir: "D:\\Development\\2" });
+
+      expect(catalog.sessions.map((session) => session.session_id)).toEqual(["session_env_home"]);
+    } finally {
+      if (previousCodexHome === undefined) {
+        delete process.env.CODEX_HOME;
+      } else {
+        process.env.CODEX_HOME = previousCodexHome;
+      }
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("sorts sessions by most recent visible Codex activity", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cacp-codex-catalog-updated-"));
+    try {
+      const sessionDir = join(root, "sessions", "2026", "05", "01");
+      mkdirSync(sessionDir, { recursive: true });
+      writeFileSync(join(sessionDir, "rollout-session_old_created_recent_activity.jsonl"), [
+        JSON.stringify({ type: "session_meta", payload: { id: "session_old_created_recent_activity", timestamp: "2026-05-01T01:00:00.000Z", cwd: "D:\\Development\\2" } }),
+        JSON.stringify({ timestamp: "2026-05-01T03:00:00.000Z", type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "Most recent" }] } })
+      ].join("\n"), "utf8");
+      writeFileSync(join(sessionDir, "rollout-session_new_created_stale_activity.jsonl"), [
+        JSON.stringify({ type: "session_meta", payload: { id: "session_new_created_stale_activity", timestamp: "2026-05-01T02:00:00.000Z", cwd: "D:\\Development\\2" } }),
+        JSON.stringify({ timestamp: "2026-05-01T02:10:00.000Z", type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "Less recent" }] } })
+      ].join("\n"), "utf8");
+
+      const catalog = await listCodexSessions({ workingDir: "D:\\Development\\2", codexHome: root });
+
+      expect(catalog.sessions.map((session) => session.session_id)).toEqual([
+        "session_old_created_recent_activity",
+        "session_new_created_stale_activity"
+      ]);
+      expect(catalog.sessions[0].updated_at).toBe("2026-05-01T03:00:00.000Z");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

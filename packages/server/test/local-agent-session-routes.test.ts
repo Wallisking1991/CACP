@@ -93,6 +93,29 @@ describe("generic local agent session routes", () => {
     await app.close();
   });
 
+  it("rejects generic session publishing from an inactive local agent", async () => {
+    const { app, room } = await createRoomAndOwner();
+    const activeAgent = await registerLocalAgent(app, room.room_id, room.owner_token, "codex-cli");
+    const inactiveAgent = await registerLocalAgent(app, room.room_id, room.owner_token, "codex-cli");
+    await selectAgent(app, room.room_id, room.owner_token, activeAgent.agent_id);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-sessions/catalog`,
+      headers: { authorization: `Bearer ${inactiveAgent.agent_token}` },
+      payload: {
+        agent_id: inactiveAgent.agent_id,
+        provider: "codex-cli",
+        working_dir: "D:\\Development\\2",
+        sessions: []
+      }
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({ error: "not_active_agent" });
+    await app.close();
+  });
+
   it("lets managers select a generic Codex session and the connector report readiness", async () => {
     const { app, room } = await createRoomAndOwner();
     const agent = await registerLocalAgent(app, room.room_id, room.owner_token, "codex-cli");
@@ -288,6 +311,57 @@ describe("generic local agent session routes", () => {
     });
     expect(runtimeStatus.statusCode).toBe(201);
 
+    await app.close();
+  });
+
+  it("rejects generic preview message batches with mixed sessions", async () => {
+    const { app, room } = await createRoomAndOwner();
+    const agent = await registerLocalAgent(app, room.room_id, room.owner_token, "codex-cli");
+    await selectAgent(app, room.room_id, room.owner_token, agent.agent_id);
+
+    const previewRequest = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-sessions/previews`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: {
+        agent_id: agent.agent_id,
+        provider: "codex-cli",
+        session_id: "session_codex"
+      }
+    });
+    expect(previewRequest.statusCode).toBe(201);
+    const preview = previewRequest.json() as { preview_id: string };
+
+    const mixedBatch = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-sessions/previews/${preview.preview_id}/messages`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: [
+        {
+          preview_id: preview.preview_id,
+          agent_id: agent.agent_id,
+          provider: "codex-cli",
+          session_id: "session_codex",
+          sequence: 0,
+          author_role: "assistant",
+          source_kind: "assistant",
+          text: "Preview answer"
+        },
+        {
+          preview_id: preview.preview_id,
+          agent_id: agent.agent_id,
+          provider: "codex-cli",
+          session_id: "session_other",
+          sequence: 1,
+          author_role: "assistant",
+          source_kind: "assistant",
+          text: "Other preview answer"
+        }
+      ]
+    });
+
+    expect(mixedBatch.statusCode).toBe(400);
+    expect(mixedBatch.json()).toMatchObject({ error: "preview_session_mismatch" });
     await app.close();
   });
 
