@@ -28,7 +28,7 @@ export interface WorkspaceProps {
   onSubmitCollection: () => void;
   onCancelCollection: () => void;
   onSelectAgent: (agentId: string) => void;
-  onCreateInvite: (role: string, ttl: number) => Promise<string | undefined>;
+  onCreateInvite: (role: string, ttl: number, maxUses: number) => Promise<string | undefined>;
   onApproveJoinRequest: (requestId: string) => void;
   onRejectJoinRequest: (requestId: string) => void;
   onRemoveParticipant: (participantId: string) => void;
@@ -358,6 +358,7 @@ export default function Workspace({
         activeAgentId={room.activeAgentId}
         participants={peopleParticipants}
         inviteCount={room.inviteCount}
+        invites={room.invites}
         isOwner={isOwner}
         roomId={session.room_id}
         onLeaveRoom={onLeaveRoom}

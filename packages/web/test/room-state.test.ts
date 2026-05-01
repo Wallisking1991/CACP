@@ -464,4 +464,34 @@ describe("room state", () => {
     ], { now: "2026-04-25T00:00:03.000Z" });
     expect(stopped.participantActivity.get("user_2")?.typing).toBe(false);
   });
+
+  it("tracks invites with remaining slots via invite.created, join_request.approved, and invite.revoked", () => {
+    const state = deriveRoomState([
+      event("participant.joined", { participant: { id: "user_1", display_name: "Alice", role: "owner", type: "human" } }, 1),
+      event("invite.created", { invite_id: "inv_1", role: "member", expires_at: "2026-04-26T00:00:00.000Z", max_uses: 3 }, 2, "user_1"),
+      event("invite.created", { invite_id: "inv_2", role: "observer", expires_at: "2026-04-27T00:00:00.000Z", max_uses: 5 }, 3, "user_1"),
+      event("join_request.created", { request_id: "req_1", display_name: "Bob", role: "member", requested_at: "2026-04-26T00:01:00.000Z", expires_at: "2026-04-26T00:11:00.000Z" }, 4),
+      event("join_request.approved", { request_id: "req_1", display_name: "Bob", role: "member", status: "approved", requested_at: "2026-04-26T00:01:00.000Z", expires_at: "2026-04-26T00:11:00.000Z", invite_id: "inv_1" }, 5, "user_1"),
+      event("join_request.created", { request_id: "req_2", display_name: "Carol", role: "member", requested_at: "2026-04-26T00:02:00.000Z", expires_at: "2026-04-26T00:12:00.000Z" }, 6),
+      event("join_request.approved", { request_id: "req_2", display_name: "Carol", role: "member", status: "approved", requested_at: "2026-04-26T00:02:00.000Z", expires_at: "2026-04-26T00:12:00.000Z", invite_id: "inv_1" }, 7, "user_1"),
+      event("invite.revoked", { invite_id: "inv_1", revoked_at: "2026-04-26T00:08:00.000Z" }, 8, "user_1")
+    ]);
+
+    expect(state.inviteCount).toBe(2);
+    expect(state.invites).toHaveLength(2);
+
+    const inv1 = state.invites.find((i) => i.invite_id === "inv_1");
+    expect(inv1).toBeDefined();
+    expect(inv1!.max_uses).toBe(3);
+    expect(inv1!.used_count).toBe(2);
+    expect(inv1!.remaining).toBe(1);
+    expect(inv1!.revoked).toBe(true);
+
+    const inv2 = state.invites.find((i) => i.invite_id === "inv_2");
+    expect(inv2).toBeDefined();
+    expect(inv2!.max_uses).toBe(5);
+    expect(inv2!.used_count).toBe(0);
+    expect(inv2!.remaining).toBe(5);
+    expect(inv2!.revoked).toBe(false);
+  });
 });

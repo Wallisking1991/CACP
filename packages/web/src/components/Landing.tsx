@@ -1,6 +1,6 @@
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import gsap from "gsap";
-import { parseInviteUrl } from "../api.js";
+import { parseInviteUrl, verifyInvite } from "../api.js";
 import { LangContext } from "../i18n/LangProvider.js";
 import { useT } from "../i18n/useT.js";
 import { isCloudMode } from "../runtime-config.js";
@@ -82,10 +82,12 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
   const [agentType, setAgentType] = useState("claude-code");
   const [permissionLevel, setPermissionLevel] = useState("read_only");
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [inviteCheckStatus, setInviteCheckStatus] = useState<"idle" | "checking" | "valid" | "invalid">("idle");
+  const [inviteCheckReason, setInviteCheckReason] = useState<string | undefined>();
 
   const selectedLlmApiAgent = llmAgentTypeValues.has(agentType);
   const createValid = roomName.trim() && ownerDisplayName.trim();
-  const joinValid = Boolean(inviteTarget && joinDisplayName.trim());
+  const joinValid = Boolean(inviteTarget && joinDisplayName.trim() && inviteCheckStatus === "valid");
 
   useLayoutEffect(() => {
     const hero = heroRef.current;
@@ -110,6 +112,33 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
   useEffect(() => {
     if (hasInviteInUrl) setAdvancedOpen(false);
   }, [hasInviteInUrl]);
+
+  useEffect(() => {
+    if (!inviteTarget) {
+      setInviteCheckStatus("idle");
+      setInviteCheckReason(undefined);
+      return;
+    }
+    setInviteCheckStatus("checking");
+    let cancelled = false;
+    verifyInvite(inviteTarget.invite_token)
+      .then((result) => {
+        if (cancelled) return;
+        if (result.valid) {
+          setInviteCheckStatus("valid");
+          setInviteCheckReason(undefined);
+        } else {
+          setInviteCheckStatus("invalid");
+          setInviteCheckReason(result.reason);
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setInviteCheckStatus("invalid");
+        setInviteCheckReason("not_found");
+      });
+    return () => { cancelled = true; };
+  }, [inviteTarget]);
 
   function handleCreateSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -189,7 +218,24 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
 
               <p className="landing-room-hint">{t("landing.join.invitedRoom", { roomId: inviteTarget.room_id })}</p>
 
-              <button type="submit" className="btn btn-primary landing-primary-action" disabled={!joinValid || loading}>
+              {inviteCheckStatus === "invalid" && inviteCheckReason && (
+                <p
+                  data-testid="landing-invite-error"
+                  style={{
+                    fontSize: 13,
+                    color: "#b91c1c",
+                    background: "#fef2f2",
+                    border: "1px solid #fecaca",
+                    borderRadius: "var(--radius-chip)",
+                    padding: "8px 12px",
+                    margin: "4px 0 8px"
+                  }}
+                >
+                  {t(`landing.join.invite${inviteCheckReason === "limit_reached" ? "LimitReached" : inviteCheckReason.charAt(0).toUpperCase() + inviteCheckReason.slice(1)}` as Parameters<typeof t>[0])}
+                </p>
+              )}
+
+              <button type="submit" className="btn btn-primary landing-primary-action" disabled={!joinValid || loading || inviteCheckStatus !== "valid"}>
                 {t("landing.join.cta")}
               </button>
             </form>

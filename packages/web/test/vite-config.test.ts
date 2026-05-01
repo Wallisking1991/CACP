@@ -10,4 +10,11 @@ describe("Vite dev proxy", () => {
       ws: true
     });
   });
+
+  it("proxies invite verification to the CACP server", () => {
+    const invitesProxy = viteConfig.server?.proxy?.["/invites"];
+    expect(invitesProxy).toMatchObject({
+      target: "http://127.0.0.1:3737"
+    });
+  });
 });

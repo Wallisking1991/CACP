@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { useT } from "../i18n/useT.js";
-import type { AgentView, ParticipantView } from "../room-state.js";
+import type { AgentView, ParticipantView, InviteView } from "../room-state.js";
 
 import type { JoinRequestView } from "../room-state.js";
 
@@ -14,11 +14,12 @@ export interface SidebarProps {
   canManageRoom: boolean;
   currentParticipantId?: string;
   onSelectAgent: (agentId: string) => void;
-  onCreateInvite: (role: string, ttl: number) => Promise<string | undefined>;
+  onCreateInvite: (role: string, ttl: number, maxUses: number) => Promise<string | undefined>;
   onApproveJoinRequest: (requestId: string) => void;
   onRejectJoinRequest: (requestId: string) => void;
   onRemoveParticipant: (participantId: string) => void;
-  createdInvite?: { url: string; role: string; ttl: number };
+  createdInvite?: { url: string; role: string; ttl: number; max_uses: number };
+  invites: InviteView[];
   cloudMode?: boolean;
   createdPairing?: { connection_code: string; download_url: string; expires_at: string };
 }
@@ -122,6 +123,7 @@ export default function Sidebar({
   const [dialog, setDialog] = useState<{ title: string } | null>(null);
   const [inviteRole, setInviteRole] = useState("member");
   const [inviteTtl, setInviteTtl] = useState(3600);
+  const [inviteMaxUses, setInviteMaxUses] = useState(1);
   const [connectorCopied, setConnectorCopied] = useState(false);
 
   const handleCopyConnector = useCallback(() => {
@@ -144,12 +146,12 @@ export default function Sidebar({
   }, []);
 
   const handleCopyInvite = useCallback(() => {
-    void onCreateInvite(inviteRole, inviteTtl).then((url) => {
+    void onCreateInvite(inviteRole, inviteTtl, inviteMaxUses).then((url) => {
       if (url) {
         navigator.clipboard.writeText(url).catch(() => {});
       }
     });
-  }, [onCreateInvite, inviteRole, inviteTtl]);
+  }, [onCreateInvite, inviteRole, inviteTtl, inviteMaxUses]);
 
   return (
     <>
@@ -362,7 +364,7 @@ export default function Sidebar({
               </button>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
               <select
                 className="input"
                 value={inviteRole}
@@ -379,6 +381,16 @@ export default function Sidebar({
                 <option value={3600}>{t("sidebar.ttl1h")}</option>
                 <option value={86400}>{t("sidebar.ttl24h")}</option>
                 <option value={604800}>{t("sidebar.ttl7d")}</option>
+              </select>
+              <select
+                className="input"
+                value={inviteMaxUses}
+                onChange={(e) => setInviteMaxUses(Number(e.target.value))}
+              >
+                <option value={1}>{t("sidebar.maxUses1")}</option>
+                <option value={5}>{t("sidebar.maxUses5")}</option>
+                <option value={10}>{t("sidebar.maxUses10")}</option>
+                <option value={20}>{t("sidebar.maxUses20")}</option>
               </select>
             </div>
 

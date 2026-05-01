@@ -63,4 +63,118 @@ describe("CACP server", () => {
 
     await app.close();
   });
+
+  it("creates invite with max_uses and auto-adjusts to room capacity", async () => {
+    const { app, created } = await createRoom();
+    const ownerAuth = { authorization: `Bearer ${created.owner_token}` };
+
+    // Create a 10-person invite in an empty room (default maxParticipantsPerRoom = 20)
+    const inviteResponse = await app.inject({
+      method: "POST",
+      url: `/rooms/${created.room_id}/invites`,
+      headers: ownerAuth,
+      payload: { role: "member", max_uses: 10 }
+    });
+    expect(inviteResponse.statusCode).toBe(201);
+    const inviteBody = inviteResponse.json() as { invite_token: string; role: string; max_uses: number };
+    expect(inviteBody.max_uses).toBe(10);
+
+    // Fill room with 19 more participants via invites (owner + 19 = 20)
+    for (let i = 0; i < 19; i++) {
+      const inv = await app.inject({ method: "POST", url: `/rooms/${created.room_id}/invites`, headers: ownerAuth, payload: { role: "member", max_uses: 1 } });
+      await joinViaApproval(app, created.room_id, created.owner_token, inv.json().invite_token, `User${i}`);
+    }
+
+    // Room now has 20 participants. Try to create a 5-person invite — should auto-adjust to 0
+    const fullRoomInvite = await app.inject({
+      method: "POST",
+      url: `/rooms/${created.room_id}/invites`,
+      headers: ownerAuth,
+      payload: { role: "member", max_uses: 5 }
+    });
+    expect(fullRoomInvite.statusCode).toBe(409);
+
+    await app.close();
+  });
+
+  it("consumes invite at approval time and enforces pending limit", async () => {
+    const { app, created } = await createRoom();
+    const ownerAuth = { authorization: `Bearer ${created.owner_token}` };
+
+    // Create a 3-person invite
+    const inviteResponse = await app.inject({
+      method: "POST",
+      url: `/rooms/${created.room_id}/invites`,
+      headers: ownerAuth,
+      payload: { role: "member", max_uses: 3 }
+    });
+    expect(inviteResponse.statusCode).toBe(201);
+    const inviteToken = (inviteResponse.json() as { invite_token: string }).invite_token;
+
+    // 3 people can create join requests
+    const req1 = await app.inject({ method: "POST", url: `/rooms/${created.room_id}/join-requests`, payload: { invite_token: inviteToken, display_name: "Alice" } });
+    const req2 = await app.inject({ method: "POST", url: `/rooms/${created.room_id}/join-requests`, payload: { invite_token: inviteToken, display_name: "Bob" } });
+    const req3 = await app.inject({ method: "POST", url: `/rooms/${created.room_id}/join-requests`, payload: { invite_token: inviteToken, display_name: "Carol" } });
+    expect(req1.statusCode).toBe(201);
+    expect(req2.statusCode).toBe(201);
+    expect(req3.statusCode).toBe(201);
+
+    // 4th person is rejected due to pending limit
+    const req4 = await app.inject({ method: "POST", url: `/rooms/${created.room_id}/join-requests`, payload: { invite_token: inviteToken, display_name: "Dave" } });
+    expect(req4.statusCode).toBe(409);
+
+    // Approve only 2 of them
+    const request1 = req1.json() as { request_id: string };
+    const request2 = req2.json() as { request_id: string };
+    const approve1 = await app.inject({ method: "POST", url: `/rooms/${created.room_id}/join-requests/${request1.request_id}/approve`, headers: ownerAuth, payload: {} });
+    const approve2 = await app.inject({ method: "POST", url: `/rooms/${created.room_id}/join-requests/${request2.request_id}/approve`, headers: ownerAuth, payload: {} });
+    expect(approve1.statusCode).toBe(201);
+    expect(approve2.statusCode).toBe(201);
+
+    // 3rd request can now be created because 2 were approved and 1 is still pending (total 3)
+    // Actually, 1 pending (Carol) + 2 approved = 3, so no room. Let's reject Carol first.
+    const request3 = req3.json() as { request_id: string };
+    const reject3 = await app.inject({ method: "POST", url: `/rooms/${created.room_id}/join-requests/${request3.request_id}/reject`, headers: ownerAuth, payload: {} });
+    expect(reject3.statusCode).toBe(201);
+
+    // Now 2 approved + 0 pending = 2 < 3, so a new request should succeed
+    const req5 = await app.inject({ method: "POST", url: `/rooms/${created.room_id}/join-requests`, payload: { invite_token: inviteToken, display_name: "Eve" } });
+    expect(req5.statusCode).toBe(201);
+
+    // Approve Eve — now used_count = 3, invite should be auto-revoked
+    const request5 = req5.json() as { request_id: string };
+    const approve5 = await app.inject({ method: "POST", url: `/rooms/${created.room_id}/join-requests/${request5.request_id}/approve`, headers: ownerAuth, payload: {} });
+    expect(approve5.statusCode).toBe(201);
+
+    // Any further request should be rejected because invite is revoked
+    const req6 = await app.inject({ method: "POST", url: `/rooms/${created.room_id}/join-requests`, payload: { invite_token: inviteToken, display_name: "Frank" } });
+    expect(req6.statusCode).toBe(409);
+
+    await app.close();
+  });
+
+  it("auto-revokes invite when max_uses is reached and emits invite.revoked event", async () => {
+    const { app, created } = await createRoom();
+    const ownerAuth = { authorization: `Bearer ${created.owner_token}` };
+
+    // Create a 1-person invite
+    const inviteResponse = await app.inject({
+      method: "POST",
+      url: `/rooms/${created.room_id}/invites`,
+      headers: ownerAuth,
+      payload: { role: "member", max_uses: 1 }
+    });
+    const inviteToken = (inviteResponse.json() as { invite_token: string }).invite_token;
+
+    // Join and approve
+    const bob = await joinViaApproval(app, created.room_id, created.owner_token, inviteToken, "Bob");
+    expect(bob.role).toBe("member");
+
+    // Check events include invite.revoked
+    const eventsResponse = await app.inject({ method: "GET", url: `/rooms/${created.room_id}/events`, headers: ownerAuth });
+    const eventTypes = eventsResponse.json().events.map((event: { type: string }) => event.type);
+    expect(eventTypes).toContain("invite.revoked");
+
+    await app.close();
+  });
 });

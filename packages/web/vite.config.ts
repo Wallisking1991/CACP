@@ -13,6 +13,9 @@ export default defineConfig({
       },
       "/health": {
         target: cacpServer
+      },
+      "/invites": {
+        target: cacpServer
       }
     }
   }

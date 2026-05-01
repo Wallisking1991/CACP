@@ -191,27 +191,38 @@ describe("cloud server endpoints", () => {
     await app.close();
   });
 
-  it("enforces max participants per room", async () => {
-    const limitedConfig = { ...cloudTestConfig(), maxParticipantsPerRoom: 1 };
+  it("enforces max participants per room at invite creation and approval", async () => {
+    const limitedConfig = { ...cloudTestConfig(), maxParticipantsPerRoom: 2 };
     const app = await buildServer({ dbPath: ":memory:", config: limitedConfig });
     const roomResponse = await app.inject({ method: "POST", url: "/rooms", payload: { name: "Small Room", display_name: "Alice" } });
     const created = roomResponse.json<{ room_id: string; owner_token: string }>();
 
+    // Can create invite when room has space
     const inviteResponse = await app.inject({
       method: "POST",
       url: `/rooms/${created.room_id}/invites`,
       headers: { authorization: `Bearer ${created.owner_token}` },
-      payload: { role: "member" }
+      payload: { role: "member", max_uses: 1 }
     });
     expect(inviteResponse.statusCode).toBe(201);
     const inviteToken = inviteResponse.json<{ invite_token: string }>().invite_token;
 
+    // Fill the room
     const pending = await app.inject({ method: "POST", url: `/rooms/${created.room_id}/join-requests`, payload: { invite_token: inviteToken, display_name: "Bob" } });
     expect(pending.statusCode).toBe(201);
     const request = pending.json() as { request_id: string; request_token: string };
     const approved = await app.inject({ method: "POST", url: `/rooms/${created.room_id}/join-requests/${request.request_id}/approve`, headers: { authorization: `Bearer ${created.owner_token}` }, payload: {} });
-    expect(approved.statusCode).toBe(409);
-    expect(approved.json()).toMatchObject({ error: "max_participants_reached" });
+    expect(approved.statusCode).toBe(201);
+
+    // Cannot create more invites when room is full
+    const fullRoomInvite = await app.inject({
+      method: "POST",
+      url: `/rooms/${created.room_id}/invites`,
+      headers: { authorization: `Bearer ${created.owner_token}` },
+      payload: { role: "member", max_uses: 1 }
+    });
+    expect(fullRoomInvite.statusCode).toBe(409);
+    expect(fullRoomInvite.json()).toMatchObject({ error: "max_participants_reached" });
 
     await app.close();
   });
@@ -332,6 +343,102 @@ describe("cloud server endpoints", () => {
       room_id: created.room_id,
       agent: { working_dir: "D:\\Projects\\fallback" }
     });
+
+    await app.close();
+  });
+
+  it("verifies invite status without authentication", async () => {
+    const app = await buildServer({ dbPath: ":memory:", config: cloudTestConfig() });
+    const roomResponse = await app.inject({ method: "POST", url: "/rooms", payload: { name: "Verify Room", display_name: "Alice" } });
+    const created = roomResponse.json<{ room_id: string; owner_token: string }>();
+
+    // Valid invite
+    const inviteResponse = await app.inject({
+      method: "POST",
+      url: `/rooms/${created.room_id}/invites`,
+      headers: { authorization: `Bearer ${created.owner_token}` },
+      payload: { role: "member", expires_in_seconds: 3600, max_uses: 1 }
+    });
+    expect(inviteResponse.statusCode).toBe(201);
+    const inviteToken = inviteResponse.json<{ invite_token: string }>().invite_token;
+
+    const validCheck = await app.inject({ method: "GET", url: `/invites/verify?token=${encodeURIComponent(inviteToken)}` });
+    expect(validCheck.statusCode).toBe(200);
+    expect(validCheck.json()).toEqual({ valid: true });
+
+    // Not found
+    const notFoundCheck = await app.inject({ method: "GET", url: "/invites/verify?token=invalid_token_xyz" });
+    expect(notFoundCheck.statusCode).toBe(200);
+    expect(notFoundCheck.json()).toEqual({ valid: false, reason: "not_found" });
+
+    await app.close();
+  });
+
+  it("reports expired, revoked, and limit_reached invite states", async () => {
+    const app = await buildServer({ dbPath: ":memory:", config: cloudTestConfig() });
+    const roomResponse = await app.inject({ method: "POST", url: "/rooms", payload: { name: "States Room", display_name: "Alice" } });
+    const created = roomResponse.json<{ room_id: string; owner_token: string }>();
+
+    // Expired invite
+    const expiredInviteResponse = await app.inject({
+      method: "POST",
+      url: `/rooms/${created.room_id}/invites`,
+      headers: { authorization: `Bearer ${created.owner_token}` },
+      payload: { role: "member", expires_in_seconds: 1, max_uses: 1 }
+    });
+    expect(expiredInviteResponse.statusCode).toBe(201);
+    const expiredToken = expiredInviteResponse.json<{ invite_token: string }>().invite_token;
+
+    await new Promise((r) => setTimeout(r, 1100));
+
+    const expiredCheck = await app.inject({ method: "GET", url: `/invites/verify?token=${encodeURIComponent(expiredToken)}` });
+    expect(expiredCheck.statusCode).toBe(200);
+    expect(expiredCheck.json()).toEqual({ valid: false, reason: "expired" });
+
+    // Limit reached / auto-revoked invite
+    const limitedInviteResponse = await app.inject({
+      method: "POST",
+      url: `/rooms/${created.room_id}/invites`,
+      headers: { authorization: `Bearer ${created.owner_token}` },
+      payload: { role: "member", expires_in_seconds: 3600, max_uses: 1 }
+    });
+    expect(limitedInviteResponse.statusCode).toBe(201);
+    const limitedToken = limitedInviteResponse.json<{ invite_token: string }>().invite_token;
+
+    const pending = await app.inject({ method: "POST", url: `/rooms/${created.room_id}/join-requests`, payload: { invite_token: limitedToken, display_name: "Bob" } });
+    expect(pending.statusCode).toBe(201);
+    const request = pending.json() as { request_id: string };
+
+    const approved = await app.inject({
+      method: "POST",
+      url: `/rooms/${created.room_id}/join-requests/${request.request_id}/approve`,
+      headers: { authorization: `Bearer ${created.owner_token}` },
+      payload: {}
+    });
+    expect(approved.statusCode).toBe(201);
+
+    // After approval, invite is auto-revoked (used_count >= max_uses)
+    const revokedCheck = await app.inject({ method: "GET", url: `/invites/verify?token=${encodeURIComponent(limitedToken)}` });
+    expect(revokedCheck.statusCode).toBe(200);
+    expect(revokedCheck.json()).toEqual({ valid: false, reason: "revoked" });
+
+    // Limit reached via pending requests
+    const freshInviteResponse = await app.inject({
+      method: "POST",
+      url: `/rooms/${created.room_id}/invites`,
+      headers: { authorization: `Bearer ${created.owner_token}` },
+      payload: { role: "member", expires_in_seconds: 3600, max_uses: 1 }
+    });
+    expect(freshInviteResponse.statusCode).toBe(201);
+    const freshToken = freshInviteResponse.json<{ invite_token: string }>().invite_token;
+
+    const freshPending = await app.inject({ method: "POST", url: `/rooms/${created.room_id}/join-requests`, payload: { invite_token: freshToken, display_name: "Charlie" } });
+    expect(freshPending.statusCode).toBe(201);
+
+    // Now there is 1 pending request and max_uses=1, so limit is reached
+    const limitCheck = await app.inject({ method: "GET", url: `/invites/verify?token=${encodeURIComponent(freshToken)}` });
+    expect(limitCheck.statusCode).toBe(200);
+    expect(limitCheck.json()).toEqual({ valid: false, reason: "limit_reached" });
 
     await app.close();
   });

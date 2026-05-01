@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AgentView, ParticipantView, ClaudeSessionCatalogView, ClaudeSessionSelectionView, ClaudeSessionPreviewView, ClaudeRuntimeStatusView, JoinRequestView } from "../room-state.js";
+import type { AgentView, ParticipantView, ClaudeSessionCatalogView, ClaudeSessionSelectionView, ClaudeSessionPreviewView, ClaudeRuntimeStatusView, JoinRequestView, InviteView } from "../room-state.js";
 import { useT } from "../i18n/useT.js";
 import { SoundIcon } from "./RoomIcons.js";
 import { ClaudeSessionPicker } from "./ClaudeSessionPicker.js";
@@ -20,14 +20,15 @@ export interface RoomControlCenterProps {
   isOwner: boolean;
   roomId: string;
   onLeaveRoom: () => void;
-  onCreateInvite: (role: string, ttl: number) => Promise<string | undefined>;
+  onCreateInvite: (role: string, ttl: number, maxUses: number) => Promise<string | undefined>;
   onSelectAgent: (agentId: string) => void;
   onRemoveParticipant: (participantId: string) => void;
   onClearRoom: () => void;
   joinRequests: JoinRequestView[];
   onApproveJoinRequest: (requestId: string) => void;
   onRejectJoinRequest: (requestId: string) => void;
-  createdInvite?: { url: string; role: string; ttl: number };
+  createdInvite?: { url: string; role: string; ttl: number; max_uses: number };
+  invites: InviteView[];
   cloudMode?: boolean;
   createdPairing?: { connection_code: string; download_url: string; expires_at: string };
   canManageRoom: boolean;
@@ -74,6 +75,7 @@ export function RoomControlCenter(props: RoomControlCenterProps) {
   const [inviteRevealed, setInviteRevealed] = useState(false);
   const [inviteRole, setInviteRole] = useState("member");
   const [inviteTtl, setInviteTtl] = useState(3600);
+  const [inviteMaxUses, setInviteMaxUses] = useState(1);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const openerRef = useRef<Element | null>(null);
   const dialogRef = useRef<HTMLElement>(null);
@@ -138,11 +140,11 @@ export function RoomControlCenter(props: RoomControlCenterProps) {
   }, [props.createdPairing]);
 
   const handleCreateInvite = useCallback(async () => {
-    const url = await props.onCreateInvite(inviteRole, inviteTtl);
-    if (url && typeof navigator !== "undefined") {
+    const url = await props.onCreateInvite(inviteRole, inviteTtl, inviteMaxUses);
+    if (url && typeof navigator !== "undefined" && navigator.clipboard) {
       await navigator.clipboard.writeText(url).catch(() => {});
     }
-  }, [props.onCreateInvite, inviteRole, inviteTtl]);
+  }, [props.onCreateInvite, inviteRole, inviteTtl, inviteMaxUses]);
 
   const activeAgent = props.agents.find((agent) => agent.agent_id === props.activeAgentId);
   if (!props.open) return null;
@@ -286,6 +288,18 @@ export function RoomControlCenter(props: RoomControlCenterProps) {
                     <option value={86400}>{t("sidebar.ttl24h")}</option>
                     <option value={604800}>{t("sidebar.ttl7d")}</option>
                   </select>
+                  <select
+                    className="input"
+                    value={inviteMaxUses}
+                    onChange={(e) => setInviteMaxUses(Number(e.target.value))}
+                    aria-label={t("sidebar.maxUsesLabel")}
+                    style={{ fontSize: 12, padding: "6px 8px", minWidth: 80 }}
+                  >
+                    <option value={1}>{t("sidebar.maxUses1")}</option>
+                    <option value={5}>{t("sidebar.maxUses5")}</option>
+                    <option value={10}>{t("sidebar.maxUses10")}</option>
+                    <option value={20}>{t("sidebar.maxUses20")}</option>
+                  </select>
                   <button type="button" className="btn btn-warm" style={{ fontSize: 12, padding: "6px 12px" }} onClick={() => void handleCreateInvite()} aria-label={t("sidebar.createAndCopyInvite")}>
                     {t("sidebar.copyInvite")}
                   </button>
@@ -325,6 +339,36 @@ export function RoomControlCenter(props: RoomControlCenterProps) {
                   </div>
                 </div>
               ) : null}
+
+              {props.invites.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <h4 style={{ fontSize: 13, marginBottom: 8 }}>{t("sidebar.activeInvites")}</h4>
+                  {props.invites.map((inv) => (
+                    <div
+                      key={inv.invite_id}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        padding: "6px 8px",
+                        marginBottom: 4,
+                        background: "var(--surface-warm)",
+                        border: "1px solid var(--border-soft)",
+                        borderRadius: "var(--radius-chip)",
+                        fontSize: 12,
+                        opacity: inv.revoked ? 0.6 : 1
+                      }}
+                    >
+                      <span>
+                        {t("sidebar.inviteItem", { role: inv.role, remaining: inv.remaining, max: inv.max_uses })}
+                      </span>
+                      {inv.revoked && (
+                        <span style={{ fontSize: 11, color: "var(--ink-3)" }}>{t("sidebar.inviteRevoked")}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {props.cloudMode && props.isOwner && props.createdPairing ? (
                 <div style={{ marginTop: 16 }}>

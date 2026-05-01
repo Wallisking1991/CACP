@@ -28,6 +28,15 @@ export interface JoinRequestView {
   status: "pending" | "approved" | "rejected" | "expired";
   created_at: string;
 }
+export interface InviteView {
+  invite_id: string;
+  role: string;
+  expires_at: string;
+  max_uses: number;
+  used_count: number;
+  remaining: number;
+  revoked: boolean;
+}
 export interface AiCollectionView {
   collection_id: string;
   started_by: string;
@@ -127,6 +136,7 @@ export interface RoomViewState {
   collectionHistory: AiCollectionView[];
   lastHistoryClearedAt?: string;
   inviteCount: number;
+  invites: InviteView[];
   roomName?: string;
   joinRequests: JoinRequestView[];
   pendingRoundtableRequest?: RoundtableRequestView;
@@ -258,6 +268,7 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
   const joinRequests = new Map<string, JoinRequestView>();
   const roundtableRequests = new Map<string, RoundtableRequestView>();
   let activeAgentId: string | undefined;
+  const invites = new Map<string, InviteView>();
   let inviteCount = 0;
   let roomName: string | undefined;
   let claudeSessionCatalog: ClaudeSessionCatalogView | undefined;
@@ -285,7 +296,24 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
       const participant = participants.get(event.payload.participant_id);
       if (participant) participants.set(participant.id, { ...participant, role: event.payload.role });
     }
-    if (event.type === "invite.created") inviteCount += 1;
+    if (event.type === "invite.created") {
+      inviteCount += 1;
+      if (typeof event.payload.invite_id === "string" && typeof event.payload.max_uses === "number") {
+        invites.set(event.payload.invite_id, {
+          invite_id: event.payload.invite_id,
+          role: typeof event.payload.role === "string" ? event.payload.role : "member",
+          expires_at: typeof event.payload.expires_at === "string" ? event.payload.expires_at : "",
+          max_uses: event.payload.max_uses,
+          used_count: 0,
+          remaining: event.payload.max_uses,
+          revoked: false
+        });
+      }
+    }
+    if (event.type === "invite.revoked" && typeof event.payload.invite_id === "string") {
+      const invite = invites.get(event.payload.invite_id);
+      if (invite) invites.set(event.payload.invite_id, { ...invite, revoked: true });
+    }
     if (event.type === "join_request.created" && typeof event.payload.request_id === "string" && typeof event.payload.display_name === "string") {
       joinRequests.set(event.payload.request_id, {
         request_id: event.payload.request_id,
@@ -299,6 +327,13 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
       if (request) {
         const newStatus = event.type === "join_request.approved" ? "approved" : event.type === "join_request.rejected" ? "rejected" : "expired";
         joinRequests.set(event.payload.request_id, { ...request, status: newStatus });
+      }
+      if (event.type === "join_request.approved" && typeof event.payload.invite_id === "string") {
+        const invite = invites.get(event.payload.invite_id);
+        if (invite) {
+          const newUsedCount = invite.used_count + 1;
+          invites.set(event.payload.invite_id, { ...invite, used_count: newUsedCount, remaining: invite.max_uses - newUsedCount });
+        }
       }
     }
     if (event.type === "ai.collection.requested" && typeof event.payload.request_id === "string" && typeof event.payload.requested_by === "string") {
@@ -669,6 +704,7 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     collectionHistory,
     lastHistoryClearedAt: historyClear.clearedAt,
     inviteCount,
+    invites: [...invites.values()],
     roomName,
     joinRequests: [...joinRequests.values()].filter((r) => r.status === "pending"),
     pendingRoundtableRequest,

@@ -101,6 +101,38 @@ export class EventStore {
     if (participantColumns.some((col) => col.name === "token") && !participantColumns.some((col) => col.name === "token_hash")) {
       this.db.exec(`ALTER TABLE participants RENAME COLUMN token TO token_hash;`);
     }
+    // Migration: remove UNIQUE constraint from join_requests.invite_id (needed for multi-use invites)
+    const joinRequestIndexes = this.db.prepare(`PRAGMA index_list(join_requests)`).all() as Array<{ name: string; unique: number }>;
+    const inviteIdUniqueIndex = joinRequestIndexes.find((idx) => {
+      if (idx.unique !== 1) return false;
+      const cols = this.db.prepare(`PRAGMA index_info(${idx.name})`).all() as Array<{ name: string }>;
+      return cols.length === 1 && cols[0].name === "invite_id";
+    });
+    if (inviteIdUniqueIndex) {
+      this.db.exec(`
+        ALTER TABLE join_requests RENAME TO join_requests_old;
+        CREATE TABLE join_requests (
+          request_id TEXT PRIMARY KEY,
+          room_id TEXT NOT NULL,
+          invite_id TEXT NOT NULL,
+          request_token_hash TEXT NOT NULL UNIQUE,
+          display_name TEXT NOT NULL CHECK(length(display_name) <= 100),
+          role TEXT NOT NULL CHECK(role IN ('member', 'observer')),
+          status TEXT NOT NULL CHECK(status IN ('pending', 'approved', 'rejected', 'expired')),
+          requested_at TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          decided_at TEXT,
+          decided_by TEXT,
+          participant_id TEXT,
+          participant_token_sealed TEXT,
+          requester_ip TEXT,
+          requester_user_agent TEXT
+        );
+        INSERT INTO join_requests SELECT * FROM join_requests_old;
+        DROP TABLE join_requests_old;
+        CREATE INDEX IF NOT EXISTS idx_join_requests_room_status ON join_requests(room_id, status);
+      `);
+    }
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS events (
         sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -158,7 +190,7 @@ export class EventStore {
       CREATE TABLE IF NOT EXISTS join_requests (
         request_id TEXT PRIMARY KEY,
         room_id TEXT NOT NULL,
-        invite_id TEXT NOT NULL UNIQUE,
+        invite_id TEXT NOT NULL,
         request_token_hash TEXT NOT NULL UNIQUE,
         display_name TEXT NOT NULL CHECK(length(display_name) <= 100),
         role TEXT NOT NULL CHECK(role IN ('member', 'observer')),
@@ -287,6 +319,13 @@ export class EventStore {
     return this.db.prepare(`
       SELECT * FROM invites WHERE token_hash = ?
     `).get(tokenHash) as StoredInvite | undefined;
+  }
+
+  countPendingJoinRequestsByInvite(inviteId: string): number {
+    const row = this.db.prepare(`
+      SELECT COUNT(*) as count FROM join_requests WHERE invite_id = ? AND status = 'pending'
+    `).get(inviteId) as { count: number } | undefined;
+    return row?.count ?? 0;
   }
 
   consumeInvite(inviteId: string): StoredInvite {

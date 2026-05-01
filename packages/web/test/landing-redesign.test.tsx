@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LangProvider } from "../src/i18n/LangProvider.js";
 import Landing from "../src/components/Landing.js";
@@ -15,9 +15,17 @@ function renderLanding(props: Partial<React.ComponentProps<typeof Landing>> = {}
 }
 
 describe("Landing redesign", () => {
+  let originalFetch: typeof global.fetch;
+
   beforeEach(() => {
     window.localStorage.clear();
     window.history.pushState({}, "", "/");
+    originalFetch = global.fetch;
+    global.fetch = vi.fn() as unknown as typeof global.fetch;
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
   });
 
   it("shows a focused quick-create card without ordinary invite controls", () => {
@@ -77,7 +85,12 @@ describe("Landing redesign", () => {
     });
   });
 
-  it("switches to an invite join card when opened from an invite link", () => {
+  it("switches to an invite join card when opened from an invite link", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ valid: true })
+    });
+
     const { onJoin } = renderLandingWithInviteUrl();
 
     expect(screen.getByTestId("landing-invite-card")).toBeInTheDocument();
@@ -87,6 +100,11 @@ describe("Landing redesign", () => {
     expect(screen.queryByLabelText("Invite token")).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Your name"), { target: { value: "Guest" } });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Join shared room" })).not.toBeDisabled();
+    });
+
     fireEvent.click(screen.getByRole("button", { name: "Join shared room" }));
 
     expect(onJoin).toHaveBeenCalledWith({
@@ -94,6 +112,54 @@ describe("Landing redesign", () => {
       inviteToken: "token_456",
       displayName: "Guest",
     });
+  });
+
+  it("disables join button and shows error for expired invite", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ valid: false, reason: "expired" })
+    });
+
+    renderLandingWithInviteUrl();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("landing-invite-error")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("landing-invite-error")).toHaveTextContent(/expired/i);
+    expect(screen.getByRole("button", { name: "Join shared room" })).toBeDisabled();
+  });
+
+  it("disables join button and shows error for revoked invite", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ valid: false, reason: "revoked" })
+    });
+
+    renderLandingWithInviteUrl();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("landing-invite-error")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("landing-invite-error")).toHaveTextContent(/revoked/i);
+    expect(screen.getByRole("button", { name: "Join shared room" })).toBeDisabled();
+  });
+
+  it("disables join button and shows error when invite limit is reached", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ valid: false, reason: "limit_reached" })
+    });
+
+    renderLandingWithInviteUrl();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("landing-invite-error")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("landing-invite-error")).toHaveTextContent(/limit/i);
+    expect(screen.getByRole("button", { name: "Join shared room" })).toBeDisabled();
   });
 });
 

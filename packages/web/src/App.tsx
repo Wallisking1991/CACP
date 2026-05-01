@@ -59,7 +59,7 @@ export default function App() {
   const [events, setEvents] = useState<CacpEvent[]>([]);
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(false);
-  const [createdInvite, setCreatedInvite] = useState<{ url: string; role: string; ttl: number }>();
+  const [createdInvite, setCreatedInvite] = useState<{ url: string; role: string; ttl: number; max_uses: number }>();
   const [localLaunch, setLocalLaunch] = useState<LocalAgentLaunch>();
   const [createdPairing, setCreatedPairing] = useState<{ connection_code: string; download_url: string; expires_at: string }>();
   const [connectorModalPairing, setConnectorModalPairing] = useState<ConnectionCodeModalPairing>();
@@ -316,15 +316,15 @@ export default function App() {
     });
   }, [currentSession]);
 
-  const handleCreateInvite = useCallback(async (role: string, ttl: number): Promise<string | undefined> => {
+  const handleCreateInvite = useCallback(async (role: string, ttl: number, maxUses: number): Promise<string | undefined> => {
     if (!currentSession) return undefined;
     setError(undefined);
     setLoading(true);
     try {
       if (role !== "member" && role !== "observer") throw new Error("Invalid invite role");
-      const invite = await createInvite(currentSession, role, ttl);
+      const invite = await createInvite(currentSession, role, ttl, maxUses);
       const url = inviteUrlFor(window.location.origin, currentSession.room_id, invite.invite_token);
-      setCreatedInvite({ url, role, ttl });
+      setCreatedInvite({ url, role, ttl, max_uses: invite.max_uses });
       return url;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));

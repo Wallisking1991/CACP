@@ -55,8 +55,8 @@ export async function createRoomWithLocalAgent(name: string, displayName: string
   }
 }
 
-export async function createInvite(session: RoomSession, role: "member" | "observer", expiresInSeconds: number): Promise<{ invite_token: string; role: string; expires_at: string }> {
-  return await postJson(`/rooms/${session.room_id}/invites`, session.token, { role, expires_in_seconds: expiresInSeconds });
+export async function createInvite(session: RoomSession, role: "member" | "observer", expiresInSeconds: number, maxUses: number): Promise<{ invite_token: string; role: string; expires_at: string; max_uses: number }> {
+  return await postJson(`/rooms/${session.room_id}/invites`, session.token, { role, expires_in_seconds: expiresInSeconds, max_uses: maxUses });
 }
 
 export async function sendMessage(session: RoomSession, text: string): Promise<void> {
@@ -196,6 +196,12 @@ export interface JoinRequestStatus {
   participant_id?: string;
   participant_token?: string;
   role?: RoomSession["role"];
+}
+
+export async function verifyInvite(inviteToken: string): Promise<{ valid: true } | { valid: false; reason: string }> {
+  const response = await fetch(`/invites/verify?token=${encodeURIComponent(inviteToken)}`);
+  if (!response.ok) throw new Error(await response.text());
+  return (await response.json()) as { valid: true } | { valid: false; reason: string };
 }
 
 export async function createJoinRequest(roomId: string, inviteToken: string, displayName: string): Promise<JoinRequestResult> {

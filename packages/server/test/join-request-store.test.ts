@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { EventStore } from "../src/event-store.js";
 
 describe("join requests and participant revocations", () => {
-  it("stores one pending request per consumed invite", () => {
+  it("stores multiple pending requests for the same invite", () => {
     const store = new EventStore(":memory:");
     store.createJoinRequest({
       request_id: "join_alpha",
@@ -17,8 +17,7 @@ describe("join requests and participant revocations", () => {
       requester_ip: "127.0.0.1",
       requester_user_agent: "vitest"
     });
-    expect(store.getJoinRequest("join_alpha")?.display_name).toBe("Alice");
-    expect(() => store.createJoinRequest({
+    store.createJoinRequest({
       request_id: "join_beta",
       room_id: "room_alpha",
       invite_id: "inv_alpha",
@@ -28,7 +27,10 @@ describe("join requests and participant revocations", () => {
       status: "pending",
       requested_at: "2026-04-27T08:01:00.000Z",
       expires_at: "2026-04-27T08:11:00.000Z"
-    })).toThrow();
+    });
+    expect(store.getJoinRequest("join_alpha")?.display_name).toBe("Alice");
+    expect(store.getJoinRequest("join_beta")?.display_name).toBe("Bob");
+    expect(store.countPendingJoinRequestsByInvite("inv_alpha")).toBe(2);
     store.close();
   });
 

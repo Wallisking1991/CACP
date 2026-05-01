@@ -31,7 +31,11 @@ import {
 } from "./claude-events.js";
 
 const CreateRoomSchema = z.object({ name: z.string().min(1).max(200), display_name: z.string().min(1).max(100).default("Owner") });
-const CreateInviteSchema = z.object({ role: z.enum(["member", "observer"]).default("member"), expires_in_seconds: z.number().int().positive().max(60 * 60 * 24 * 7).default(60 * 60 * 24) });
+const CreateInviteSchema = z.object({
+  role: z.enum(["member", "observer"]).default("member"),
+  expires_in_seconds: z.number().int().positive().max(60 * 60 * 24 * 7).default(60 * 60 * 24),
+  max_uses: z.number().int().positive().max(20).default(1)
+});
 const JoinSchema = z.object({ invite_token: z.string().min(1), display_name: z.string().min(1).max(100) });
 const MessageSchema = z.object({ text: z.string().min(1) });
 const ProposalSchema = z.object({ title: z.string().min(1).max(200), proposal_type: z.string().min(1).max(50), policy: PolicySchema });
@@ -1060,6 +1064,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const inviteToken = token();
     const now = new Date().toISOString();
     const expiresAt = new Date(Date.now() + body.expires_in_seconds * 1000).toISOString();
+    const humans = store.getParticipants(request.params.roomId).filter((p) => p.role !== "agent");
+    const remainingSlots = config.maxParticipantsPerRoom - humans.length;
+    if (remainingSlots <= 0) return deny(reply, "max_participants_reached", 409);
+    const maxUses = Math.min(body.max_uses, remainingSlots);
     const storedEvents = store.transaction(() => {
       store.createInvite({
         invite_id: inviteId,
@@ -1069,12 +1077,26 @@ export async function buildServer(options: BuildServerOptions = {}) {
         created_by: participant.id,
         created_at: now,
         expires_at: expiresAt,
-        max_uses: 1
+        max_uses: maxUses
       });
-      return [store.appendEvent(event(request.params.roomId, "invite.created", participant.id, { invite_id: inviteId, role: body.role, expires_at: expiresAt }))];
+      return [store.appendEvent(event(request.params.roomId, "invite.created", participant.id, { invite_id: inviteId, role: body.role, expires_at: expiresAt, max_uses: maxUses }))];
     });
     publishEvents(storedEvents);
-    return reply.code(201).send({ invite_token: inviteToken, role: body.role, expires_at: expiresAt });
+    return reply.code(201).send({ invite_token: inviteToken, role: body.role, expires_at: expiresAt, max_uses: maxUses });
+  });
+
+  app.get<{ Querystring: { token: string } }>("/invites/verify", async (request, reply) => {
+    const token = request.query.token;
+    if (!token || typeof token !== "string") return deny(reply, "missing_token", 400);
+    const invite = store.getInviteByTokenHash(hashToken(token, config.tokenSecret));
+    if (!invite) return reply.code(200).send({ valid: false, reason: "not_found" });
+    if (invite.revoked_at !== null) return reply.code(200).send({ valid: false, reason: "revoked" });
+    if (Date.parse(invite.expires_at) <= Date.now()) return reply.code(200).send({ valid: false, reason: "expired" });
+    const pendingCount = store.countPendingJoinRequestsByInvite(invite.invite_id);
+    if (invite.max_uses !== null && invite.used_count + pendingCount >= invite.max_uses) {
+      return reply.code(200).send({ valid: false, reason: "limit_reached" });
+    }
+    return reply.code(200).send({ valid: true });
   });
 
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/join-requests", async (request, reply) => {
@@ -1088,10 +1110,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const result = store.transaction(() => {
       const invite = store.getInviteByTokenHash(hashToken(body.invite_token, config.tokenSecret));
       if (!invite || invite.room_id !== roomId) return { ok: false as const, error: "invalid_invite" };
-      if (invite.revoked_at !== null) return { ok: false as const, error: "invite_revoked" };
+      if (invite.revoked_at !== null) return { ok: false as const, error: "invite_revoked", status: 409 };
       if (Date.parse(invite.expires_at) <= Date.now()) return { ok: false as const, error: "invite_expired" };
-      if (invite.max_uses !== null && invite.used_count >= invite.max_uses) return { ok: false as const, error: "invite_use_limit_reached", status: 409 };
-      store.consumeInvite(invite.invite_id);
+      const pendingCount = store.countPendingJoinRequestsByInvite(invite.invite_id);
+      if (invite.max_uses !== null && invite.used_count + pendingCount >= invite.max_uses) return { ok: false as const, error: "invite_use_limit_reached", status: 409 };
       const stored = store.createJoinRequest({
         request_id: requestId,
         room_id: roomId,
@@ -1160,6 +1182,14 @@ export async function buildServer(options: BuildServerOptions = {}) {
       }
       const humans = store.getParticipants(current.room_id).filter((p) => p.role !== "agent");
       if (humans.length >= config.maxParticipantsPerRoom) return { ok: false as const, error: "max_participants_reached", status: 409 };
+      try {
+        store.consumeInvite(current.invite_id);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (message === "invite_use_limit_reached") return { ok: false as const, error: "invite_use_limit_reached", status: 409 };
+        if (message === "invite_revoked") return { ok: false as const, error: "invite_revoked", status: 409 };
+        throw err;
+      }
       const role = current.role === "observer" ? "observer" : "member";
       const joined = store.addParticipant({ room_id: current.room_id, id: participantId, token: participantToken, display_name: current.display_name, type: role === "observer" ? "observer" : "human", role });
       const approved = store.approveJoinRequest(current.request_id, {
@@ -1168,10 +1198,16 @@ export async function buildServer(options: BuildServerOptions = {}) {
         participant_id: participantId,
         participant_token_sealed: sealSecret(participantToken, config.tokenSecret)
       });
-      return { ok: true as const, participant: joined, role, events: [
-        store.appendEvent(event(current.room_id, "join_request.approved", participant.id, publicJoinRequest(approved))),
+      const events: CacpEvent[] = [
+        store.appendEvent(event(current.room_id, "join_request.approved", participant.id, { ...publicJoinRequest(approved), invite_id: current.invite_id })),
         store.appendEvent(event(current.room_id, "participant.joined", joined.id, { participant: publicParticipant(joined) }))
-      ] };
+      ];
+      const inviteAfter = store.getInviteById(current.invite_id);
+      if (inviteAfter && inviteAfter.max_uses !== null && inviteAfter.used_count >= inviteAfter.max_uses && inviteAfter.revoked_at === null) {
+        const revoked = store.revokeInvite(current.invite_id, decidedAt);
+        events.push(store.appendEvent(event(current.room_id, "invite.revoked", participant.id, { invite_id: current.invite_id, revoked_at: decidedAt })));
+      }
+      return { ok: true as const, participant: joined, role, events };
     });
     if (!result.ok) {
       if (result.events) publishEvents(result.events);
