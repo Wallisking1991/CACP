@@ -14,7 +14,8 @@ describe("Codex session catalog", () => {
       writeFileSync(filePath, [
         JSON.stringify({ timestamp: "2026-05-01T01:15:01.643Z", type: "session_meta", payload: { id: "019de11a-76d4-7ca3-96ea-27ad77a12187", timestamp: "2026-05-01T01:15:01.373Z", cwd: "D:\\Development\\2", originator: "codex_sdk_ts", cli_version: "0.128.0", source: "exec" } }),
         JSON.stringify({ timestamp: "2026-05-01T01:15:01.669Z", type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Hello Codex" }] } }),
-        JSON.stringify({ timestamp: "2026-05-01T01:15:10.727Z", type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "Hello room" }] } })
+        JSON.stringify({ timestamp: "2026-05-01T01:15:10.727Z", type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "Hello room" }] } }),
+        JSON.stringify({ timestamp: "2026-05-01T01:15:11.727Z", type: "response_item", payload: { type: "function_call_output", call_id: "call_1", output: "file.txt" } })
       ].join("\n"), "utf8");
 
       const catalog = await listCodexSessions({ workingDir: "D:\\Development\\2", codexHome: root });
@@ -23,12 +24,31 @@ describe("Codex session catalog", () => {
       expect(catalog.sessions).toHaveLength(1);
       expect(catalog.sessions[0]).toMatchObject({
         session_id: "019de11a-76d4-7ca3-96ea-27ad77a12187",
+        title: "Hello Codex",
         project_dir: "D:\\Development\\2",
-        message_count: 2,
+        message_count: 3,
         importable: true,
         provider: "codex-cli"
       });
       expect(catalog.sessions[0]).not.toHaveProperty("messages");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("matches Codex session working directories across Windows path separators", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cacp-codex-catalog-paths-"));
+    try {
+      const sessionDir = join(root, "sessions", "2026", "05", "01");
+      mkdirSync(sessionDir, { recursive: true });
+      writeFileSync(join(sessionDir, "rollout-session_path.jsonl"), [
+        JSON.stringify({ type: "session_meta", payload: { id: "session_path", timestamp: "2026-05-01T01:15:01.373Z", cwd: "D:/Development/2" } }),
+        JSON.stringify({ type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Path test" }] } })
+      ].join("\n"), "utf8");
+
+      const catalog = await listCodexSessions({ workingDir: "D:\\Development\\2", codexHome: root });
+
+      expect(catalog.sessions.map((session) => session.session_id)).toEqual(["session_path"]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -527,6 +527,8 @@ export class EventStore {
     if (!table) return;
     const hasNewConstraint = table.sql.includes("'llm-anthropic-compatible'") && table.sql.includes("'codex-cli'") && !table.sql.includes("'codex'") && !table.sql.includes("'opencode'") && !table.sql.includes("'echo'");
     if (hasNewConstraint) return;
+    const columns = this.db.prepare(`PRAGMA table_info(agent_pairings)`).all() as Array<{ name: string }>;
+    const participantIdSelect = columns.some((column) => column.name === "participant_id") ? "participant_id" : "NULL";
     this.db.exec(`
       CREATE TABLE agent_pairings_next (
         pairing_id TEXT PRIMARY KEY,
@@ -538,10 +540,11 @@ export class EventStore {
         working_dir TEXT NOT NULL CHECK(length(working_dir) <= 500),
         created_at TEXT NOT NULL,
         expires_at TEXT NOT NULL,
-        claimed_at TEXT
+        claimed_at TEXT,
+        participant_id TEXT
       );
       INSERT INTO agent_pairings_next
-        SELECT pairing_id, room_id, token_hash, created_by, agent_type, permission_level, working_dir, created_at, expires_at, claimed_at
+        SELECT pairing_id, room_id, token_hash, created_by, agent_type, permission_level, working_dir, created_at, expires_at, claimed_at, ${participantIdSelect}
         FROM agent_pairings
         WHERE agent_type IN ('claude-code', 'codex-cli', 'llm-api', 'llm-openai-compatible', 'llm-anthropic-compatible');
       DROP TABLE agent_pairings;

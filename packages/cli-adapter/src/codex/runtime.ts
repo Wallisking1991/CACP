@@ -1,12 +1,24 @@
 import type { AgentRuntimeMetrics, AgentRuntimePhase } from "@cacp/protocol";
 import { loadCodexSdk } from "./codex-sdk.js";
-import type { CodexRuntimeInput, CodexRuntimeStatus, CodexThread, CodexThreadEvent, CodexTurnInput, CodexTurnResult } from "./types.js";
+import type { CodexRuntimeInput, CodexThread, CodexThreadItem, CodexTurnInput, CodexTurnResult } from "./types.js";
 import { toCodexThreadOptions } from "./types.js";
 
 function computeTextDelta(previous: string, next: string): string {
   if (!previous) return next;
   if (next.startsWith(previous)) return next.slice(previous.length);
   return next;
+}
+
+function itemIdentity(item: CodexThreadItem, fallbackPrefix: string): string {
+  if (typeof item.id === "string" && item.id) return item.id;
+  if (typeof item.command === "string" && item.command) return `${fallbackPrefix}:${item.command}`;
+  return `${fallbackPrefix}:unknown`;
+}
+
+function commandCompletionStatus(item: CodexThreadItem): string {
+  return typeof item.exit_code === "number"
+    ? `Command completed with exit code ${item.exit_code}`
+    : "Command completed";
 }
 
 function promptForTurn(input: CodexTurnInput, permissionLevel: string): string {
@@ -72,6 +84,8 @@ export class CodexRuntime {
     let finalText = "";
     let previousText = "";
     let sessionId = this.sessionId;
+    const countedCommands = new Set<string>();
+    const countedSearches = new Set<string>();
 
     function pushRecent(text: string) {
       recent.push(text);
@@ -85,6 +99,88 @@ export class CodexRuntime {
         recent: [...recent],
         metrics: { ...metrics }
       });
+    };
+
+    const countCommand = (item: CodexThreadItem) => {
+      const id = itemIdentity(item, "command");
+      if (countedCommands.has(id)) return;
+      countedCommands.add(id);
+      metrics.commands++;
+    };
+
+    const countSearch = (item: CodexThreadItem) => {
+      const id = itemIdentity(item, "search");
+      if (countedSearches.has(id)) return;
+      countedSearches.add(id);
+      metrics.searches++;
+    };
+
+    const handleItem = async (item: CodexThreadItem, stage: "started" | "updated" | "completed") => {
+      if (item.type === "agent_message" && typeof item.text === "string") {
+        const text = item.text;
+        const delta = computeTextDelta(previousText, text);
+        if (delta) {
+          await this.publishDelta(input.turnId, delta);
+        }
+        finalText = text;
+        previousText = text;
+        if (stage !== "completed") {
+          phase = "generating_answer";
+          current = "Codex is generating an answer";
+          await publish(input.turnId, phase, current);
+        }
+        return;
+      }
+
+      if (item.type === "command_execution") {
+        countCommand(item);
+        phase = "running_command";
+        current = stage === "completed"
+          ? commandCompletionStatus(item)
+          : `Codex running command: ${item.command ?? ""}`;
+        pushRecent(current);
+        await publish(input.turnId, phase, current);
+        return;
+      }
+
+      if (item.type === "web_search" || item.type === "web_search_call") {
+        countSearch(item);
+        phase = "searching";
+        current = stage === "completed" ? "Web search completed" : "Codex searching the web";
+        pushRecent(current);
+        await publish(input.turnId, phase, current);
+        return;
+      }
+
+      if (item.type === "file_change") {
+        phase = "reading_files";
+        current = stage === "completed" ? "File change recorded" : "Codex inspecting files";
+        pushRecent(current);
+        await publish(input.turnId, phase, current);
+        return;
+      }
+
+      if (item.type === "mcp_tool_call") {
+        phase = "thinking";
+        current = stage === "completed" ? "MCP tool completed" : "Codex using an MCP tool";
+        pushRecent(current);
+        await publish(input.turnId, phase, current);
+        return;
+      }
+
+      if (item.type === "todo_list") {
+        phase = "thinking";
+        current = "Codex updated its task list";
+        pushRecent(current);
+        await publish(input.turnId, phase, current);
+        return;
+      }
+
+      if (item.type === "reasoning") {
+        phase = "thinking";
+        current = "Codex is thinking";
+        await publish(input.turnId, phase, current);
+      }
     };
 
     const prompt = promptForTurn(input, this.permissionLevel);
@@ -107,27 +203,15 @@ export class CodexRuntime {
             break;
           }
           case "item.started": {
-            const item = event.item ?? {};
-            if (item.type === "command_execution") {
-              phase = "running_command";
-              current = `Codex running command: ${item.command ?? ""}`;
-              metrics.commands++;
-              pushRecent(current);
-              await publish(input.turnId, phase, current);
-            }
+            await handleItem(event.item ?? {}, "started");
+            break;
+          }
+          case "item.updated": {
+            await handleItem(event.item ?? {}, "updated");
             break;
           }
           case "item.completed": {
-            const item = event.item ?? {};
-            if (item.type === "agent_message" && typeof item.text === "string") {
-              const text = item.text;
-              const delta = computeTextDelta(previousText, text);
-              if (delta) {
-                await this.publishDelta(input.turnId, delta);
-              }
-              finalText = text;
-              previousText = text;
-            }
+            await handleItem(event.item ?? {}, "completed");
             break;
           }
           case "turn.completed": {

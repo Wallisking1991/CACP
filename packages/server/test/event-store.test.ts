@@ -101,6 +101,46 @@ describe("EventStore", () => {
     }
   });
 
+  it("preserves claimed pairing participant_id while migrating old agent type constraints", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "cacp-event-store-participant-migrate-"));
+    const dbPath = join(tempDir, "participant.db");
+
+    try {
+      const db = new Database(dbPath);
+      db.exec(`
+        CREATE TABLE agent_pairings (
+          pairing_id TEXT PRIMARY KEY,
+          room_id TEXT NOT NULL,
+          token_hash TEXT NOT NULL UNIQUE,
+          created_by TEXT NOT NULL,
+          agent_type TEXT NOT NULL CHECK(agent_type IN ('claude-code', 'codex', 'opencode', 'echo', 'llm-openai-compatible', 'llm-anthropic-compatible')),
+          permission_level TEXT NOT NULL CHECK(permission_level IN ('read_only', 'limited_write', 'full_access')),
+          working_dir TEXT NOT NULL CHECK(length(working_dir) <= 500),
+          created_at TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          claimed_at TEXT,
+          participant_id TEXT
+        );
+        INSERT INTO agent_pairings (
+          pairing_id, room_id, token_hash, created_by, agent_type, permission_level, working_dir, created_at, expires_at, claimed_at, participant_id
+        )
+        VALUES (
+          'pair_claimed', 'room_claimed', 'sha256:claimed', 'owner', 'llm-openai-compatible', 'read_only', '.', '2026-04-28T00:00:00.000Z', '2026-04-28T00:15:00.000Z', '2026-04-28T00:01:00.000Z', 'agent_123'
+        );
+      `);
+      db.close();
+
+      const store = new EventStore(dbPath);
+      try {
+        expect(store.getAgentPairingById("pair_claimed")?.participant_id).toBe("agent_123");
+      } finally {
+        store.close();
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("persists Codex CLI agent pairings", () => {
     const store = new EventStore(":memory:");
     try {

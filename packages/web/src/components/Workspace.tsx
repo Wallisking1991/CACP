@@ -311,6 +311,7 @@ export default function Workspace({
       {needsClaudeSessionSelection && room.activeAgentId && room.claudeSessionCatalog && (
         <AgentSessionRequiredModal
           agentId={room.activeAgentId}
+          provider="claude-code"
           catalog={room.claudeSessionCatalog}
           previews={room.claudeSessionPreviews}
           onRequestPreview={(sessionId) =>
@@ -325,6 +326,7 @@ export default function Workspace({
       {needsGenericSessionSelection && room.activeAgentId && room.agentSessionCatalog && activeAgentProvider && (
         <AgentSessionRequiredModal
           agentId={room.activeAgentId}
+          provider={activeAgentProvider}
           catalog={room.agentSessionCatalog}
           previews={room.agentSessionPreviews}
           onRequestPreview={(sessionId) =>

@@ -1,6 +1,6 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { closeSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, normalize } from "node:path";
 import type { AgentSessionSummary } from "@cacp/protocol";
 
 interface CodexSessionMeta {
@@ -37,12 +37,34 @@ function scanJsonlFiles(dir: string): string[] {
 }
 
 function readFirstLine(filePath: string): string | undefined {
+  let fd: number | undefined;
   try {
-    const content = readFileSync(filePath, "utf8");
-    const firstNewline = content.indexOf("\n");
-    return firstNewline >= 0 ? content.slice(0, firstNewline) : content;
+    fd = openSync(filePath, "r");
+    const buffer = Buffer.alloc(64 * 1024);
+    let position = 0;
+    let line = "";
+    while (true) {
+      const bytesRead = readSync(fd, buffer, 0, buffer.length, position);
+      if (bytesRead <= 0) break;
+      const newline = buffer.subarray(0, bytesRead).indexOf(10);
+      if (newline >= 0) {
+        line += buffer.toString("utf8", 0, newline);
+        break;
+      }
+      line += buffer.toString("utf8", 0, bytesRead);
+      position += bytesRead;
+    }
+    return line.endsWith("\r") ? line.slice(0, -1) : line;
   } catch {
     return undefined;
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch {
+        // Ignore close errors while listing local session metadata.
+      }
+    }
   }
 }
 
@@ -66,10 +88,34 @@ function parseMeta(line: string): CodexSessionMeta | undefined {
   }
 }
 
-function countVisibleMessages(filePath: string): number {
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? value as Record<string, unknown> : {};
+}
+
+function extractContentText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    return value.map(extractContentText).filter(Boolean).join("");
+  }
+  const record = asRecord(value);
+  if (typeof record.text === "string") return record.text;
+  if (typeof record.content === "string") return record.content;
+  if (record.content !== undefined) return extractContentText(record.content);
+  return "";
+}
+
+function titleFromUserMessage(payload: Record<string, unknown>): string | undefined {
+  if (payload.role !== "user") return undefined;
+  const text = extractContentText(payload.content).replace(/\s+/g, " ").trim();
+  if (!text) return undefined;
+  return text.length > 80 ? `${text.slice(0, 77)}...` : text;
+}
+
+function readVisibleSessionStats(filePath: string): { messageCount: number; title?: string } {
   try {
     const content = readFileSync(filePath, "utf8");
-    let count = 0;
+    let messageCount = 0;
+    let title: string | undefined;
     for (const line of content.split("\n")) {
       if (!line.trim()) continue;
       try {
@@ -77,18 +123,25 @@ function countVisibleMessages(filePath: string): number {
         if (record.type === "response_item") {
           const payload = record.payload ?? {};
           const payloadType = typeof payload.type === "string" ? payload.type : "";
-          if (payloadType === "message" || payloadType === "function_call") {
-            count++;
+          if (payloadType === "message" || payloadType === "function_call" || payloadType === "function_call_output") {
+            messageCount++;
+          }
+          if (!title && payloadType === "message") {
+            title = titleFromUserMessage(payload);
           }
         }
       } catch {
         // Skip malformed lines
       }
     }
-    return count;
+    return { messageCount, title };
   } catch {
-    return 0;
+    return { messageCount: 0 };
   }
+}
+
+function normalizeWorkingDir(value: string): string {
+  return normalize(value).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 }
 
 function fileSize(filePath: string): number {
@@ -107,6 +160,7 @@ export async function listCodexSessions(input: {
   const root = input.codexHome ?? join(homedir(), ".codex");
   const sessionsDir = join(root, "sessions");
   const files = scanJsonlFiles(sessionsDir);
+  const requestedWorkingDir = normalizeWorkingDir(input.workingDir);
 
   const sessions: Array<AgentSessionSummary & { provider: "codex-cli" }> = [];
 
@@ -114,14 +168,14 @@ export async function listCodexSessions(input: {
     const firstLine = readFirstLine(filePath);
     if (!firstLine) continue;
     const meta = parseMeta(firstLine);
-    if (!meta || meta.cwd !== input.workingDir) continue;
+    if (!meta || !meta.cwd || normalizeWorkingDir(meta.cwd) !== requestedWorkingDir) continue;
 
-    const messageCount = countVisibleMessages(filePath);
+    const { messageCount, title } = readVisibleSessionStats(filePath);
     const updatedAt = meta.timestamp ?? new Date(0).toISOString();
 
     sessions.push({
       session_id: meta.id,
-      title: `Codex session ${meta.id.slice(0, 8)}`,
+      title: title ?? `Codex thread ${meta.id.slice(0, 8)}`,
       project_dir: meta.cwd ?? input.workingDir,
       updated_at: updatedAt,
       message_count: messageCount,

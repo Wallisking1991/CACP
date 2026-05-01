@@ -1,12 +1,28 @@
 import { useState } from "react";
-import type { ClaudeSessionSummary } from "@cacp/protocol";
+import type { AgentSessionSummary } from "@cacp/protocol";
 import { useT } from "../i18n/useT.js";
-import type { ClaudeSessionCatalogView, ClaudeSessionPreviewView } from "../room-state.js";
 
 interface Props {
   agentId: string;
-  catalog: ClaudeSessionCatalogView;
-  previews?: ClaudeSessionPreviewView[];
+  provider?: "claude-code" | "codex-cli";
+  catalog: {
+    agent_id: string;
+    provider?: string;
+    working_dir: string;
+    sessions: AgentSessionSummary[];
+  };
+  previews?: Array<{
+    agent_id: string;
+    session_id: string;
+    status: "requested" | "completed" | "failed";
+    messages: Array<{
+      sequence: number;
+      part_index?: number;
+      author_role: string;
+      text: string;
+    }>;
+    error?: string;
+  }>;
   onRequestPreview?: (sessionId: string) => Promise<void>;
   onSelect(selection: { mode: "fresh" } | { mode: "resume"; sessionId: string }): Promise<void>;
 }
@@ -19,12 +35,17 @@ function formatDate(iso: string): string {
   }
 }
 
-export function AgentSessionRequiredModal({ agentId, catalog, previews = [], onRequestPreview, onSelect }: Props) {
+function providerDisplayName(provider: "claude-code" | "codex-cli"): string {
+  return provider === "codex-cli" ? "Codex CLI" : "Claude Code";
+}
+
+export function AgentSessionRequiredModal({ agentId, provider = "claude-code", catalog, previews = [], onRequestPreview, onSelect }: Props) {
   const t = useT();
-  const [inspectedSession, setInspectedSession] = useState<ClaudeSessionSummary | undefined>();
+  const [inspectedSession, setInspectedSession] = useState<AgentSessionSummary | undefined>();
   const [busy, setBusy] = useState(false);
   const [previewLoadingSessionIds, setPreviewLoadingSessionIds] = useState<Set<string>>(() => new Set());
   const [previewErrors, setPreviewErrors] = useState<Record<string, string>>({});
+  const providerLabel = providerDisplayName(provider);
 
   const inspectedPreview = inspectedSession
     ? previews.filter((preview) => preview.agent_id === agentId && preview.session_id === inspectedSession.session_id).at(-1)
@@ -42,7 +63,7 @@ export function AgentSessionRequiredModal({ agentId, catalog, previews = [], onR
     }
   }
 
-  async function inspect(session: ClaudeSessionSummary) {
+  async function inspect(session: AgentSessionSummary) {
     setInspectedSession(session);
     if (!onRequestPreview) return;
     setPreviewErrors((current) => {
@@ -71,32 +92,32 @@ export function AgentSessionRequiredModal({ agentId, catalog, previews = [], onR
 
   const inspectDialog = inspectedSession ? (
     <div className="claude-session-modal-overlay" style={{ zIndex: 100 }}>
-      <div className="claude-session-inspect" role="dialog" aria-modal="true" aria-label={t("claude.session.inspectTitle")}>
+      <div className="claude-session-inspect" role="dialog" aria-modal="true" aria-label={t("agent.session.inspectTitle")}>
         <h3>{inspectedSession.title}</h3>
         <dl className="claude-session-details">
           <div>
-            <dt>{t("claude.session.projectDir")}</dt>
+            <dt>{t("agent.session.projectDir")}</dt>
             <dd><code>{inspectedSession.project_dir}</code></dd>
           </div>
           <div>
-            <dt>{t("claude.session.lastModified")}</dt>
+            <dt>{t("agent.session.lastModified")}</dt>
             <dd>{formatDate(inspectedSession.updated_at)}</dd>
           </div>
           <div>
-            <dt>{t("claude.session.messageCount")}</dt>
+            <dt>{t("agent.session.messageCount")}</dt>
             <dd>{inspectedSession.message_count}</dd>
           </div>
           <div>
-            <dt>{t("claude.session.byteSize")}</dt>
+            <dt>{t("agent.session.byteSize")}</dt>
             <dd>{Math.round(inspectedSession.byte_size / 1024)} KB</dd>
           </div>
         </dl>
         <div className="claude-session-preview">
-          <h4>{t("claude.session.transcript")}</h4>
-          {!inspectedPreview && !previewError && !previewLoading ? <p>{t("claude.session.previewLoading")}</p> : null}
-          {previewError ? <p className="error">{t("claude.session.previewFailed", { error: previewError })}</p> : null}
-          {inspectedPreview?.status === "requested" || previewLoading ? <p>{t("claude.session.previewLoading")}</p> : null}
-          {inspectedPreview?.status === "completed" && inspectedPreview.messages.length === 0 ? <p>{t("claude.session.previewEmpty")}</p> : null}
+          <h4>{t("agent.session.transcript")}</h4>
+          {!inspectedPreview && !previewError && !previewLoading ? <p>{t("agent.session.previewLoading")}</p> : null}
+          {previewError ? <p className="error">{t("agent.session.previewFailed", { error: previewError })}</p> : null}
+          {inspectedPreview?.status === "requested" || previewLoading ? <p>{t("agent.session.previewLoading")}</p> : null}
+          {inspectedPreview?.status === "completed" && inspectedPreview.messages.length === 0 ? <p>{t("agent.session.previewEmpty")}</p> : null}
           {inspectedPreview?.messages.length ? (
             <ol className="claude-session-preview-messages">
               {inspectedPreview.messages.map((message) => (
@@ -108,10 +129,10 @@ export function AgentSessionRequiredModal({ agentId, catalog, previews = [], onR
             </ol>
           ) : null}
         </div>
-        <p className="claude-session-inspect-hint">{t("claude.session.confirmUpload")}</p>
+        <p className="claude-session-inspect-hint">{t("agent.session.confirmUpload")}</p>
         <div className="claude-session-inspect-actions">
-          <button type="button" className="btn btn-primary" disabled={busy || !canResumeInspected} onClick={() => submit({ mode: "resume", sessionId: inspectedSession.session_id })}>{t("claude.session.confirmResume")}</button>
-          <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setInspectedSession(undefined)}>{t("claude.session.cancel")}</button>
+          <button type="button" className="btn btn-primary" disabled={busy || !canResumeInspected} onClick={() => submit({ mode: "resume", sessionId: inspectedSession.session_id })}>{t("agent.session.confirmResume")}</button>
+          <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setInspectedSession(undefined)}>{t("agent.session.cancel")}</button>
         </div>
       </div>
     </div>
@@ -121,17 +142,17 @@ export function AgentSessionRequiredModal({ agentId, catalog, previews = [], onR
     <div className="agent-session-required-overlay" role="dialog" aria-modal="true" aria-label={t("claude.session.requiredTitle")}>
       <div className="agent-session-required-modal">
         <div className="agent-session-required-header">
-          <p className="eyebrow">{t("claude.session.eyebrow")}</p>
-          <h2>{t("claude.session.requiredHeadline")}</h2>
+          <p className="eyebrow">{providerLabel} {t("agent.session.eyebrow")}</p>
+          <h2>{t("agent.session.headline", { provider: providerLabel })}</h2>
           <p>{t("claude.session.requiredSubcopy")}</p>
         </div>
 
         <div className="agent-session-required-content">
-          <p>{t("claude.session.workingDir")}: <code>{catalog.working_dir}</code></p>
+          <p>{t("agent.session.workingDir")}: <code>{catalog.working_dir}</code></p>
 
           <div className="claude-session-actions">
-            <button type="button" className="btn btn-primary" disabled={busy} onClick={() => submit({ mode: "fresh" })}>{t("claude.session.startFreshBtn")}</button>
-            {latest ? <button type="button" className="btn btn-ghost" disabled={busy || !latest.importable} onClick={() => void inspect(latest)}>{t("claude.session.inspectLatestBtn", { title: latest.title })}</button> : null}
+            <button type="button" className="btn btn-primary" disabled={busy} onClick={() => submit({ mode: "fresh" })}>{t("agent.session.startFreshBtn")}</button>
+            {latest ? <button type="button" className="btn btn-ghost" disabled={busy || !latest.importable} onClick={() => void inspect(latest)}>{t("agent.session.inspectLatestBtn", { title: latest.title })}</button> : null}
           </div>
 
           {catalog.sessions.length ? (
@@ -142,11 +163,11 @@ export function AgentSessionRequiredModal({ agentId, catalog, previews = [], onR
                     <span>{session.title}</span>
                     <span>{session.message_count} messages · {Math.round(session.byte_size / 1024)} KB</span>
                   </div>
-                  <button type="button" className="btn btn-ghost" disabled={busy || !session.importable} onClick={() => void inspect(session)}>{t("claude.session.inspectBtn")}</button>
+                  <button type="button" className="btn btn-ghost" disabled={busy || !session.importable} onClick={() => void inspect(session)}>{t("agent.session.inspectBtn")}</button>
                 </li>
               ))}
             </ul>
-          ) : <p>{t("claude.session.noSessions")}</p>}
+          ) : <p>{t("agent.session.noSessions", { provider: providerLabel })}</p>}
         </div>
       </div>
       {inspectDialog}
