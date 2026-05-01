@@ -51,6 +51,7 @@ import { providerForCapabilities } from "./local-agent-events.js";
 const CreateRoomSchema = z.object({ name: z.string().min(1).max(200), display_name: z.string().min(1).max(100).default("Owner") });
 const CreateInviteSchema = z.object({
   role: z.enum(["member", "observer"]).default("member"),
+  main_thread_history_access: z.enum(["allowed", "denied"]).optional(),
   expires_in_seconds: z.number().int().positive().max(60 * 60 * 24 * 7).default(60 * 60 * 24),
   max_uses: z.number().int().positive().max(20).default(1)
 });
@@ -1140,7 +1141,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const storedEvents = store.transaction(() => {
       const createdAt = new Date().toISOString();
       store.createRoom({ room_id: roomId, name: body.name, owner_participant_id: ownerId, created_at: createdAt, archived_at: null });
-      const owner = store.addParticipant({ room_id: roomId, id: ownerId, token: ownerToken, display_name: body.display_name, type: "human", role: "owner" });
+      const owner = store.addParticipant({ room_id: roomId, id: ownerId, token: ownerToken, display_name: body.display_name, type: "human", role: "owner", main_thread_history_access: "allowed" });
       return [
         store.appendEvent(event(roomId, "room.created", ownerId, { name: body.name, created_by: ownerId })),
         store.appendEvent(event(roomId, "participant.joined", ownerId, { participant: publicParticipant(owner) }))
@@ -1172,6 +1173,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       name: room.name,
       role: participant.role,
       participant_id: participant.id,
+      main_thread_history_access: participant.main_thread_history_access,
     };
   });
 
@@ -1311,21 +1313,23 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const remainingSlots = config.maxParticipantsPerRoom - humans.length;
     if (remainingSlots <= 0) return deny(reply, "max_participants_reached", 409);
     const maxUses = Math.min(body.max_uses, remainingSlots);
+    const historyAccess = body.main_thread_history_access ?? (body.role === "observer" ? "denied" : "allowed");
     const storedEvents = store.transaction(() => {
       store.createInvite({
         invite_id: inviteId,
         room_id: request.params.roomId,
         token_hash: hashToken(inviteToken, config.tokenSecret),
         role: body.role,
+        main_thread_history_access: historyAccess,
         created_by: participant.id,
         created_at: now,
         expires_at: expiresAt,
         max_uses: maxUses
       });
-      return [store.appendEvent(event(request.params.roomId, "invite.created", participant.id, { invite_id: inviteId, role: body.role, expires_at: expiresAt, max_uses: maxUses }))];
+      return [store.appendEvent(event(request.params.roomId, "invite.created", participant.id, { invite_id: inviteId, role: body.role, main_thread_history_access: historyAccess, expires_at: expiresAt, max_uses: maxUses }))];
     });
     publishEvents(storedEvents);
-    return reply.code(201).send({ invite_token: inviteToken, role: body.role, expires_at: expiresAt, max_uses: maxUses });
+    return reply.code(201).send({ invite_token: inviteToken, role: body.role, main_thread_history_access: historyAccess, expires_at: expiresAt, max_uses: maxUses });
   });
 
   app.get<{ Querystring: { token: string } }>("/invites/verify", async (request, reply) => {
@@ -1364,6 +1368,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
         request_token_hash: hashToken(requestToken, config.tokenSecret),
         display_name: body.display_name,
         role: invite.role === "observer" ? "observer" : "member",
+        main_thread_history_access: invite.main_thread_history_access,
         status: "pending",
         requested_at: now,
         expires_at: expiresAt,
@@ -1375,7 +1380,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     });
     if (!result.ok) return deny(reply, result.error, result.status);
     publishEvents(result.events);
-    return reply.code(201).send({ request_id: requestId, request_token: requestToken, status: "pending", expires_at: expiresAt });
+    return reply.code(201).send({ request_id: requestId, request_token: requestToken, status: "pending", main_thread_history_access: result.stored!.main_thread_history_access, expires_at: expiresAt });
   });
 
   app.get<{ Params: { roomId: string; requestId: string }; Querystring: { request_token?: string } }>("/rooms/:roomId/join-requests/:requestId", async (request, reply) => {
@@ -1394,10 +1399,11 @@ export async function buildServer(options: BuildServerOptions = {}) {
         status: "approved",
         participant_id: current.participant_id,
         participant_token: current.participant_token_sealed ? openSecret(current.participant_token_sealed, config.tokenSecret) : undefined,
-        role: current.role
+        role: current.role,
+        main_thread_history_access: current.main_thread_history_access
       };
     }
-    return { status: current.status };
+    return { status: current.status, main_thread_history_access: current.main_thread_history_access };
   });
 
   app.get<{ Params: { roomId: string }; Querystring: { status?: string } }>("/rooms/:roomId/join-requests", async (request, reply) => {
@@ -1434,7 +1440,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
         throw err;
       }
       const role = current.role === "observer" ? "observer" : "member";
-      const joined = store.addParticipant({ room_id: current.room_id, id: participantId, token: participantToken, display_name: current.display_name, type: role === "observer" ? "observer" : "human", role });
+      const joined = store.addParticipant({ room_id: current.room_id, id: participantId, token: participantToken, display_name: current.display_name, type: role === "observer" ? "observer" : "human", role, main_thread_history_access: current.main_thread_history_access });
       const approved = store.approveJoinRequest(current.request_id, {
         decided_at: decidedAt,
         decided_by: participant.id,
@@ -1691,7 +1697,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const agentId = prefixedId("agent");
     const agentToken = token();
     const storedEvents = store.transaction(() => {
-      const added = store.addParticipant({ room_id: request.params.roomId, id: agentId, token: agentToken, display_name: body.name, type: "agent", role: "agent" });
+      const added = store.addParticipant({ room_id: request.params.roomId, id: agentId, token: agentToken, display_name: body.name, type: "agent", role: "agent", main_thread_history_access: "allowed" });
       return [
         store.appendEvent(event(request.params.roomId, "agent.registered", participant.id, { agent_id: agentId, name: body.name, capabilities: body.capabilities })),
         store.appendEvent(event(request.params.roomId, "participant.joined", agentId, { participant: publicParticipant(added) }))
@@ -1787,7 +1793,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
         hookUrl
       });
       store.claimAgentPairing(pairing.pairing_id, new Date().toISOString(), agentId);
-      const added = store.addParticipant({ room_id: roomId, id: agentId, token: agentToken, display_name: body.adapter_name ?? profile.name, type: "agent", role: "agent" });
+      const added = store.addParticipant({ room_id: roomId, id: agentId, token: agentToken, display_name: body.adapter_name ?? profile.name, type: "agent", role: "agent", main_thread_history_access: "allowed" });
       const shouldSelectAgent = !findActiveAgentId(store.listEvents(roomId));
       const events = [
         store.appendEvent(event(roomId, "agent.registered", pairing.created_by, {

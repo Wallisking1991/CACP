@@ -30,6 +30,7 @@ describe("GET /rooms/:roomId/me", () => {
       name: "Planning",
       role: "owner",
       participant_id: room.owner_id,
+      main_thread_history_access: "allowed",
     });
 
     await app.close();
@@ -53,6 +54,7 @@ describe("GET /rooms/:roomId/me", () => {
       name: "Dev",
       role: "member",
       participant_id: joined.participant_id,
+      main_thread_history_access: "allowed",
     });
 
     await app.close();

@@ -4,6 +4,7 @@ import { CacpEventSchema, type CacpEvent, type Participant, type ParticipantRole
 
 export interface StoredParticipant extends Participant {
   room_id: string;
+  main_thread_history_access: MainThreadHistoryAccess;
 }
 
 function hashParticipantToken(token: string): string {
@@ -23,6 +24,7 @@ export interface NewInvite {
   room_id: string;
   token_hash: string;
   role: string;
+  main_thread_history_access: "allowed" | "denied";
   created_by: string;
   created_at: string;
   expires_at: string;
@@ -33,6 +35,8 @@ export interface StoredInvite extends NewInvite {
   used_count: number;
   revoked_at: string | null;
 }
+
+export type MainThreadHistoryAccess = "allowed" | "denied";
 
 export interface NewAgentPairing {
   pairing_id: string;
@@ -60,6 +64,7 @@ export interface NewJoinRequest {
   request_token_hash: string;
   display_name: string;
   role: "member" | "observer";
+  main_thread_history_access: MainThreadHistoryAccess;
   status: JoinRequestStatus;
   requested_at: string;
   expires_at: string;
@@ -89,6 +94,7 @@ interface ParticipantRow {
   display_name: string;
   type: ParticipantType;
   role: ParticipantRole;
+  main_thread_history_access: MainThreadHistoryAccess;
 }
 
 export class EventStore {
@@ -151,6 +157,7 @@ export class EventStore {
         display_name TEXT NOT NULL CHECK(length(display_name) <= 100),
         type TEXT NOT NULL CHECK(type IN ('human', 'observer', 'agent')),
         role TEXT NOT NULL CHECK(role IN ('owner', 'admin', 'member', 'observer', 'agent')),
+        main_thread_history_access TEXT NOT NULL DEFAULT 'allowed' CHECK(main_thread_history_access IN ('allowed', 'denied')),
         PRIMARY KEY(room_id, participant_id)
       );
       CREATE TABLE IF NOT EXISTS rooms (
@@ -165,6 +172,7 @@ export class EventStore {
         room_id TEXT NOT NULL,
         token_hash TEXT NOT NULL UNIQUE,
         role TEXT NOT NULL CHECK(role IN ('member', 'observer')),
+        main_thread_history_access TEXT NOT NULL CHECK(main_thread_history_access IN ('allowed', 'denied')),
         created_by TEXT NOT NULL,
         created_at TEXT NOT NULL,
         expires_at TEXT NOT NULL,
@@ -194,6 +202,7 @@ export class EventStore {
         request_token_hash TEXT NOT NULL UNIQUE,
         display_name TEXT NOT NULL CHECK(length(display_name) <= 100),
         role TEXT NOT NULL CHECK(role IN ('member', 'observer')),
+        main_thread_history_access TEXT NOT NULL CHECK(main_thread_history_access IN ('allowed', 'denied')),
         status TEXT NOT NULL CHECK(status IN ('pending', 'approved', 'rejected', 'expired')),
         requested_at TEXT NOT NULL,
         expires_at TEXT NOT NULL,
@@ -214,6 +223,9 @@ export class EventStore {
         PRIMARY KEY(room_id, participant_id)
       );
     `);
+    this.migrateInviteHistoryAccess();
+    this.migrateJoinRequestHistoryAccess();
+    this.migrateParticipantHistoryAccess();
     this.migrateAgentPairingAgentTypes();
     this.migrateAgentPairingParticipantId();
   }
@@ -244,10 +256,10 @@ export class EventStore {
   addParticipant(participant: StoredParticipant & { token: string }): StoredParticipant {
     const tokenHash = hashParticipantToken(participant.token);
     this.db.prepare(`
-      INSERT INTO participants (room_id, participant_id, token_hash, display_name, type, role)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(participant.room_id, participant.id, tokenHash, participant.display_name, participant.type, participant.role);
-    return { room_id: participant.room_id, id: participant.id, display_name: participant.display_name, type: participant.type, role: participant.role };
+      INSERT INTO participants (room_id, participant_id, token_hash, display_name, type, role, main_thread_history_access)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(participant.room_id, participant.id, tokenHash, participant.display_name, participant.type, participant.role, participant.main_thread_history_access);
+    return { room_id: participant.room_id, id: participant.id, display_name: participant.display_name, type: participant.type, role: participant.role, main_thread_history_access: participant.main_thread_history_access };
   }
 
   getParticipantByToken(roomId: string, participantToken: string): StoredParticipant | undefined {
@@ -294,13 +306,14 @@ export class EventStore {
 
   createInvite(invite: NewInvite): StoredInvite {
     this.db.prepare(`
-      INSERT INTO invites (invite_id, room_id, token_hash, role, created_by, created_at, expires_at, max_uses)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO invites (invite_id, room_id, token_hash, role, main_thread_history_access, created_by, created_at, expires_at, max_uses)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       invite.invite_id,
       invite.room_id,
       invite.token_hash,
       invite.role,
+      invite.main_thread_history_access,
       invite.created_by,
       invite.created_at,
       invite.expires_at,
@@ -427,10 +440,10 @@ export class EventStore {
   createJoinRequest(input: NewJoinRequest): StoredJoinRequest {
     this.db.prepare(`
       INSERT INTO join_requests (
-        request_id, room_id, invite_id, request_token_hash, display_name, role, status,
+        request_id, room_id, invite_id, request_token_hash, display_name, role, main_thread_history_access, status,
         requested_at, expires_at, requester_ip, requester_user_agent
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.request_id,
       input.room_id,
@@ -438,6 +451,7 @@ export class EventStore {
       input.request_token_hash,
       input.display_name,
       input.role,
+      input.main_thread_history_access,
       input.status,
       input.requested_at,
       input.expires_at,
@@ -554,6 +568,29 @@ export class EventStore {
     `);
   }
 
+  private migrateInviteHistoryAccess(): void {
+    const columns = this.db.prepare(`PRAGMA table_info(invites)`).all() as Array<{ name: string }>;
+    if (!columns.some((col) => col.name === "main_thread_history_access")) {
+      this.db.exec(`ALTER TABLE invites ADD COLUMN main_thread_history_access TEXT NOT NULL DEFAULT 'allowed' CHECK(main_thread_history_access IN ('allowed', 'denied'));`);
+      this.db.exec(`UPDATE invites SET main_thread_history_access = 'denied' WHERE role = 'observer';`);
+    }
+  }
+
+  private migrateJoinRequestHistoryAccess(): void {
+    const columns = this.db.prepare(`PRAGMA table_info(join_requests)`).all() as Array<{ name: string }>;
+    if (!columns.some((col) => col.name === "main_thread_history_access")) {
+      this.db.exec(`ALTER TABLE join_requests ADD COLUMN main_thread_history_access TEXT NOT NULL DEFAULT 'allowed' CHECK(main_thread_history_access IN ('allowed', 'denied'));`);
+      this.db.exec(`UPDATE join_requests SET main_thread_history_access = 'denied' WHERE role = 'observer';`);
+    }
+  }
+
+  private migrateParticipantHistoryAccess(): void {
+    const columns = this.db.prepare(`PRAGMA table_info(participants)`).all() as Array<{ name: string }>;
+    if (!columns.some((col) => col.name === "main_thread_history_access")) {
+      this.db.exec(`ALTER TABLE participants ADD COLUMN main_thread_history_access TEXT NOT NULL DEFAULT 'allowed' CHECK(main_thread_history_access IN ('allowed', 'denied'));`);
+    }
+  }
+
   private migrateAgentPairingParticipantId(): void {
     const columns = this.db.prepare(`PRAGMA table_info(agent_pairings)`).all() as Array<{ name: string }>;
     if (!columns.some((col) => col.name === "participant_id")) {
@@ -568,6 +605,7 @@ function participantFromRow(row: ParticipantRow): StoredParticipant {
     id: row.participant_id,
     display_name: row.display_name,
     type: row.type,
-    role: row.role
+    role: row.role,
+    main_thread_history_access: row.main_thread_history_access
   };
 }

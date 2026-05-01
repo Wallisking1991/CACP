@@ -55,8 +55,12 @@ export async function createRoomWithLocalAgent(name: string, displayName: string
   }
 }
 
-export async function createInvite(session: RoomSession, role: "member" | "observer", expiresInSeconds: number, maxUses: number): Promise<{ invite_token: string; role: string; expires_at: string; max_uses: number }> {
-  return await postJson(`/rooms/${session.room_id}/invites`, session.token, { role, expires_in_seconds: expiresInSeconds, max_uses: maxUses });
+export type MainThreadHistoryAccess = "allowed" | "denied";
+
+export async function createInvite(session: RoomSession, role: "member" | "observer", expiresInSeconds: number, maxUses: number, mainThreadHistoryAccess?: MainThreadHistoryAccess): Promise<{ invite_token: string; role: string; main_thread_history_access: string; expires_at: string; max_uses: number }> {
+  const body: Record<string, unknown> = { role, expires_in_seconds: expiresInSeconds, max_uses: maxUses };
+  if (mainThreadHistoryAccess) body.main_thread_history_access = mainThreadHistoryAccess;
+  return await postJson(`/rooms/${session.room_id}/invites`, session.token, body);
 }
 
 export async function sendMessage(session: RoomSession, text: string): Promise<void> {
