@@ -41,6 +41,38 @@ export interface CodexThreadItem {
   [key: string]: unknown;
 }
 
+export interface CodexTurnInput {
+  turnId: string;
+  roomName?: string;
+  speakerName: string;
+  speakerRole: string;
+  modeLabel: string;
+  text: string;
+}
+
+export interface CodexTurnResult {
+  finalText: string;
+  sessionId?: string;
+  metrics: { files_read: number; searches: number; commands: number };
+}
+
+export interface CodexRuntimeStatus {
+  phase: string;
+  current: string;
+  recent: string[];
+  metrics: { files_read: number; searches: number; commands: number };
+}
+
+export interface CodexRuntimeInput {
+  sdk: CodexSdk;
+  agentId: string;
+  workingDir: string;
+  permissionLevel: string;
+  model?: string;
+  publishStatus: (turnId: string, status: CodexRuntimeStatus) => Promise<void>;
+  publishDelta: (turnId: string, chunk: string) => Promise<void>;
+}
+
 export function toCodexThreadOptions(input: { workingDir: string; permissionLevel: string; model?: string }): CodexThreadOptions {
   const sandboxMode: CodexThreadOptions["sandboxMode"] =
     input.permissionLevel === "read_only"
