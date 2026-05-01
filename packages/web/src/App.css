@@ -1564,6 +1564,8 @@ textarea.input {
 
 .room-id-chip-wrapper {
   position: relative;
+  display: inline-flex;
+  gap: 6px;
 }
 
 .connection-code-panel {
@@ -1674,6 +1676,46 @@ textarea.input {
   border-radius: 999px;
   border: 1.5px solid var(--surface);
   background: var(--success);
+}
+
+/* Avatar hover: red outer ring to signal removable */
+.role-avatar-stack:hover .role-avatar {
+  box-shadow: 0 0 0 2px var(--danger), 0 4px 16px rgba(70, 48, 27, 0.12);
+}
+
+.role-avatar__delete {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: #ef4444;
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  opacity: 0;
+  transform: scale(0.7);
+  transition: opacity 150ms ease, transform 150ms ease;
+  z-index: 2;
+  text-shadow: 0 0 2px #fff, 0 0 4px #fff, 0 0 6px rgba(0,0,0,0.15);
+}
+
+.role-avatar-stack:hover .role-avatar__delete {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Secondary feedback: × darkens and scales up when hovered directly */
+.role-avatar-stack .role-avatar__delete:hover {
+  transform: scale(1.2);
 }
 
 /* Status ring colors on the avatar border */

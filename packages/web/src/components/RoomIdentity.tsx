@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n/useT.js";
-import { LinkIcon, CopyIcon } from "./RoomIcons.js";
+import { LinkIcon, CopyIcon, InviteIcon } from "./RoomIcons.js";
 
 export interface RoomIdentityProps {
   roomName: string;
@@ -11,6 +11,7 @@ export interface RoomIdentityProps {
   isOwner?: boolean;
   onCopyRoomId: (roomId: string) => void;
   onCreatePairing?: (agentType: string, permissionLevel: string) => Promise<string>;
+  onCreateInvite?: (role: string, ttl: number) => Promise<string | undefined>;
 }
 
 function shortRoomId(roomId: string): string {
@@ -31,45 +32,61 @@ const permissionLevels = [
   { value: "full_access", labelKey: "permission.fullAccess" },
 ];
 
-export function RoomIdentity({ roomName, roomId, userDisplayName, userRole, isOwner, onCopyRoomId, onCreatePairing }: RoomIdentityProps) {
+type ActivePanel = "none" | "invite" | "pairing";
+
+export function RoomIdentity({ roomName, roomId, userDisplayName, userRole, isOwner, onCopyRoomId, onCreatePairing, onCreateInvite }: RoomIdentityProps) {
   const t = useT();
   const roleLabel = userRole ? (t(`role.${userRole}` as Parameters<typeof t>[0]) ?? userRole) : "";
   const userLine = [userDisplayName, roleLabel].filter(Boolean).join(" · ");
 
-  const [showPanel, setShowPanel] = useState(false);
+  const [activePanel, setActivePanel] = useState<ActivePanel>("none");
+
+  // Pairing panel state
   const [agentType, setAgentType] = useState("claude-code");
   const [permissionLevel, setPermissionLevel] = useState("read_only");
-  const [loading, setLoading] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [error, setError] = useState<string>("");
+  const [pairingLoading, setPairingLoading] = useState(false);
+  const [pairingCopied, setPairingCopied] = useState(false);
+  const [pairingError, setPairingError] = useState<string>("");
+
+  // Invite panel state
+  const [inviteRole, setInviteRole] = useState("member");
+  const [inviteTtl, setInviteTtl] = useState(3600);
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteCopied, setInviteCopied] = useState(false);
+  const [inviteError, setInviteError] = useState<string>("");
+
   const [panelStyle, setPanelStyle] = useState<React.CSSProperties>({});
-  const buttonRef = useRef<HTMLButtonElement>(null);
+  const inviteButtonRef = useRef<HTMLButtonElement>(null);
+  const pairingButtonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
+  const activeButtonRef = activePanel === "invite" ? inviteButtonRef : pairingButtonRef;
+
   useEffect(() => {
-    if (showPanel && buttonRef.current) {
-      const rect = buttonRef.current.getBoundingClientRect();
+    if (activePanel !== "none" && activeButtonRef.current) {
+      const rect = activeButtonRef.current.getBoundingClientRect();
       setPanelStyle({
         position: "fixed",
         top: rect.bottom + 6,
         left: rect.left,
       });
     }
-  }, [showPanel]);
+  }, [activePanel]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       const target = event.target as Node;
       if (
-        buttonRef.current && !buttonRef.current.contains(target) &&
+        inviteButtonRef.current && !inviteButtonRef.current.contains(target) &&
+        pairingButtonRef.current && !pairingButtonRef.current.contains(target) &&
         panelRef.current && !panelRef.current.contains(target)
       ) {
-        setShowPanel(false);
+        setActivePanel("none");
       }
     }
     function handleScroll() {
-      if (showPanel && buttonRef.current) {
-        const rect = buttonRef.current.getBoundingClientRect();
+      if (activePanel !== "none" && activeButtonRef.current) {
+        const rect = activeButtonRef.current.getBoundingClientRect();
         setPanelStyle({
           position: "fixed",
           top: rect.bottom + 6,
@@ -77,7 +94,7 @@ export function RoomIdentity({ roomName, roomId, userDisplayName, userRole, isOw
         });
       }
     }
-    if (showPanel) {
+    if (activePanel !== "none") {
       document.addEventListener("mousedown", handleClickOutside);
       window.addEventListener("scroll", handleScroll, true);
       window.addEventListener("resize", handleScroll);
@@ -87,90 +104,163 @@ export function RoomIdentity({ roomName, roomId, userDisplayName, userRole, isOw
         window.removeEventListener("resize", handleScroll);
       };
     }
-  }, [showPanel]);
+  }, [activePanel]);
 
-  const handleGenerate = useCallback(async () => {
+  const togglePanel = useCallback((panel: ActivePanel) => {
+    setActivePanel((prev) => prev === panel ? "none" : panel);
+    setPairingError("");
+    setInviteError("");
+  }, []);
+
+  const handleGeneratePairing = useCallback(async () => {
     if (!onCreatePairing) return;
-    setLoading(true);
-    setError("");
+    setPairingLoading(true);
+    setPairingError("");
     try {
       const connectionCode = await onCreatePairing(agentType, permissionLevel);
       await navigator.clipboard.writeText(connectionCode);
-      setCopied(true);
-      setShowPanel(false);
-      window.setTimeout(() => setCopied(false), 2000);
+      setPairingCopied(true);
+      setActivePanel("none");
+      window.setTimeout(() => setPairingCopied(false), 2000);
     } catch (err) {
       const message = err instanceof Error ? err.message : t("room.generateError");
-      setError(message);
+      setPairingError(message);
     } finally {
-      setLoading(false);
+      setPairingLoading(false);
     }
   }, [onCreatePairing, agentType, permissionLevel, t]);
 
-  const panel = showPanel ? (
+  const handleGenerateInvite = useCallback(async () => {
+    if (!onCreateInvite) return;
+    setInviteLoading(true);
+    setInviteError("");
+    try {
+      const url = await onCreateInvite(inviteRole, inviteTtl);
+      if (url) {
+        await navigator.clipboard.writeText(url);
+      }
+      setInviteCopied(true);
+      setActivePanel("none");
+      window.setTimeout(() => setInviteCopied(false), 2000);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t("room.generateError");
+      setInviteError(message);
+    } finally {
+      setInviteLoading(false);
+    }
+  }, [onCreateInvite, inviteRole, inviteTtl, t]);
+
+  const panel = activePanel !== "none" ? (
     <div
       ref={panelRef}
       className="connection-code-panel"
       style={panelStyle}
     >
-      <label className="section-label" htmlFor="conn-code-agent-type">{t("landing.create.agentType")}</label>
-      <select
-        id="conn-code-agent-type"
-        value={agentType}
-        onChange={(e) => setAgentType(e.target.value)}
-      >
-        <optgroup label={t("agentType.group.localCommand")}>
-          {agentTypes
-            .filter((a) => a.group === "agentType.group.localCommand")
-            .map((a) => (
-              <option key={a.value} value={a.value}>
-                {t(a.labelKey as Parameters<typeof t>[0])}
+      {activePanel === "pairing" ? (
+        <>
+          <label className="section-label" htmlFor="conn-code-agent-type">{t("landing.create.agentType")}</label>
+          <select
+            id="conn-code-agent-type"
+            value={agentType}
+            onChange={(e) => setAgentType(e.target.value)}
+          >
+            <optgroup label={t("agentType.group.localCommand")}>
+              {agentTypes
+                .filter((a) => a.group === "agentType.group.localCommand")
+                .map((a) => (
+                  <option key={a.value} value={a.value}>
+                    {t(a.labelKey as Parameters<typeof t>[0])}
+                  </option>
+                ))}
+            </optgroup>
+            <optgroup label={t("agentType.group.llmApi")}>
+              {agentTypes
+                .filter((a) => a.group === "agentType.group.llmApi")
+                .map((a) => (
+                  <option key={a.value} value={a.value}>
+                    {t(a.labelKey as Parameters<typeof t>[0])}
+                  </option>
+                ))}
+            </optgroup>
+          </select>
+          <label className="section-label" htmlFor="conn-code-permission">{t("landing.create.permissionLevel")}</label>
+          <select
+            id="conn-code-permission"
+            value={permissionLevel}
+            onChange={(e) => setPermissionLevel(e.target.value)}
+          >
+            {permissionLevels.map((p) => (
+              <option key={p.value} value={p.value}>
+                {t(p.labelKey as Parameters<typeof t>[0])}
               </option>
             ))}
-        </optgroup>
-        <optgroup label={t("agentType.group.llmApi")}>
-          {agentTypes
-            .filter((a) => a.group === "agentType.group.llmApi")
-            .map((a) => (
-              <option key={a.value} value={a.value}>
-                {t(a.labelKey as Parameters<typeof t>[0])}
-              </option>
-            ))}
-        </optgroup>
-      </select>
-      <label className="section-label" htmlFor="conn-code-permission">{t("landing.create.permissionLevel")}</label>
-      <select
-        id="conn-code-permission"
-        value={permissionLevel}
-        onChange={(e) => setPermissionLevel(e.target.value)}
-      >
-        {permissionLevels.map((p) => (
-          <option key={p.value} value={p.value}>
-            {t(p.labelKey as Parameters<typeof t>[0])}
-          </option>
-        ))}
-      </select>
-      {error ? (
-        <p className="error inline-error" style={{ fontSize: 12, margin: 0 }}>{error}</p>
-      ) : null}
-      <div className="connection-code-panel-actions">
-        <button
-          type="button"
-          className="btn btn-secondary"
-          onClick={() => setShowPanel(false)}
-          disabled={loading}
-        >
-          {t("common.cancel")}
-        </button>
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={handleGenerate}
-          disabled={loading}
-        >
-          {loading ? "…" : t("room.generateAndCopy")}
-        </button>
-      </div>
+          </select>
+          {pairingError ? (
+            <p className="error inline-error" style={{ fontSize: 12, margin: 0 }}>{pairingError}</p>
+          ) : null}
+          <div className="connection-code-panel-actions">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setActivePanel("none")}
+              disabled={pairingLoading}
+            >
+              {t("common.cancel")}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleGeneratePairing}
+              disabled={pairingLoading}
+            >
+              {pairingLoading ? "…" : t("room.generateAndCopy")}
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <label className="section-label" htmlFor="invite-role">{t("role.label")}</label>
+          <select
+            id="invite-role"
+            value={inviteRole}
+            onChange={(e) => setInviteRole(e.target.value)}
+          >
+            <option value="member">{t("role.member")}</option>
+            <option value="observer">{t("role.observer")}</option>
+          </select>
+          <label className="section-label" htmlFor="invite-ttl">{t("sidebar.ttlLabel")}</label>
+          <select
+            id="invite-ttl"
+            value={inviteTtl}
+            onChange={(e) => setInviteTtl(Number(e.target.value))}
+          >
+            <option value={3600}>{t("sidebar.ttl1h")}</option>
+            <option value={86400}>{t("sidebar.ttl24h")}</option>
+            <option value={604800}>{t("sidebar.ttl7d")}</option>
+          </select>
+          {inviteError ? (
+            <p className="error inline-error" style={{ fontSize: 12, margin: 0 }}>{inviteError}</p>
+          ) : null}
+          <div className="connection-code-panel-actions">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setActivePanel("none")}
+              disabled={inviteLoading}
+            >
+              {t("common.cancel")}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleGenerateInvite}
+              disabled={inviteLoading}
+            >
+              {inviteLoading ? "…" : t("room.generateAndCopy")}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   ) : null;
 
@@ -180,18 +270,37 @@ export function RoomIdentity({ roomName, roomId, userDisplayName, userRole, isOw
         <h2>{roomName}</h2>
         {userLine ? <p>{userLine}</p> : null}
       </div>
-      {isOwner && onCreatePairing ? (
+      {isOwner ? (
         <div className="room-id-chip-wrapper">
-          <button
-            ref={buttonRef}
-            type="button"
-            className={`room-id-chip${copied ? " copied" : ""}`}
-            onClick={() => setShowPanel((prev) => !prev)}
-            aria-label={copied ? t("sidebar.connectionCodeCopied") : t("room.copyConnectionCode")}
-            title={copied ? t("sidebar.connectionCodeCopied") : t("room.copyConnectionCode")}
-          >
-            {copied ? <CopyIcon /> : <LinkIcon />}
-          </button>
+          {onCreateInvite ? (
+            <button
+              ref={inviteButtonRef}
+              type="button"
+              className={`room-id-chip${inviteCopied ? " copied" : ""}`}
+              onClick={() => togglePanel("invite")}
+              aria-label={inviteCopied ? t("sidebar.connectionCodeCopied") : t("room.copyInvite")}
+              title={inviteCopied ? t("sidebar.connectionCodeCopied") : t("room.copyInvite")}
+            >
+              {inviteCopied ? <CopyIcon /> : <InviteIcon />}
+            </button>
+          ) : null}
+          {onCreatePairing ? (
+            <button
+              ref={pairingButtonRef}
+              type="button"
+              className={`room-id-chip${pairingCopied ? " copied" : ""}`}
+              onClick={() => togglePanel("pairing")}
+              aria-label={pairingCopied ? t("sidebar.connectionCodeCopied") : t("room.copyConnectionCode")}
+              title={pairingCopied ? t("sidebar.connectionCodeCopied") : t("room.copyConnectionCode")}
+            >
+              {pairingCopied ? <CopyIcon /> : <LinkIcon />}
+            </button>
+          ) : (
+            <button type="button" className="room-id-chip" onClick={() => onCopyRoomId(roomId)} aria-label={t("room.copyId")} title={roomId}>
+              <span>{shortRoomId(roomId)}</span>
+              <CopyIcon />
+            </button>
+          )}
           {panel && typeof document !== "undefined" && createPortal(panel, document.body)}
         </div>
       ) : (

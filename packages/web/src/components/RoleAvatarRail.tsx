@@ -1,9 +1,13 @@
+import { useState } from "react";
 import { useT } from "../i18n/useT.js";
 import type { AvatarStatusView } from "../room-state.js";
 
 export interface RoleAvatarRailProps {
   avatars: AvatarStatusView[];
   maxVisible?: number;
+  isOwner?: boolean;
+  currentParticipantId?: string;
+  onRemoveAvatar?: (id: string) => void;
 }
 
 function initials(name: string): string {
@@ -20,8 +24,9 @@ function splitVisible(avatars: AvatarStatusView[], maxVisible: number): { visibl
   return { visible, hiddenCount: Math.max(0, avatars.length - visible.length) };
 }
 
-export function RoleAvatarRail({ avatars, maxVisible = 10 }: RoleAvatarRailProps) {
+export function RoleAvatarRail({ avatars, maxVisible = 10, isOwner, currentParticipantId, onRemoveAvatar }: RoleAvatarRailProps) {
   const t = useT();
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   function statusLabel(status: AvatarStatusView["status"]): string {
     return t(`avatar.status.${status}` as Parameters<typeof t>[0]) ?? status;
@@ -38,24 +43,68 @@ export function RoleAvatarRail({ avatars, maxVisible = 10 }: RoleAvatarRailProps
   const agents = avatars.filter((avatar) => avatar.group === "agents");
   const { visible, hiddenCount } = splitVisible([...humans, ...agents], maxVisible);
 
+  const canDelete = (avatar: AvatarStatusView): boolean => {
+    if (!isOwner || !onRemoveAvatar) return false;
+    if (avatar.id === currentParticipantId) return false;
+    return true;
+  };
+
   return (
     <div className="role-avatar-rail" aria-label={t("room.controls")}>
       {humans.length > 0 ? <span className="avatar-group-label">{t("avatar.group.humans")}</span> : null}
       {visible.filter((avatar) => avatar.group === "humans").map((avatar) => (
-        <div key={avatar.id} className="role-avatar-stack" title={avatarLabel(avatar)}>
+        <div
+          key={avatar.id}
+          className="role-avatar-stack"
+          title={avatarLabel(avatar)}
+          onMouseEnter={() => setHoveredId(avatar.id)}
+          onMouseLeave={() => setHoveredId((prev) => prev === avatar.id ? null : prev)}
+        >
           <span className={`role-avatar role-avatar--${avatar.kind} role-avatar--${avatar.status}`} aria-label={avatarLabel(avatar)}>
             <span className="role-avatar__initials">{initials(avatar.display_name)}</span>
             <span className="role-avatar__status" aria-hidden="true" />
+            {canDelete(avatar) && hoveredId === avatar.id ? (
+              <button
+                type="button"
+                className="role-avatar__delete"
+                aria-label={t("sidebar.removeAvatar", { name: avatar.display_name })}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemoveAvatar!(avatar.id);
+                }}
+              >
+                ×
+              </button>
+            ) : null}
           </span>
           <span className="role-avatar__name">{avatar.display_name}</span>
         </div>
       ))}
       {agents.length > 0 ? <span className="avatar-group-label">{t("avatar.group.agents")}</span> : null}
       {visible.filter((avatar) => avatar.group === "agents").map((avatar) => (
-        <div key={avatar.id} className="role-avatar-stack" title={avatarLabel(avatar)}>
+        <div
+          key={avatar.id}
+          className="role-avatar-stack"
+          title={avatarLabel(avatar)}
+          onMouseEnter={() => setHoveredId(avatar.id)}
+          onMouseLeave={() => setHoveredId((prev) => prev === avatar.id ? null : prev)}
+        >
           <span className={`role-avatar role-avatar--${avatar.kind} role-avatar--${avatar.status}`} aria-label={avatarLabel(avatar)}>
             <span className="role-avatar__initials">{initials(avatar.display_name)}</span>
             <span className="role-avatar__status" aria-hidden="true" />
+            {canDelete(avatar) && hoveredId === avatar.id ? (
+              <button
+                type="button"
+                className="role-avatar__delete"
+                aria-label={t("sidebar.removeAvatar", { name: avatar.display_name })}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemoveAvatar!(avatar.id);
+                }}
+              >
+                ×
+              </button>
+            ) : null}
           </span>
           <span className="role-avatar__name">{avatar.display_name}</span>
         </div>

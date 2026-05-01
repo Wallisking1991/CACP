@@ -48,6 +48,15 @@ export function LinkIcon(props: IconProps) {
   );
 }
 
+export function InviteIcon(props: IconProps) {
+  return (
+    <IconFrame {...props}>
+      <path d="M22 6H2v12h20V6Z" />
+      <path d="m22 6-10 7L2 6" />
+    </IconFrame>
+  );
+}
+
 export function LogOutIcon(props: IconProps) {
   return (
     <IconFrame {...props}>

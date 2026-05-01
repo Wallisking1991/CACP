@@ -16,6 +16,9 @@ export interface HeaderProps {
   avatarStatuses: AvatarStatusView[];
   onCopyRoomId: (roomId: string) => void;
   onCreatePairing?: (agentType: string, permissionLevel: string) => Promise<string>;
+  onCreateInvite?: (role: string, ttl: number) => Promise<string | undefined>;
+  onRemoveAvatar?: (id: string) => void;
+  currentParticipantId?: string;
   onLeaveRoom?: () => void;
 }
 
@@ -28,6 +31,9 @@ export default function Header({
   avatarStatuses,
   onCopyRoomId,
   onCreatePairing,
+  onCreateInvite,
+  onRemoveAvatar,
+  currentParticipantId,
   onLeaveRoom,
 }: HeaderProps) {
   const t = useT();
@@ -48,9 +54,15 @@ export default function Header({
         isOwner={isOwner}
         onCopyRoomId={onCopyRoomId}
         onCreatePairing={onCreatePairing}
+        onCreateInvite={onCreateInvite}
       />
 
-      <RoleAvatarRail avatars={avatarStatuses} />
+      <RoleAvatarRail
+        avatars={avatarStatuses}
+        isOwner={isOwner}
+        currentParticipantId={currentParticipantId}
+        onRemoveAvatar={onRemoveAvatar}
+      />
 
       <div className="header-actions">
         <button

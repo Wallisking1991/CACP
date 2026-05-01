@@ -264,6 +264,9 @@ export default function Workspace({
               });
               return result.connection_code;
             }}
+            onCreateInvite={onCreateInvite}
+            onRemoveAvatar={onRemoveParticipant}
+            currentParticipantId={session.participant_id}
           />
 
           <Thread
