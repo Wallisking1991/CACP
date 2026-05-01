@@ -8,7 +8,7 @@ describe("FloatingLogoControl", () => {
     const onOpen = vi.fn();
     render(<FloatingLogoControl active={false} pendingCount={1} onOpen={onOpen} storageKey="test.logo.y" />);
 
-    const button = screen.getByRole("button", { name: /Room controls/i });
+    const button = screen.getByRole("button", { name: /CACP/i });
     expect(button).toBeInTheDocument();
     fireEvent.click(button);
     expect(onOpen).toHaveBeenCalledTimes(1);

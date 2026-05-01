@@ -10,13 +10,11 @@ import { createRoomSoundController, shouldPlayCueForMessage } from "../room-soun
 import Header from "./Header.js";
 import Thread from "./Thread.js";
 import Composer from "./Composer.js";
-import JoinRequestModal from "./JoinRequestModal.js";
-import RoundtableRequestModal from "./RoundtableRequestModal.js";
-import { ClaudeSessionPicker } from "./ClaudeSessionPicker.js";
-import { ClaudeStatusCard } from "./ClaudeStatusCard.js";
 import { AgentSessionRequiredModal } from "./AgentSessionRequiredModal.js";
 import { FloatingLogoControl } from "./FloatingLogoControl.js";
-import { RoomControlCenter } from "./RoomControlCenter.js";
+import { Popover } from "./Popover.js";
+import { AgentAvatarPopover } from "./AgentAvatarPopover.js";
+import { PeopleAvatarPopover } from "./PeopleAvatarPopover.js";
 
 export interface WorkspaceProps {
   session: RoomSession;
@@ -87,7 +85,6 @@ export default function Workspace({
     return names;
   }, [room.participants, room.agents]);
 
-  const [controlCenterOpen, setControlCenterOpen] = useState(false);
   const soundControllerRef = useRef(createRoomSoundController());
   const [soundEnabled, setSoundEnabled] = useState(soundControllerRef.current.enabled());
   const [soundVolume, setSoundVolume] = useState(soundControllerRef.current.volume());
@@ -96,48 +93,18 @@ export default function Workspace({
   const initialLoadCompleteRef = useRef(false);
   const growthTimerRef = useRef<number>(0);
   const lastRoomIdRef = useRef(session.room_id);
+  const railRef = useRef<HTMLDivElement>(null);
 
   const [showSlowStreamingNotice, setShowSlowStreamingNotice] = useState(false);
-  const [dismissedJoinRequestIds, setDismissedJoinRequestIds] = useState<Set<string>>(() => new Set());
-  const [dismissedRoundtableRequestIds, setDismissedRoundtableRequestIds] = useState<Set<string>>(() => new Set());
+  const [agentPopoverOpen, setAgentPopoverOpen] = useState(false);
+  const [peoplePopoverOpen, setPeoplePopoverOpen] = useState(false);
 
-  const visibleJoinRequest = useMemo(() => {
-    if (!isOwner) return undefined;
-    return room.joinRequests.find((request) => !dismissedJoinRequestIds.has(request.request_id));
-  }, [dismissedJoinRequestIds, isOwner, room.joinRequests]);
-
-  const remainingJoinRequestCount = visibleJoinRequest
-    ? room.joinRequests.filter((request) => request.request_id !== visibleJoinRequest.request_id && !dismissedJoinRequestIds.has(request.request_id)).length
-    : 0;
-
-  useEffect(() => {
-    const pendingIds = new Set(room.joinRequests.map((request) => request.request_id));
-    setDismissedJoinRequestIds((current) => {
-      const next = new Set([...current].filter((requestId) => pendingIds.has(requestId)));
-      return next.size === current.size ? current : next;
-    });
-  }, [room.joinRequests]);
-
-  const visibleRoundtableRequest = useMemo(() => {
-    if (!isOwner) return undefined;
-    return room.pendingRoundtableRequest && !dismissedRoundtableRequestIds.has(room.pendingRoundtableRequest.request_id)
-      ? room.pendingRoundtableRequest
-      : undefined;
-  }, [dismissedRoundtableRequestIds, isOwner, room.pendingRoundtableRequest]);
-
-  useEffect(() => {
-    if (visibleJoinRequest || visibleRoundtableRequest) {
-      setControlCenterOpen(false);
-    }
-  }, [visibleJoinRequest, visibleRoundtableRequest]);
-
-  useEffect(() => {
-    if (room.pendingRoundtableRequest) return;
-    setDismissedRoundtableRequestIds((current) => {
-      if (current.size === 0) return current;
-      return new Set();
-    });
-  }, [room.pendingRoundtableRequest]);
+  const pendingNotificationCount = useMemo(() => {
+    if (!isOwner) return 0;
+    let count = room.joinRequests.length;
+    if (room.pendingRoundtableRequest) count += 1;
+    return count;
+  }, [isOwner, room.joinRequests, room.pendingRoundtableRequest]);
 
   const streamingKey = useMemo(
     () => room.streamingTurns.map((t) => t.turn_id).join("|"),
@@ -267,6 +234,30 @@ export default function Workspace({
             onCreateInvite={onCreateInvite}
             onRemoveAvatar={onRemoveParticipant}
             currentParticipantId={session.participant_id}
+            soundEnabled={soundEnabled}
+            soundVolume={soundVolume}
+            onSoundEnabledChange={(enabled) => {
+              soundControllerRef.current.setEnabled(enabled);
+              setSoundEnabled(enabled);
+            }}
+            onSoundVolumeChange={(volume) => {
+              soundControllerRef.current.setVolume(volume);
+              setSoundVolume(volume);
+            }}
+            onTestSound={() => soundControllerRef.current.play("message")}
+            pendingNotificationCount={pendingNotificationCount}
+            joinRequests={room.joinRequests}
+            roundtableRequest={room.pendingRoundtableRequest ?? undefined}
+            turnInFlight={turnInFlight}
+            onApproveJoinRequest={onApproveJoinRequest}
+            onRejectJoinRequest={onRejectJoinRequest}
+            onApproveRoundtableRequest={onApproveRoundtableRequest}
+            onRejectRoundtableRequest={onRejectRoundtableRequest}
+            onClickHumanAvatar={() => setPeoplePopoverOpen(true)}
+            onClickAgentAvatar={() => setAgentPopoverOpen(true)}
+            railRef={railRef}
+            createdInvite={createdInvite}
+            invites={room.invites}
           />
 
           <Thread
@@ -304,22 +295,6 @@ export default function Workspace({
         </div>
       </div>
 
-      <JoinRequestModal
-        request={visibleJoinRequest}
-        remainingCount={remainingJoinRequestCount}
-        onApprove={onApproveJoinRequest}
-        onReject={onRejectJoinRequest}
-        onLater={(requestId) => setDismissedJoinRequestIds((current) => new Set(current).add(requestId))}
-      />
-
-      <RoundtableRequestModal
-        request={visibleRoundtableRequest}
-        turnInFlight={turnInFlight}
-        onApprove={onApproveRoundtableRequest}
-        onReject={onRejectRoundtableRequest}
-        onLater={(requestId) => setDismissedRoundtableRequestIds((current) => new Set(current).add(requestId))}
-      />
-
       {needsSessionSelection && room.activeAgentId && room.claudeSessionCatalog && (
         <AgentSessionRequiredModal
           agentId={room.activeAgentId}
@@ -334,59 +309,38 @@ export default function Workspace({
         />
       )}
 
-      <FloatingLogoControl
-        active={turnInFlight}
-        pendingCount={(visibleJoinRequest ? 1 : 0) + (visibleRoundtableRequest ? 1 : 0)}
-        onOpen={() => setControlCenterOpen(true)}
-      />
+      <Popover triggerRef={railRef} open={peoplePopoverOpen} onClose={() => setPeoplePopoverOpen(false)}>
+        <PeopleAvatarPopover
+          participants={peopleParticipants}
+          isOwner={isOwner}
+          currentParticipantId={session.participant_id}
+          onRemoveParticipant={onRemoveParticipant}
+        />
+      </Popover>
 
-      <RoomControlCenter
-        open={controlCenterOpen}
-        onClose={() => setControlCenterOpen(false)}
-        soundEnabled={soundEnabled}
-        soundVolume={soundVolume}
-        onSoundEnabledChange={(enabled) => {
-          soundControllerRef.current.setEnabled(enabled);
-          setSoundEnabled(enabled);
-        }}
-        onSoundVolumeChange={(volume) => {
-          soundControllerRef.current.setVolume(volume);
-          setSoundVolume(volume);
-        }}
-        onTestSound={() => soundControllerRef.current.play("message")}
-        agents={room.agents}
-        activeAgentId={room.activeAgentId}
-        participants={peopleParticipants}
-        inviteCount={room.inviteCount}
-        invites={room.invites}
-        isOwner={isOwner}
-        roomId={session.room_id}
-        onLeaveRoom={onLeaveRoom}
-        onCreateInvite={onCreateInvite}
-        onSelectAgent={onSelectAgent}
-        onRemoveParticipant={onRemoveParticipant}
-        onClearRoom={onClearRoom}
-        joinRequests={room.joinRequests}
-        onApproveJoinRequest={onApproveJoinRequest}
-        onRejectJoinRequest={onRejectJoinRequest}
-        createdInvite={createdInvite}
-        cloudMode={cloudMode}
-        createdPairing={createdPairing}
-        canManageRoom={permissions.canManageControls}
-        claudeSessionCatalog={room.claudeSessionCatalog}
-        claudeSessionSelection={room.claudeSessionSelection}
-        claudeSessionPreviews={room.claudeSessionPreviews}
-        claudeRuntimeStatuses={room.claudeRuntimeStatuses}
-        serverUrl={serverUrl}
-        roomSessionToken={session.token}
-        roomSessionParticipantId={session.participant_id}
-        onRequestClaudeSessionPreview={(sessionId) =>
-          requestClaudeSessionPreview({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId ?? "", sessionId })
-        }
-        onSelectClaudeSession={(selection) =>
-          selectClaudeSession({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId ?? "", ...selection })
-        }
-      />
+      <Popover triggerRef={railRef} open={agentPopoverOpen} onClose={() => setAgentPopoverOpen(false)}>
+        <AgentAvatarPopover
+          agents={room.agents}
+          activeAgentId={room.activeAgentId}
+          canManageRoom={permissions.canManageControls}
+          onSelectAgent={onSelectAgent}
+          claudeSessionCatalog={room.claudeSessionCatalog}
+          claudeSessionSelection={room.claudeSessionSelection}
+          claudeSessionPreviews={room.claudeSessionPreviews}
+          claudeRuntimeStatuses={room.claudeRuntimeStatuses}
+          serverUrl={serverUrl}
+          roomSessionToken={session.token}
+          roomSessionParticipantId={session.participant_id}
+          onRequestClaudeSessionPreview={(sessionId) =>
+            requestClaudeSessionPreview({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId ?? "", sessionId })
+          }
+          onSelectClaudeSession={(selection) =>
+            selectClaudeSession({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId ?? "", ...selection })
+          }
+        />
+      </Popover>
+
+      <FloatingLogoControl active={turnInFlight} pendingCount={0} onOpen={() => {}} />
     </div>
   );
 }

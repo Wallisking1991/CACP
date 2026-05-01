@@ -796,6 +796,242 @@ textarea.input {
   color: var(--ink);
 }
 
+/* Header icon buttons — unified, refined */
+.room-icon-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(253, 250, 242, 0.6);
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: background 180ms ease, border-color 180ms ease, color 180ms ease, box-shadow 180ms ease;
+}
+
+.room-icon-button:hover {
+  background: var(--surface-warm);
+  border-color: var(--border-soft);
+  color: var(--ink-2);
+  box-shadow: 0 2px 8px rgba(70, 48, 27, 0.06);
+}
+
+.room-icon-button.is-active {
+  background: var(--surface-warm);
+  border-color: var(--accent-border);
+  color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft), 0 2px 8px rgba(194, 65, 12, 0.08);
+}
+
+/* Language toggle — same base as icon buttons, slightly wider */
+.lang-toggle {
+  width: auto;
+  min-width: 36px;
+  height: 36px;
+  padding: 0 8px;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-3);
+  background: rgba(253, 250, 242, 0.6);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 180ms ease, border-color 180ms ease, color 180ms ease, box-shadow 180ms ease;
+}
+
+.lang-toggle:hover {
+  background: var(--surface-warm);
+  border-color: var(--border-soft);
+  color: var(--ink-2);
+  box-shadow: 0 2px 8px rgba(70, 48, 27, 0.06);
+}
+
+/* Leave room button inherits room-icon-button base */
+.leave-room-btn {
+  background: rgba(253, 250, 242, 0.6);
+}
+
+.leave-room-btn:hover {
+  color: #dc2626;
+  border-color: #fca5a5;
+  background: #fef2f2;
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.06);
+}
+
+/* Notification badge */
+.header-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  background: var(--accent);
+  border-radius: 999px;
+  border: 2px solid var(--studio-panel);
+  box-shadow: 0 2px 6px rgba(194, 65, 12, 0.25);
+  pointer-events: none;
+}
+
+.has-badge {
+  /* Visual nudge when badge is present — subtle warm pulse feel */
+}
+
+/* Popover panel — elevated, refined */
+.popover-panel {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.6) inset,
+    0 4px 24px rgba(70, 48, 27, 0.08),
+    0 16px 48px rgba(70, 48, 27, 0.06);
+  padding: 16px;
+  min-width: 280px;
+  max-width: 360px;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-soft) transparent;
+}
+
+.popover-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.popover-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-2);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.popover-subtitle {
+  font-size: 12px;
+  color: var(--ink-4);
+  margin: 0;
+}
+
+.popover-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.popover-list-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-warm);
+  border: 1px solid var(--border-soft);
+  transition: background 150ms ease;
+}
+
+.popover-list-item:hover {
+  background: var(--surface-collect);
+}
+
+.popover-list-item-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.popover-list-item-meta {
+  font-size: 11px;
+  color: var(--ink-4);
+  font-weight: 500;
+}
+
+.popover-list-item-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.popover-empty {
+  font-size: 13px;
+  color: var(--ink-4);
+  text-align: center;
+  padding: 20px 12px;
+  margin: 0;
+}
+
+/* Sound panel refinements inside popover */
+.sound-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sound-panel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sound-panel-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+/* Notification popover specific */
+.notification-popover .popover-list-item {
+  flex-wrap: wrap;
+}
+
+.notification-popover .popover-list-item-actions {
+  margin-left: auto;
+}
+
+/* People popover specific */
+.people-popover .popover-list-item {
+  justify-content: space-between;
+}
+
+.people-popover .popover-list-item-name {
+  flex: 0 1 auto;
+}
+
+/* Agent popover specific */
+.agent-popover select {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-warm);
+  color: var(--ink-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+
 .leave-room-btn:hover {
   color: #dc2626;
   border-color: #fca5a5;
@@ -1540,8 +1776,7 @@ textarea.input {
   font-size: 12px;
 }
 
-.room-id-chip,
-.room-icon-button {
+.room-id-chip {
   display: inline-flex;
   align-items: center;
   justify-content: center;

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n/useT.js";
 import { LinkIcon, CopyIcon, InviteIcon } from "./RoomIcons.js";
+import type { InviteView } from "../room-state.js";
 
 export interface RoomIdentityProps {
   roomName: string;
@@ -11,12 +12,26 @@ export interface RoomIdentityProps {
   isOwner?: boolean;
   onCopyRoomId: (roomId: string) => void;
   onCreatePairing?: (agentType: string, permissionLevel: string) => Promise<string>;
-  onCreateInvite?: (role: string, ttl: number) => Promise<string | undefined>;
+  onCreateInvite?: (role: string, ttl: number, maxUses: number) => Promise<string | undefined>;
+  createdInvite?: { url: string; role: string; ttl: number; max_uses: number };
+  invites?: InviteView[];
 }
 
 function shortRoomId(roomId: string): string {
   if (roomId.length <= 16) return roomId;
   return `${roomId.slice(0, 9)}…${roomId.slice(-5)}`;
+}
+
+function maskInviteUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    const token = u.searchParams.get("token");
+    if (!token) return url;
+    const masked = token.length > 8 ? token.slice(0, 4) + "••••" + token.slice(-4) : "••••" + token.slice(-4);
+    return url.replace(token, masked);
+  } catch {
+    return url;
+  }
 }
 
 const agentTypes = [
@@ -34,7 +49,7 @@ const permissionLevels = [
 
 type ActivePanel = "none" | "invite" | "pairing";
 
-export function RoomIdentity({ roomName, roomId, userDisplayName, userRole, isOwner, onCopyRoomId, onCreatePairing, onCreateInvite }: RoomIdentityProps) {
+export function RoomIdentity({ roomName, roomId, userDisplayName, userRole, isOwner, onCopyRoomId, onCreatePairing, onCreateInvite, createdInvite, invites = [] }: RoomIdentityProps) {
   const t = useT();
   const roleLabel = userRole ? (t(`role.${userRole}` as Parameters<typeof t>[0]) ?? userRole) : "";
   const userLine = [userDisplayName, roleLabel].filter(Boolean).join(" · ");
@@ -51,9 +66,11 @@ export function RoomIdentity({ roomName, roomId, userDisplayName, userRole, isOw
   // Invite panel state
   const [inviteRole, setInviteRole] = useState("member");
   const [inviteTtl, setInviteTtl] = useState(3600);
+  const [inviteMaxUses, setInviteMaxUses] = useState(1);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteCopied, setInviteCopied] = useState(false);
   const [inviteError, setInviteError] = useState<string>("");
+  const [inviteRevealed, setInviteRevealed] = useState(false);
 
   const [panelStyle, setPanelStyle] = useState<React.CSSProperties>({});
   const inviteButtonRef = useRef<HTMLButtonElement>(null);
@@ -135,7 +152,7 @@ export function RoomIdentity({ roomName, roomId, userDisplayName, userRole, isOw
     setInviteLoading(true);
     setInviteError("");
     try {
-      const url = await onCreateInvite(inviteRole, inviteTtl);
+      const url = await onCreateInvite(inviteRole, inviteTtl, inviteMaxUses);
       if (url) {
         await navigator.clipboard.writeText(url);
       }
@@ -148,7 +165,7 @@ export function RoomIdentity({ roomName, roomId, userDisplayName, userRole, isOw
     } finally {
       setInviteLoading(false);
     }
-  }, [onCreateInvite, inviteRole, inviteTtl, t]);
+  }, [onCreateInvite, inviteRole, inviteTtl, inviteMaxUses, t]);
 
   const panel = activePanel !== "none" ? (
     <div
@@ -238,6 +255,17 @@ export function RoomIdentity({ roomName, roomId, userDisplayName, userRole, isOw
             <option value={86400}>{t("sidebar.ttl24h")}</option>
             <option value={604800}>{t("sidebar.ttl7d")}</option>
           </select>
+          <label className="section-label" htmlFor="invite-max-uses">{t("sidebar.maxUsesLabel")}</label>
+          <select
+            id="invite-max-uses"
+            value={inviteMaxUses}
+            onChange={(e) => setInviteMaxUses(Number(e.target.value))}
+          >
+            <option value={1}>{t("sidebar.maxUses1")}</option>
+            <option value={5}>{t("sidebar.maxUses5")}</option>
+            <option value={10}>{t("sidebar.maxUses10")}</option>
+            <option value={20}>{t("sidebar.maxUses20")}</option>
+          </select>
           {inviteError ? (
             <p className="error inline-error" style={{ fontSize: 12, margin: 0 }}>{inviteError}</p>
           ) : null}
@@ -259,6 +287,67 @@ export function RoomIdentity({ roomName, roomId, userDisplayName, userRole, isOw
               {inviteLoading ? "…" : t("room.generateAndCopy")}
             </button>
           </div>
+          {createdInvite ? (
+            <div style={{ marginTop: 8 }}>
+              <code
+                style={{
+                  display: "block",
+                  fontSize: 11,
+                  wordBreak: "break-all",
+                  padding: 8,
+                  background: "var(--surface-warm)",
+                  border: "1px solid var(--border-soft)",
+                  borderRadius: "var(--radius-chip)",
+                  color: "var(--ink-2)",
+                }}
+              >
+                {inviteRevealed ? createdInvite.url : maskInviteUrl(createdInvite.url)}
+              </code>
+              <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                <button type="button" className="btn btn-ghost" style={{ fontSize: 11, padding: "4px 8px" }} onClick={() => setInviteRevealed((v) => !v)}>
+                  {inviteRevealed ? t("sidebar.hideInvite") : t("sidebar.revealInvite")}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ fontSize: 11, padding: "4px 8px" }}
+                  aria-label={t("sidebar.copyInviteLink")}
+                  onClick={() => navigator.clipboard.writeText(createdInvite!.url).catch(() => {})}
+                >
+                  {t("sidebar.copyInvite")}
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {invites.length > 0 && (
+            <div style={{ marginTop: 12 }}>
+              <h4 style={{ fontSize: 13, marginBottom: 8 }}>{t("sidebar.activeInvites")}</h4>
+              {invites.map((inv) => (
+                <div
+                  key={inv.invite_id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "6px 8px",
+                    marginBottom: 4,
+                    background: "var(--surface-warm)",
+                    border: "1px solid var(--border-soft)",
+                    borderRadius: "var(--radius-chip)",
+                    fontSize: 12,
+                    opacity: inv.revoked ? 0.6 : 1
+                  }}
+                >
+                  <span>
+                    {t("sidebar.inviteItem", { role: inv.role, remaining: inv.remaining, max: inv.max_uses })}
+                  </span>
+                  {inv.revoked && (
+                    <span style={{ fontSize: 11, color: "var(--ink-3)" }}>{t("sidebar.inviteRevoked")}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </>
       )}
     </div>

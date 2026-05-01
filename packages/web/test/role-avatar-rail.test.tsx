@@ -25,100 +25,53 @@ describe("RoleAvatarRail", () => {
     expect(screen.getByText(/\+3/)).toBeInTheDocument();
   });
 
-  describe("owner delete badge", () => {
-    it("shows a delete badge when owner hovers over another participant's avatar", () => {
-      const onRemoveAvatar = vi.fn();
-      render(
-        <RoleAvatarRail
-          avatars={avatars}
-          maxVisible={6}
-          isOwner={true}
-          currentParticipantId="user_1"
-          onRemoveAvatar={onRemoveAvatar}
-        />
-      );
+  it("calls onClickHumanAvatar when a human avatar is clicked", () => {
+    const onClickHumanAvatar = vi.fn();
+    render(
+      <RoleAvatarRail
+        avatars={avatars}
+        maxVisible={6}
+        onClickHumanAvatar={onClickHumanAvatar}
+      />
+    );
 
-      const bobStack = screen.getByLabelText("Bob, Member, typing").closest(".role-avatar-stack") as HTMLElement;
-      fireEvent.mouseEnter(bobStack);
+    const bobStack = screen.getByLabelText("Bob, Member, typing").closest(".role-avatar-stack") as HTMLElement;
+    fireEvent.click(bobStack);
 
-      const deleteBtn = screen.getByRole("button", { name: /remove Bob/i });
-      expect(deleteBtn).toBeInTheDocument();
-    });
+    expect(onClickHumanAvatar).toHaveBeenCalled();
+  });
 
-    it("does not show delete badge when non-owner hovers", () => {
-      const onRemoveAvatar = vi.fn();
-      render(
-        <RoleAvatarRail
-          avatars={avatars}
-          maxVisible={6}
-          isOwner={false}
-          currentParticipantId="user_2"
-          onRemoveAvatar={onRemoveAvatar}
-        />
-      );
+  it("calls onClickAgentAvatar when an agent avatar is clicked", () => {
+    const onClickAgentAvatar = vi.fn();
+    render(
+      <RoleAvatarRail
+        avatars={avatars}
+        maxVisible={6}
+        onClickAgentAvatar={onClickAgentAvatar}
+      />
+    );
 
-      const aliceStack = screen.getByLabelText("Alice, Owner, online").closest(".role-avatar-stack") as HTMLElement;
-      fireEvent.mouseEnter(aliceStack);
+    const agentStack = screen.getByLabelText("Claude Code Agent, AI, working").closest(".role-avatar-stack") as HTMLElement;
+    fireEvent.click(agentStack);
 
-      expect(screen.queryByRole("button", { name: /remove/i })).not.toBeInTheDocument();
-    });
+    expect(onClickAgentAvatar).toHaveBeenCalled();
+  });
 
-    it("does not show delete badge on owner's own avatar", () => {
-      const onRemoveAvatar = vi.fn();
-      render(
-        <RoleAvatarRail
-          avatars={avatars}
-          maxVisible={6}
-          isOwner={true}
-          currentParticipantId="user_1"
-          onRemoveAvatar={onRemoveAvatar}
-        />
-      );
+  it("does not show hover delete badge", () => {
+    const onRemoveAvatar = vi.fn();
+    render(
+      <RoleAvatarRail
+        avatars={avatars}
+        maxVisible={6}
+        isOwner={true}
+        currentParticipantId="user_1"
+        onRemoveAvatar={onRemoveAvatar}
+      />
+    );
 
-      const aliceStack = screen.getByLabelText("Alice, Owner, online").closest(".role-avatar-stack") as HTMLElement;
-      fireEvent.mouseEnter(aliceStack);
+    const bobStack = screen.getByLabelText("Bob, Member, typing").closest(".role-avatar-stack") as HTMLElement;
+    fireEvent.mouseEnter(bobStack);
 
-      expect(screen.queryByRole("button", { name: /remove Alice/i })).not.toBeInTheDocument();
-    });
-
-    it("calls onRemoveAvatar with the correct id when delete badge is clicked", () => {
-      const onRemoveAvatar = vi.fn();
-      render(
-        <RoleAvatarRail
-          avatars={avatars}
-          maxVisible={6}
-          isOwner={true}
-          currentParticipantId="user_1"
-          onRemoveAvatar={onRemoveAvatar}
-        />
-      );
-
-      const bobStack = screen.getByLabelText("Bob, Member, typing").closest(".role-avatar-stack") as HTMLElement;
-      fireEvent.mouseEnter(bobStack);
-
-      const deleteBtn = screen.getByRole("button", { name: /remove Bob/i });
-      fireEvent.click(deleteBtn);
-
-      expect(onRemoveAvatar).toHaveBeenCalledWith("user_2");
-    });
-
-    it("shows delete badge on agent avatars for owner", () => {
-      const onRemoveAvatar = vi.fn();
-      render(
-        <RoleAvatarRail
-          avatars={avatars}
-          maxVisible={6}
-          isOwner={true}
-          currentParticipantId="user_1"
-          onRemoveAvatar={onRemoveAvatar}
-        />
-      );
-
-      const agentStack = screen.getByLabelText("Claude Code Agent, AI, working").closest(".role-avatar-stack") as HTMLElement;
-      fireEvent.mouseEnter(agentStack);
-
-      const deleteBtn = screen.getByRole("button", { name: /remove Claude Code Agent/i });
-      expect(deleteBtn).toBeInTheDocument();
-    });
+    expect(screen.queryByRole("button", { name: /remove/i })).not.toBeInTheDocument();
   });
 });

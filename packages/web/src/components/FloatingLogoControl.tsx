@@ -99,8 +99,8 @@ export function FloatingLogoControl({ active, pendingCount, onOpen, storageKey =
         if (event.key === "ArrowDown") persist(y + 2);
         if (event.key === "ArrowUp") persist(y - 2);
       }}
-      aria-label={t("room.controls")}
-      title={t("room.controls")}
+      aria-label="CACP"
+      title="CACP"
     >
       <span className="floating-logo-control__mark" aria-hidden="true"><FloatingLogoMark /></span>
       {pendingCount > 0 ? <span className="floating-logo-control__badge">{pendingCount}</span> : null}
