@@ -64,7 +64,7 @@ export interface CodexRuntimeStatus {
 }
 
 export interface CodexRuntimeInput {
-  sdk: CodexSdk;
+  sdk?: CodexSdk;
   agentId: string;
   workingDir: string;
   permissionLevel: string;

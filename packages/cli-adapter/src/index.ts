@@ -233,12 +233,13 @@ async function main() {
             importId: payload.preview_id,
             agentId: registered.agent_id,
             sessionId: payload.session_id,
-            title: `Codex session ${payload.session_id.slice(0, 8)}`
+            title: `Codex session ${payload.session_id.slice(0, 8)}`,
+            filePath
           });
           for (const chunk of chunkCodexImportMessages(previewResult.messages)) {
             await roomClient.uploadAgentPreviewMessages(payload.preview_id, chunk.map((message) => {
               const { import_id: _importId, ...previewMessage } = message;
-              return { ...previewMessage, preview_id: payload.preview_id! };
+              return { ...previewMessage, preview_id: payload.preview_id!, provider: "codex-cli" };
             }));
           }
           await roomClient.completeAgentPreview(payload.preview_id, {
@@ -281,12 +282,13 @@ async function main() {
           let importClosed = false;
           try {
             const filePath = await findCodexSessionFile({ sessionId: payload.session_id });
+            if (!filePath) throw new Error("Codex session file not found");
             const importResult = await buildCodexImportFromSessionFile({
               importId,
               agentId: registered.agent_id,
               sessionId: payload.session_id,
               title: fallbackTitle,
-              filePath: filePath ?? undefined
+              filePath
             });
             const startedAt = new Date().toISOString();
             await roomClient.startAgentImport({
@@ -299,7 +301,7 @@ async function main() {
               started_at: startedAt
             });
             for (const chunk of chunkCodexImportMessages(importResult.messages)) {
-              await roomClient.uploadAgentImportMessages(importId, chunk);
+              await roomClient.uploadAgentImportMessages(importId, chunk.map((message) => ({ ...message, provider: "codex-cli" })));
             }
             await codexRuntime.selectSession({ mode: "resume", sessionId: payload.session_id });
             await roomClient.completeAgentImport(importId, {

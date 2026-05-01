@@ -1,4 +1,5 @@
 import type { AgentRuntimeMetrics, AgentRuntimePhase } from "@cacp/protocol";
+import { loadCodexSdk } from "./codex-sdk.js";
 import type { CodexRuntimeInput, CodexRuntimeStatus, CodexThread, CodexThreadEvent, CodexTurnInput, CodexTurnResult } from "./types.js";
 import { toCodexThreadOptions } from "./types.js";
 
@@ -24,7 +25,8 @@ function promptForTurn(input: CodexTurnInput, permissionLevel: string): string {
 }
 
 export class CodexRuntime {
-  private sdk: CodexRuntimeInput["sdk"];
+  private sdk: CodexRuntimeInput["sdk"] | undefined;
+  private sdkPromise: Promise<NonNullable<CodexRuntimeInput["sdk"]>>;
   private agentId: string;
   private workingDir: string;
   private permissionLevel: string;
@@ -36,6 +38,7 @@ export class CodexRuntime {
 
   constructor(input: CodexRuntimeInput) {
     this.sdk = input.sdk;
+    this.sdkPromise = Promise.resolve(input.sdk ?? loadCodexSdk());
     this.agentId = input.agentId;
     this.workingDir = input.workingDir;
     this.permissionLevel = input.permissionLevel;
@@ -45,12 +48,13 @@ export class CodexRuntime {
   }
 
   async selectSession(selection: { mode: "fresh" } | { mode: "resume"; sessionId: string }): Promise<void> {
+    const sdk = await this.sdkPromise;
     const options = toCodexThreadOptions({ workingDir: this.workingDir, permissionLevel: this.permissionLevel, model: this.model });
     if (selection.mode === "fresh") {
-      this.thread = this.sdk.startThread(options);
+      this.thread = sdk.startThread(options);
       this.sessionId = this.thread.id ?? undefined;
     } else {
-      this.thread = this.sdk.resumeThread(selection.sessionId, options);
+      this.thread = sdk.resumeThread(selection.sessionId, options);
       this.sessionId = selection.sessionId;
     }
   }
