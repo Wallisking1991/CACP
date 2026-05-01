@@ -1,4 +1,5 @@
 import type {
+  AgentSessionPreviewMessagePayload,
   AgentSessionSummary,
   CacpEvent,
   ClaudeRuntimeMetrics,
@@ -21,6 +22,11 @@ export interface MessageView {
   claudeSessionId?: string;
   claudeSourceKind?: string;
   claudeImportSequence?: number;
+  agentImportId?: string;
+  agentSessionId?: string;
+  agentProvider?: string;
+  agentSourceKind?: string;
+  agentImportSequence?: number;
 }
 export interface StreamingTurnView { turn_id: string; agent_id: string; text: string }
 export interface JoinRequestView {
@@ -110,6 +116,30 @@ export type AgentSessionSelectionView =
   | { agent_id: string; provider: string; mode: "fresh"; selected_by: string }
   | { agent_id: string; provider: string; mode: "resume"; session_id: string; selected_by: string };
 
+export interface AgentSessionPreviewView {
+  preview_id: string;
+  agent_id: string;
+  provider: string;
+  session_id: string;
+  requested_by?: string;
+  status: "requested" | "completed" | "failed";
+  messages: AgentSessionPreviewMessagePayload[];
+  previewed_message_count?: number;
+  error?: string;
+}
+
+export interface AgentImportView {
+  import_id: string;
+  agent_id: string;
+  provider: string;
+  session_id: string;
+  title: string;
+  message_count: number;
+  imported_message_count?: number;
+  status: "started" | "completed" | "failed";
+  error?: string;
+}
+
 export interface AgentRuntimeStatusView {
   agent_id: string;
   provider?: string;
@@ -176,6 +206,8 @@ export interface RoomViewState {
   claudeRuntimeStatuses: ClaudeRuntimeStatusView[];
   agentSessionCatalog?: AgentSessionCatalogView;
   agentSessionSelection?: AgentSessionSelectionView;
+  agentSessionPreviews: AgentSessionPreviewView[];
+  agentImports: AgentImportView[];
   agentRuntimeStatuses: AgentRuntimeStatusView[];
   participantActivity: Map<string, ParticipantActivityView>;
   avatarStatuses: AvatarStatusView[];
@@ -196,7 +228,7 @@ function failedTurnMessage(event: CacpEvent, streamedText: string | undefined): 
   };
 }
 
-function orderClaudeImportMessages(messages: MessageView[]): MessageView[] {
+function orderImportedMessages(messages: MessageView[]): MessageView[] {
   const importMessages = new Map<string, MessageView[]>();
   for (const message of messages) {
     if (message.kind !== "claude_import_banner" && message.kind.startsWith("claude_import_") && message.claudeImportId) {
@@ -204,9 +236,14 @@ function orderClaudeImportMessages(messages: MessageView[]): MessageView[] {
       current.push(message);
       importMessages.set(message.claudeImportId, current);
     }
+    if (message.kind !== "agent_import_banner" && message.kind.startsWith("agent_import_") && message.agentImportId) {
+      const current = importMessages.get(message.agentImportId) ?? [];
+      current.push(message);
+      importMessages.set(message.agentImportId, current);
+    }
   }
   for (const grouped of importMessages.values()) {
-    grouped.sort((a, b) => (a.claudeImportSequence ?? 0) - (b.claudeImportSequence ?? 0));
+    grouped.sort((a, b) => (a.claudeImportSequence ?? a.agentImportSequence ?? 0) - (b.claudeImportSequence ?? b.agentImportSequence ?? 0));
   }
 
   const emittedImports = new Set<string>();
@@ -215,10 +252,17 @@ function orderClaudeImportMessages(messages: MessageView[]): MessageView[] {
     if (message.kind !== "claude_import_banner" && message.kind.startsWith("claude_import_") && message.claudeImportId) {
       continue;
     }
+    if (message.kind !== "agent_import_banner" && message.kind.startsWith("agent_import_") && message.agentImportId) {
+      continue;
+    }
     ordered.push(message);
     if (message.kind === "claude_import_banner" && message.claudeImportId && !emittedImports.has(message.claudeImportId)) {
       ordered.push(...(importMessages.get(message.claudeImportId) ?? []));
       emittedImports.add(message.claudeImportId);
+    }
+    if (message.kind === "agent_import_banner" && message.agentImportId && !emittedImports.has(message.agentImportId)) {
+      ordered.push(...(importMessages.get(message.agentImportId) ?? []));
+      emittedImports.add(message.agentImportId);
     }
   }
   for (const [importId, grouped] of importMessages) {
@@ -310,6 +354,8 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
   const claudeRuntimeStatuses = new Map<string, ClaudeRuntimeStatusView>();
   let agentSessionCatalog: AgentSessionCatalogView | undefined;
   let agentSessionSelection: AgentSessionSelectionView | undefined;
+  const agentSessionPreviews = new Map<string, AgentSessionPreviewView>();
+  const agentImports = new Map<string, AgentImportView>();
   const agentRuntimeStatuses = new Map<string, AgentRuntimeStatusView>();
   const participantActivity = new Map<string, ParticipantActivityView>();
   let latestSenderId: string | undefined;
@@ -574,6 +620,123 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
         error: typeof event.payload.error === "string" ? event.payload.error : "Import failed"
       });
     }
+    if (event.type === "agent.session_preview.requested" && typeof event.payload.preview_id === "string" && typeof event.payload.agent_id === "string" && typeof event.payload.provider === "string" && typeof event.payload.session_id === "string") {
+      agentSessionPreviews.set(event.payload.preview_id, {
+        preview_id: event.payload.preview_id,
+        agent_id: event.payload.agent_id,
+        provider: event.payload.provider,
+        session_id: event.payload.session_id,
+        requested_by: typeof event.payload.requested_by === "string" ? event.payload.requested_by : undefined,
+        status: "requested",
+        messages: []
+      });
+    }
+    if (event.type === "agent.session_preview.message" && typeof event.payload.preview_id === "string" && typeof event.payload.agent_id === "string" && typeof event.payload.provider === "string" && typeof event.payload.session_id === "string" && typeof event.payload.text === "string") {
+      const existing = agentSessionPreviews.get(event.payload.preview_id) ?? {
+        preview_id: event.payload.preview_id,
+        agent_id: event.payload.agent_id,
+        provider: event.payload.provider,
+        session_id: event.payload.session_id,
+        status: "requested" as const,
+        messages: []
+      };
+      agentSessionPreviews.set(event.payload.preview_id, {
+        ...existing,
+        messages: [...existing.messages, event.payload as unknown as AgentSessionPreviewMessagePayload].sort((a, b) => a.sequence - b.sequence)
+      });
+    }
+    if (event.type === "agent.session_preview.completed" && typeof event.payload.preview_id === "string") {
+      const existing = agentSessionPreviews.get(event.payload.preview_id);
+      if (existing) agentSessionPreviews.set(event.payload.preview_id, {
+        ...existing,
+        status: "completed",
+        previewed_message_count: typeof event.payload.previewed_message_count === "number" ? event.payload.previewed_message_count : existing.messages.length
+      });
+    }
+    if (event.type === "agent.session_preview.failed" && typeof event.payload.preview_id === "string") {
+      const existing = agentSessionPreviews.get(event.payload.preview_id);
+      agentSessionPreviews.set(event.payload.preview_id, {
+        preview_id: event.payload.preview_id,
+        agent_id: typeof event.payload.agent_id === "string" ? event.payload.agent_id : existing?.agent_id ?? event.actor_id,
+        provider: typeof event.payload.provider === "string" ? event.payload.provider : existing?.provider ?? "local-agent",
+        session_id: typeof event.payload.session_id === "string" ? event.payload.session_id : existing?.session_id ?? "unknown",
+        requested_by: existing?.requested_by,
+        messages: existing?.messages ?? [],
+        status: "failed",
+        error: typeof event.payload.error === "string" ? event.payload.error : "Preview failed"
+      });
+    }
+    if (event.type === "agent.session_import.started" && typeof event.payload.import_id === "string" && typeof event.payload.agent_id === "string" && typeof event.payload.provider === "string" && typeof event.payload.session_id === "string" && typeof event.payload.title === "string") {
+      agentImports.set(event.payload.import_id, {
+        import_id: event.payload.import_id,
+        agent_id: event.payload.agent_id,
+        provider: event.payload.provider,
+        session_id: event.payload.session_id,
+        title: event.payload.title,
+        message_count: typeof event.payload.message_count === "number" ? event.payload.message_count : 0,
+        status: "started"
+      });
+      messages.push({
+        message_id: `agent-import-banner-${event.payload.import_id}`,
+        actor_id: "system",
+        text: "__AGENT_IMPORT_BANNER__",
+        kind: "agent_import_banner",
+        created_at: event.created_at,
+        agentImportId: event.payload.import_id,
+        agentSessionId: event.payload.session_id,
+        agentProvider: event.payload.provider
+      });
+    }
+    if (event.type === "agent.session_import.message" && typeof event.payload.import_id === "string" && typeof event.payload.provider === "string" && typeof event.payload.session_id === "string" && typeof event.payload.text === "string") {
+      messages.push({
+        message_id: `agent-import-${event.payload.import_id}-${typeof event.payload.sequence === "number" ? event.payload.sequence : messages.length}`,
+        actor_id: typeof event.payload.agent_id === "string" ? event.payload.agent_id : event.actor_id,
+        text: event.payload.text,
+        kind: `agent_import_${typeof event.payload.author_role === "string" ? event.payload.author_role : "system"}`,
+        created_at: typeof event.payload.original_created_at === "string" ? event.payload.original_created_at : event.created_at,
+        agentImportId: event.payload.import_id,
+        agentSessionId: event.payload.session_id,
+        agentProvider: event.payload.provider,
+        agentSourceKind: typeof event.payload.source_kind === "string" ? event.payload.source_kind : undefined,
+        agentImportSequence: typeof event.payload.sequence === "number" ? event.payload.sequence : undefined
+      });
+    }
+    if (event.type === "agent.session_import.completed" && typeof event.payload.import_id === "string") {
+      const existing = agentImports.get(event.payload.import_id);
+      if (existing) agentImports.set(event.payload.import_id, {
+        ...existing,
+        status: "completed",
+        imported_message_count: typeof event.payload.imported_message_count === "number" ? event.payload.imported_message_count : existing.message_count
+      });
+    }
+    if (event.type === "agent.session_import.failed" && typeof event.payload.import_id === "string") {
+      const existing = agentImports.get(event.payload.import_id);
+      const sessionId = typeof event.payload.session_id === "string" ? event.payload.session_id : existing?.session_id ?? "unknown";
+      const provider = typeof event.payload.provider === "string" ? event.payload.provider : existing?.provider ?? "local-agent";
+      if (!existing) {
+        messages.push({
+          message_id: `agent-import-banner-${event.payload.import_id}`,
+          actor_id: "system",
+          text: "__AGENT_IMPORT_BANNER__",
+          kind: "agent_import_banner",
+          created_at: event.created_at,
+          agentImportId: event.payload.import_id,
+          agentSessionId: sessionId,
+          agentProvider: provider
+        });
+      }
+      agentImports.set(event.payload.import_id, {
+        import_id: event.payload.import_id,
+        agent_id: typeof event.payload.agent_id === "string" ? event.payload.agent_id : existing?.agent_id ?? event.actor_id,
+        provider,
+        session_id: sessionId,
+        title: existing?.title ?? `Agent session ${sessionId.slice(0, 8)}`,
+        message_count: existing?.message_count ?? 0,
+        imported_message_count: existing?.imported_message_count,
+        status: "failed",
+        error: typeof event.payload.error === "string" ? event.payload.error : "Import failed"
+      });
+    }
     if (event.type === "claude.runtime.status_changed" && typeof event.payload.turn_id === "string" && typeof event.payload.status_id === "string") {
       claudeRuntimeStatuses.set(event.payload.status_id, event.payload as unknown as ClaudeRuntimeStatusView);
     }
@@ -773,7 +936,7 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     participants: [...participants.values()],
     agents: [...agents.values()],
     activeAgentId,
-    messages: orderClaudeImportMessages(messages),
+    messages: orderImportedMessages(messages),
     streamingTurns: [...streamingTurns.values()],
     activeCollection,
     collectionHistory,
@@ -792,6 +955,8 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
       .slice(0, 1),
     agentSessionCatalog,
     agentSessionSelection,
+    agentSessionPreviews: [...agentSessionPreviews.values()],
+    agentImports: [...agentImports.values()],
     agentRuntimeStatuses: [...agentRuntimeStatuses.values()]
       .sort((a, b) => (b.updated_at ?? b.started_at ?? "").localeCompare(a.updated_at ?? a.started_at ?? ""))
       .slice(0, 1),

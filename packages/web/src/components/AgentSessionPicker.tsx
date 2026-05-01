@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import type { AgentSessionSummary } from "@cacp/protocol";
 import { useT } from "../i18n/useT.js";
-import type { AgentSessionCatalogView, ClaudeSessionPreviewView, AgentSessionSelectionView } from "../room-state.js";
+import type { AgentSessionCatalogView, AgentSessionPreviewView, AgentSessionSelectionView } from "../room-state.js";
 
 interface Props {
   canManageRoom: boolean;
@@ -9,7 +9,7 @@ interface Props {
   provider: "claude-code" | "codex-cli";
   catalog?: AgentSessionCatalogView;
   selection?: AgentSessionSelectionView;
-  previews?: ClaudeSessionPreviewView[];
+  previews?: AgentSessionPreviewView[];
   onRequestPreview?: (sessionId: string) => Promise<void>;
   onSelect(selection: { mode: "fresh" } | { mode: "resume"; sessionId: string }): Promise<void>;
 }

@@ -435,7 +435,14 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (event.type === "claude.session_catalog.updated") {
       return hasAnyRole(participant, ["owner", "admin"]);
     }
+    if (event.type === "agent.session_catalog.updated") {
+      return hasAnyRole(participant, ["owner", "admin"]);
+    }
     if (event.type.startsWith("claude.session_preview.")) {
+      if (participant.role === "agent") return event.payload.agent_id === participant.id;
+      return hasAnyRole(participant, ["owner", "admin"]);
+    }
+    if (event.type.startsWith("agent.session_preview.")) {
       if (participant.role === "agent") return event.payload.agent_id === participant.id;
       return hasAnyRole(participant, ["owner", "admin"]);
     }
@@ -667,9 +674,12 @@ export async function buildServer(options: BuildServerOptions = {}) {
     }
     const turnId = prefixedId("turn");
     const capabilities = findAgentCapabilities(events, activeAgentId);
-    const isClaudeAgent = capabilities.includes("claude-code");
-    if (isClaudeAgent) {
-      if (!hasClaudeSessionReady(events, activeAgentId)) return [];
+    const localProvider = providerForCapabilities(capabilities);
+    if (localProvider) {
+      const ready = localProvider === "claude-code"
+        ? hasClaudeSessionReady(events, activeAgentId) || hasLocalAgentSessionReady(events, activeAgentId, localProvider)
+        : hasLocalAgentSessionReady(events, activeAgentId, localProvider);
+      if (!ready) return [];
       const room = store.getRoom(roomId);
       const participants = store.getParticipants(roomId);
       const names = new Map(participants.map((participant) => [participant.id, participant.display_name]));
@@ -741,13 +751,14 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return { ok: true };
   }
 
-  function validateLocalAgentRuntime(roomId: string, agentId: string, turnId: string): { ok: true } | { ok: false; error: string; status: number } {
+  function validateLocalAgentRuntime(roomId: string, agentId: string, provider: "claude-code" | "codex-cli", turnId: string): { ok: true } | { ok: false; error: string; status: number } {
     const events = store.listEvents(roomId);
     const activeAgentId = findActiveAgentId(events);
     if (activeAgentId !== agentId) return { ok: false, error: "not_active_agent", status: 403 };
     const capabilities = findAgentCapabilities(events, agentId);
     const actualProvider = providerForCapabilities(capabilities);
     if (!actualProvider) return { ok: false, error: "missing_local_agent_capability", status: 403 };
+    if (actualProvider !== provider) return { ok: false, error: "provider_mismatch", status: 403 };
     const openTurn = findAnyOpenTurn(eventsAfterLastHistoryClear(events));
     if (!openTurn || openTurn.agent_id !== agentId) return { ok: false, error: "no_active_turn", status: 403 };
     if (openTurn.turn_id !== turnId) return { ok: false, error: "turn_not_found", status: 403 };
@@ -808,6 +819,63 @@ export async function buildServer(options: BuildServerOptions = {}) {
       }
     }
     return undefined;
+  }
+
+  function latestLocalAgentSessionSelection(events: CacpEvent[], agentId: string, provider: "claude-code" | "codex-cli"): { mode: "fresh" } | { mode: "resume"; session_id: string } | undefined {
+    for (const storedEvent of [...events].reverse()) {
+      if (storedEvent.type !== "agent.session_selected" || storedEvent.payload.agent_id !== agentId || storedEvent.payload.provider !== provider) continue;
+      if (storedEvent.payload.mode === "fresh") return { mode: "fresh" };
+      if (storedEvent.payload.mode === "resume" && typeof storedEvent.payload.session_id === "string") {
+        return { mode: "resume", session_id: storedEvent.payload.session_id };
+      }
+    }
+    return undefined;
+  }
+
+  function hasLocalAgentSessionReady(events: CacpEvent[], agentId: string, provider: "claude-code" | "codex-cli"): boolean {
+    let selectionIndex = -1;
+    let selection: { mode: "fresh" } | { mode: "resume"; session_id: string } | undefined;
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const storedEvent = events[index];
+      if (storedEvent.type !== "agent.session_selected" || storedEvent.payload.agent_id !== agentId || storedEvent.payload.provider !== provider) continue;
+      if (storedEvent.payload.mode === "fresh") {
+        selectionIndex = index;
+        selection = { mode: "fresh" };
+        break;
+      }
+      if (storedEvent.payload.mode === "resume" && typeof storedEvent.payload.session_id === "string") {
+        selectionIndex = index;
+        selection = { mode: "resume", session_id: storedEvent.payload.session_id };
+        break;
+      }
+    }
+    if (!selection || selectionIndex < 0) return false;
+    return events.slice(selectionIndex + 1).some((storedEvent) => {
+      if (storedEvent.type !== "agent.session_ready" || storedEvent.payload.agent_id !== agentId || storedEvent.payload.provider !== provider) return false;
+      if (selection.mode === "fresh") return storedEvent.payload.mode === "fresh";
+      return storedEvent.payload.mode === "resume" && storedEvent.payload.session_id === selection.session_id;
+    });
+  }
+
+  function validateSelectedLocalAgentResumeSession(roomId: string, agentId: string, provider: "claude-code" | "codex-cli", sessionId: string): { ok: true } | { ok: false; error: string; status: number } {
+    const selection = latestLocalAgentSessionSelection(store.listEvents(roomId), agentId, provider);
+    if (!selection || selection.mode !== "resume") {
+      return { ok: false, error: "agent_resume_session_not_selected", status: 409 };
+    }
+    if (selection.session_id !== sessionId) {
+      return { ok: false, error: "agent_resume_session_mismatch", status: 409 };
+    }
+    return { ok: true };
+  }
+
+  function validateSelectedLocalAgentSessionReady(roomId: string, agentId: string, provider: "claude-code" | "codex-cli", body: { mode: "fresh" } | { mode: "resume"; session_id: string }): { ok: true } | { ok: false; error: string; status: number } {
+    const selection = latestLocalAgentSessionSelection(store.listEvents(roomId), agentId, provider);
+    if (!selection) return { ok: false, error: "agent_session_not_selected", status: 409 };
+    if (body.mode !== selection.mode) return { ok: false, error: "agent_session_selection_mismatch", status: 409 };
+    if (body.mode === "resume" && selection.mode === "resume" && body.session_id !== selection.session_id) {
+      return { ok: false, error: "agent_session_selection_mismatch", status: 409 };
+    }
+    return { ok: true };
   }
 
   function validateSelectedClaudeResumeSession(roomId: string, agentId: string, sessionId: string): { ok: true } | { ok: false; error: string; status: number } {
@@ -907,6 +975,91 @@ export async function buildServer(options: BuildServerOptions = {}) {
       return { ok: false, error: "preview_session_mismatch", status: 400 };
     }
     const uploaded = related.filter((storedEvent) => storedEvent.type === "claude.session_preview.message");
+    const sequenceSet = new Set(uploaded.map((storedEvent) => storedEvent.payload.sequence));
+    const hasContinuousSequence = uploaded.every((storedEvent) => typeof storedEvent.payload.sequence === "number") &&
+      Array.from({ length: uploaded.length }, (_, index) => index).every((sequence) => sequenceSet.has(sequence));
+    if (body.previewed_message_count !== uploaded.length || !hasContinuousSequence) {
+      return { ok: false, error: "preview_incomplete", status: 409 };
+    }
+    return { ok: true };
+  }
+
+  function agentImportEvents(roomId: string, importId: string): CacpEvent[] {
+    return store.listEvents(roomId).filter((storedEvent) =>
+      typeof storedEvent.payload.import_id === "string" &&
+      storedEvent.payload.import_id === importId &&
+      storedEvent.type.startsWith("agent.session_import.")
+    );
+  }
+
+  function validateAgentImportMessageBatch(roomId: string, importId: string, messages: Array<{ agent_id: string; provider: string; session_id: string; sequence: number }>): { ok: true } | { ok: false; error: string; status: number } {
+    const related = agentImportEvents(roomId, importId);
+    const started = related.find((storedEvent) => storedEvent.type === "agent.session_import.started");
+    if (!started) return { ok: false, error: "unknown_import", status: 404 };
+    if (related.some((storedEvent) => storedEvent.type === "agent.session_import.completed" || storedEvent.type === "agent.session_import.failed")) {
+      return { ok: false, error: "import_closed", status: 409 };
+    }
+    if (!messages.every((message) => message.agent_id === started.payload.agent_id && message.provider === started.payload.provider && message.session_id === started.payload.session_id)) {
+      return { ok: false, error: "import_session_mismatch", status: 400 };
+    }
+    const existingCount = related.filter((storedEvent) => storedEvent.type === "agent.session_import.message").length;
+    const expectedSequences = messages.map((_, index) => existingCount + index);
+    if (!messages.every((message, index) => message.sequence === expectedSequences[index])) {
+      return { ok: false, error: "import_sequence_gap", status: 409 };
+    }
+    return { ok: true };
+  }
+
+  function validateAgentImportComplete(roomId: string, importId: string, body: { agent_id: string; provider: string; session_id: string; imported_message_count: number }): { ok: true } | { ok: false; error: string; status: number } {
+    const related = agentImportEvents(roomId, importId);
+    const started = related.find((storedEvent) => storedEvent.type === "agent.session_import.started");
+    if (!started) return { ok: false, error: "unknown_import", status: 404 };
+    if (related.some((storedEvent) => storedEvent.type === "agent.session_import.completed" || storedEvent.type === "agent.session_import.failed")) {
+      return { ok: false, error: "import_closed", status: 409 };
+    }
+    if (body.agent_id !== started.payload.agent_id || body.provider !== started.payload.provider || body.session_id !== started.payload.session_id) {
+      return { ok: false, error: "import_session_mismatch", status: 400 };
+    }
+    const expectedCount = typeof started.payload.message_count === "number" ? started.payload.message_count : undefined;
+    const uploaded = related.filter((storedEvent) => storedEvent.type === "agent.session_import.message");
+    const sequenceSet = new Set(uploaded.map((storedEvent) => storedEvent.payload.sequence));
+    const hasContinuousSequence = uploaded.every((storedEvent) => typeof storedEvent.payload.sequence === "number") &&
+      Array.from({ length: uploaded.length }, (_, index) => index).every((sequence) => sequenceSet.has(sequence));
+    if (body.imported_message_count !== uploaded.length || expectedCount !== uploaded.length || !hasContinuousSequence) {
+      return { ok: false, error: "import_incomplete", status: 409 };
+    }
+    return { ok: true };
+  }
+
+  function agentPreviewEvents(roomId: string, previewId: string): CacpEvent[] {
+    return store.listEvents(roomId).filter((storedEvent) =>
+      typeof storedEvent.payload.preview_id === "string" &&
+      storedEvent.payload.preview_id === previewId &&
+      storedEvent.type.startsWith("agent.session_preview.")
+    );
+  }
+
+  function validateAgentPreviewOpen(roomId: string, previewId: string, agentId: string, provider: string, sessionId: string): { ok: true } | { ok: false; error: string; status: number } {
+    const related = agentPreviewEvents(roomId, previewId);
+    const requested = related.find((storedEvent) => storedEvent.type === "agent.session_preview.requested");
+    if (!requested) return { ok: false, error: "unknown_preview", status: 404 };
+    if (requested.payload.agent_id !== agentId || requested.payload.provider !== provider || requested.payload.session_id !== sessionId) {
+      return { ok: false, error: "preview_session_mismatch", status: 400 };
+    }
+    if (related.some((storedEvent) => storedEvent.type === "agent.session_preview.completed" || storedEvent.type === "agent.session_preview.failed")) {
+      return { ok: false, error: "preview_closed", status: 409 };
+    }
+    return { ok: true };
+  }
+
+  function validateAgentPreviewComplete(roomId: string, previewId: string, body: { agent_id: string; provider: string; session_id: string; previewed_message_count: number }): { ok: true } | { ok: false; error: string; status: number } {
+    const related = agentPreviewEvents(roomId, previewId);
+    const requested = related.find((storedEvent) => storedEvent.type === "agent.session_preview.requested");
+    if (!requested) return { ok: false, error: "unknown_preview", status: 404 };
+    if (requested.payload.agent_id !== body.agent_id || requested.payload.provider !== body.provider || requested.payload.session_id !== body.session_id) {
+      return { ok: false, error: "preview_session_mismatch", status: 400 };
+    }
+    const uploaded = related.filter((storedEvent) => storedEvent.type === "agent.session_preview.message");
     const sequenceSet = new Set(uploaded.map((storedEvent) => storedEvent.payload.sequence));
     const hasContinuousSequence = uploaded.every((storedEvent) => typeof storedEvent.payload.sequence === "number") &&
       Array.from({ length: uploaded.length }, (_, index) => index).every((sequence) => sequenceSet.has(sequence));
@@ -1874,7 +2027,154 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!assertAgentOwnsPayload(participant, body.agent_id)) return deny(reply, "forbidden", 403);
     const validation = validateLocalAgentProvider(request.params.roomId, body.agent_id, body.provider);
     if (!validation.ok) return deny(reply, validation.error, validation.status);
+    const selectionValidation = validateSelectedLocalAgentSessionReady(request.params.roomId, body.agent_id, body.provider, body);
+    if (!selectionValidation.ok) return deny(reply, selectionValidation.error, selectionValidation.status);
     appendAndPublish(event(request.params.roomId, "agent.session_ready", participant.id, body));
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/agent-sessions/previews", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    if (!hasHumanRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
+    const body = AgentSessionPreviewRequestBodySchema.parse(request.body);
+    const validation = validateLocalAgentProvider(request.params.roomId, body.agent_id, body.provider);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    const previewId = prefixedId("preview");
+    const payload = {
+      preview_id: previewId,
+      agent_id: body.agent_id,
+      provider: body.provider,
+      session_id: body.session_id,
+      requested_by: participant.id,
+      requested_at: new Date().toISOString()
+    };
+    appendAndPublish(event(request.params.roomId, "agent.session_preview.requested", participant.id, payload));
+    return reply.code(201).send({ ok: true, preview_id: previewId });
+  });
+
+  app.post<{ Params: { roomId: string; previewId: string } }>("/rooms/:roomId/agent-sessions/previews/:previewId/messages", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const body = AgentSessionPreviewMessagesBodySchema.parse(request.body);
+    if (!body.every((message) => message.preview_id === request.params.previewId)) return deny(reply, "preview_id_mismatch", 400);
+    if (!body.every((message) => assertAgentOwnsPayload(participant, message.agent_id))) return deny(reply, "forbidden", 403);
+    const first = body[0];
+    const validation = validateLocalAgentProvider(request.params.roomId, first.agent_id, first.provider);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    const previewValidation = validateAgentPreviewOpen(request.params.roomId, request.params.previewId, first.agent_id, first.provider, first.session_id);
+    if (!previewValidation.ok) return deny(reply, previewValidation.error, previewValidation.status);
+    const storedEvents = store.transaction(() => body.map((message) => store.appendEvent(event(request.params.roomId, "agent.session_preview.message", participant.id, message))));
+    publishEvents(storedEvents);
+    return reply.code(201).send({ ok: true, previewed: body.length });
+  });
+
+  app.post<{ Params: { roomId: string; previewId: string } }>("/rooms/:roomId/agent-sessions/previews/:previewId/complete", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const body = AgentSessionPreviewCompleteBodySchema.parse(request.body);
+    if (body.preview_id !== request.params.previewId) return deny(reply, "preview_id_mismatch", 400);
+    if (!assertAgentOwnsPayload(participant, body.agent_id)) return deny(reply, "forbidden", 403);
+    const validation = validateLocalAgentProvider(request.params.roomId, body.agent_id, body.provider);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    const previewValidation = validateAgentPreviewOpen(request.params.roomId, request.params.previewId, body.agent_id, body.provider, body.session_id);
+    if (!previewValidation.ok) return deny(reply, previewValidation.error, previewValidation.status);
+    const completeValidation = validateAgentPreviewComplete(request.params.roomId, request.params.previewId, body);
+    if (!completeValidation.ok) return deny(reply, completeValidation.error, completeValidation.status);
+    appendAndPublish(event(request.params.roomId, "agent.session_preview.completed", participant.id, body));
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string; previewId: string } }>("/rooms/:roomId/agent-sessions/previews/:previewId/fail", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const body = AgentSessionPreviewFailBodySchema.parse(request.body);
+    if (body.preview_id !== request.params.previewId) return deny(reply, "preview_id_mismatch", 400);
+    if (!assertAgentOwnsPayload(participant, body.agent_id)) return deny(reply, "forbidden", 403);
+    const validation = validateLocalAgentProvider(request.params.roomId, body.agent_id, body.provider);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    appendAndPublish(event(request.params.roomId, "agent.session_preview.failed", participant.id, body));
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/agent-sessions/imports/start", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const body = AgentSessionImportStartBodySchema.parse(request.body);
+    if (!assertAgentOwnsPayload(participant, body.agent_id)) return deny(reply, "forbidden", 403);
+    const validation = validateLocalAgentProvider(request.params.roomId, body.agent_id, body.provider);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    const selectionValidation = validateSelectedLocalAgentResumeSession(request.params.roomId, body.agent_id, body.provider, body.session_id);
+    if (!selectionValidation.ok) return deny(reply, selectionValidation.error, selectionValidation.status);
+    appendAndPublish(event(request.params.roomId, "agent.session_import.started", participant.id, body));
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string; importId: string } }>("/rooms/:roomId/agent-sessions/imports/:importId/messages", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const body = AgentSessionImportMessagesBodySchema.parse(request.body);
+    if (!body.every((message) => message.import_id === request.params.importId)) return deny(reply, "import_id_mismatch", 400);
+    if (!body.every((message) => assertAgentOwnsPayload(participant, message.agent_id))) return deny(reply, "forbidden", 403);
+    const first = body[0];
+    const validation = validateLocalAgentProvider(request.params.roomId, first.agent_id, first.provider);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    const selectionValidation = validateSelectedLocalAgentResumeSession(request.params.roomId, first.agent_id, first.provider, first.session_id);
+    if (!selectionValidation.ok) return deny(reply, selectionValidation.error, selectionValidation.status);
+    const batchValidation = validateAgentImportMessageBatch(request.params.roomId, request.params.importId, body);
+    if (!batchValidation.ok) return deny(reply, batchValidation.error, batchValidation.status);
+    const storedEvents = store.transaction(() => body.map((message) => store.appendEvent(event(request.params.roomId, "agent.session_import.message", participant.id, message))));
+    publishEvents(storedEvents);
+    return reply.code(201).send({ ok: true, imported: body.length });
+  });
+
+  app.post<{ Params: { roomId: string; importId: string } }>("/rooms/:roomId/agent-sessions/imports/:importId/complete", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const body = AgentSessionImportCompleteBodySchema.parse(request.body);
+    if (body.import_id !== request.params.importId) return deny(reply, "import_id_mismatch", 400);
+    if (!assertAgentOwnsPayload(participant, body.agent_id)) return deny(reply, "forbidden", 403);
+    const validation = validateLocalAgentProvider(request.params.roomId, body.agent_id, body.provider);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    const selectionValidation = validateSelectedLocalAgentResumeSession(request.params.roomId, body.agent_id, body.provider, body.session_id);
+    if (!selectionValidation.ok) return deny(reply, selectionValidation.error, selectionValidation.status);
+    const completeValidation = validateAgentImportComplete(request.params.roomId, request.params.importId, body);
+    if (!completeValidation.ok) return deny(reply, completeValidation.error, completeValidation.status);
+    appendAndPublish(event(request.params.roomId, "agent.session_import.completed", participant.id, body));
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string; importId: string } }>("/rooms/:roomId/agent-sessions/imports/:importId/fail", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const body = AgentSessionImportFailBodySchema.parse(request.body);
+    if (body.import_id !== request.params.importId) return deny(reply, "import_id_mismatch", 400);
+    if (!assertAgentOwnsPayload(participant, body.agent_id)) return deny(reply, "forbidden", 403);
+    const validation = validateLocalAgentProvider(request.params.roomId, body.agent_id, body.provider);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    if (body.session_id) {
+      const selectionValidation = validateSelectedLocalAgentResumeSession(request.params.roomId, body.agent_id, body.provider, body.session_id);
+      if (!selectionValidation.ok) return deny(reply, selectionValidation.error, selectionValidation.status);
+    }
+    appendAndPublish(event(request.params.roomId, "agent.session_import.failed", participant.id, body));
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/agent-runtime/status", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const raw = request.body as { kind?: unknown; payload?: unknown };
+    if (raw.kind !== "changed" && raw.kind !== "completed" && raw.kind !== "failed") return deny(reply, "invalid_status_kind", 400);
+    const payload = AgentRuntimeStatusBodySchema[raw.kind].parse(raw.payload);
+    if (!assertAgentOwnsPayload(participant, payload.agent_id)) return deny(reply, "forbidden", 403);
+    const validation = validateLocalAgentRuntime(request.params.roomId, payload.agent_id, payload.provider, payload.turn_id);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    const eventType = raw.kind === "changed"
+      ? "agent.runtime.status_changed"
+      : raw.kind === "completed"
+        ? "agent.runtime.status_completed"
+        : "agent.runtime.status_failed";
+    appendAndPublish(event(request.params.roomId, eventType, participant.id, payload));
     return reply.code(201).send({ ok: true });
   });
 

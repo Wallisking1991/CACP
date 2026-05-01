@@ -77,4 +77,50 @@ describe("Codex runtime", () => {
     expect(deltas).toEqual(["Done."]);
     expect(statuses.some((status) => status.phase === "running_command" && status.current.includes("Get-ChildItem"))).toBe(true);
   });
+
+  it("aborts the active Codex turn when the runtime closes", async () => {
+    let turnSignal: AbortSignal | undefined;
+    async function* abortableEvents() {
+      yield { type: "turn.started" } satisfies CodexThreadEvent;
+      await new Promise<void>((resolve) => {
+        turnSignal?.addEventListener("abort", () => resolve(), { once: true });
+        setTimeout(resolve, 200);
+      });
+    }
+
+    const runtime = new CodexRuntime({
+      sdk: {
+        startThread: () => ({
+          id: null,
+          runStreamed: async (_prompt: string, options?: { signal?: AbortSignal }) => {
+            turnSignal = options?.signal;
+            return { events: abortableEvents() };
+          }
+        }),
+        resumeThread: () => { throw new Error("unexpected"); }
+      },
+      agentId: "agent_1",
+      workingDir: "D:\\Development\\2",
+      permissionLevel: "read_only",
+      publishStatus: async () => undefined,
+      publishDelta: async () => undefined
+    });
+
+    await runtime.selectSession({ mode: "fresh" });
+    const running = runtime.runTurn({
+      turnId: "turn_1",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "keep running"
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(turnSignal).toBeDefined();
+    await runtime.close();
+    expect(turnSignal?.aborted).toBe(true);
+    await running;
+  });
 });

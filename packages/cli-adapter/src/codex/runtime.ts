@@ -35,6 +35,7 @@ export class CodexRuntime {
   private publishDelta: CodexRuntimeInput["publishDelta"];
   private thread: CodexThread | undefined;
   private sessionId: string | undefined;
+  private activeAbortController: AbortController | undefined;
 
   constructor(input: CodexRuntimeInput) {
     this.sdk = input.sdk;
@@ -64,9 +65,6 @@ export class CodexRuntime {
       throw new Error("codex_session_not_selected");
     }
 
-    const prompt = promptForTurn(input, this.permissionLevel);
-    const { events } = await this.thread.runStreamed(prompt);
-
     const metrics: AgentRuntimeMetrics = { files_read: 0, searches: 0, commands: 0 };
     const recent: string[] = [];
     let phase: AgentRuntimePhase = "thinking";
@@ -89,71 +87,82 @@ export class CodexRuntime {
       });
     };
 
-    for await (const event of events) {
-      switch (event.type) {
-        case "thread.started": {
-          sessionId = event.thread_id;
-          this.sessionId = event.thread_id;
-          break;
-        }
-        case "turn.started": {
-          phase = "thinking";
-          current = "Thinking...";
-          await publish(input.turnId, phase, current);
-          break;
-        }
-        case "item.started": {
-          const item = event.item ?? {};
-          if (item.type === "command_execution") {
-            phase = "running_command";
-            current = `Codex running command: ${item.command ?? ""}`;
-            metrics.commands++;
+    const prompt = promptForTurn(input, this.permissionLevel);
+    const abortController = new AbortController();
+    this.activeAbortController = abortController;
+    try {
+      const { events } = await this.thread.runStreamed(prompt, { signal: abortController.signal });
+
+      for await (const event of events) {
+        switch (event.type) {
+          case "thread.started": {
+            sessionId = event.thread_id;
+            this.sessionId = event.thread_id;
+            break;
+          }
+          case "turn.started": {
+            phase = "thinking";
+            current = "Thinking...";
+            await publish(input.turnId, phase, current);
+            break;
+          }
+          case "item.started": {
+            const item = event.item ?? {};
+            if (item.type === "command_execution") {
+              phase = "running_command";
+              current = `Codex running command: ${item.command ?? ""}`;
+              metrics.commands++;
+              pushRecent(current);
+              await publish(input.turnId, phase, current);
+            }
+            break;
+          }
+          case "item.completed": {
+            const item = event.item ?? {};
+            if (item.type === "agent_message" && typeof item.text === "string") {
+              const text = item.text;
+              const delta = computeTextDelta(previousText, text);
+              if (delta) {
+                await this.publishDelta(input.turnId, delta);
+              }
+              finalText = text;
+              previousText = text;
+            }
+            break;
+          }
+          case "turn.completed": {
+            phase = "completed";
+            current = finalText || "Completed";
+            await publish(input.turnId, phase, current);
+            return { finalText, sessionId, metrics };
+          }
+          case "turn.failed": {
+            phase = "failed";
+            current = event.error?.message ?? "Turn failed";
             pushRecent(current);
             await publish(input.turnId, phase, current);
+            throw new Error(current);
           }
-          break;
-        }
-        case "item.completed": {
-          const item = event.item ?? {};
-          if (item.type === "agent_message" && typeof item.text === "string") {
-            const text = item.text;
-            const delta = computeTextDelta(previousText, text);
-            if (delta) {
-              await this.publishDelta(input.turnId, delta);
-            }
-            finalText = text;
-            previousText = text;
+          case "error": {
+            phase = "failed";
+            current = event.message ?? "Unknown error";
+            pushRecent(current);
+            await publish(input.turnId, phase, current);
+            throw new Error(current);
           }
-          break;
-        }
-        case "turn.completed": {
-          phase = "completed";
-          current = finalText || "Completed";
-          await publish(input.turnId, phase, current);
-          return { finalText, sessionId, metrics };
-        }
-        case "turn.failed": {
-          phase = "failed";
-          current = event.error?.message ?? "Turn failed";
-          pushRecent(current);
-          await publish(input.turnId, phase, current);
-          throw new Error(current);
-        }
-        case "error": {
-          phase = "failed";
-          current = event.message ?? "Unknown error";
-          pushRecent(current);
-          await publish(input.turnId, phase, current);
-          throw new Error(current);
         }
       }
-    }
 
-    // If we reach here without turn.completed, return what we have
-    return { finalText, sessionId, metrics };
+      // If we reach here without turn.completed, return what we have
+      return { finalText, sessionId, metrics };
+    } finally {
+      if (this.activeAbortController === abortController) {
+        this.activeAbortController = undefined;
+      }
+    }
   }
 
   async close(): Promise<void> {
-    // Codex SDK threads are process-per-turn; no persistent session to close
+    this.activeAbortController?.abort();
   }
 }

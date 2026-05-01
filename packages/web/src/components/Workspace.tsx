@@ -280,6 +280,7 @@ export default function Workspace({
             showSlowStreamingNotice={showSlowStreamingNotice}
             activeCollectionId={room.activeCollection?.collection_id}
             claudeImports={room.claudeImports}
+            agentImports={room.agentImports}
           />
 
           <Composer
@@ -325,7 +326,7 @@ export default function Workspace({
         <AgentSessionRequiredModal
           agentId={room.activeAgentId}
           catalog={room.agentSessionCatalog}
-          previews={room.claudeSessionPreviews}
+          previews={room.agentSessionPreviews}
           onRequestPreview={(sessionId) =>
             requestAgentSessionPreview({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId, provider: activeAgentProvider, sessionId })
           }
@@ -356,7 +357,7 @@ export default function Workspace({
           claudeRuntimeStatuses={room.claudeRuntimeStatuses}
           agentSessionCatalog={room.agentSessionCatalog}
           agentSessionSelection={room.agentSessionSelection}
-          agentSessionPreviews={room.claudeSessionPreviews}
+          agentSessionPreviews={room.agentSessionPreviews}
           agentRuntimeStatuses={room.agentRuntimeStatuses}
           serverUrl={serverUrl}
           roomSessionToken={session.token}

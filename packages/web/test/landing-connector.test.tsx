@@ -27,7 +27,7 @@ describe("Landing cloud connector setup", () => {
     expect(container.querySelector("input[directory]")).toBeNull();
   });
 
-  it("shows only Claude Code as the local command agent option", () => {
+  it("shows supported local command agent options", () => {
     render(
       <LangProvider>
         <Landing onCreate={() => {}} onJoin={() => {}} loading={false} />

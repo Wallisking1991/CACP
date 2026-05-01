@@ -1,4 +1,4 @@
-import type { AgentView, ClaudeSessionCatalogView, ClaudeSessionSelectionView, ClaudeSessionPreviewView, ClaudeRuntimeStatusView, AgentSessionCatalogView, AgentSessionSelectionView, AgentRuntimeStatusView } from "../room-state.js";
+import type { AgentView, ClaudeSessionCatalogView, ClaudeSessionSelectionView, ClaudeSessionPreviewView, ClaudeRuntimeStatusView, AgentSessionCatalogView, AgentSessionSelectionView, AgentSessionPreviewView, AgentRuntimeStatusView } from "../room-state.js";
 import { useT } from "../i18n/useT.js";
 import { ClaudeSessionPicker } from "./ClaudeSessionPicker.js";
 import { ClaudeStatusCard } from "./ClaudeStatusCard.js";
@@ -16,7 +16,7 @@ export interface AgentAvatarPopoverProps {
   claudeRuntimeStatuses: ClaudeRuntimeStatusView[];
   agentSessionCatalog?: AgentSessionCatalogView;
   agentSessionSelection?: AgentSessionSelectionView;
-  agentSessionPreviews?: ClaudeSessionPreviewView[];
+  agentSessionPreviews?: AgentSessionPreviewView[];
   agentRuntimeStatuses?: AgentRuntimeStatusView[];
   serverUrl: string;
   roomSessionToken: string;

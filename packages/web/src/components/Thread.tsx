@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useT } from "../i18n/useT.js";
-import type { ClaudeImportView, MessageView, StreamingTurnView } from "../room-state.js";
+import type { AgentImportView, ClaudeImportView, MessageView, StreamingTurnView } from "../room-state.js";
 
 export interface ThreadProps {
   currentParticipantId: string;
@@ -10,6 +10,7 @@ export interface ThreadProps {
   showSlowStreamingNotice: boolean;
   activeCollectionId?: string;
   claudeImports?: ClaudeImportView[];
+  agentImports?: AgentImportView[];
 }
 
 function messageClass(kind: string, actorId: string, currentParticipantId: string, collectionId: string | undefined, activeCollectionId: string | undefined): string {
@@ -39,6 +40,7 @@ export default function Thread({
   showSlowStreamingNotice,
   activeCollectionId,
   claudeImports,
+  agentImports,
 }: ThreadProps) {
   const t = useT();
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -75,6 +77,21 @@ export default function Thread({
           );
         }
 
+        if (msg.kind === "agent_import_banner") {
+          const importView = agentImports?.find((imp) => imp.import_id === msg.agentImportId);
+          const provider = importView?.provider === "codex-cli" ? "Codex CLI" : importView?.provider === "claude-code" ? "Claude Code" : "Local agent";
+          const bannerText = importView?.status === "failed"
+            ? t("agent.import.banner.failed", { provider, title: importView.title, error: importView.error ?? "" })
+            : importView?.status === "completed"
+              ? t("agent.import.banner.completed", { provider, title: importView.title, count: String(importView.imported_message_count ?? importView.message_count) })
+              : t("agent.import.banner.started", { provider, title: importView?.title ?? "" });
+          return (
+            <div key={msg.message_id} className={`message message--agent-import-banner ${importView?.status === "failed" ? "message--agent-import-banner--failed" : ""}`}>
+              {bannerText}
+            </div>
+          );
+        }
+
         if (msg.kind.startsWith("claude_import_")) {
           const label = msg.kind === "claude_import_user"
             ? t("claude.import.user")
@@ -86,6 +103,25 @@ export default function Thread({
               <div className="message-meta">
                 <span>{label}</span>
                 <span>{t("claude.import.label")}</span>
+              </div>
+              <div className="message-body">{msg.text}</div>
+            </article>
+          );
+        }
+
+        if (msg.kind.startsWith("agent_import_")) {
+          const importView = agentImports?.find((imp) => imp.import_id === msg.agentImportId);
+          const provider = importView?.provider === "codex-cli" ? "Codex CLI" : importView?.provider === "claude-code" ? "Claude Code" : "Local agent";
+          const label = msg.kind === "agent_import_user"
+            ? t("agent.import.user", { provider })
+            : msg.kind === "agent_import_assistant"
+              ? t("agent.import.assistant", { provider })
+              : t("agent.import.tool", { provider });
+          return (
+            <article key={msg.message_id} className={`message message--${msg.kind}`}>
+              <div className="message-meta">
+                <span>{label}</span>
+                <span>{t("agent.import.label")}</span>
               </div>
               <div className="message-body">{msg.text}</div>
             </article>

@@ -289,6 +289,46 @@ describe("room state", () => {
     })]);
   });
 
+  it("derives owner-only generic Codex session preview content outside the main timeline", () => {
+    const state = deriveRoomState([
+      event("agent.session_preview.requested" as CacpEvent["type"], {
+        preview_id: "preview_1",
+        agent_id: "agent_1",
+        provider: "codex-cli",
+        session_id: "session_1",
+        requested_by: "owner",
+        requested_at: "2026-05-01T00:00:00.000Z"
+      }, 1, "owner"),
+      event("agent.session_preview.message" as CacpEvent["type"], {
+        preview_id: "preview_1",
+        agent_id: "agent_1",
+        provider: "codex-cli",
+        session_id: "session_1",
+        sequence: 0,
+        author_role: "assistant",
+        source_kind: "assistant",
+        text: "Preview-only Codex answer"
+      }, 2, "agent_1"),
+      event("agent.session_preview.completed" as CacpEvent["type"], {
+        preview_id: "preview_1",
+        agent_id: "agent_1",
+        provider: "codex-cli",
+        session_id: "session_1",
+        previewed_message_count: 1,
+        completed_at: "2026-05-01T00:00:01.000Z"
+      }, 3, "agent_1")
+    ]);
+
+    expect(state.messages).toEqual([]);
+    expect((state as any).agentSessionPreviews).toEqual([expect.objectContaining({
+      preview_id: "preview_1",
+      provider: "codex-cli",
+      session_id: "session_1",
+      status: "completed",
+      messages: [expect.objectContaining({ text: "Preview-only Codex answer", provider: "codex-cli" })]
+    })]);
+  });
+
   it("renders completed Claude imports in the main message timeline", () => {
     const state = deriveRoomState([
       event("claude.session_import.started", {
@@ -337,6 +377,64 @@ describe("room state", () => {
     ]);
     expect(state.messages[1].kind).toBe("claude_import_user");
     expect(state.messages[2].kind).toBe("claude_import_assistant");
+  });
+
+  it("renders completed generic Codex imports in the main message timeline", () => {
+    const state = deriveRoomState([
+      event("agent.session_import.started" as CacpEvent["type"], {
+        import_id: "import_1",
+        agent_id: "agent_1",
+        provider: "codex-cli",
+        session_id: "session_1",
+        title: "Codex thread",
+        message_count: 2,
+        started_at: "2026-05-01T00:00:00.000Z"
+      }, 1, "agent_1"),
+      event("agent.session_import.message" as CacpEvent["type"], {
+        import_id: "import_1",
+        agent_id: "agent_1",
+        provider: "codex-cli",
+        session_id: "session_1",
+        sequence: 0,
+        original_created_at: "2026-05-01T00:00:01.000Z",
+        author_role: "user",
+        source_kind: "user",
+        text: "Old user message"
+      }, 2, "agent_1"),
+      event("agent.session_import.message" as CacpEvent["type"], {
+        import_id: "import_1",
+        agent_id: "agent_1",
+        provider: "codex-cli",
+        session_id: "session_1",
+        sequence: 1,
+        original_created_at: "2026-05-01T00:00:02.000Z",
+        author_role: "assistant",
+        source_kind: "assistant",
+        text: "Old Codex answer"
+      }, 3, "agent_1"),
+      event("agent.session_import.completed" as CacpEvent["type"], {
+        import_id: "import_1",
+        agent_id: "agent_1",
+        provider: "codex-cli",
+        session_id: "session_1",
+        imported_message_count: 2,
+        completed_at: "2026-05-01T00:00:03.000Z"
+      }, 4, "agent_1")
+    ]);
+
+    expect(state.messages.map((message) => message.text)).toEqual([
+      "__AGENT_IMPORT_BANNER__",
+      "Old user message",
+      "Old Codex answer"
+    ]);
+    expect(state.messages[1].kind).toBe("agent_import_user");
+    expect(state.messages[2].kind).toBe("agent_import_assistant");
+    expect((state as any).agentImports).toEqual([expect.objectContaining({
+      import_id: "import_1",
+      provider: "codex-cli",
+      status: "completed",
+      imported_message_count: 2
+    })]);
   });
 
   it("keeps imported Claude transcript contiguous before room messages posted during import", () => {

@@ -118,6 +118,26 @@ function mapRecordToMessages(
   return [];
 }
 
+function chunkText(text: string, size: number): string[] {
+  const chunks: string[] = [];
+  for (let index = 0; index < text.length; index += size) {
+    chunks.push(text.slice(index, index + size));
+  }
+  return chunks.length > 0 ? chunks : [text];
+}
+
+function chunkImportedMessage(message: ClaudeImportedMessage, sequenceStart: number): ClaudeImportedMessage[] {
+  const chunks = chunkText(message.text, 20000);
+  if (chunks.length === 1) return [{ ...message, sequence: sequenceStart }];
+  return chunks.map((text, index) => ({
+    ...message,
+    sequence: sequenceStart + index,
+    text,
+    part_index: index,
+    part_count: chunks.length
+  }));
+}
+
 export async function buildCodexImportFromSessionFile(input: {
   importId?: string;
   agentId: string;
@@ -131,7 +151,9 @@ export async function buildCodexImportFromSessionFile(input: {
 
   for (const record of records) {
     const mapped = mapRecordToMessages(record, importId, input.agentId, input.sessionId, messages.length);
-    messages.push(...mapped);
+    for (const message of mapped) {
+      messages.push(...chunkImportedMessage(message, messages.length));
+    }
   }
 
   return { importId, sessionId: input.sessionId, title: input.title, messages };
@@ -153,6 +175,7 @@ export async function findCodexSessionFile(input: {
           const found = scan(fullPath);
           if (found) return found;
         } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
+          if (entry.name.includes(input.sessionId)) return fullPath;
           const firstLine = readFileSync(fullPath, "utf8").split("\n")[0];
           if (!firstLine) continue;
           try {
