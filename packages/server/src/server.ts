@@ -10,6 +10,7 @@ import { bearerToken, requireParticipant, hasAnyRole, hasHumanRole } from "./aut
 import { buildAgentContextPrompt, buildCollectedAnswersPrompt, eventsAfterLastHistoryClear, findActiveAgentId, findAgentCapabilities, findAnyOpenTurn, findOpenTurn, findQueuedFollowupMessage, findQueuedFollowupMessages, hasQueuedFollowup, recentConversationMessages, type ConversationMessage, type OpenTurn } from "./conversation.js";
 import { EventBus } from "./event-bus.js";
 import { EventStore, type StoredParticipant } from "./event-store.js";
+import { roomDelivery, targetedDelivery, canDeliverEnvelope, type RelayEnvelope } from "./relay.js";
 import { hasAllowedOrigin, loadServerConfig, type ServerConfig } from "./config.js";
 import { event, hashToken, openSecret, prefixedId, sealSecret, token } from "./ids.js";
 import { FixedWindowRateLimiter } from "./rate-limit.js";
@@ -424,13 +425,21 @@ export async function buildServer(options: BuildServerOptions = {}) {
   });
 
   function publishEvents(events: CacpEvent[]): void {
-    for (const stored of events) bus.publish(stored);
+    for (const stored of events) bus.publish({ event: stored, delivery: roomDelivery() });
   }
 
   function appendAndPublish(input: CacpEvent): CacpEvent {
     const stored = store.appendEvent(input);
-    bus.publish(stored);
+    bus.publish({ event: stored, delivery: roomDelivery() });
     return stored;
+  }
+
+  function publishRelayOnly(event: CacpEvent): void {
+    bus.publish({ event, delivery: roomDelivery() });
+  }
+
+  function publishTargeted(event: CacpEvent, participantIds: string[]): void {
+    bus.publish({ event, delivery: targetedDelivery(participantIds) });
   }
 
   function canViewEvent(event: CacpEvent, participant: StoredParticipant): boolean {
@@ -1247,8 +1256,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
     for (const existingEvent of store.listEvents(roomId)) {
       if (canViewEvent(existingEvent, participant)) socket.send(JSON.stringify(existingEvent));
     }
-    const unsubscribe = bus.subscribe(roomId, (nextEvent) => {
-      if (canViewEvent(nextEvent, participant)) socket.send(JSON.stringify(nextEvent));
+    const unsubscribe = bus.subscribe(roomId, (envelope) => {
+      if (canDeliverEnvelope(envelope, participant) && canViewEvent(envelope.event, participant)) {
+        socket.send(JSON.stringify(envelope.event));
+      }
     });
     const forgetSocket = rememberSocket(roomId, participant.id, socket);
     clearPendingOffline(roomId, participant.id);

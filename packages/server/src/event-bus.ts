@@ -1,6 +1,7 @@
 import type { CacpEvent } from "@cacp/protocol";
+import type { RelayEnvelope } from "./relay.js";
 
-type Listener = (event: CacpEvent) => void;
+type Listener = (envelope: RelayEnvelope) => void;
 
 export class EventBus {
   private listeners = new Map<string, Set<Listener>>();
@@ -13,7 +14,7 @@ export class EventBus {
       if (listeners.size === 0) this.listeners.delete(roomId);
     };
   }
-  publish(event: CacpEvent): void {
-    for (const listener of this.listeners.get(event.room_id) ?? []) listener(event);
+  publish(envelope: RelayEnvelope): void {
+    for (const listener of this.listeners.get(envelope.event.room_id) ?? []) listener(envelope);
   }
 }
