@@ -15,6 +15,22 @@ import { event, hashToken, openSecret, prefixedId, sealSecret, token } from "./i
 import { FixedWindowRateLimiter } from "./rate-limit.js";
 import { AgentTypeValues, PermissionLevelValues, buildAgentProfile, isLlmAgentType, type AgentType, type PermissionLevel } from "./pairing.js";
 import {
+  AgentRuntimeStatusChangedPayloadSchema,
+  AgentRuntimeStatusCompletedPayloadSchema,
+  AgentRuntimeStatusFailedPayloadSchema,
+  AgentSessionCatalogUpdatedPayloadSchema,
+  AgentSessionImportCompletedPayloadSchema,
+  AgentSessionImportFailedPayloadSchema,
+  AgentSessionImportMessagePayloadSchema,
+  AgentSessionImportStartedPayloadSchema,
+  AgentSessionPreviewCompletedPayloadSchema,
+  AgentSessionPreviewFailedPayloadSchema,
+  AgentSessionPreviewMessagePayloadSchema,
+  AgentSessionPreviewRequestedPayloadSchema,
+  AgentSessionReadyPayloadSchema,
+  AgentSessionSelectedPayloadSchema
+} from "@cacp/protocol";
+import {
   ClaudeRuntimeStatusBodySchema,
   ClaudeSessionCatalogBodySchema,
   ClaudeSessionImportCompleteBodySchema,
@@ -29,6 +45,7 @@ import {
   ClaudeSessionSelectionBodySchema,
   assertAgentOwnsPayload
 } from "./claude-events.js";
+import { providerForCapabilities } from "./local-agent-events.js";
 
 const CreateRoomSchema = z.object({ name: z.string().min(1).max(200), display_name: z.string().min(1).max(100).default("Owner") });
 const CreateInviteSchema = z.object({
@@ -69,6 +86,39 @@ const TurnCompleteSchema = z.object({ final_text: z.string(), exit_code: z.numbe
 const TurnFailedSchema = z.object({ error: z.string().min(1), exit_code: z.number().int().optional() });
 const PresenceBodySchema = z.object({ presence: ParticipantPresenceSchema });
 const EmptyObjectBodySchema = z.object({});
+
+const AgentSessionCatalogBodySchema = AgentSessionCatalogUpdatedPayloadSchema;
+const AgentSessionSelectionBodySchema = z.discriminatedUnion("mode", [
+  z.object({
+    agent_id: z.string().min(1),
+    provider: z.enum(["claude-code", "codex-cli"]),
+    mode: z.literal("fresh")
+  }),
+  z.object({
+    agent_id: z.string().min(1),
+    provider: z.enum(["claude-code", "codex-cli"]),
+    mode: z.literal("resume"),
+    session_id: z.string().min(1)
+  })
+]);
+const AgentSessionReadyBodySchema = AgentSessionReadyPayloadSchema;
+const AgentSessionPreviewRequestBodySchema = AgentSessionPreviewRequestedPayloadSchema.pick({
+  agent_id: true,
+  provider: true,
+  session_id: true
+});
+const AgentSessionPreviewMessagesBodySchema = z.array(AgentSessionPreviewMessagePayloadSchema).min(1).max(50);
+const AgentSessionPreviewCompleteBodySchema = AgentSessionPreviewCompletedPayloadSchema;
+const AgentSessionPreviewFailBodySchema = AgentSessionPreviewFailedPayloadSchema;
+const AgentSessionImportStartBodySchema = AgentSessionImportStartedPayloadSchema;
+const AgentSessionImportMessagesBodySchema = z.array(AgentSessionImportMessagePayloadSchema).min(1).max(50);
+const AgentSessionImportCompleteBodySchema = AgentSessionImportCompletedPayloadSchema;
+const AgentSessionImportFailBodySchema = AgentSessionImportFailedPayloadSchema;
+const AgentRuntimeStatusBodySchema = {
+  changed: AgentRuntimeStatusChangedPayloadSchema,
+  completed: AgentRuntimeStatusCompletedPayloadSchema,
+  failed: AgentRuntimeStatusFailedPayloadSchema
+} as const;
 
 export interface LocalAgentLaunchInput {
   launchId: string;
@@ -678,6 +728,29 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (activeAgentId !== agentId) return { ok: false, error: "not_active_agent", status: 403 };
     const capabilities = findAgentCapabilities(events, agentId);
     if (!capabilities.includes("claude-code")) return { ok: false, error: "missing_claude_code_capability", status: 403 };
+    return { ok: true };
+  }
+
+  function validateLocalAgentProvider(roomId: string, agentId: string, provider: "claude-code" | "codex-cli"): { ok: true } | { ok: false; error: string; status: number } {
+    const target = findParticipant(roomId, agentId);
+    if (!target || target.type !== "agent" || target.role !== "agent") return { ok: false, error: "invalid_target_agent", status: 400 };
+    const capabilities = findAgentCapabilities(store.listEvents(roomId), agentId);
+    const actualProvider = providerForCapabilities(capabilities);
+    if (!actualProvider) return { ok: false, error: "missing_local_agent_capability", status: 403 };
+    if (actualProvider !== provider) return { ok: false, error: "provider_mismatch", status: 403 };
+    return { ok: true };
+  }
+
+  function validateLocalAgentRuntime(roomId: string, agentId: string, turnId: string): { ok: true } | { ok: false; error: string; status: number } {
+    const events = store.listEvents(roomId);
+    const activeAgentId = findActiveAgentId(events);
+    if (activeAgentId !== agentId) return { ok: false, error: "not_active_agent", status: 403 };
+    const capabilities = findAgentCapabilities(events, agentId);
+    const actualProvider = providerForCapabilities(capabilities);
+    if (!actualProvider) return { ok: false, error: "missing_local_agent_capability", status: 403 };
+    const openTurn = findAnyOpenTurn(eventsAfterLastHistoryClear(events));
+    if (!openTurn || openTurn.agent_id !== agentId) return { ok: false, error: "no_active_turn", status: 403 };
+    if (openTurn.turn_id !== turnId) return { ok: false, error: "turn_not_found", status: 403 };
     return { ok: true };
   }
 
@@ -1769,7 +1842,43 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return reply.code(201).send({ ok: true });
   });
 
-  app.post<{ Params: { roomId: string }; Querystring: { token?: string; wait_ms?: string | number } }>("/rooms/:roomId/agent-action-approvals", async (request, reply) => {
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/agent-sessions/catalog", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const body = AgentSessionCatalogBodySchema.parse(request.body);
+    if (!assertAgentOwnsPayload(participant, body.agent_id)) return deny(reply, "forbidden", 403);
+    const validation = validateLocalAgentProvider(request.params.roomId, body.agent_id, body.provider);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    appendAndPublish(event(request.params.roomId, "agent.session_catalog.updated", participant.id, body));
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/agent-sessions/selection", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    if (!hasHumanRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
+    const body = AgentSessionSelectionBodySchema.parse(request.body);
+    const validation = validateLocalAgentProvider(request.params.roomId, body.agent_id, body.provider);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    appendAndPublish(event(request.params.roomId, "agent.session_selected", participant.id, {
+      ...body,
+      selected_by: participant.id
+    }));
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/agent-sessions/ready", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const body = AgentSessionReadyBodySchema.parse(request.body);
+    if (!assertAgentOwnsPayload(participant, body.agent_id)) return deny(reply, "forbidden", 403);
+    const validation = validateLocalAgentProvider(request.params.roomId, body.agent_id, body.provider);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    appendAndPublish(event(request.params.roomId, "agent.session_ready", participant.id, body));
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/agent-action-approvals", async (request, reply) => {
     const query = AgentActionApprovalQuerySchema.parse(request.query);
     const participant = query.token ? store.getParticipantByToken(request.params.roomId, query.token) : requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
