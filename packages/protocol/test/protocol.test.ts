@@ -17,6 +17,12 @@ import {
   ParticipantPresenceChangedPayloadSchema,
   ParticipantTypingStartedPayloadSchema,
   ParticipantTypingStoppedPayloadSchema,
+  MainInputAcceptedPayloadSchema,
+  ConnectorSnapshotEntryPayloadSchema,
+  OrbitNoteCreatedPayloadSchema,
+  OrbitLikeChangedPayloadSchema,
+  OrbitRoundPromotedPayloadSchema,
+  ConnectorLedgerEntrySchema,
   evaluatePolicy,
   type Participant,
   type Policy,
@@ -460,5 +466,164 @@ describe("policy engine", () => {
 
     expect(evaluatePolicy({ type: "unanimous" }, participants, votes).status).toBe("rejected");
     expect(evaluatePolicy(expired, participants, [], new Date("2026-04-25T00:01:00.000Z")).status).toBe("expired");
+  });
+});
+
+describe("orbit and connector event schemas", () => {
+  it("accepts main input event types", () => {
+    for (const type of [
+      "main_input.accepted",
+      "main_input.queued",
+      "main_input.triggered",
+      "main_input.cancelled",
+      "main_input.failed"
+    ] as const) {
+      expect(CacpEventSchema.parse({
+        protocol: "cacp",
+        version: "0.2.0",
+        event_id: `evt_${type}`,
+        room_id: "room_1",
+        type,
+        actor_id: "user_1",
+        created_at: "2026-05-01T00:00:00.000Z",
+        payload: {}
+      }).type).toBe(type);
+    }
+  });
+
+  it("accepts connector snapshot event types", () => {
+    for (const type of [
+      "connector.snapshot.requested",
+      "connector.snapshot.started",
+      "connector.snapshot.entry",
+      "connector.snapshot.completed",
+      "connector.snapshot.failed"
+    ] as const) {
+      expect(CacpEventSchema.parse({
+        protocol: "cacp",
+        version: "0.2.0",
+        event_id: `evt_${type}`,
+        room_id: "room_1",
+        type,
+        actor_id: "user_1",
+        created_at: "2026-05-01T00:00:00.000Z",
+        payload: {}
+      }).type).toBe(type);
+    }
+  });
+
+  it("accepts orbit event types", () => {
+    for (const type of [
+      "orbit.round.opened",
+      "orbit.note.created",
+      "orbit.like.changed",
+      "orbit.round.promoted"
+    ] as const) {
+      expect(CacpEventSchema.parse({
+        protocol: "cacp",
+        version: "0.2.0",
+        event_id: `evt_${type}`,
+        room_id: "room_1",
+        type,
+        actor_id: "user_1",
+        created_at: "2026-05-01T00:00:00.000Z",
+        payload: {}
+      }).type).toBe(type);
+    }
+  });
+
+  it("accepts valid main_input.accepted payloads", () => {
+    const payload = {
+      input_id: "input_1",
+      author_id: "user_1",
+      text: "Hello agent",
+      source: "composer",
+      created_at: "2026-05-01T00:00:00.000Z"
+    };
+    const parsed = MainInputAcceptedPayloadSchema.parse(payload);
+    expect(parsed.input_id).toBe("input_1");
+    expect(parsed.source).toBe("composer");
+  });
+
+  it("accepts valid connector snapshot entry payloads", () => {
+    const payload = {
+      request_id: "req_1",
+      connector_id: "conn_1",
+      entry: {
+        ledger_version: 1,
+        room_id: "room_1",
+        connector_id: "conn_1",
+        agent_id: "agent_1",
+        sequence: 1,
+        entry_id: "entry_1",
+        entry_type: "human_input",
+        actor_id: "user_1",
+        actor_name: "Alice",
+        actor_role: "owner",
+        text: "Hello",
+        source: "composer",
+        created_at: "2026-05-01T00:00:00.000Z"
+      }
+    };
+    const parsed = ConnectorSnapshotEntryPayloadSchema.parse(payload);
+    expect(parsed.entry.sequence).toBe(1);
+    expect(parsed.entry.entry_type).toBe("human_input");
+  });
+
+  it("accepts valid orbit note created payloads", () => {
+    const payload = {
+      note_id: "note_1",
+      round_id: "round_1",
+      author_id: "user_1",
+      author_name: "Alice",
+      text: "Great idea!",
+      created_at: "2026-05-01T00:00:00.000Z"
+    };
+    const parsed = OrbitNoteCreatedPayloadSchema.parse(payload);
+    expect(parsed.note_id).toBe("note_1");
+    expect(parsed.text).toBe("Great idea!");
+  });
+
+  it("accepts valid orbit like changed payloads", () => {
+    const payload = {
+      note_id: "note_1",
+      participant_id: "user_2",
+      liked: true
+    };
+    const parsed = OrbitLikeChangedPayloadSchema.parse(payload);
+    expect(parsed.liked).toBe(true);
+  });
+
+  it("accepts valid orbit round promoted payloads", () => {
+    const payload = {
+      round_id: "round_1",
+      promoted_by: "user_1",
+      input_id: "input_1",
+      promoted_at: "2026-05-01T00:00:00.000Z"
+    };
+    const parsed = OrbitRoundPromotedPayloadSchema.parse(payload);
+    expect(parsed.round_id).toBe("round_1");
+    expect(parsed.input_id).toBe("input_1");
+  });
+
+  it("accepts valid connector ledger entries", () => {
+    const entry = {
+      ledger_version: 1,
+      room_id: "room_1",
+      connector_id: "conn_1",
+      agent_id: "agent_1",
+      sequence: 1,
+      entry_id: "entry_1",
+      entry_type: "human_input",
+      actor_id: "user_1",
+      actor_name: "Alice",
+      actor_role: "owner",
+      text: "Hello",
+      source: "composer",
+      created_at: "2026-05-01T00:00:00.000Z"
+    };
+    const parsed = ConnectorLedgerEntrySchema.parse(entry);
+    expect(parsed.ledger_version).toBe(1);
+    expect(parsed.sequence).toBe(1);
   });
 });
