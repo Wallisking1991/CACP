@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CacpEvent } from "@cacp/protocol";
-import { approveAiCollectionRequest, cancelAiCollection, clearEventSocket, clearRoom, createJoinRequest, createLocalAgentLaunch, createRoom, createRoomWithLocalAgent, joinRequestStatus, leaveRoom, pairingServerUrlFor, parseCacpEventMessage, rejectAiCollectionRequest, requestAiCollection, startAiCollection, startTyping, stopTyping, submitAiCollection, updatePresence, type RoomSession } from "../src/api.js";
+import { approveAiCollectionRequest, cancelAiCollection, clearEventSocket, clearRoom, createJoinRequest, createLocalAgentLaunch, createRoom, createRoomWithLocalAgent, getRoomMe, inviteUrlFor, joinRequestStatus, leaveRoom, pairingServerUrlFor, parseCacpEventMessage, rejectAiCollectionRequest, requestAiCollection, startAiCollection, startTyping, stopTyping, submitAiCollection, updatePresence, type RoomSession } from "../src/api.js";
 
 const validEvent = {
   protocol: "cacp",
@@ -292,5 +292,51 @@ describe("room API", () => {
       headers: { "content-type": "application/json", authorization: "Bearer owner_secret" },
       body: JSON.stringify({})
     });
+  });
+});
+
+describe("invite URL", () => {
+  it("generates /join path with room and token query params", () => {
+    const url = inviteUrlFor("https://cacp.example.com", "room_abc", "invite_xyz");
+    expect(url).toBe("https://cacp.example.com/join?room=room_abc&token=invite_xyz");
+  });
+});
+
+describe("getRoomMe", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("fetches room info with bearer token", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ room_id: "room_1", name: "Planning", role: "owner", participant_id: "user_1" })
+    } as Response);
+
+    const session: RoomSession = { room_id: "room_1", token: "owner_secret", participant_id: "user_1", role: "owner" };
+    await expect(getRoomMe(session)).resolves.toEqual({
+      room_id: "room_1",
+      name: "Planning",
+      role: "owner",
+      participant_id: "user_1"
+    });
+
+    expect(fetch).toHaveBeenCalledWith("/rooms/room_1/me", {
+      headers: { authorization: "Bearer owner_secret" }
+    });
+  });
+
+  it("throws on invalid session", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: false,
+      text: async () => "invalid_token"
+    } as Response);
+
+    const session: RoomSession = { room_id: "room_1", token: "bad_token", participant_id: "user_1", role: "member" };
+    await expect(getRoomMe(session)).rejects.toThrow("invalid_token");
   });
 });

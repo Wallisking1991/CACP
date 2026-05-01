@@ -1,6 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeEach } from "vitest";
 import type { RoomSession } from "../src/api.js";
-import { clearStoredSession, loadInitialSession, loadStoredSession, saveStoredSession } from "../src/session-storage.js";
+import {
+  loadAllSessions,
+  saveAllSessions,
+  loadStoredSession,
+  saveStoredSession,
+  clearStoredSession,
+  loadInitialSession,
+} from "../src/session-storage.js";
 
 class MemoryStorage implements Pick<Storage, "getItem" | "removeItem" | "setItem"> {
   readonly values = new Map<string, string>();
@@ -18,50 +25,145 @@ class MemoryStorage implements Pick<Storage, "getItem" | "removeItem" | "setItem
   }
 }
 
-describe("room session storage", () => {
-  it("round-trips a valid room session", () => {
-    const storage = new MemoryStorage();
-    const session: RoomSession = { room_id: "room_123", token: "cacp_secret", participant_id: "user_123", role: "owner" };
+function makeSession(roomId: string, overrides: Partial<RoomSession> = {}): RoomSession {
+  return {
+    room_id: roomId,
+    token: `token-${roomId}`,
+    participant_id: `pid-${roomId}`,
+    role: "member",
+    ...overrides,
+  };
+}
 
-    saveStoredSession(storage, session);
+describe("session-storage (multi-session)", () => {
+  let storage: MemoryStorage;
 
-    expect(loadStoredSession(storage)).toEqual(session);
+  beforeEach(() => {
+    storage = new MemoryStorage();
   });
 
-  it("clears invalid stored session data", () => {
-    const storage = new MemoryStorage();
-    storage.setItem("cacp.roomSession", JSON.stringify({ room_id: "", token: "cacp_secret" }));
+  describe("loadAllSessions", () => {
+    it("returns empty object when storage is empty", () => {
+      const result = loadAllSessions(storage);
+      expect(result).toEqual({});
+    });
 
-    expect(loadStoredSession(storage)).toBeUndefined();
-    expect(storage.getItem("cacp.roomSession")).toBeNull();
+    it("returns valid sessions object", () => {
+      const sessions: Record<string, RoomSession> = {
+        roomA: makeSession("roomA"),
+        roomB: makeSession("roomB", { role: "owner" }),
+      };
+      storage.setItem("cacp.sessions", JSON.stringify(sessions));
+      const result = loadAllSessions(storage);
+      expect(result).toEqual(sessions);
+    });
+
+    it("clears corrupt data and returns empty object", () => {
+      storage.setItem("cacp.sessions", "not-json");
+      const result = loadAllSessions(storage);
+      expect(result).toEqual({});
+      expect(storage.getItem("cacp.sessions")).toBeNull();
+    });
+
+    it("clears non-object data and returns empty object", () => {
+      storage.setItem("cacp.sessions", JSON.stringify("string"));
+      const result = loadAllSessions(storage);
+      expect(result).toEqual({});
+      expect(storage.getItem("cacp.sessions")).toBeNull();
+    });
+
+    it("filters out invalid session entries", () => {
+      const sessions = {
+        roomA: makeSession("roomA"),
+        roomB: { room_id: "roomB" },
+        roomC: makeSession("roomC"),
+      };
+      storage.setItem("cacp.sessions", JSON.stringify(sessions));
+      const result = loadAllSessions(storage);
+      expect(Object.keys(result)).toEqual(["roomA", "roomC"]);
+    });
   });
 
-  it("clears stored sessions missing participant metadata", () => {
-    const storage = new MemoryStorage();
-
-    storage.setItem("cacp.roomSession", JSON.stringify({ room_id: "room_123", token: "cacp_secret", role: "owner" }));
-    expect(loadStoredSession(storage)).toBeUndefined();
-    expect(storage.getItem("cacp.roomSession")).toBeNull();
-
-    storage.setItem("cacp.roomSession", JSON.stringify({ room_id: "room_123", token: "cacp_secret", participant_id: "user_123" }));
-    expect(loadStoredSession(storage)).toBeUndefined();
-    expect(storage.getItem("cacp.roomSession")).toBeNull();
+  describe("saveAllSessions", () => {
+    it("writes sessions to storage", () => {
+      const sessions = { roomA: makeSession("roomA") };
+      saveAllSessions(storage, sessions);
+      expect(storage.getItem("cacp.sessions")).toEqual(JSON.stringify(sessions));
+    });
   });
 
-  it("can clear a previously stored session", () => {
-    const storage = new MemoryStorage();
-    saveStoredSession(storage, { room_id: "room_123", token: "cacp_secret", participant_id: "user_123", role: "owner" });
+  describe("loadStoredSession (by roomId)", () => {
+    it("returns session for specific roomId", () => {
+      const session = makeSession("roomX");
+      storage.setItem("cacp.sessions", JSON.stringify({ roomX: session }));
+      const result = loadStoredSession(storage, "roomX");
+      expect(result).toEqual(session);
+    });
 
-    clearStoredSession(storage);
+    it("returns undefined for unknown roomId", () => {
+      storage.setItem("cacp.sessions", JSON.stringify({ roomA: makeSession("roomA") }));
+      const result = loadStoredSession(storage, "roomZ");
+      expect(result).toBeUndefined();
+    });
 
-    expect(loadStoredSession(storage)).toBeUndefined();
+    it("returns undefined when storage is empty", () => {
+      const result = loadStoredSession(storage, "roomA");
+      expect(result).toBeUndefined();
+    });
   });
 
-  it("ignores stored host sessions when opening an invite link", () => {
-    const storage = new MemoryStorage();
-    saveStoredSession(storage, { room_id: "room_host", token: "host_token", participant_id: "user_host", role: "owner" });
+  describe("saveStoredSession", () => {
+    it("adds session without overwriting others", () => {
+      saveStoredSession(storage, makeSession("roomA"));
+      saveStoredSession(storage, makeSession("roomB"));
+      const all = loadAllSessions(storage);
+      expect(Object.keys(all)).toEqual(["roomA", "roomB"]);
+    });
 
-    expect(loadInitialSession(storage, { room_id: "room_invited", invite_token: "invite_token" })).toBeUndefined();
-    expect(loadInitialSession(storage, undefined)).toEqual({ room_id: "room_host", token: "host_token", participant_id: "user_host", role: "owner" });
+    it("overwrites existing session for same room", () => {
+      saveStoredSession(storage, makeSession("roomA"));
+      saveStoredSession(storage, makeSession("roomA", { token: "updated-token" }));
+      const result = loadStoredSession(storage, "roomA");
+      expect(result?.token).toBe("updated-token");
+    });
+  });
+
+  describe("clearStoredSession", () => {
+    it("removes specific room session while keeping others", () => {
+      saveStoredSession(storage, makeSession("roomA"));
+      saveStoredSession(storage, makeSession("roomB"));
+      clearStoredSession(storage, "roomA");
+      const all = loadAllSessions(storage);
+      expect(Object.keys(all)).toEqual(["roomB"]);
+    });
+
+    it("is a no-op for unknown roomId", () => {
+      saveStoredSession(storage, makeSession("roomA"));
+      clearStoredSession(storage, "roomZ");
+      const all = loadAllSessions(storage);
+      expect(Object.keys(all)).toEqual(["roomA"]);
+    });
+  });
+
+  describe("loadInitialSession", () => {
+    it("ignores stored sessions when invite target is present", () => {
+      saveStoredSession(storage, makeSession("room_host", { role: "owner" }));
+
+      const result = loadInitialSession(storage, { room_id: "room_invited", invite_token: "invite_token" });
+      expect(result).toBeUndefined();
+    });
+
+    it("returns stored session when no invite target and URL matches", () => {
+      const hostSession = makeSession("room_host", { role: "owner" });
+      saveStoredSession(storage, hostSession);
+
+      const result = loadInitialSession(storage, undefined);
+      expect(result).toEqual(hostSession);
+    });
+
+    it("returns undefined when no invite target and no stored sessions", () => {
+      const result = loadInitialSession(storage, undefined);
+      expect(result).toBeUndefined();
+    });
   });
 });

@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 import App from "../src/App.js";
 
 vi.mock("../src/runtime-config.js", () => ({
@@ -21,6 +22,12 @@ vi.mock("../src/api.js", async () => {
       download_url: "/downloads/CACP-Local-Connector.exe",
       expires_at: "2026-04-28T04:30:00.000Z"
     })),
+    getRoomMe: vi.fn(async () => ({
+      room_id: "room_1",
+      name: "Test Room",
+      role: "owner",
+      participant_id: "user_owner",
+    })),
     connectEvents: vi.fn(() => ({
       readyState: 1,
       close: vi.fn(),
@@ -41,7 +48,7 @@ describe("App connector onboarding modal", () => {
   });
 
   it("opens the connector modal after cloud room creation generates a connection code", async () => {
-    render(<App />);
+    render(<MemoryRouter><App /></MemoryRouter>);
 
     fireEvent.change(screen.getByLabelText("Your name"), { target: { value: "Owner" } });
     fireEvent.click(screen.getByRole("button", { name: "Create room and generate connector command" }));

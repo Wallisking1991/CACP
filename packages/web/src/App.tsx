@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useLocation, useMatch, useNavigate } from "react-router-dom";
 import type { CacpEvent } from "@cacp/protocol";
 import {
   approveAiCollectionRequest,
@@ -13,6 +14,7 @@ import {
   createLocalAgentLaunch,
   createRoom,
   createRoomWithLocalAgent,
+  getRoomMe,
   inviteUrlFor,
   joinRequestStatus,
   leaveRoom,
@@ -29,7 +31,7 @@ import {
   type RoomSession,
 } from "./api.js";
 import { mergeEvent } from "./event-log.js";
-import { clearStoredSession, loadInitialSession, saveStoredSession } from "./session-storage.js";
+import { clearStoredSession, loadAllSessions, saveAllSessions, saveStoredSession } from "./session-storage.js";
 import { LangProvider } from "./i18n/LangProvider.js";
 import { isCloudMode } from "./runtime-config.js";
 import ConnectionCodeModal, { type ConnectionCodeModalPairing } from "./components/ConnectionCodeModal.js";
@@ -39,8 +41,21 @@ import WaitingRoom from "./components/WaitingRoom.js";
 import "./App.css";
 
 export default function App() {
-  const inviteTarget = useMemo(() => parseInviteUrl(window.location.search) ?? parseInviteUrl(window.location.hash.replace(/^#/, "?")), []);
-  const [session, setSession] = useState<RoomSession | undefined>(() => loadInitialSession(window.localStorage, inviteTarget));
+  const navigate = useNavigate();
+  const location = useLocation();
+  const roomMatch = useMatch("/room/:roomId");
+  const urlRoomId = roomMatch?.params.roomId;
+
+  const inviteTarget = useMemo(() => {
+    if (location.pathname === "/join") {
+      return parseInviteUrl(location.search) ?? parseInviteUrl(location.hash.replace(/^#/, "?"));
+    }
+    return undefined;
+  }, [location.pathname, location.search, location.hash]);
+
+  const [allSessions, setAllSessions] = useState<Record<string, RoomSession>>(() => loadAllSessions(window.localStorage));
+  const currentSession = urlRoomId ? allSessions[urlRoomId] : undefined;
+
   const [events, setEvents] = useState<CacpEvent[]>([]);
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(false);
@@ -49,18 +64,43 @@ export default function App() {
   const [createdPairing, setCreatedPairing] = useState<{ connection_code: string; download_url: string; expires_at: string }>();
   const [connectorModalPairing, setConnectorModalPairing] = useState<ConnectionCodeModalPairing>();
   const [waitingRoom, setWaitingRoom] = useState<{ roomId: string; requestId: string; requestToken: string; displayName: string } | undefined>();
+  const [validating, setValidating] = useState(false);
+  const [sessionValid, setSessionValid] = useState<boolean | undefined>();
   const waitingRoomRef = useRef(waitingRoom);
   waitingRoomRef.current = waitingRoom;
 
+  // Validate session when URL roomId changes
   useEffect(() => {
-    if (!session) return;
+    if (!urlRoomId || !currentSession) {
+      setSessionValid(undefined);
+      return;
+    }
+    setValidating(true);
+    setSessionValid(undefined);
+    getRoomMe(currentSession)
+      .then(() => setSessionValid(true))
+      .catch(() => {
+        setSessionValid(false);
+        const next = { ...allSessions };
+        delete next[urlRoomId];
+        setAllSessions(next);
+        saveAllSessions(window.localStorage, next);
+      })
+      .finally(() => setValidating(false));
+  }, [urlRoomId, currentSession?.room_id, currentSession?.token]);
+
+  // WebSocket connection for current room
+  useEffect(() => {
+    if (!currentSession || !sessionValid) return;
     const socket = connectEvents(
-      session,
+      currentSession,
       (event) => setEvents((current) => mergeEvent(current, event)),
       (code, reason) => {
         if (code === 4001 || reason === "participant_removed" || reason === "owner_left_room") {
-          clearStoredSession(window.localStorage);
-          setSession(undefined);
+          const next = { ...allSessions };
+          delete next[currentSession.room_id];
+          setAllSessions(next);
+          saveAllSessions(window.localStorage, next);
           setEvents([]);
           setCreatedInvite(undefined);
           setLocalLaunch(undefined);
@@ -68,11 +108,12 @@ export default function App() {
           setConnectorModalPairing(undefined);
           setWaitingRoom(undefined);
           setError(reason === "owner_left_room" ? "The room owner closed the room." : "You have been removed from the room.");
+          navigate("/", { replace: true });
         }
       }
     );
     return () => clearEventSocket(socket);
-  }, [session]);
+  }, [currentSession, sessionValid]);
 
   // Poll join-request status when in waiting room
   useEffect(() => {
@@ -90,14 +131,14 @@ export default function App() {
               role: status.role,
             };
             saveStoredSession(window.localStorage, nextSession);
-            setSession(nextSession);
+            setAllSessions((prev) => ({ ...prev, [nextSession.room_id]: nextSession }));
             setEvents([]);
             setCreatedInvite(undefined);
             setLocalLaunch(undefined);
             setCreatedPairing(undefined);
             setConnectorModalPairing(undefined);
             setWaitingRoom(undefined);
-            if (inviteTarget) window.history.replaceState({}, {}, "/");
+            navigate(`/room/${nextSession.room_id}`, { replace: true });
             return;
           }
           if (status.status === "rejected" || status.status === "expired") {
@@ -113,7 +154,7 @@ export default function App() {
     };
     void poll();
     return () => { cancelled = true; };
-  }, [waitingRoom, inviteTarget]);
+  }, [waitingRoom, navigate]);
 
   async function run(action: () => Promise<void>) {
     setError(undefined);
@@ -129,19 +170,23 @@ export default function App() {
 
   const activateSession = useCallback((nextSession: RoomSession): void => {
     saveStoredSession(window.localStorage, nextSession);
+    setAllSessions((prev) => ({ ...prev, [nextSession.room_id]: nextSession }));
     setEvents([]);
     setCreatedInvite(undefined);
     setLocalLaunch(undefined);
     setCreatedPairing(undefined);
     setConnectorModalPairing(undefined);
     setWaitingRoom(undefined);
-    setSession(nextSession);
-    if (inviteTarget) window.history.replaceState({}, {}, "/");
-  }, [inviteTarget]);
+    navigate(`/room/${nextSession.room_id}`, { replace: true });
+  }, [navigate]);
 
-  const clearActiveRoomSession = useCallback((): void => {
-    clearStoredSession(window.localStorage);
-    setSession(undefined);
+  const clearActiveRoomSession = useCallback((roomId: string): void => {
+    clearStoredSession(window.localStorage, roomId);
+    setAllSessions((prev) => {
+      const next = { ...prev };
+      delete next[roomId];
+      return next;
+    });
     setEvents([]);
     setCreatedInvite(undefined);
     setLocalLaunch(undefined);
@@ -152,15 +197,18 @@ export default function App() {
   }, []);
 
   const handleLeaveRoom = useCallback((): void => {
-    if (!session || session.role !== "owner") {
-      clearActiveRoomSession();
+    if (!currentSession) return;
+    if (currentSession.role !== "owner") {
+      clearActiveRoomSession(currentSession.room_id);
+      navigate("/", { replace: true });
       return;
     }
     void run(async () => {
-      await leaveRoom(session);
-      clearActiveRoomSession();
+      await leaveRoom(currentSession);
+      clearActiveRoomSession(currentSession.room_id);
+      navigate("/", { replace: true });
     });
-  }, [clearActiveRoomSession, session]);
+  }, [clearActiveRoomSession, currentSession, navigate]);
 
   const handleCreate = useCallback(async (params: {
     roomName: string;
@@ -227,55 +275,55 @@ export default function App() {
   }, []);
 
   const handleSendMessage = useCallback(async (text: string) => {
-    if (!session) return;
+    if (!currentSession) return;
     await run(async () => {
-      await sendMessage(session, text);
+      await sendMessage(currentSession, text);
     });
-  }, [session]);
+  }, [currentSession]);
 
   const handleClearRoom = useCallback(() => {
-    if (!session) return;
+    if (!currentSession) return;
     void run(async () => {
-      await clearRoom(session);
+      await clearRoom(currentSession);
     });
-  }, [session]);
+  }, [currentSession]);
 
   const handleStartCollection = useCallback(() => {
-    if (!session) return;
+    if (!currentSession) return;
     void run(async () => {
-      await startAiCollection(session);
+      await startAiCollection(currentSession);
     });
-  }, [session]);
+  }, [currentSession]);
 
   const handleSubmitCollection = useCallback(() => {
-    if (!session) return;
+    if (!currentSession) return;
     void run(async () => {
-      await submitAiCollection(session);
+      await submitAiCollection(currentSession);
     });
-  }, [session]);
+  }, [currentSession]);
 
   const handleCancelCollection = useCallback(() => {
-    if (!session) return;
+    if (!currentSession) return;
     void run(async () => {
-      await cancelAiCollection(session);
+      await cancelAiCollection(currentSession);
     });
-  }, [session]);
+  }, [currentSession]);
 
   const handleSelectAgent = useCallback((agentId: string) => {
-    if (!session) return;
+    if (!currentSession) return;
     void run(async () => {
-      await selectAgent(session, agentId);
+      await selectAgent(currentSession, agentId);
     });
-  }, [session]);
+  }, [currentSession]);
 
   const handleCreateInvite = useCallback(async (role: string, ttl: number): Promise<string | undefined> => {
-    if (!session) return undefined;
+    if (!currentSession) return undefined;
     setError(undefined);
     setLoading(true);
     try {
       if (role !== "member" && role !== "observer") throw new Error("Invalid invite role");
-      const invite = await createInvite(session, role, ttl);
-      const url = inviteUrlFor(window.location.origin, session.room_id, invite.invite_token);
+      const invite = await createInvite(currentSession, role, ttl);
+      const url = inviteUrlFor(window.location.origin, currentSession.room_id, invite.invite_token);
       setCreatedInvite({ url, role, ttl });
       return url;
     } catch (cause) {
@@ -284,98 +332,109 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [session]);
+  }, [currentSession]);
 
   const handleApproveJoinRequest = useCallback((requestId: string) => {
-    if (!session) return;
+    if (!currentSession) return;
     void run(async () => {
-      await approveJoinRequest(session, requestId);
+      await approveJoinRequest(currentSession, requestId);
     });
-  }, [session]);
+  }, [currentSession]);
 
   const handleRejectJoinRequest = useCallback((requestId: string) => {
-    if (!session) return;
+    if (!currentSession) return;
     void run(async () => {
-      await rejectJoinRequest(session, requestId);
+      await rejectJoinRequest(currentSession, requestId);
     });
-  }, [session]);
+  }, [currentSession]);
 
   const handleRemoveParticipant = useCallback((participantId: string) => {
-    if (!session) return;
+    if (!currentSession) return;
     void run(async () => {
-      await removeParticipant(session, participantId);
+      await removeParticipant(currentSession, participantId);
     });
-  }, [session]);
+  }, [currentSession]);
 
   const handleRequestRoundtable = useCallback(() => {
-    if (!session) return;
-    void run(async () => { await requestAiCollection(session); });
-  }, [session]);
+    if (!currentSession) return;
+    void run(async () => { await requestAiCollection(currentSession); });
+  }, [currentSession]);
 
   const handleApproveRoundtableRequest = useCallback((requestId: string) => {
-    if (!session) return;
-    void run(async () => { await approveAiCollectionRequest(session, requestId); });
-  }, [session]);
+    if (!currentSession) return;
+    void run(async () => { await approveAiCollectionRequest(currentSession, requestId); });
+  }, [currentSession]);
 
   const handleRejectRoundtableRequest = useCallback((requestId: string) => {
-    if (!session) return;
-    void run(async () => { await rejectAiCollectionRequest(session, requestId); });
-  }, [session]);
+    if (!currentSession) return;
+    void run(async () => { await rejectAiCollectionRequest(currentSession, requestId); });
+  }, [currentSession]);
 
-  if (waitingRoom) {
-    return (
-      <LangProvider>
-        <WaitingRoom displayName={waitingRoom.displayName} onCancel={handleCancelWaiting} />
-        {error && (
-          <div className="error banner" style={{ position: "fixed", bottom: 16, left: "50%", transform: "translateX(-50%)", zIndex: 100 }}>
-            {error}
-          </div>
-        )}
-      </LangProvider>
-    );
-  }
+  // Redirect to root when on room route but no valid session
+  useEffect(() => {
+    if (urlRoomId && (!currentSession || sessionValid === false)) {
+      navigate("/", { replace: true });
+    }
+  }, [urlRoomId, currentSession, sessionValid, navigate]);
 
-  if (!session) {
+  const content = (() => {
+    if (waitingRoom) {
+      return (
+        <>
+          <WaitingRoom displayName={waitingRoom.displayName} onCancel={handleCancelWaiting} />
+          {error && (
+            <div className="error banner" style={{ position: "fixed", bottom: 16, left: "50%", transform: "translateX(-50%)", zIndex: 100 }}>
+              {error}
+            </div>
+          )}
+        </>
+      );
+    }
+
+    if (urlRoomId && currentSession && sessionValid && !validating) {
+      return (
+        <>
+          <Workspace
+            session={currentSession}
+            events={events}
+            onLeaveRoom={handleLeaveRoom}
+            onClearRoom={handleClearRoom}
+            onSendMessage={handleSendMessage}
+            onStartCollection={handleStartCollection}
+            onSubmitCollection={handleSubmitCollection}
+            onCancelCollection={handleCancelCollection}
+            onSelectAgent={handleSelectAgent}
+            onCreateInvite={handleCreateInvite}
+            onApproveJoinRequest={handleApproveJoinRequest}
+            onRejectJoinRequest={handleRejectJoinRequest}
+            onRemoveParticipant={handleRemoveParticipant}
+            onRequestRoundtable={handleRequestRoundtable}
+            onApproveRoundtableRequest={handleApproveRoundtableRequest}
+            onRejectRoundtableRequest={handleRejectRoundtableRequest}
+            createdInvite={createdInvite}
+            error={error}
+            cloudMode={isCloudMode()}
+            createdPairing={createdPairing}
+          />
+          <ConnectionCodeModal
+            pairing={connectorModalPairing}
+            onClose={() => setConnectorModalPairing(undefined)}
+          />
+        </>
+      );
+    }
+
     return (
-      <LangProvider>
+      <>
         <Landing onCreate={handleCreate} onJoin={handleJoin} loading={loading} />
         {error && (
           <div className="error banner" style={{ position: "fixed", bottom: 16, left: "50%", transform: "translateX(-50%)", zIndex: 100 }}>
             {error}
           </div>
         )}
-      </LangProvider>
+      </>
     );
-  }
+  })();
 
-  return (
-    <LangProvider>
-      <Workspace
-        session={session}
-        events={events}
-        onLeaveRoom={handleLeaveRoom}
-        onClearRoom={handleClearRoom}
-        onSendMessage={handleSendMessage}
-        onStartCollection={handleStartCollection}
-        onSubmitCollection={handleSubmitCollection}
-        onCancelCollection={handleCancelCollection}
-        onSelectAgent={handleSelectAgent}
-        onCreateInvite={handleCreateInvite}
-        onApproveJoinRequest={handleApproveJoinRequest}
-        onRejectJoinRequest={handleRejectJoinRequest}
-        onRemoveParticipant={handleRemoveParticipant}
-        onRequestRoundtable={handleRequestRoundtable}
-        onApproveRoundtableRequest={handleApproveRoundtableRequest}
-        onRejectRoundtableRequest={handleRejectRoundtableRequest}
-        createdInvite={createdInvite}
-        error={error}
-        cloudMode={isCloudMode()}
-        createdPairing={createdPairing}
-      />
-      <ConnectionCodeModal
-        pairing={connectorModalPairing}
-        onClose={() => setConnectorModalPairing(undefined)}
-      />
-    </LangProvider>
-  );
+  return <LangProvider>{content}</LangProvider>;
 }

@@ -225,10 +225,18 @@ export async function createLocalAgentLaunch(session: RoomSession, input: AgentS
 }
 
 export function inviteUrlFor(origin: string, roomId: string, inviteToken: string): string {
-  const url = new URL("/invite", origin);
+  const url = new URL("/join", origin);
   url.searchParams.set("room", roomId);
   url.searchParams.set("token", inviteToken);
   return url.toString();
+}
+
+export async function getRoomMe(session: RoomSession): Promise<{ room_id: string; name: string; role: RoomSession["role"]; participant_id: string }> {
+  const response = await fetch(`/rooms/${session.room_id}/me`, {
+    headers: { authorization: `Bearer ${session.token}` }
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return (await response.json()) as { room_id: string; name: string; role: RoomSession["role"]; participant_id: string };
 }
 
 export function parseInviteUrl(search: string): { room_id: string; invite_token: string } | undefined {

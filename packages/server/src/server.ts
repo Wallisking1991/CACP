@@ -913,6 +913,24 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return { events, participant: publicParticipant(participant) };
   });
 
+  app.get<{ Params: { roomId: string } }>("/rooms/:roomId/me", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) {
+      const token = bearerToken(request);
+      const revoked = token ? store.getRevokedParticipantByToken(request.params.roomId, token) : undefined;
+      if (revoked) return deny(reply, "participant_removed", 403);
+      return deny(reply, "invalid_token");
+    }
+    const room = store.getRoom(request.params.roomId);
+    if (!room) return deny(reply, "room_not_found", 404);
+    return {
+      room_id: room.room_id,
+      name: room.name,
+      role: participant.role,
+      participant_id: participant.id,
+    };
+  });
+
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/activity/presence", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) {

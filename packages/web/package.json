@@ -12,6 +12,7 @@
     "gsap": "^3.15.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-router-dom": "^7.14.2",
     "vite": "^6.0.7"
   },
   "devDependencies": {
