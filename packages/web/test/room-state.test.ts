@@ -707,12 +707,21 @@ describe("room state", () => {
       expect(state.orbitNotes[0].round_id).toBe("round_1");
     });
 
-    it("updates note likes from orbit.like.changed", () => {
+    it("updates note likes from orbit.like.changed with liked:true", () => {
       const state = deriveRoomState([
         event("orbit.note.created", { note_id: "note_1", text: "Note" }, 1, "user_1"),
-        event("orbit.like.changed", { note_id: "note_1", likes: 3 }, 2, "user_2")
+        event("orbit.like.changed", { note_id: "note_1", participant_id: "user_2", liked: true, likes: 1 }, 2, "user_2")
       ]);
-      expect(state.orbitNotes[0].likes).toBe(3);
+      expect(state.orbitNotes[0].likes).toBe(1);
+    });
+
+    it("updates note likes from orbit.like.changed with liked:false", () => {
+      const state = deriveRoomState([
+        event("orbit.note.created", { note_id: "note_1", text: "Note" }, 1, "user_1"),
+        event("orbit.like.changed", { note_id: "note_1", participant_id: "user_2", liked: true, likes: 1 }, 2, "user_2"),
+        event("orbit.like.changed", { note_id: "note_1", participant_id: "user_2", liked: false, likes: 0 }, 3, "user_2")
+      ]);
+      expect(state.orbitNotes[0].likes).toBe(0);
     });
 
     it("marks round as promoted from orbit.round.promoted", () => {
@@ -778,9 +787,22 @@ describe("room state", () => {
         event("main_input.accepted", { input_id: "input_1", text: "Hello" }, 3, "user_1"),
         event("room.history_cleared", { cleared_by: "user_1", cleared_at: "2026-04-25T00:00:04.000Z", scope: "messages" }, 4, "user_1")
       ]);
-      expect(state.orbitRounds).toHaveLength(0);
       expect(state.orbitNotes).toHaveLength(0);
       expect(state.mainInputQueue).toHaveLength(0);
+    });
+
+    it("recreates initial pre-round after room.history_cleared", () => {
+      const state = deriveRoomState([
+        event("room.created", { name: "Room" }, 0, "user_1"),
+        event("orbit.round.opened", { round_id: "round_1" }, 1, "user_1"),
+        event("orbit.note.created", { note_id: "note_1", text: "Note" }, 2, "user_1"),
+        event("room.history_cleared", { cleared_by: "user_1", cleared_at: "2026-04-25T00:00:04.000Z", scope: "messages" }, 4, "user_1")
+      ]);
+      expect(state.orbitRounds).toHaveLength(1);
+      expect(state.orbitRounds[0]).toMatchObject({
+        round_id: "orbit_round_pre_room_1",
+        opened_by: "user_1"
+      });
     });
   });
 

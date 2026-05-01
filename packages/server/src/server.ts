@@ -328,6 +328,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   const joinRequestPollLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.joinAttemptLimit * 2 });
   const presenceLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.presenceChangeLimit });
   const typingLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.typingEventLimit });
+  const orbitLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.orbitEventLimit });
   const socketCounts = new Map<string, number>();
   const participantSockets = new Map<string, Set<{ close: (code?: number, reason?: string) => void }>>();
   const pendingOffline = new Map<string, ReturnType<typeof setTimeout>>();
@@ -1578,6 +1579,14 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const activeAgentId = findActiveAgentId(events);
     if (!activeAgentId) return deny(reply, "active_agent_unavailable", 409);
     if (!isAgentOnline(events, activeAgentId)) return deny(reply, "active_agent_unavailable", 409);
+    const capabilities = findAgentCapabilities(events, activeAgentId);
+    const localProvider = providerForCapabilities(capabilities);
+    if (localProvider) {
+      const ready = localProvider === "claude-code"
+        ? hasClaudeSessionReady(events, activeAgentId) || hasLocalAgentSessionReady(events, activeAgentId, localProvider)
+        : hasLocalAgentSessionReady(events, activeAgentId, localProvider);
+      if (!ready) return deny(reply, "agent_session_not_ready", 409);
+    }
     const turnEvents = eventsAfterLastHistoryClear(events);
     const openTurn = findAnyOpenTurn(turnEvents);
     const inputId = prefixedId("input");
@@ -1606,6 +1615,19 @@ export async function buildServer(options: BuildServerOptions = {}) {
     });
     if (Array.isArray(storedEvents) && storedEvents.length === 0) return reply;
     publishEvents(storedEvents);
+    const triggeredEvent = storedEvents.find((e) => e.type === "main_input.triggered");
+    if (triggeredEvent) {
+      const turnId = (triggeredEvent.payload as { trigger_turn_id: string }).trigger_turn_id;
+      if (turnId) {
+        const orbit = getOrbitState(roomId);
+        const round = orbit.openTurnRound(turnId);
+        publishRelayOnly(event(roomId, "orbit.round.opened", participant.id, {
+          round_id: round.round_id,
+          triggered_by_turn_id: round.triggered_by_turn_id,
+          opened_at: round.opened_at
+        }));
+      }
+    }
     return reply.code(201).send({ input_id: inputId, status: openTurn ? "queued" : "triggered" });
   });
 
@@ -1624,6 +1646,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   });
 
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/orbit/notes", async (request, reply) => {
+    if (!orbitLimiter.allow(request.ip)) return tooMany(reply);
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
     if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
@@ -1652,6 +1675,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   });
 
   app.post<{ Params: { roomId: string; noteId: string } }>("/rooms/:roomId/orbit/notes/:noteId/like", async (request, reply) => {
+    if (!orbitLimiter.allow(request.ip)) return tooMany(reply);
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
     if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
@@ -1664,12 +1688,14 @@ export async function buildServer(options: BuildServerOptions = {}) {
     publishRelayOnly(event(roomId, "orbit.like.changed", participant.id, {
       note_id: request.params.noteId,
       participant_id: participant.id,
-      liked: true
+      liked: true,
+      likes: result.count
     }));
     return reply.code(201).send({ liked: result.liked, count: result.count });
   });
 
   app.delete<{ Params: { roomId: string; noteId: string } }>("/rooms/:roomId/orbit/notes/:noteId/like", async (request, reply) => {
+    if (!orbitLimiter.allow(request.ip)) return tooMany(reply);
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
     if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
@@ -1681,12 +1707,14 @@ export async function buildServer(options: BuildServerOptions = {}) {
     publishRelayOnly(event(roomId, "orbit.like.changed", participant.id, {
       note_id: request.params.noteId,
       participant_id: participant.id,
-      liked: false
+      liked: false,
+      likes: result.count
     }));
     return reply.code(201).send({ liked: result.liked, count: result.count });
   });
 
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/orbit/promote", async (request, reply) => {
+    if (!orbitLimiter.allow(request.ip)) return tooMany(reply);
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
     if (!hasAnyRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
@@ -1730,6 +1758,18 @@ export async function buildServer(options: BuildServerOptions = {}) {
     });
     if (Array.isArray(storedEvents) && storedEvents.length === 0) return reply;
     publishEvents(storedEvents);
+    const triggeredEvent = storedEvents.find((e) => e.type === "main_input.triggered");
+    if (triggeredEvent) {
+      const turnId = (triggeredEvent.payload as { trigger_turn_id: string }).trigger_turn_id;
+      if (turnId) {
+        const round = orbit.openTurnRound(turnId);
+        publishRelayOnly(event(roomId, "orbit.round.opened", participant.id, {
+          round_id: round.round_id,
+          triggered_by_turn_id: round.triggered_by_turn_id,
+          opened_at: round.opened_at
+        }));
+      }
+    }
     publishRelayOnly(event(roomId, "orbit.round.promoted", participant.id, {
       round_id: roundId,
       promoted_by: participant.id,

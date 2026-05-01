@@ -41,75 +41,76 @@ Only the room server is public; agent execution should stay local through the co
 <claude-mem-context>
 # Memory Context
 
-# [2] recent context, 2026-05-01 10:10pm GMT+8
+# [2] recent context, 2026-05-02 12:40am GMT+8
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision 🚨security_alert 🔐security_note
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 50 obs (15,612t read) | 4,060,950t work | 100% savings
+Stats: 50 obs (24,079t read) | 617,273t work | 96% savings
 
 ### May 1, 2026
-80 10:21a 🟣 TDD test added for countPendingJoinRequestsByInvite EventStore method
-85 10:22a 🟣 EventStore.countPendingJoinRequestsByInvite implemented with schema migration
-83 10:23a 🔵 Existing migration pattern in EventStore constructor examined for schema change
-86 10:24a 🔵 Rate limiting and join request flow inspection
-87 10:26a 🟣 Invite creation enforces room capacity and configurable max uses
-88 10:27a 🟣 Invite consumption deferred to approval with auto-revocation
-89 " ✅ Server capacity test corrected and all tests passing
-90 10:32a ⚖️ Invite link error UX improvement requested with gated approval workflow
-91 11:28a 🔵 Comprehensive exploration of RoomControlCenter and related CACP web frontend components completed
-92 11:30a 🔵 App.tsx reveals top-level CACP application architecture with routing, sessions, and WebSocket event flow
-93 11:31a ⚖️ UI redesign interaction model finalized
-94 11:55a 🔵 Baseline test suite fully passing before refactor
-95 " ⚖️ Implementation decomposed into 11 tracked tasks with TDD approach
-96 " 🟣 Popover base component created via TDD cycle
-97 " 🟣 Popover component passes all 5 TDD tests
-98 " ✅ Task 3 complete, implementation moving to BellIcon
-99 " 🟣 BellIcon test created for notification button
-100 " 🟣 BellIcon test fails as expected before implementation
-101 11:56a 🟣 BellIcon implemented and passing in RoomIcons
-102 " ✅ Task 1 complete, Task 6 RoleAvatarRail refactoring started
-103 11:57a ✅ RoleAvatarRail test refactored for click-based interactions
-104 " ✅ RoleAvatarRail interface expanded with click callbacks
-S95 Redesign CACP room header buttons and overall room controls UI to look premium/high-end (May 1, 1:05 PM)
-105 1:05p 🔵 Playwright screenshot command timed out after 30 seconds
-106 " 🔵 Screenshot file created but Playwright process remains hung
-107 1:06p 🔵 Playwright screenshot file never existed; existence check was a false positive
-108 1:07p 🔵 Playwright screenshot file found at /tmp/cacp-screenshot.png, 502 KB
-109 " 🔵 MiniMax VLM requires Unix-style path; Windows C:/ path fails
-111 " 🔵 VLM analysis reveals screenshot captured broken/loading UI state
-112 " 🔵 Playwright landing page screenshot succeeds while room page hangs
-110 " ✅ Screenshot copied to workspace root for VLM accessibility
-113 " 🔵 Room page requires valid session; redirects without one
-114 1:08p 🔵 Room creation API expects `name` field, not `roomName`
-115 1:09p 🔵 Room successfully created via API with corrected payload
-116 " ✅ Created Playwright script to screenshot room page with injected session
-117 " 🔵 Playwright screenshot script failed due to wrong cwd and npx invocation
-118 " ✅ Revised Playwright screenshot approach using ESM module and node direct execution
-119 " 🔵 ESM screenshot script failed because playwright-core is not resolvable from /tmp
-120 1:10p 🔵 Launcher page approach successfully captured room page screenshot
-S97 Activate the `using-superpowers` skill to establish skill invocation rules for the session (May 1, 1:15 PM)
-121 1:35p 🔵 Codex SDK local execution behavior verified through spike
-122 " ⚖️ Provider-neutral local code agent protocol adopted for Codex CLI integration
-123 " ⚖️ 10-task implementation plan defined across protocol, server, web, and connector
-S98 Activate using-superpowers skill, review Codex CLI integration plans, and begin Task 1 protocol schema implementation via TDD (May 1, 1:35 PM)
-S96 Activate the `using-superpowers` skill to establish skill invocation rules for the session (May 1, 1:35 PM)
-S99 Continue the 10-task TDD plan extending CACP for codex-cli alongside claude-code; close out Task 5 (Web Generic Session UI) by finishing the wiring work, repairing latent test failures from Codex CLI registration, re-verifying all packages, and committing the result. (May 1, 1:37 PM)
-124 1:38p 🟣 Protocol generic local agent session events implemented
-125 " 🟣 Server pairing tests updated for Codex CLI support
-S100 Task 5 of the 10-task TDD plan — adding the Web Generic Session UI for the codex-cli + claude-code unified agent family in the CACP monorepo. Scope of this checkpoint: repair Codex-CLI-induced test breakage in `landing-connector.test.tsx` and `landing-llm-agent.test.tsx`, finish wiring `AgentSessionPicker` / `AgentStatusCard` through `AgentAvatarPopover.tsx` and `Workspace.tsx`, re-verify all package suites, and land everything as a single commit alongside the previously-unstaged Task 4 deltas. (May 1, 1:40 PM)
-S101 Codex CLI integration Task 9 + Task 10 — connector routing and full validation/packaging for the CACP monorepo (May 1, 5:19 PM)
 S102 Codex CLI integration final validation — confirm Tasks 9 + 10 complete, inspect git log/status, and identify any leftover uncommitted work (May 1, 5:27 PM)
 S103 Final status report for the 10-task Codex CLI integration plan — confirm full automated completion and remaining manual verification (May 1, 6:02 PM)
-S104 Re-confirm Codex CLI integration completion — 10/10 tasks done, branch state stable, awaiting decision on manual smoke-test follow-up (May 1, 6:16 PM)
-126 6:23p ✅ Added @openai/codex-sdk to @cacp/cli-adapter
-127 6:24p 🔵 pnpm add was a manifest no-op; Codex SDK already committed
-128 9:34p ✅ Session initialized with using-superpowers skill
+S104 Re-confirm Codex CLI integration completion — 10/10 tasks done, branch state stable, awaiting decision on manual smoke-test follow-up (May 1, 6:02 PM)
+S105 Redeploy CACP project to production server cacp.zuchongai.com following docs/deploy-cloud.md runbook (May 1, 6:16 PM)
 129 9:53p 🔵 Codex smoke test fails with spawn codex ENOENT on Windows
-130 " 🔴 Codex SDK no longer forces bare "codex" executable override
-131 " 🔴 Server avoids appending events through closed SQLite during shutdown
 132 10:06p 🔵 PowerShell ConstrainedLanguage blocks UTF-8 console encoding setup in D:\Development\2
+133 10:10p 🔵 CACP Codex smoke room read-only listing succeeded
+134 10:37p 🔵 CACP cloud deployment runbook loaded for redeploy
+135 10:38p 🔵 Deployment configuration files located and loaded
+136 " 🔵 Local checkout state and Python toolchain verified for deploy
+137 " 🔵 corepack enable fails with EPERM on Windows nodejs install
+138 " 🔵 corepack pnpm works without corepack enable shim
+139 " 🔵 Local pnpm check passed 245 tests and built all packages
+140 10:42p 🟣 Windows Local Connector SEA built successfully
+141 " 🔵 Connector exe size 92920320 bytes for new build
+142 " 🟣 Web frontend built in cloud deployment mode
+143 " 🔵 Cloud-mode dist contains connector exe and references new asset hash
+144 10:43p 🔵 Repository has 243 tracked files for deployment packaging
+145 " 🟣 Created .deploy/package.py to assemble deployment tar.gz
+146 10:44p 🟣 Deployment archive built with 244 entries totaling 33 MB
+147 " 🟣 Created deploy-remote.sh template for server-side deployment
+148 " 🟣 Created .deploy/deploy.py paramiko deployment driver
+149 10:45p 🟣 CACP deployed successfully to cacp.zuchongai.com
+150 10:46p 🟣 Public deployment verified at cacp.zuchongai.com
+151 " 🔵 Vite asset hash now contains hyphens, breaking simple grep regex
+152 10:47p 🟣 Production homepage references new bundle and SPA routing works
+153 " 🟣 Production JS bundle contains new useMatch React Router code
+155 " ⚖️ Deployment tooling treated as ephemeral and cleaned up
+154 " 🔵 Post-deploy git state shows .deploy/ as untracked and main 23 ahead
+S106 systematic-debugging: 生产环境创建房间后，通过 Codex 连接时 CACP-Local-Connector 输入连接码后直接闪退；web 上显示 Codex 已上线，但无会话选择弹窗，输入消息也未触发 Agent 回复。Phase 4 fix authoring + commit for the defect. (May 1, 10:48 PM)
+156 10:54p 🔵 Production bug: CACP-Local-Connector crashes on Codex connect with stuck UI state
+157 " 🔵 Codex pairing code spans 45 files across cli-adapter, server, web, and protocol
+S107 Redeploy CACP cloud service at commit a49772b carrying the systematic-debugging Phase-4 fix for defect A (CACP-Local-Connector silent exit on connection-code paste in cloud rooms), per docs/deploy-cloud.md. (May 1, 10:54 PM)
+S108 Phase-4 verification of defect-A fix in production followed by Phase-1 investigation of the now-visible follow-up symptom: "无法开启新会话" with stderr error "Unable to locate Codex CLI binaries. Ensure @openai/codex is installed with optional dependencies." (May 1, 11:36 PM)
+158 11:38p 🔵 Defect A root cause empirically confirmed: Codex SDK binary lookup fails inside SEA bundle
+S109 systematic-debugging: production cloud rooms — connecting via Codex pastes the connection code into CACP-Local-Connector and the connector crashes / silently disappears; the web UI shows Codex as online but never opens the session-selection modal and never replies to messages. Escalation surfaced the underlying error: "Ignoring malformed adapter stream message Error: Unable to locate Codex CLI binaries. Ensure @openai/codex is installed with optional dependencies." with stack trace findCodexPath → CodexExec → Codex → createCodexSdkFromModule → loadCodexSdk. (May 1, 11:47 PM)
+159 11:47p 🔵 @openai/codex package is absent from node_modules in CACP repo
+160 11:48p 🔵 @openai/codex IS installed in pnpm virtual store with Windows binary vendor present
+161 " 🔵 codex.js shim shows fallback resolution: platform package OR local vendor directory
+162 11:49p 🔵 Diagnosis phase complete: SEA bundle binary resolution gap is the root cause
+163 " 🔴 Codex SDK loader now searches PATH, pnpm store, and npm globals when bundled binary is missing
+164 11:51p 🔵 Connector fresh-mode session selection has no error reporting path to web UI
+165 11:52p 🔴 Fresh-mode session selection failures now surface to web UI via runtime-status "failed" events
+S110 Two-part work: (1) Fix CACP-Local-Connector silent crash and missing web session-selection error when starting a Codex session in cloud production (resolved at commit 0b8f3c2). (2) Redeploy the project to cacp.zuchongai.com per docs/deploy-cloud.md so the fix reaches end users (now in flight). (May 1, 11:52 PM)
+### May 2, 2026
+S111 Two-part request fulfilled in one trajectory: (1) systematic-debugging fix for the CACP-Local-Connector silent crash on Codex session start (root-caused at `@openai/codex-sdk` `findCodexPath()` failing in SEA/bundled-CJS environments) plus the missing web-side error path when the connector failed mid-handshake; (2) redeploy of the resulting commit to cacp.zuchongai.com per `docs/deploy-cloud.md`. Both halves are now LIVE on production. (May 2, 12:04 AM)
+166 12:30a 🔵 CACP cloud deployment runbook reviewed for redeployment
+167 12:31a 🔵 Pre-deployment local state inspection for CACP cloud redeploy
+168 12:32a 🔵 Full test suite passes pre-deployment across all CACP workspaces
+169 12:33a 🔵 Modified codex-sdk files show no content diff despite git M flag
+170 " 🟣 Windows CACP Local Connector executable rebuilt via Node SEA
+171 " 🔴 Web build ran without VITE_CACP_DEPLOYMENT_MODE due to bash/PowerShell syntax mismatch
+172 " 🔵 Working tree clean and main branch is 26 commits ahead of origin/main
+173 " 🔴 Web rebuilt successfully with VITE_CACP_DEPLOYMENT_MODE=cloud using bash inline syntax
+174 12:34a 🔵 Local deployment artifacts verified with sizes and release identifier resolved
+175 12:36a 🟣 Python paramiko deployment script authored for CACP cloud deploy
+176 " 🟣 CACP cloud deployment cacp-20260501163414-aaec102 shipped to production
+177 12:37a 🔵 Production verification confirms cacp.zuchongai.com deployment is healthy
+178 " 🔵 Production JS bundle confirmed to include React Router useMatch hook
+179 12:38a ✅ Deployed commits pushed to origin/main making release reproducible from Git
+180 " ✅ Post-deployment hygiene: local deploy script and archive removed
 
-Access 4061k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 617k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>

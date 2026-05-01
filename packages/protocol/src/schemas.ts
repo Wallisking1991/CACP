@@ -551,7 +551,8 @@ export const OrbitNoteCreatedPayloadSchema = z.object({
 export const OrbitLikeChangedPayloadSchema = z.object({
   note_id: z.string().min(1),
   participant_id: z.string().min(1),
-  liked: z.boolean()
+  liked: z.boolean(),
+  likes: z.number().int().nonnegative()
 });
 
 export const OrbitRoundPromotedPayloadSchema = z.object({

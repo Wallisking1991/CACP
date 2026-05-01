@@ -18,6 +18,7 @@ export function localTestConfig(overrides?: Partial<ServerConfig>): ServerConfig
     messageCreateLimit: 120,
     presenceChangeLimit: 30,
     typingEventLimit: 60,
+    orbitEventLimit: 120,
     ...overrides
   };
 }
@@ -41,6 +42,7 @@ export function cloudTestConfig(overrides?: Partial<ServerConfig>): ServerConfig
     messageCreateLimit: 120,
     presenceChangeLimit: 30,
     typingEventLimit: 60,
+    orbitEventLimit: 120,
     ...overrides
   };
 }

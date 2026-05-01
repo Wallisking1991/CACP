@@ -491,6 +491,13 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
       orbitRounds.clear();
       orbitNotes.clear();
       mainInputQueue.clear();
+      const preRoundId = `orbit_round_pre_${event.room_id}`;
+      orbitRounds.set(preRoundId, {
+        round_id: preRoundId,
+        opened_at: event.created_at,
+        opened_by: event.actor_id,
+        note_ids: []
+      });
     }
     if (event.type === "orbit.round.opened" && typeof event.payload.round_id === "string") {
       orbitRounds.set(event.payload.round_id, {

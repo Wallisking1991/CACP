@@ -588,10 +588,12 @@ describe("orbit and connector event schemas", () => {
     const payload = {
       note_id: "note_1",
       participant_id: "user_2",
-      liked: true
+      liked: true,
+      likes: 1
     };
     const parsed = OrbitLikeChangedPayloadSchema.parse(payload);
     expect(parsed.liked).toBe(true);
+    expect(parsed.likes).toBe(1);
   });
 
   it("accepts valid orbit round promoted payloads", () => {

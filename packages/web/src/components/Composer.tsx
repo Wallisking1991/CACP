@@ -214,7 +214,7 @@ export default function Composer({
             <button
               type="button"
               className="btn btn-primary"
-              onClick={handleSend}
+              onClick={onSendMainInput ? handleSendMainInput : handleSend}
               disabled={!text.trim()}
             >
               <SendIcon /> {t("composer.queue")}

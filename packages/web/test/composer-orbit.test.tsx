@@ -105,6 +105,28 @@ describe("Composer Orbit dual-send", () => {
     expect(screen.getByRole("button", { name: /Queue message/i })).toBeInTheDocument();
   });
 
+  it("calls onSendMainInput when Queue is clicked during turnInFlight", () => {
+    const onSendMainInput = vi.fn();
+    renderComposer({ ...baseProps, turnInFlight: true, onSendMainInput });
+
+    const textarea = screen.getByPlaceholderText(/Type a message/i);
+    fireEvent.change(textarea, { target: { value: "queued input" } });
+    fireEvent.click(screen.getByRole("button", { name: /Queue message/i }));
+
+    expect(onSendMainInput).toHaveBeenCalledWith("queued input");
+  });
+
+  it("falls back to onSend when Queue is clicked without onSendMainInput", () => {
+    const onSend = vi.fn();
+    renderComposer({ ...baseProps, turnInFlight: true, onSend });
+
+    const textarea = screen.getByPlaceholderText(/Type a message/i);
+    fireEvent.change(textarea, { target: { value: "queued fallback" } });
+    fireEvent.click(screen.getByRole("button", { name: /Queue message/i }));
+
+    expect(onSend).toHaveBeenCalledWith("queued fallback");
+  });
+
   it("does not show dual-send in collect mode", () => {
     const onSendOrbitNote = vi.fn();
     renderComposer({ ...baseProps, mode: "collect", onSendOrbitNote });

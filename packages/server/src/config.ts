@@ -18,6 +18,7 @@ export interface ServerConfig {
   messageCreateLimit: number;
   presenceChangeLimit: number;
   typingEventLimit: number;
+  orbitEventLimit: number;
 }
 
 function boolValue(value: string | undefined, fallback: boolean): boolean {
@@ -66,7 +67,8 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     pairingCreateLimit: intValue(env.CACP_PAIRING_CREATE_LIMIT, 30),
     messageCreateLimit: intValue(env.CACP_MESSAGE_CREATE_LIMIT, 120),
     presenceChangeLimit: intValue(env.CACP_PRESENCE_CHANGE_LIMIT, 30),
-    typingEventLimit: intValue(env.CACP_TYPING_EVENT_LIMIT, 60)
+    typingEventLimit: intValue(env.CACP_TYPING_EVENT_LIMIT, 60),
+    orbitEventLimit: intValue(env.CACP_ORBIT_EVENT_LIMIT, 120)
   };
 }
 

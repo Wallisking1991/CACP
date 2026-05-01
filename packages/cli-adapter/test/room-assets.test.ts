@@ -17,6 +17,19 @@ describe("slugifyRoomTitle", () => {
   it("trims leading and trailing hyphens", () => {
     expect(slugifyRoomTitle("!Room!")).toBe("room");
   });
+
+  it("appends -room suffix to Windows reserved device names", () => {
+    const reserved = ["con", "prn", "aux", "nul", "com1", "com9", "lpt1", "lpt9"];
+    for (const name of reserved) {
+      expect(slugifyRoomTitle(name)).toBe(`${name}-room`);
+      expect(slugifyRoomTitle(name.toUpperCase())).toBe(`${name}-room`);
+    }
+  });
+
+  it("does not append suffix to normal names that happen to contain reserved words", () => {
+    expect(slugifyRoomTitle("conference")).toBe("conference");
+    expect(slugifyRoomTitle("my-com1")).toBe("my-com1");
+  });
 });
 
 describe("roomAssetDirectory", () => {
