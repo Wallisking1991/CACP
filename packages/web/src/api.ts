@@ -67,6 +67,25 @@ export async function sendMessage(session: RoomSession, text: string): Promise<v
   await postJson(`/rooms/${session.room_id}/messages`, session.token, { text });
 }
 
+export async function sendOrbitNote(session: RoomSession, text: string): Promise<{ note_id: string }> {
+  return await postJson(`/rooms/${session.room_id}/orbit/notes`, session.token, { text });
+}
+
+export async function likeOrbitNote(session: RoomSession, noteId: string): Promise<{ liked: boolean; count: number }> {
+  return await postJson(`/rooms/${session.room_id}/orbit/notes/${noteId}/like`, session.token, {});
+}
+
+export async function unlikeOrbitNote(session: RoomSession, noteId: string): Promise<{ liked: boolean; count: number }> {
+  return await fetch(`/rooms/${session.room_id}/orbit/notes/${noteId}/like`, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${session.token}` }
+  }).then((r) => r.json());
+}
+
+export async function promoteOrbitRound(session: RoomSession, noteIds?: string[]): Promise<{ input_id: string; status: string; note_count: number }> {
+  return await postJson(`/rooms/${session.room_id}/orbit/promote`, session.token, { note_ids: noteIds });
+}
+
 export async function sendMainInput(session: RoomSession, text: string): Promise<{ input_id: string; status: string }> {
   return await postJson(`/rooms/${session.room_id}/main-inputs`, session.token, { text });
 }

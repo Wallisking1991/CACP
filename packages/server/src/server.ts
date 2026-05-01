@@ -13,6 +13,7 @@ import { EventStore, type StoredParticipant } from "./event-store.js";
 import { roomDelivery, targetedDelivery, canDeliverEnvelope, type RelayEnvelope } from "./relay.js";
 import { hasAllowedOrigin, loadServerConfig, type ServerConfig } from "./config.js";
 import { event, hashToken, openSecret, prefixedId, sealSecret, token } from "./ids.js";
+import { OrbitRoomState } from "./orbit-state.js";
 import { FixedWindowRateLimiter } from "./rate-limit.js";
 import { AgentTypeValues, PermissionLevelValues, buildAgentProfile, isLlmAgentType, type AgentType, type PermissionLevel } from "./pairing.js";
 import {
@@ -309,6 +310,13 @@ export async function buildServer(options: BuildServerOptions = {}) {
   });
   const store = new EventStore(options.dbPath ?? "cacp.db");
   const bus = new EventBus();
+  const orbitStates = new Map<string, OrbitRoomState>();
+  function getOrbitState(roomId: string): OrbitRoomState {
+    if (!orbitStates.has(roomId)) {
+      orbitStates.set(roomId, new OrbitRoomState(roomId));
+    }
+    return orbitStates.get(roomId)!;
+  }
   const localAgentLauncher = options.localAgentLauncher ?? defaultLocalAgentLauncher;
   const localRepoRoot = options.repoRoot ?? repoRoot;
   const roomLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.roomCreateLimit });
@@ -634,6 +642,16 @@ export async function buildServer(options: BuildServerOptions = {}) {
 
   function openTurnInRoom(roomId: string): OpenTurn | undefined {
     return findAnyOpenTurn(eventsAfterLastHistoryClear(store.listEvents(roomId)));
+  }
+
+  function findLastTurnId(events: CacpEvent[]): string | undefined {
+    for (let i = events.length - 1; i >= 0; i--) {
+      const e = events[i];
+      if (e.type === "agent.turn.requested" && typeof e.payload.turn_id === "string") {
+        return e.payload.turn_id;
+      }
+    }
+    return undefined;
   }
 
   function collectedMessagesFor(roomId: string, collectionId: string): CollectedMessage[] {
@@ -1598,6 +1616,122 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!isQueued || isTerminal) return deny(reply, "input_not_found", 409);
     appendAndPublish(event(roomId, "main_input.cancelled", participant.id, { input_id: inputId, cancelled_by: participant.id }));
     return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/orbit/notes", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
+    const body = z.object({ text: z.string().min(1).max(2000) }).parse(request.body);
+    const roomId = request.params.roomId;
+    const orbit = getOrbitState(roomId);
+    const noteId = prefixedId("note");
+    const now = new Date().toISOString();
+    const note = orbit.addNote({
+      note_id: noteId,
+      round_id: orbit.getCurrentRoundId(),
+      author_id: participant.id,
+      author_name: participant.display_name,
+      text: body.text,
+      created_at: now
+    });
+    publishRelayOnly(event(roomId, "orbit.note.created", participant.id, {
+      note_id: note.note_id,
+      round_id: note.round_id,
+      author_id: note.author_id,
+      author_name: note.author_name,
+      text: note.text,
+      created_at: note.created_at
+    }));
+    return reply.code(201).send({ note_id: noteId });
+  });
+
+  app.post<{ Params: { roomId: string; noteId: string } }>("/rooms/:roomId/orbit/notes/:noteId/like", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
+    const roomId = request.params.roomId;
+    const orbit = getOrbitState(roomId);
+    const note = orbit.getNote(request.params.noteId);
+    if (!note) return deny(reply, "note_not_found", 404);
+    if (note.author_id === participant.id) return deny(reply, "self_like_not_allowed", 409);
+    const result = orbit.setLike(request.params.noteId, participant.id, true);
+    publishRelayOnly(event(roomId, "orbit.like.changed", participant.id, {
+      note_id: request.params.noteId,
+      participant_id: participant.id,
+      liked: true
+    }));
+    return reply.code(201).send({ liked: result.liked, count: result.count });
+  });
+
+  app.delete<{ Params: { roomId: string; noteId: string } }>("/rooms/:roomId/orbit/notes/:noteId/like", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
+    const roomId = request.params.roomId;
+    const orbit = getOrbitState(roomId);
+    const note = orbit.getNote(request.params.noteId);
+    if (!note) return deny(reply, "note_not_found", 404);
+    const result = orbit.setLike(request.params.noteId, participant.id, false);
+    publishRelayOnly(event(roomId, "orbit.like.changed", participant.id, {
+      note_id: request.params.noteId,
+      participant_id: participant.id,
+      liked: false
+    }));
+    return reply.code(201).send({ liked: result.liked, count: result.count });
+  });
+
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/orbit/promote", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    if (!hasAnyRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
+    const body = z.object({ note_ids: z.array(z.string()).optional() }).parse(request.body);
+    const roomId = request.params.roomId;
+    const orbit = getOrbitState(roomId);
+    const roundId = orbit.getCurrentRoundId();
+    const payload = orbit.buildPromotionPayload(roundId, body.note_ids);
+    if (!payload) return deny(reply, "no_notes_selected", 409);
+
+    const inputId = prefixedId("input");
+    const now = new Date().toISOString();
+    const events = store.listEvents(roomId);
+    const activeAgentId = findActiveAgentId(events);
+    if (!activeAgentId) return deny(reply, "active_agent_unavailable", 409);
+    const turnEvents = eventsAfterLastHistoryClear(events);
+    const openTurn = findAnyOpenTurn(turnEvents);
+    const queuedTurnId = openTurn ? openTurn.turn_id : (findLastTurnId(turnEvents) ?? "none");
+
+    const storedEvents = store.transaction(() => {
+      const accepted = store.appendEvent(event(roomId, "main_input.accepted", participant.id, {
+        input_id: inputId,
+        author_id: participant.id,
+        text: payload.text,
+        source: "orbit_promote",
+        created_at: now
+      }));
+      const queued = store.appendEvent(event(roomId, "main_input.queued", participant.id, {
+        input_id: inputId,
+        queued_after_turn_id: queuedTurnId
+      }));
+      if (openTurn) return [accepted, queued];
+      const turnEvents = createAgentTurnRequestEvents(roomId, participant.id, "human_message");
+      if (turnEvents.length === 0) return deny(reply, "active_agent_unavailable", 409) as unknown as CacpEvent[];
+      const triggered = store.appendEvent(event(roomId, "main_input.triggered", participant.id, {
+        input_id: inputId,
+        trigger_turn_id: (turnEvents.find((e) => e.type === "agent.turn.requested")?.payload as { turn_id: string })?.turn_id ?? ""
+      }));
+      orbit.promoteRound(roundId, participant.id, inputId);
+      return [accepted, queued, triggered, ...turnEvents.map((nextEvent) => store.appendEvent(nextEvent))];
+    });
+    if (Array.isArray(storedEvents) && storedEvents.length === 0) return reply;
+    publishEvents(storedEvents);
+    publishRelayOnly(event(roomId, "orbit.round.promoted", participant.id, {
+      round_id: roundId,
+      promoted_by: participant.id,
+      input_id: inputId,
+      promoted_at: now
+    }));
+    return reply.code(201).send({ input_id: inputId, status: openTurn ? "queued" : "triggered", note_count: payload.noteCount });
   });
 
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/messages", async (request, reply) => {
