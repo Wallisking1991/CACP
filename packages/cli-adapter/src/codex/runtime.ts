@@ -148,4 +148,8 @@ export class CodexRuntime {
     // If we reach here without turn.completed, return what we have
     return { finalText, sessionId, metrics };
   }
+
+  async close(): Promise<void> {
+    // Codex SDK threads are process-per-turn; no persistent session to close
+  }
 }

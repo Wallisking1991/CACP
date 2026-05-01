@@ -1,15 +1,27 @@
 import type {
+  AgentRuntimeStatusChangedPayload,
+  AgentRuntimeStatusCompletedPayload,
+  AgentRuntimeStatusFailedPayload,
+  AgentSessionCatalogUpdatedPayload,
+  AgentSessionImportCompletedPayload,
+  AgentSessionImportFailedPayload,
+  AgentSessionImportMessagePayload,
+  AgentSessionImportStartedPayload,
+  AgentSessionPreviewCompletedPayload,
+  AgentSessionPreviewFailedPayload,
+  AgentSessionPreviewMessagePayload,
+  AgentSessionReadyPayload,
   ClaudeRuntimeMetrics,
   ClaudeRuntimePhase,
-  ClaudeSessionCatalogUpdatedPayload,
-  ClaudeSessionImportCompletedPayload,
-  ClaudeSessionImportFailedPayload,
-  ClaudeSessionImportMessagePayload,
-  ClaudeSessionImportStartedPayload,
-  ClaudeSessionPreviewCompletedPayload,
-  ClaudeSessionPreviewFailedPayload,
-  ClaudeSessionPreviewMessagePayload,
-  ClaudeSessionReadyPayload
+  ClaudeSessionCatalogUpdatedPayload as ClaudeCatalogPayload,
+  ClaudeSessionImportCompletedPayload as ClaudeImportCompletedPayload,
+  ClaudeSessionImportFailedPayload as ClaudeImportFailedPayload,
+  ClaudeSessionImportMessagePayload as ClaudeImportMessagePayload,
+  ClaudeSessionImportStartedPayload as ClaudeImportStartedPayload,
+  ClaudeSessionPreviewCompletedPayload as ClaudePreviewCompletedPayload,
+  ClaudeSessionPreviewFailedPayload as ClaudePreviewFailedPayload,
+  ClaudeSessionPreviewMessagePayload as ClaudePreviewMessagePayload,
+  ClaudeSessionReadyPayload as ClaudeReadyPayload
 } from "@cacp/protocol";
 
 export interface RoomClientInput {
@@ -31,44 +43,84 @@ export class RoomClient {
     return await response.json() as T;
   }
 
-  publishCatalog(payload: ClaudeSessionCatalogUpdatedPayload): Promise<{ ok: true }> {
+  publishCatalog(payload: ClaudeCatalogPayload): Promise<{ ok: true }> {
     return this.postJson(`/rooms/${this.input.roomId}/claude/session-catalog`, payload);
   }
 
-  publishSessionReady(payload: ClaudeSessionReadyPayload): Promise<{ ok: true }> {
+  publishAgentSessionCatalog(payload: AgentSessionCatalogUpdatedPayload): Promise<{ ok: true }> {
+    return this.postJson(`/rooms/${this.input.roomId}/agent-sessions/catalog`, payload);
+  }
+
+  publishSessionReady(payload: ClaudeReadyPayload): Promise<{ ok: true }> {
     return this.postJson(`/rooms/${this.input.roomId}/claude/session-ready`, payload);
   }
 
-  startImport(payload: ClaudeSessionImportStartedPayload): Promise<{ ok: true }> {
+  publishAgentSessionReady(payload: AgentSessionReadyPayload): Promise<{ ok: true }> {
+    return this.postJson(`/rooms/${this.input.roomId}/agent-sessions/ready`, payload);
+  }
+
+  startImport(payload: ClaudeImportStartedPayload): Promise<{ ok: true }> {
     return this.postJson(`/rooms/${this.input.roomId}/claude/session-imports/start`, payload);
   }
 
-  uploadImportMessages(importId: string, messages: ClaudeSessionImportMessagePayload[]): Promise<{ ok: true; imported: number }> {
+  uploadImportMessages(importId: string, messages: ClaudeImportMessagePayload[]): Promise<{ ok: true; imported: number }> {
     return this.postJson(`/rooms/${this.input.roomId}/claude/session-imports/${importId}/messages`, messages);
   }
 
-  completeImport(importId: string, payload: ClaudeSessionImportCompletedPayload): Promise<{ ok: true }> {
+  completeImport(importId: string, payload: ClaudeImportCompletedPayload): Promise<{ ok: true }> {
     return this.postJson(`/rooms/${this.input.roomId}/claude/session-imports/${importId}/complete`, payload);
   }
 
-  failImport(importId: string, payload: ClaudeSessionImportFailedPayload): Promise<{ ok: true }> {
+  failImport(importId: string, payload: ClaudeImportFailedPayload): Promise<{ ok: true }> {
     return this.postJson(`/rooms/${this.input.roomId}/claude/session-imports/${importId}/fail`, payload);
   }
 
-  uploadPreviewMessages(previewId: string, messages: ClaudeSessionPreviewMessagePayload[]): Promise<{ ok: true; previewed: number }> {
+  uploadPreviewMessages(previewId: string, messages: ClaudePreviewMessagePayload[]): Promise<{ ok: true; previewed: number }> {
     return this.postJson(`/rooms/${this.input.roomId}/claude/session-previews/${previewId}/messages`, messages);
   }
 
-  completePreview(previewId: string, payload: ClaudeSessionPreviewCompletedPayload): Promise<{ ok: true }> {
+  completePreview(previewId: string, payload: ClaudePreviewCompletedPayload): Promise<{ ok: true }> {
     return this.postJson(`/rooms/${this.input.roomId}/claude/session-previews/${previewId}/complete`, payload);
   }
 
-  failPreview(previewId: string, payload: ClaudeSessionPreviewFailedPayload): Promise<{ ok: true }> {
+  failPreview(previewId: string, payload: ClaudePreviewFailedPayload): Promise<{ ok: true }> {
     return this.postJson(`/rooms/${this.input.roomId}/claude/session-previews/${previewId}/fail`, payload);
   }
 
   publishRuntimeStatus(kind: "changed" | "completed" | "failed", payload: unknown): Promise<{ ok: true }> {
     return this.postJson(`/rooms/${this.input.roomId}/claude/runtime-status`, { kind, payload });
+  }
+
+  publishAgentRuntimeStatus(kind: "changed" | "completed" | "failed", payload: unknown): Promise<{ ok: true }> {
+    return this.postJson(`/rooms/${this.input.roomId}/agent-runtime/status`, { kind, payload });
+  }
+
+  startAgentImport(payload: AgentSessionImportStartedPayload): Promise<{ ok: true }> {
+    return this.postJson(`/rooms/${this.input.roomId}/agent-sessions/imports/start`, payload);
+  }
+
+  uploadAgentImportMessages(importId: string, messages: AgentSessionImportMessagePayload[]): Promise<{ ok: true; imported: number }> {
+    return this.postJson(`/rooms/${this.input.roomId}/agent-sessions/imports/${importId}/messages`, messages);
+  }
+
+  completeAgentImport(importId: string, payload: AgentSessionImportCompletedPayload): Promise<{ ok: true }> {
+    return this.postJson(`/rooms/${this.input.roomId}/agent-sessions/imports/${importId}/complete`, payload);
+  }
+
+  failAgentImport(importId: string, payload: AgentSessionImportFailedPayload): Promise<{ ok: true }> {
+    return this.postJson(`/rooms/${this.input.roomId}/agent-sessions/imports/${importId}/fail`, payload);
+  }
+
+  uploadAgentPreviewMessages(previewId: string, messages: AgentSessionPreviewMessagePayload[]): Promise<{ ok: true; previewed: number }> {
+    return this.postJson(`/rooms/${this.input.roomId}/agent-sessions/previews/${previewId}/messages`, messages);
+  }
+
+  completeAgentPreview(previewId: string, payload: AgentSessionPreviewCompletedPayload): Promise<{ ok: true }> {
+    return this.postJson(`/rooms/${this.input.roomId}/agent-sessions/previews/${previewId}/complete`, payload);
+  }
+
+  failAgentPreview(previewId: string, payload: AgentSessionPreviewFailedPayload): Promise<{ ok: true }> {
+    return this.postJson(`/rooms/${this.input.roomId}/agent-sessions/previews/${previewId}/fail`, payload);
   }
 
   startTurn(turnId: string): Promise<{ ok: true }> {

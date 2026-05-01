@@ -66,6 +66,27 @@ describe("connector index source", () => {
     expect(indexSource).toContain("claudeRuntime?.close()");
   });
 
+  it("detects and instantiates Codex CLI runtime when agent has codex-cli capability", () => {
+    expect(indexSource).toContain('config.agent.capabilities.includes("codex-cli")');
+    expect(indexSource).toContain("CodexRuntime");
+    expect(indexSource).toContain("listCodexSessions");
+  });
+
+  it("handles generic agent.session_selected for Codex session management", () => {
+    expect(indexSource).toContain('parsed.data.type === "agent.session_selected"');
+    expect(indexSource).toContain('parsed.data.type === "agent.session_preview.requested"');
+    expect(indexSource).toContain("codexRuntime.selectSession");
+  });
+
+  it("publishes Codex session catalog through generic agent endpoints", () => {
+    expect(indexSource).toContain("roomClient.publishAgentSessionCatalog");
+    expect(indexSource).toContain("roomClient.publishAgentSessionReady");
+  });
+
+  it("routes Codex turns through generic runtime status endpoints", () => {
+    expect(indexSource).toContain("roomClient.publishAgentRuntimeStatus");
+  });
+
   it("reports Claude session readiness only after the SDK session is selected", () => {
     const selectIndex = indexSource.indexOf('await claudeRuntime.selectSession({ mode: "resume", sessionId: payload.session_id });');
     const completeIndex = indexSource.indexOf("await roomClient.completeImport(importId");
