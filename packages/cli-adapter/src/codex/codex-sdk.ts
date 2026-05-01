@@ -73,6 +73,17 @@ function scanForBinary(baseDir: string, triple: string, name: string): string | 
   return undefined;
 }
 
+function scanCodexPackageRoot(packageRoot: string, triple: string, name: string): string | undefined {
+  const direct = scanForBinary(packageRoot, triple, name);
+  if (direct) return direct;
+
+  const platformPackage = platformPackageName(triple);
+  if (!platformPackage) return undefined;
+  const nested = scanForBinary(join(packageRoot, "node_modules", platformPackage), triple, name);
+  if (nested) return nested;
+  return undefined;
+}
+
 function scanPnpmVirtualStore(baseDirs: string[], triple: string, name: string): string | undefined {
   for (const base of baseDirs) {
     const pnpmDir = join(base, "node_modules", ".pnpm");
@@ -94,7 +105,7 @@ function scanPnpmVirtualStore(baseDirs: string[], triple: string, name: string):
 
 function scanNpmLocal(baseDirs: string[], triple: string, name: string): string | undefined {
   for (const base of baseDirs) {
-    const candidate = scanForBinary(join(base, "node_modules", "@openai", "codex"), triple, name);
+    const candidate = scanCodexPackageRoot(join(base, "node_modules", "@openai", "codex"), triple, name);
     if (candidate) return candidate;
   }
   return undefined;
@@ -113,7 +124,7 @@ function scanNpmGlobal(triple: string, name: string): string | undefined {
     globalRoots.push("/usr/lib/node_modules");
   }
   for (const root of globalRoots) {
-    const candidate = scanForBinary(join(root, "@openai", "codex"), triple, name);
+    const candidate = scanCodexPackageRoot(join(root, "@openai", "codex"), triple, name);
     if (candidate) return candidate;
   }
   return undefined;
@@ -140,7 +151,7 @@ function scanPathEnv(triple: string, name: string): string | undefined {
 
 function execWhich(command: string): string | undefined {
   try {
-    const result = execSync(command, { encoding: "utf8", windowsHide: true }).trim();
+    const result = execSync(command, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }).trim();
     if (result) {
       const first = result.split(/\r?\n/)[0].trim();
       // On Windows, reject .cmd/.bat shims

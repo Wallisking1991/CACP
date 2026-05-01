@@ -112,14 +112,59 @@ describe("Codex SDK boundary", () => {
     }
   });
 
+  it("finds the Codex binary in an npm global install with nested optional package layout", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "codex-test-global-"));
+    const originalCwd = process.cwd();
+    const originalPath = process.env.PATH;
+    const originalAppData = process.env.APPDATA;
+    const originalLocalAppData = process.env.LOCALAPPDATA;
+    try {
+      process.chdir(tmp);
+      process.env.PATH = tmp;
+      process.env.APPDATA = join(tmp, "Roaming");
+      process.env.LOCALAPPDATA = join(tmp, "Local");
+      const triple = process.platform === "win32" ? "x86_64-pc-windows-msvc" : "x86_64-unknown-linux-musl";
+      const platformPackage = process.platform === "win32" ? "codex-win32-x64" : "codex-linux-x64";
+      const binName = process.platform === "win32" ? "codex.exe" : "codex";
+      const binDir = join(process.env.APPDATA, "npm", "node_modules", "@openai", "codex", "node_modules", "@openai", platformPackage, "vendor", triple, "codex");
+      mkdirSync(binDir, { recursive: true });
+      writeFileSync(join(binDir, binName), "fake-binary", { mode: 0o755 });
+
+      const result = findCodexBinary();
+      expect(result).toBe(join(binDir, binName));
+    } finally {
+      process.chdir(originalCwd);
+      if (originalPath !== undefined) {
+        process.env.PATH = originalPath;
+      } else {
+        delete process.env.PATH;
+      }
+      if (originalAppData !== undefined) {
+        process.env.APPDATA = originalAppData;
+      } else {
+        delete process.env.APPDATA;
+      }
+      if (originalLocalAppData !== undefined) {
+        process.env.LOCALAPPDATA = originalLocalAppData;
+      } else {
+        delete process.env.LOCALAPPDATA;
+      }
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   it("returns undefined when the Codex binary is not found anywhere", () => {
     const tmp = mkdtempSync(join(tmpdir(), "codex-test-empty-"));
     const originalCwd = process.cwd();
     const originalPath = process.env.PATH;
+    const originalAppData = process.env.APPDATA;
+    const originalLocalAppData = process.env.LOCALAPPDATA;
     try {
       process.chdir(tmp);
       // Clear PATH so no system binary is found
       process.env.PATH = tmp;
+      process.env.APPDATA = join(tmp, "Roaming");
+      process.env.LOCALAPPDATA = join(tmp, "Local");
       const result = findCodexBinary();
       expect(result).toBeUndefined();
     } finally {
@@ -128,6 +173,16 @@ describe("Codex SDK boundary", () => {
         process.env.PATH = originalPath;
       } else {
         delete process.env.PATH;
+      }
+      if (originalAppData !== undefined) {
+        process.env.APPDATA = originalAppData;
+      } else {
+        delete process.env.APPDATA;
+      }
+      if (originalLocalAppData !== undefined) {
+        process.env.LOCALAPPDATA = originalLocalAppData;
+      } else {
+        delete process.env.LOCALAPPDATA;
       }
       rmSync(tmp, { recursive: true, force: true });
     }
