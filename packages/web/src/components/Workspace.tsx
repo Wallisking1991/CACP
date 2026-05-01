@@ -4,7 +4,7 @@ import type { RoomSession } from "../api.js";
 import { startTyping, stopTyping, updatePresence, createAgentPairing } from "../api.js";
 import { roomPermissionsForRole } from "../role-permissions.js";
 import { deriveRoomState, humanParticipants, isCollectionActive, isTurnInFlight } from "../room-state.js";
-import { requestClaudeSessionPreview, selectClaudeSession } from "../api.js";
+import { requestClaudeSessionPreview, selectClaudeSession, requestAgentSessionPreview, selectAgentSession } from "../api.js";
 import { createTypingActivityController, type TypingActivityController } from "../activity-client.js";
 import { createRoomSoundController, shouldPlayCueForMessage } from "../room-sound.js";
 import Header from "./Header.js";
@@ -73,6 +73,11 @@ export default function Workspace({
   const peopleParticipants = useMemo(() => humanParticipants(room.participants), [room.participants]);
 
   const activeAgent = room.agents.find((a) => a.agent_id === room.activeAgentId);
+  const activeAgentProvider = activeAgent?.capabilities.includes("codex-cli")
+    ? "codex-cli"
+    : activeAgent?.capabilities.includes("claude-code")
+      ? "claude-code"
+      : undefined;
   const turnInFlight = isTurnInFlight(events);
   const collectionActive = isCollectionActive(events);
 
@@ -203,12 +208,19 @@ export default function Workspace({
 
   const serverUrl = typeof window !== "undefined" ? window.location.origin : "http://localhost:3737";
 
-  const needsSessionSelection =
+  const needsClaudeSessionSelection =
     permissions.canManageControls &&
     room.activeAgentId &&
     room.claudeSessionCatalog &&
     room.claudeSessionCatalog.agent_id === room.activeAgentId &&
     (!room.claudeSessionSelection || room.claudeSessionSelection.agent_id !== room.activeAgentId);
+
+  const needsGenericSessionSelection =
+    permissions.canManageControls &&
+    room.activeAgentId &&
+    room.agentSessionCatalog &&
+    room.agentSessionCatalog.agent_id === room.activeAgentId &&
+    (!room.agentSessionSelection || room.agentSessionSelection.agent_id !== room.activeAgentId);
 
   return (
     <div className="workspace-shell">
@@ -295,7 +307,7 @@ export default function Workspace({
         </div>
       </div>
 
-      {needsSessionSelection && room.activeAgentId && room.claudeSessionCatalog && (
+      {needsClaudeSessionSelection && room.activeAgentId && room.claudeSessionCatalog && (
         <AgentSessionRequiredModal
           agentId={room.activeAgentId}
           catalog={room.claudeSessionCatalog}
@@ -305,6 +317,20 @@ export default function Workspace({
           }
           onSelect={(selection) =>
             selectClaudeSession({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId, ...selection })
+          }
+        />
+      )}
+
+      {needsGenericSessionSelection && room.activeAgentId && room.agentSessionCatalog && activeAgentProvider && (
+        <AgentSessionRequiredModal
+          agentId={room.activeAgentId}
+          catalog={room.agentSessionCatalog}
+          previews={room.claudeSessionPreviews}
+          onRequestPreview={(sessionId) =>
+            requestAgentSessionPreview({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId, provider: activeAgentProvider, sessionId })
+          }
+          onSelect={(selection) =>
+            selectAgentSession({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId, provider: activeAgentProvider, ...selection })
           }
         />
       )}
@@ -328,6 +354,10 @@ export default function Workspace({
           claudeSessionSelection={room.claudeSessionSelection}
           claudeSessionPreviews={room.claudeSessionPreviews}
           claudeRuntimeStatuses={room.claudeRuntimeStatuses}
+          agentSessionCatalog={room.agentSessionCatalog}
+          agentSessionSelection={room.agentSessionSelection}
+          agentSessionPreviews={room.claudeSessionPreviews}
+          agentRuntimeStatuses={room.agentRuntimeStatuses}
           serverUrl={serverUrl}
           roomSessionToken={session.token}
           roomSessionParticipantId={session.participant_id}
@@ -336,6 +366,12 @@ export default function Workspace({
           }
           onSelectClaudeSession={(selection) =>
             selectClaudeSession({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId ?? "", ...selection })
+          }
+          onRequestAgentSessionPreview={(sessionId) =>
+            requestAgentSessionPreview({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId ?? "", provider: activeAgentProvider ?? "claude-code", sessionId })
+          }
+          onSelectAgentSession={(selection) =>
+            selectAgentSession({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId ?? "", provider: activeAgentProvider ?? "claude-code", ...selection })
           }
         />
       </Popover>

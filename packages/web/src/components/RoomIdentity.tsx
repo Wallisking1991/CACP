@@ -36,6 +36,7 @@ function maskInviteUrl(url: string): string {
 
 const agentTypes = [
   { value: "claude-code", labelKey: "agentType.claudeCode", group: "agentType.group.localCommand" },
+  { value: "codex-cli", labelKey: "agentType.codexCli", group: "agentType.group.localCommand" },
   { value: "llm-api", labelKey: "agentType.llmApi", group: "agentType.group.llmApi" },
   { value: "llm-openai-compatible", labelKey: "agentType.llmOpenAiCompatible", group: "agentType.group.llmApi" },
   { value: "llm-anthropic-compatible", labelKey: "agentType.llmAnthropicCompatible", group: "agentType.group.llmApi" },

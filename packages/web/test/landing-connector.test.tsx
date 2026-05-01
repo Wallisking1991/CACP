@@ -36,7 +36,7 @@ describe("Landing cloud connector setup", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Advanced options: Agent type and permission" }));
     expect(screen.getByRole("option", { name: "Claude Code CLI" })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: "Codex CLI" })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Codex CLI" })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "opencode CLI" })).not.toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "Echo Test Agent" })).not.toBeInTheDocument();
   });

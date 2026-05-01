@@ -181,6 +181,44 @@ describe("room state", () => {
     expect(approved.pendingRoundtableRequest).toBeUndefined();
   });
 
+  it("derives generic Codex session catalog and selection state", () => {
+    const state = deriveRoomState([
+      event("agent.registered", { agent_id: "agent_1", name: "Codex", capabilities: ["codex-cli"] }, 1, "owner"),
+      event("agent.session_catalog.updated" as CacpEvent["type"], {
+        agent_id: "agent_1",
+        provider: "codex-cli",
+        working_dir: "D:\\Development\\2",
+        sessions: [{
+          session_id: "session_1",
+          title: "Codex thread",
+          project_dir: "D:\\Development\\2",
+          updated_at: "2026-05-01T00:00:00.000Z",
+          message_count: 2,
+          byte_size: 100,
+          importable: true,
+          provider: "codex-cli"
+        }]
+      }, 2, "agent_1"),
+      event("agent.session_selected" as CacpEvent["type"], {
+        agent_id: "agent_1",
+        provider: "codex-cli",
+        mode: "resume",
+        session_id: "session_1",
+        selected_by: "owner"
+      }, 3, "owner")
+    ]);
+
+    expect(state.agentSessionCatalog?.provider).toBe("codex-cli");
+    expect(state.agentSessionCatalog?.sessions[0].session_id).toBe("session_1");
+    expect(state.agentSessionSelection).toEqual({
+      agent_id: "agent_1",
+      provider: "codex-cli",
+      mode: "resume",
+      session_id: "session_1",
+      selected_by: "owner"
+    });
+  });
+
   it("derives Claude session catalog and selection state", () => {
     const state = deriveRoomState([
       event("room.created", { name: "Room" }, 1, "owner"),

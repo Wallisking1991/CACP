@@ -1,4 +1,5 @@
 import type {
+  AgentSessionSummary,
   CacpEvent,
   ClaudeRuntimeMetrics,
   ClaudeRuntimePhase,
@@ -98,6 +99,34 @@ export interface ClaudeRuntimeStatusView {
   error?: string;
 }
 
+export interface AgentSessionCatalogView {
+  agent_id: string;
+  provider: string;
+  working_dir: string;
+  sessions: AgentSessionSummary[];
+}
+
+export type AgentSessionSelectionView =
+  | { agent_id: string; provider: string; mode: "fresh"; selected_by: string }
+  | { agent_id: string; provider: string; mode: "resume"; session_id: string; selected_by: string };
+
+export interface AgentRuntimeStatusView {
+  agent_id: string;
+  provider?: string;
+  turn_id: string;
+  status_id: string;
+  phase: ClaudeRuntimePhase;
+  current: string;
+  recent: string[];
+  metrics: ClaudeRuntimeMetrics;
+  started_at?: string;
+  updated_at?: string;
+  completed_at?: string;
+  failed_at?: string;
+  summary?: string;
+  error?: string;
+}
+
 export type ParticipantPresenceView = "online" | "idle" | "offline";
 export type AvatarStatusKind = "working" | "typing" | "roundtable" | "online" | "idle" | "offline";
 export type AvatarStatusGroup = "humans" | "agents";
@@ -145,6 +174,9 @@ export interface RoomViewState {
   claudeSessionPreviews: ClaudeSessionPreviewView[];
   claudeImports: ClaudeImportView[];
   claudeRuntimeStatuses: ClaudeRuntimeStatusView[];
+  agentSessionCatalog?: AgentSessionCatalogView;
+  agentSessionSelection?: AgentSessionSelectionView;
+  agentRuntimeStatuses: AgentRuntimeStatusView[];
   participantActivity: Map<string, ParticipantActivityView>;
   avatarStatuses: AvatarStatusView[];
   latestSenderId?: string;
@@ -276,6 +308,9 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
   const claudeSessionPreviews = new Map<string, ClaudeSessionPreviewView>();
   const claudeImports = new Map<string, ClaudeImportView>();
   const claudeRuntimeStatuses = new Map<string, ClaudeRuntimeStatusView>();
+  let agentSessionCatalog: AgentSessionCatalogView | undefined;
+  let agentSessionSelection: AgentSessionSelectionView | undefined;
+  const agentRuntimeStatuses = new Map<string, AgentRuntimeStatusView>();
   const participantActivity = new Map<string, ParticipantActivityView>();
   let latestSenderId: string | undefined;
   const nowMs = Date.parse(options.now ?? new Date().toISOString());
@@ -412,6 +447,22 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
         claudeSessionSelection = { agent_id: event.payload.agent_id, mode: "resume", session_id: event.payload.session_id, selected_by: event.payload.selected_by };
       }
     }
+    if (event.type === "agent.session_catalog.updated" && typeof event.payload.agent_id === "string" && typeof event.payload.provider === "string" && typeof event.payload.working_dir === "string" && Array.isArray(event.payload.sessions)) {
+      agentSessionCatalog = {
+        agent_id: event.payload.agent_id,
+        provider: event.payload.provider,
+        working_dir: event.payload.working_dir,
+        sessions: event.payload.sessions as AgentSessionSummary[]
+      };
+    }
+    if (event.type === "agent.session_selected" && typeof event.payload.agent_id === "string" && typeof event.payload.provider === "string" && typeof event.payload.mode === "string" && typeof event.payload.selected_by === "string") {
+      if (event.payload.mode === "fresh") {
+        agentSessionSelection = { agent_id: event.payload.agent_id, provider: event.payload.provider, mode: "fresh", selected_by: event.payload.selected_by };
+      }
+      if (event.payload.mode === "resume" && typeof event.payload.session_id === "string") {
+        agentSessionSelection = { agent_id: event.payload.agent_id, provider: event.payload.provider, mode: "resume", session_id: event.payload.session_id, selected_by: event.payload.selected_by };
+      }
+    }
   }
 
   for (const event of scopedEvents) {
@@ -544,6 +595,27 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
         failed_at: typeof event.payload.failed_at === "string" ? event.payload.failed_at : event.created_at
       });
     }
+    if (event.type === "agent.runtime.status_changed" && typeof event.payload.turn_id === "string" && typeof event.payload.status_id === "string") {
+      agentRuntimeStatuses.set(event.payload.status_id, event.payload as unknown as AgentRuntimeStatusView);
+    }
+    if (event.type === "agent.runtime.status_completed" && typeof event.payload.status_id === "string") {
+      const existing = agentRuntimeStatuses.get(event.payload.status_id);
+      if (existing) agentRuntimeStatuses.set(event.payload.status_id, {
+        ...existing,
+        phase: "completed",
+        summary: typeof event.payload.summary === "string" ? event.payload.summary : "Completed",
+        completed_at: typeof event.payload.completed_at === "string" ? event.payload.completed_at : event.created_at
+      });
+    }
+    if (event.type === "agent.runtime.status_failed" && typeof event.payload.status_id === "string") {
+      const existing = agentRuntimeStatuses.get(event.payload.status_id);
+      if (existing) agentRuntimeStatuses.set(event.payload.status_id, {
+        ...existing,
+        phase: "failed",
+        error: typeof event.payload.error === "string" ? event.payload.error : "Failed",
+        failed_at: typeof event.payload.failed_at === "string" ? event.payload.failed_at : event.created_at
+      });
+    }
     if (event.type === "ai.collection.started" && typeof event.payload.collection_id === "string") {
       collections.set(event.payload.collection_id, {
         collection_id: event.payload.collection_id,
@@ -640,6 +712,9 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
   for (const status of claudeRuntimeStatuses.values()) {
     if (status.phase !== "completed" && status.phase !== "failed") workingAgentIds.add(status.agent_id);
   }
+  for (const status of agentRuntimeStatuses.values()) {
+    if (status.phase !== "completed" && status.phase !== "failed") workingAgentIds.add(status.agent_id);
+  }
 
   const roundtableParticipantIds = new Set<string>();
   if (activeCollection) {
@@ -713,6 +788,11 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     claudeSessionPreviews: [...claudeSessionPreviews.values()],
     claudeImports: [...claudeImports.values()],
     claudeRuntimeStatuses: [...claudeRuntimeStatuses.values()]
+      .sort((a, b) => (b.updated_at ?? b.started_at ?? "").localeCompare(a.updated_at ?? a.started_at ?? ""))
+      .slice(0, 1),
+    agentSessionCatalog,
+    agentSessionSelection,
+    agentRuntimeStatuses: [...agentRuntimeStatuses.values()]
       .sort((a, b) => (b.updated_at ?? b.started_at ?? "").localeCompare(a.updated_at ?? a.started_at ?? ""))
       .slice(0, 1),
     participantActivity,

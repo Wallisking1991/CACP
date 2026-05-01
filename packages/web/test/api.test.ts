@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CacpEvent } from "@cacp/protocol";
-import { approveAiCollectionRequest, cancelAiCollection, clearEventSocket, clearRoom, createJoinRequest, createLocalAgentLaunch, createRoom, createRoomWithLocalAgent, getRoomMe, inviteUrlFor, joinRequestStatus, leaveRoom, pairingServerUrlFor, parseCacpEventMessage, rejectAiCollectionRequest, requestAiCollection, startAiCollection, startTyping, stopTyping, submitAiCollection, updatePresence, type RoomSession } from "../src/api.js";
+import { approveAiCollectionRequest, cancelAiCollection, clearEventSocket, clearRoom, createJoinRequest, createLocalAgentLaunch, createRoom, createRoomWithLocalAgent, getRoomMe, inviteUrlFor, joinRequestStatus, leaveRoom, pairingServerUrlFor, parseCacpEventMessage, rejectAiCollectionRequest, requestAiCollection, requestAgentSessionPreview, selectAgentSession, startAiCollection, startTyping, stopTyping, submitAiCollection, updatePresence, type RoomSession } from "../src/api.js";
 
 const validEvent = {
   protocol: "cacp",
@@ -264,6 +264,59 @@ describe("room API", () => {
       headers: { "content-type": "application/json", authorization: "Bearer owner_secret" },
       body: JSON.stringify({})
     });
+  });
+
+  it("posts generic agent session selection to the provider-neutral endpoint", async () => {
+    const session: RoomSession = { room_id: "room_1", token: "owner_secret", participant_id: "user_owner", role: "owner" };
+    mockJsonResponse({ ok: true });
+
+    await expect(selectAgentSession({
+      serverUrl: "http://server",
+      roomId: "room_1",
+      token: "owner_secret",
+      agentId: "agent_1",
+      provider: "codex-cli",
+      mode: "resume",
+      sessionId: "session_1"
+    })).resolves.toEqual({ ok: true });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://server/rooms/room_1/agent-sessions/selection",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          agent_id: "agent_1",
+          provider: "codex-cli",
+          mode: "resume",
+          session_id: "session_1"
+        })
+      })
+    );
+  });
+
+  it("posts generic agent session preview request to the provider-neutral endpoint", async () => {
+    mockJsonResponse({ ok: true, preview_id: "preview_1" });
+
+    await expect(requestAgentSessionPreview({
+      serverUrl: "http://server",
+      roomId: "room_1",
+      token: "owner_secret",
+      agentId: "agent_1",
+      provider: "codex-cli",
+      sessionId: "session_1"
+    })).resolves.toEqual({ ok: true, preview_id: "preview_1" });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://server/rooms/room_1/agent-sessions/previews",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          agent_id: "agent_1",
+          provider: "codex-cli",
+          session_id: "session_1"
+        })
+      })
+    );
   });
 
   it("posts Roundtable request lifecycle calls to the collection request endpoints", async () => {

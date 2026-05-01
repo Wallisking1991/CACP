@@ -162,6 +162,56 @@ export async function requestClaudeSessionPreview(input: {
   return await response.json() as { ok: true; preview_id: string };
 }
 
+export async function selectAgentSession(input: {
+  serverUrl: string;
+  roomId: string;
+  token: string;
+  agentId: string;
+  provider: "claude-code" | "codex-cli";
+  mode: "fresh" | "resume";
+  sessionId?: string;
+}): Promise<{ ok: true }> {
+  const response = await fetch(`${input.serverUrl}/rooms/${input.roomId}/agent-sessions/selection`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${input.token}`
+    },
+    body: JSON.stringify({
+      agent_id: input.agentId,
+      provider: input.provider,
+      mode: input.mode,
+      ...(input.mode === "resume" ? { session_id: input.sessionId } : {})
+    })
+  });
+  if (!response.ok) throw new Error(`${response.status} ${response.statusText}: ${await response.text()}`);
+  return await response.json() as { ok: true };
+}
+
+export async function requestAgentSessionPreview(input: {
+  serverUrl: string;
+  roomId: string;
+  token: string;
+  agentId: string;
+  provider: "claude-code" | "codex-cli";
+  sessionId: string;
+}): Promise<{ ok: true; preview_id: string }> {
+  const response = await fetch(`${input.serverUrl}/rooms/${input.roomId}/agent-sessions/previews`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${input.token}`
+    },
+    body: JSON.stringify({
+      agent_id: input.agentId,
+      provider: input.provider,
+      session_id: input.sessionId
+    })
+  });
+  if (!response.ok) throw new Error(`${response.status} ${response.statusText}: ${await response.text()}`);
+  return await response.json() as { ok: true; preview_id: string };
+}
+
 export function pairingServerUrlFor(origin: string): string {
   const url = new URL(origin);
   if ((url.hostname === "127.0.0.1" || url.hostname === "localhost") && (url.port === "5173" || url.port === "3000")) {
