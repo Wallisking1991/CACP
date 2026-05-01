@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { createCodexSdkFromModule } from "../src/codex/codex-sdk.js";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { createCodexSdkFromModule, findCodexBinary } from "../src/codex/codex-sdk.js";
 import { toCodexThreadOptions } from "../src/codex/types.js";
 
 describe("Codex SDK boundary", () => {
@@ -69,5 +72,64 @@ describe("Codex SDK boundary", () => {
       approvalPolicy: "never",
       networkAccessEnabled: true
     });
+  });
+
+  it("finds the Codex binary in a pnpm virtual store layout", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "codex-test-"));
+    const originalCwd = process.cwd();
+    try {
+      process.chdir(tmp);
+      const triple = process.platform === "win32" ? "x86_64-pc-windows-msvc" : "x86_64-unknown-linux-musl";
+      const binName = process.platform === "win32" ? "codex.exe" : "codex";
+      const binDir = join(tmp, "node_modules", ".pnpm", "@openai+codex@0.128.0-win32-x64", "node_modules", "@openai", "codex", "vendor", triple, "codex");
+      mkdirSync(binDir, { recursive: true });
+      writeFileSync(join(binDir, binName), "fake-binary", { mode: 0o755 });
+
+      const result = findCodexBinary();
+      expect(result).toBe(join(binDir, binName));
+    } finally {
+      process.chdir(originalCwd);
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("finds the Codex binary in a standard npm local install", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "codex-test-"));
+    const originalCwd = process.cwd();
+    try {
+      process.chdir(tmp);
+      const triple = process.platform === "win32" ? "x86_64-pc-windows-msvc" : "x86_64-unknown-linux-musl";
+      const binName = process.platform === "win32" ? "codex.exe" : "codex";
+      const binDir = join(tmp, "node_modules", "@openai", "codex", "vendor", triple, "codex");
+      mkdirSync(binDir, { recursive: true });
+      writeFileSync(join(binDir, binName), "fake-binary", { mode: 0o755 });
+
+      const result = findCodexBinary();
+      expect(result).toBe(join(binDir, binName));
+    } finally {
+      process.chdir(originalCwd);
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("returns undefined when the Codex binary is not found anywhere", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "codex-test-empty-"));
+    const originalCwd = process.cwd();
+    const originalPath = process.env.PATH;
+    try {
+      process.chdir(tmp);
+      // Clear PATH so no system binary is found
+      process.env.PATH = tmp;
+      const result = findCodexBinary();
+      expect(result).toBeUndefined();
+    } finally {
+      process.chdir(originalCwd);
+      if (originalPath !== undefined) {
+        process.env.PATH = originalPath;
+      } else {
+        delete process.env.PATH;
+      }
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });

@@ -159,13 +159,26 @@ async function main() {
         const payload = parsed.data.payload as { agent_id?: string; mode?: string; session_id?: string };
         if (payload.agent_id !== registered.agent_id) return;
         if (payload.mode === "fresh") {
-          const sessionId = await claudeRuntime.selectSession({ mode: "fresh" });
-          await roomClient.publishSessionReady({
-            agent_id: registered.agent_id,
-            mode: "fresh",
-            ...(sessionId ? { session_id: sessionId } : {}),
-            ready_at: new Date().toISOString()
-          });
+          try {
+            const sessionId = await claudeRuntime.selectSession({ mode: "fresh" });
+            await roomClient.publishSessionReady({
+              agent_id: registered.agent_id,
+              mode: "fresh",
+              ...(sessionId ? { session_id: sessionId } : {}),
+              ready_at: new Date().toISOString()
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            console.error("Claude session selection failed:", message);
+            await roomClient.publishRuntimeStatus("failed", {
+              agent_id: registered.agent_id,
+              turn_id: "session_selection",
+              status_id: "status_session_selection",
+              error: message,
+              metrics: { files_read: 0, searches: 0, commands: 0 },
+              failed_at: new Date().toISOString()
+            });
+          }
           return;
         }
         if (payload.mode === "resume" && payload.session_id) {
@@ -268,13 +281,27 @@ async function main() {
         const payload = parsed.data.payload as { agent_id?: string; mode?: string; session_id?: string; provider?: string };
         if (payload.agent_id !== registered.agent_id || payload.provider !== "codex-cli") return;
         if (payload.mode === "fresh") {
-          await codexRuntime.selectSession({ mode: "fresh" });
-          await roomClient.publishAgentSessionReady({
-            agent_id: registered.agent_id,
-            provider: "codex-cli",
-            mode: "fresh",
-            ready_at: new Date().toISOString()
-          });
+          try {
+            await codexRuntime.selectSession({ mode: "fresh" });
+            await roomClient.publishAgentSessionReady({
+              agent_id: registered.agent_id,
+              provider: "codex-cli",
+              mode: "fresh",
+              ready_at: new Date().toISOString()
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            console.error("Codex session selection failed:", message);
+            await roomClient.publishAgentRuntimeStatus("failed", {
+              agent_id: registered.agent_id,
+              provider: "codex-cli",
+              turn_id: "session_selection",
+              status_id: "status_session_selection",
+              error: message,
+              metrics: { files_read: 0, searches: 0, commands: 0 },
+              failed_at: new Date().toISOString()
+            });
+          }
           return;
         }
         if (payload.mode === "resume" && payload.session_id) {
