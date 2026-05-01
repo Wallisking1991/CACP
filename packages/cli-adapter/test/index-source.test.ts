@@ -66,6 +66,24 @@ describe("connector index source", () => {
     expect(indexSource).toContain("claudeRuntime?.close()");
   });
 
+  it("creates a MainThreadLedger after agent registration", () => {
+    expect(indexSource).toContain("new MainThreadLedger({");
+    expect(indexSource).toContain("roomAssetDirectory({");
+  });
+
+  it("appends human_input to ledger on agent.turn.requested", () => {
+    expect(indexSource).toContain('entry_type: "human_input"');
+    expect(indexSource).toContain("ledger.append({");
+  });
+
+  it("appends agent_final to ledger after successful turn completion", () => {
+    expect(indexSource).toContain('entry_type: "agent_final"');
+  });
+
+  it("builds LLM prompts from ledger context for API-based agents", () => {
+    expect(indexSource).toContain("buildLlmPromptFromLedger");
+  });
+
   it("detects and instantiates Codex CLI runtime when agent has codex-cli capability", () => {
     expect(indexSource).toContain('config.agent.capabilities.includes("codex-cli")');
     expect(indexSource).toContain("CodexRuntime");

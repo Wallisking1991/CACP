@@ -15,6 +15,9 @@ import { ClaudeRuntime } from "./claude/runtime.js";
 import { CodexRuntime } from "./codex/runtime.js";
 import { listCodexSessions } from "./codex/session-catalog.js";
 import { buildCodexImportFromSessionFile, chunkCodexImportMessages, findCodexSessionFile } from "./codex/transcript-import.js";
+import { roomAssetDirectory } from "./connector/room-assets.js";
+import { MainThreadLedger } from "./connector/main-ledger.js";
+import { buildLlmPromptFromLedger } from "./connector/llm-context.js";
 
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
   console.log("Usage: cacp-cli-adapter [config.json]\n       cacp-cli-adapter --connect <connection_code>\n       cacp-cli-adapter --server <url> --pair <pairing_token>\n\nDouble-click without arguments to paste a CACP connection code.");
@@ -49,6 +52,18 @@ async function main() {
     serverUrl: config.server_url,
     roomId: config.room_id,
     agentToken: registered.agent_token
+  });
+
+  const ledgerDir = roomAssetDirectory({
+    baseDir: config.agent.working_dir,
+    roomId: config.room_id,
+    roomName: ""
+  });
+  const ledger = new MainThreadLedger({
+    roomId: config.room_id,
+    connectorId: registered.agent_id,
+    agentId: registered.agent_id,
+    ledgerDir
   });
 
   const isClaudeCode = !config.llm && config.agent.capabilities.includes("claude-code");
@@ -379,12 +394,22 @@ async function main() {
         runningTasks.add(payload.turn_id);
         let finalText = "";
         const turnId = payload.turn_id;
+        ledger.append({
+          entry_type: "human_input",
+          actor_id: parsed.data.actor_id,
+          actor_name: typeof payload.speaker_name === "string" ? payload.speaker_name : "Room participant",
+          actor_role: typeof payload.speaker_role === "string" ? payload.speaker_role : "member",
+          text: turnText,
+          source: "composer",
+          created_at: parsed.data.created_at,
+          turn_id: turnId
+        });
         try {
           if (config.llm) {
             await roomClient.startTurn(turnId);
             const result = await runLlmTurn({
               llm: config.llm,
-              prompt: payload.context_prompt ?? payload.message_text ?? "",
+              prompt: buildLlmPromptFromLedger({ entries: ledger.snapshotSince(0), currentInput: turnText }),
               systemPrompt: config.agent.system_prompt,
               onDelta: async (chunk) => {
                 finalText += chunk;
@@ -392,6 +417,16 @@ async function main() {
               }
             });
             await roomClient.completeTurn(turnId, result.finalText);
+            ledger.append({
+              entry_type: "agent_final",
+              actor_id: registered.agent_id,
+              actor_name: config.agent.name,
+              actor_role: "agent",
+              text: result.finalText,
+              source: "composer",
+              created_at: new Date().toISOString(),
+              turn_id: turnId
+            });
           } else if (claudeRuntime) {
             const startedAt = Date.now();
             await roomClient.startTurn(turnId);
@@ -412,6 +447,16 @@ async function main() {
               completed_at: new Date().toISOString()
             });
             await roomClient.completeTurn(turnId, result.finalText);
+            ledger.append({
+              entry_type: "agent_final",
+              actor_id: registered.agent_id,
+              actor_name: config.agent.name,
+              actor_role: "agent",
+              text: result.finalText,
+              source: "composer",
+              created_at: new Date().toISOString(),
+              turn_id: turnId
+            });
           } else if (codexRuntime) {
             const startedAt = Date.now();
             await roomClient.startTurn(turnId);
@@ -433,6 +478,16 @@ async function main() {
               completed_at: new Date().toISOString()
             });
             await roomClient.completeTurn(turnId, result.finalText);
+            ledger.append({
+              entry_type: "agent_final",
+              actor_id: registered.agent_id,
+              actor_name: config.agent.name,
+              actor_role: "agent",
+              text: result.finalText,
+              source: "composer",
+              created_at: new Date().toISOString(),
+              turn_id: turnId
+            });
           }
         } catch (error) {
           const rawMessage = error instanceof Error ? error.message : String(error);
