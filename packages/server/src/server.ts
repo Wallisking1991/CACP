@@ -1544,6 +1544,62 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return reply.code(201).send({ ok: true });
   });
 
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/main-inputs", async (request, reply) => {
+    if (!messageLimiter.allow(request.ip)) return tooMany(reply);
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
+    const body = z.object({ text: z.string().min(1).max(config.maxMessageLength) }).parse(request.body);
+    const roomId = request.params.roomId;
+    const events = store.listEvents(roomId);
+    const activeAgentId = findActiveAgentId(events);
+    if (!activeAgentId) return deny(reply, "active_agent_unavailable", 409);
+    if (!isAgentOnline(events, activeAgentId)) return deny(reply, "active_agent_unavailable", 409);
+    const turnEvents = eventsAfterLastHistoryClear(events);
+    const openTurn = findAnyOpenTurn(turnEvents);
+    const inputId = prefixedId("input");
+    const now = new Date().toISOString();
+    const storedEvents = store.transaction(() => {
+      const accepted = store.appendEvent(event(roomId, "main_input.accepted", participant.id, {
+        input_id: inputId,
+        author_id: participant.id,
+        text: body.text,
+        source: "composer",
+        created_at: now
+      }));
+      const queuedTurnId = openTurn ? openTurn.turn_id : (findLastTurnId(turnEvents) ?? "none");
+      const queued = store.appendEvent(event(roomId, "main_input.queued", participant.id, {
+        input_id: inputId,
+        queued_after_turn_id: queuedTurnId
+      }));
+      if (openTurn) return [accepted, queued];
+      const turnEvents = createAgentTurnRequestEvents(roomId, participant.id, "human_message");
+      if (turnEvents.length === 0) return deny(reply, "active_agent_unavailable", 409) as unknown as CacpEvent[];
+      const triggered = store.appendEvent(event(roomId, "main_input.triggered", participant.id, {
+        input_id: inputId,
+        trigger_turn_id: (turnEvents.find((e) => e.type === "agent.turn.requested")?.payload as { turn_id: string })?.turn_id ?? ""
+      }));
+      return [accepted, queued, triggered, ...turnEvents.map((nextEvent) => store.appendEvent(nextEvent))];
+    });
+    if (Array.isArray(storedEvents) && storedEvents.length === 0) return reply;
+    publishEvents(storedEvents);
+    return reply.code(201).send({ input_id: inputId, status: openTurn ? "queued" : "triggered" });
+  });
+
+  app.post<{ Params: { roomId: string; inputId: string } }>("/rooms/:roomId/main-inputs/:inputId/cancel", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    if (!hasAnyRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
+    const roomId = request.params.roomId;
+    const inputId = request.params.inputId;
+    const events = store.listEvents(roomId);
+    const isQueued = events.some((e) => e.type === "main_input.queued" && e.payload.input_id === inputId);
+    const isTerminal = events.some((e) => (e.type === "main_input.triggered" || e.type === "main_input.cancelled" || e.type === "main_input.failed") && e.payload.input_id === inputId);
+    if (!isQueued || isTerminal) return deny(reply, "input_not_found", 409);
+    appendAndPublish(event(roomId, "main_input.cancelled", participant.id, { input_id: inputId, cancelled_by: participant.id }));
+    return reply.code(201).send({ ok: true });
+  });
+
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/messages", async (request, reply) => {
     if (!messageLimiter.allow(request.ip)) return tooMany(reply);
     const participant = requireParticipant(store, request.params.roomId, request);

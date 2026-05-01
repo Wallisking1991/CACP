@@ -67,6 +67,14 @@ export async function sendMessage(session: RoomSession, text: string): Promise<v
   await postJson(`/rooms/${session.room_id}/messages`, session.token, { text });
 }
 
+export async function sendMainInput(session: RoomSession, text: string): Promise<{ input_id: string; status: string }> {
+  return await postJson(`/rooms/${session.room_id}/main-inputs`, session.token, { text });
+}
+
+export async function cancelMainInput(session: RoomSession, inputId: string): Promise<void> {
+  await postJson(`/rooms/${session.room_id}/main-inputs/${inputId}/cancel`, session.token, {});
+}
+
 export async function clearRoom(session: RoomSession): Promise<void> {
   await postJson(`/rooms/${session.room_id}/history/clear`, session.token, {});
 }
