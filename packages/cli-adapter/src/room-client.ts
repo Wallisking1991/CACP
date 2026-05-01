@@ -11,6 +11,11 @@ import type {
   AgentSessionPreviewFailedPayload,
   AgentSessionPreviewMessagePayload,
   AgentSessionReadyPayload,
+  ConnectorLedgerEntry,
+  ConnectorSnapshotCompletedPayload,
+  ConnectorSnapshotEntryPayload,
+  ConnectorSnapshotFailedPayload,
+  ConnectorSnapshotStartedPayload,
   ClaudeRuntimeMetrics,
   ClaudeRuntimePhase,
   ClaudeSessionCatalogUpdatedPayload as ClaudeCatalogPayload,
@@ -137,6 +142,22 @@ export class RoomClient {
 
   failTurn(turnId: string, error: string): Promise<{ ok: true }> {
     return this.postJson(`/rooms/${this.input.roomId}/agent-turns/${turnId}/fail`, { error });
+  }
+
+  startSnapshot(requestId: string, payload: ConnectorSnapshotStartedPayload): Promise<{ ok: true }> {
+    return this.postJson(`/rooms/${this.input.roomId}/connector-snapshots/${requestId}/start`, payload);
+  }
+
+  uploadSnapshotEntry(requestId: string, entry: ConnectorLedgerEntry): Promise<{ ok: true }> {
+    return this.postJson(`/rooms/${this.input.roomId}/connector-snapshots/${requestId}/entries`, { entry });
+  }
+
+  completeSnapshot(requestId: string, payload: ConnectorSnapshotCompletedPayload): Promise<{ ok: true }> {
+    return this.postJson(`/rooms/${this.input.roomId}/connector-snapshots/${requestId}/complete`, payload);
+  }
+
+  failSnapshot(requestId: string, payload: ConnectorSnapshotFailedPayload): Promise<{ ok: true }> {
+    return this.postJson(`/rooms/${this.input.roomId}/connector-snapshots/${requestId}/fail`, payload);
   }
 }
 

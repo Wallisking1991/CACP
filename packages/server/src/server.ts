@@ -1585,7 +1585,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
         source: "composer",
         created_at: now
       }));
-      const queuedTurnId = openTurn ? openTurn.turn_id : (findLastTurnId(turnEvents) ?? "none");
+      const queuedTurnId = openTurn ? openTurn.turn_id : (findLastTurnId(store.listEvents(roomId)) ?? "none");
       const queued = store.appendEvent(event(roomId, "main_input.queued", participant.id, {
         input_id: inputId,
         queued_after_turn_id: queuedTurnId
@@ -2556,6 +2556,94 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (task.terminal_status) return deny(reply, "task_closed", 409);
     if (!task.started) return deny(reply, "task_not_started", 409);
     appendAndPublish(event(request.params.roomId, "task.failed", participant.id, { task_id: request.params.taskId, agent_id: participant.id, ...TaskFailedSchema.parse(request.body) }));
+    return reply.code(201).send({ ok: true });
+  });
+
+  const ConnectorSnapshotRequestSchema = z.object({ since_sequence: z.number().int().nonnegative().default(0) });
+  const snapshotRequests = new Map<string, { requesterId: string; connectorId: string; sinceSequence: number }>();
+
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/connector-snapshots", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const canRequest = hasAnyRole(participant, ["owner", "admin"]) || participant.main_thread_history_access === "allowed";
+    if (!canRequest) return deny(reply, "forbidden", 403);
+    const activeAgentId = findActiveAgentId(store.listEvents(request.params.roomId));
+    if (!activeAgentId) return deny(reply, "active_agent_unavailable", 404);
+    const body = ConnectorSnapshotRequestSchema.parse(request.body);
+    const requestId = prefixedId("snap");
+    snapshotRequests.set(`${request.params.roomId}:${requestId}`, {
+      requesterId: participant.id,
+      connectorId: activeAgentId,
+      sinceSequence: body.since_sequence
+    });
+    publishTargeted(event(request.params.roomId, "connector.snapshot.requested", participant.id, {
+      request_id: requestId,
+      connector_id: activeAgentId,
+      since_sequence: body.since_sequence,
+      requested_by: participant.id
+    }), [participant.id, activeAgentId]);
+    return reply.code(201).send({ request_id: requestId });
+  });
+
+  app.post<{ Params: { roomId: string; requestId: string } }>("/rooms/:roomId/connector-snapshots/:requestId/start", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const snapshot = snapshotRequests.get(`${request.params.roomId}:${request.params.requestId}`);
+    if (!snapshot) return deny(reply, "snapshot_not_found", 404);
+    if (participant.id !== snapshot.connectorId) return deny(reply, "forbidden", 403);
+    const body = z.object({ first_sequence: z.number().int().nonnegative(), last_sequence: z.number().int().nonnegative(), total_count: z.number().int().nonnegative().optional() }).parse(request.body);
+    publishTargeted(event(request.params.roomId, "connector.snapshot.started", participant.id, {
+      request_id: request.params.requestId,
+      connector_id: participant.id,
+      ...body
+    }), [snapshot.requesterId]);
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string; requestId: string } }>("/rooms/:roomId/connector-snapshots/:requestId/entries", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const snapshot = snapshotRequests.get(`${request.params.roomId}:${request.params.requestId}`);
+    if (!snapshot) return deny(reply, "snapshot_not_found", 404);
+    if (participant.id !== snapshot.connectorId) return deny(reply, "forbidden", 403);
+    const body = z.object({ entry: z.record(z.string(), z.unknown()) }).parse(request.body);
+    publishTargeted(event(request.params.roomId, "connector.snapshot.entry", participant.id, {
+      request_id: request.params.requestId,
+      connector_id: participant.id,
+      entry: body.entry
+    }), [snapshot.requesterId]);
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string; requestId: string } }>("/rooms/:roomId/connector-snapshots/:requestId/complete", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const snapshot = snapshotRequests.get(`${request.params.roomId}:${request.params.requestId}`);
+    if (!snapshot) return deny(reply, "snapshot_not_found", 404);
+    if (participant.id !== snapshot.connectorId) return deny(reply, "forbidden", 403);
+    const body = z.object({ last_sequence: z.number().int().nonnegative() }).parse(request.body);
+    snapshotRequests.delete(`${request.params.roomId}:${request.params.requestId}`);
+    publishTargeted(event(request.params.roomId, "connector.snapshot.completed", participant.id, {
+      request_id: request.params.requestId,
+      connector_id: participant.id,
+      last_sequence: body.last_sequence
+    }), [snapshot.requesterId]);
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string; requestId: string } }>("/rooms/:roomId/connector-snapshots/:requestId/fail", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const snapshot = snapshotRequests.get(`${request.params.roomId}:${request.params.requestId}`);
+    if (!snapshot) return deny(reply, "snapshot_not_found", 404);
+    if (participant.id !== snapshot.connectorId) return deny(reply, "forbidden", 403);
+    const body = z.object({ error: z.string().min(1).max(2000) }).parse(request.body);
+    snapshotRequests.delete(`${request.params.roomId}:${request.params.requestId}`);
+    publishTargeted(event(request.params.roomId, "connector.snapshot.failed", participant.id, {
+      request_id: request.params.requestId,
+      connector_id: participant.id,
+      error: body.error
+    }), [snapshot.requesterId]);
     return reply.code(201).send({ ok: true });
   });
 
