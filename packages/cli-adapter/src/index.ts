@@ -398,7 +398,7 @@ async function main() {
           entry_type: "human_input",
           actor_id: parsed.data.actor_id,
           actor_name: typeof payload.speaker_name === "string" ? payload.speaker_name : "Room participant",
-          actor_role: typeof payload.speaker_role === "string" ? payload.speaker_role : "member",
+          actor_role: (typeof payload.speaker_role === "string" ? payload.speaker_role : "member") as import("@cacp/protocol").ParticipantRole,
           text: turnText,
           source: "composer",
           created_at: parsed.data.created_at,

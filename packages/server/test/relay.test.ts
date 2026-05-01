@@ -10,7 +10,9 @@ describe("relay delivery", () => {
   it("targetedDelivery returns kind targeted with deduped ids", () => {
     const d = targetedDelivery(["user_1", "agent_1", "user_1"]);
     expect(d.kind).toBe("targeted");
-    expect(d.participant_ids).toEqual(["user_1", "agent_1"]);
+    if (d.kind === "targeted") {
+      expect(d.participant_ids).toEqual(["user_1", "agent_1"]);
+    }
   });
 
   it("canDeliverEnvelope allows room delivery for any participant", () => {
@@ -27,8 +29,8 @@ describe("relay delivery", () => {
       },
       delivery: roomDelivery()
     };
-    expect(canDeliverEnvelope(envelope, { id: "user_2", type: "human", display_name: "Bob", role: "member" })).toBe(true);
-    expect(canDeliverEnvelope(envelope, { id: "agent_1", type: "agent", display_name: "Agent", role: "agent" })).toBe(true);
+    expect(canDeliverEnvelope(envelope, { id: "user_2", room_id: "room_1", type: "human", display_name: "Bob", role: "member", main_thread_history_access: "allowed" })).toBe(true);
+    expect(canDeliverEnvelope(envelope, { id: "agent_1", room_id: "room_1", type: "agent", display_name: "Agent", role: "agent", main_thread_history_access: "allowed" })).toBe(true);
   });
 
   it("canDeliverEnvelope allows targeted delivery only for listed participants", () => {
@@ -45,8 +47,8 @@ describe("relay delivery", () => {
       },
       delivery: targetedDelivery(["user_1", "agent_1"])
     };
-    expect(canDeliverEnvelope(envelope, { id: "user_1", type: "human", display_name: "Alice", role: "owner" })).toBe(true);
-    expect(canDeliverEnvelope(envelope, { id: "agent_1", type: "agent", display_name: "Agent", role: "agent" })).toBe(true);
-    expect(canDeliverEnvelope(envelope, { id: "user_2", type: "human", display_name: "Bob", role: "member" })).toBe(false);
+    expect(canDeliverEnvelope(envelope, { id: "user_1", room_id: "room_1", type: "human", display_name: "Alice", role: "owner", main_thread_history_access: "allowed" })).toBe(true);
+    expect(canDeliverEnvelope(envelope, { id: "agent_1", room_id: "room_1", type: "agent", display_name: "Agent", role: "agent", main_thread_history_access: "allowed" })).toBe(true);
+    expect(canDeliverEnvelope(envelope, { id: "user_2", room_id: "room_1", type: "human", display_name: "Bob", role: "member", main_thread_history_access: "allowed" })).toBe(false);
   });
 });

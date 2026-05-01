@@ -14,7 +14,7 @@ describe("cloud persistence records", () => {
 
   it("persists invite usage and prevents over-use", () => {
     const store = new EventStore(":memory:");
-    store.createInvite({ invite_id: "inv_alpha", room_id: "room_alpha", token_hash: "hash_alpha", role: "member", created_by: "user_owner", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-28T00:00:00.000Z", max_uses: 1 });
+    store.createInvite({ invite_id: "inv_alpha", room_id: "room_alpha", token_hash: "hash_alpha", role: "member", main_thread_history_access: "allowed", created_by: "user_owner", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-28T00:00:00.000Z", max_uses: 1 });
     expect(store.getInviteByTokenHash("hash_alpha")?.used_count).toBe(0);
     expect(store.consumeInvite("inv_alpha").used_count).toBe(1);
     expect(() => store.consumeInvite("inv_alpha")).toThrow("invite_use_limit_reached");
@@ -36,7 +36,7 @@ describe("cloud persistence records", () => {
     try {
       const firstStore = new EventStore(dbPath);
       firstStore.createRoom({ room_id: "room_file", name: "File Room", owner_participant_id: "user_owner", created_at: "2026-04-27T00:00:00.000Z", archived_at: null });
-      firstStore.createInvite({ invite_id: "inv_file", room_id: "room_file", token_hash: "hash_file", role: "member", created_by: "user_owner", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-28T00:00:00.000Z", max_uses: null });
+      firstStore.createInvite({ invite_id: "inv_file", room_id: "room_file", token_hash: "hash_file", role: "member", main_thread_history_access: "allowed", created_by: "user_owner", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-28T00:00:00.000Z", max_uses: null });
       firstStore.createAgentPairing({ pairing_id: "pair_file", room_id: "room_file", token_hash: "pair_hash_file", created_by: "user_owner", agent_type: "claude-code", permission_level: "read_only", working_dir: ".", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-27T00:15:00.000Z" });
       firstStore.close();
 
@@ -62,8 +62,8 @@ describe("cloud persistence records", () => {
 
     try {
       const firstStore = new EventStore(dbPath);
-      firstStore.createInvite({ invite_id: "inv_consumed_file", room_id: "room_file", token_hash: "hash_consumed_file", role: "member", created_by: "user_owner", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-28T00:00:00.000Z", max_uses: 2 });
-      firstStore.createInvite({ invite_id: "inv_revoked_file", room_id: "room_file", token_hash: "hash_revoked_file", role: "member", created_by: "user_owner", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-28T00:00:00.000Z", max_uses: 2 });
+      firstStore.createInvite({ invite_id: "inv_consumed_file", room_id: "room_file", token_hash: "hash_consumed_file", role: "member", main_thread_history_access: "allowed", created_by: "user_owner", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-28T00:00:00.000Z", max_uses: 2 });
+      firstStore.createInvite({ invite_id: "inv_revoked_file", room_id: "room_file", token_hash: "hash_revoked_file", role: "member", main_thread_history_access: "allowed", created_by: "user_owner", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-28T00:00:00.000Z", max_uses: 2 });
       firstStore.createAgentPairing({ pairing_id: "pair_claimed_file", room_id: "room_file", token_hash: "pair_hash_claimed_file", created_by: "user_owner", agent_type: "claude-code", permission_level: "read_only", working_dir: ".", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-27T00:15:00.000Z" });
       firstStore.consumeInvite("inv_consumed_file");
       firstStore.revokeInvite("inv_revoked_file", revokedAt);
@@ -86,24 +86,24 @@ describe("cloud persistence records", () => {
 
   it("counts pending join requests by invite", () => {
     const store = new EventStore(":memory:");
-    store.createInvite({ invite_id: "inv_count", room_id: "room_alpha", token_hash: "hash_count", role: "member", created_by: "user_owner", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-28T00:00:00.000Z", max_uses: 5 });
+    store.createInvite({ invite_id: "inv_count", room_id: "room_alpha", token_hash: "hash_count", role: "member", main_thread_history_access: "allowed", created_by: "user_owner", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-28T00:00:00.000Z", max_uses: 5 });
 
     // 3 pending requests for inv_count
-    store.createJoinRequest({ request_id: "req_1", room_id: "room_alpha", invite_id: "inv_count", request_token_hash: "hash_req_1", display_name: "Alice", role: "member", status: "pending", requested_at: "2026-04-27T00:01:00.000Z", expires_at: "2026-04-27T00:11:00.000Z" });
-    store.createJoinRequest({ request_id: "req_2", room_id: "room_alpha", invite_id: "inv_count", request_token_hash: "hash_req_2", display_name: "Bob", role: "member", status: "pending", requested_at: "2026-04-27T00:02:00.000Z", expires_at: "2026-04-27T00:12:00.000Z" });
-    store.createJoinRequest({ request_id: "req_3", room_id: "room_alpha", invite_id: "inv_count", request_token_hash: "hash_req_3", display_name: "Carol", role: "member", status: "pending", requested_at: "2026-04-27T00:03:00.000Z", expires_at: "2026-04-27T00:13:00.000Z" });
+    store.createJoinRequest({ request_id: "req_1", room_id: "room_alpha", invite_id: "inv_count", request_token_hash: "hash_req_1", display_name: "Alice", role: "member", main_thread_history_access: "allowed", status: "pending", requested_at: "2026-04-27T00:01:00.000Z", expires_at: "2026-04-27T00:11:00.000Z" });
+    store.createJoinRequest({ request_id: "req_2", room_id: "room_alpha", invite_id: "inv_count", request_token_hash: "hash_req_2", display_name: "Bob", role: "member", main_thread_history_access: "allowed", status: "pending", requested_at: "2026-04-27T00:02:00.000Z", expires_at: "2026-04-27T00:12:00.000Z" });
+    store.createJoinRequest({ request_id: "req_3", room_id: "room_alpha", invite_id: "inv_count", request_token_hash: "hash_req_3", display_name: "Carol", role: "member", main_thread_history_access: "allowed", status: "pending", requested_at: "2026-04-27T00:03:00.000Z", expires_at: "2026-04-27T00:13:00.000Z" });
 
     // 1 approved request for inv_count
-    store.createJoinRequest({ request_id: "req_4", room_id: "room_alpha", invite_id: "inv_count", request_token_hash: "hash_req_4", display_name: "Dave", role: "member", status: "pending", requested_at: "2026-04-27T00:04:00.000Z", expires_at: "2026-04-27T00:14:00.000Z" });
+    store.createJoinRequest({ request_id: "req_4", room_id: "room_alpha", invite_id: "inv_count", request_token_hash: "hash_req_4", display_name: "Dave", role: "member", main_thread_history_access: "allowed", status: "pending", requested_at: "2026-04-27T00:04:00.000Z", expires_at: "2026-04-27T00:14:00.000Z" });
     store.approveJoinRequest("req_4", { decided_at: "2026-04-27T00:05:00.000Z", decided_by: "user_owner", participant_id: "user_dave", participant_token_sealed: "sealed_dave" });
 
     // 1 rejected request for inv_count
-    store.createJoinRequest({ request_id: "req_5", room_id: "room_alpha", invite_id: "inv_count", request_token_hash: "hash_req_5", display_name: "Eve", role: "member", status: "pending", requested_at: "2026-04-27T00:06:00.000Z", expires_at: "2026-04-27T00:16:00.000Z" });
+    store.createJoinRequest({ request_id: "req_5", room_id: "room_alpha", invite_id: "inv_count", request_token_hash: "hash_req_5", display_name: "Eve", role: "member", main_thread_history_access: "allowed", status: "pending", requested_at: "2026-04-27T00:06:00.000Z", expires_at: "2026-04-27T00:16:00.000Z" });
     store.rejectJoinRequest("req_5", "2026-04-27T00:07:00.000Z", "user_owner");
 
     // 1 pending request for a different invite
-    store.createInvite({ invite_id: "inv_other", room_id: "room_alpha", token_hash: "hash_other", role: "member", created_by: "user_owner", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-28T00:00:00.000Z", max_uses: 5 });
-    store.createJoinRequest({ request_id: "req_6", room_id: "room_alpha", invite_id: "inv_other", request_token_hash: "hash_req_6", display_name: "Frank", role: "member", status: "pending", requested_at: "2026-04-27T00:08:00.000Z", expires_at: "2026-04-27T00:18:00.000Z" });
+    store.createInvite({ invite_id: "inv_other", room_id: "room_alpha", token_hash: "hash_other", role: "member", main_thread_history_access: "allowed", created_by: "user_owner", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-28T00:00:00.000Z", max_uses: 5 });
+    store.createJoinRequest({ request_id: "req_6", room_id: "room_alpha", invite_id: "inv_other", request_token_hash: "hash_req_6", display_name: "Frank", role: "member", main_thread_history_access: "allowed", status: "pending", requested_at: "2026-04-27T00:08:00.000Z", expires_at: "2026-04-27T00:18:00.000Z" });
 
     expect(store.countPendingJoinRequestsByInvite("inv_count")).toBe(3);
     expect(store.countPendingJoinRequestsByInvite("inv_other")).toBe(1);
@@ -114,7 +114,7 @@ describe("cloud persistence records", () => {
 
   it("preserves invite error semantics", () => {
     const store = new EventStore(":memory:");
-    store.createInvite({ invite_id: "inv_revoked", room_id: "room_alpha", token_hash: "hash_revoked", role: "member", created_by: "user_owner", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-28T00:00:00.000Z", max_uses: 2 });
+    store.createInvite({ invite_id: "inv_revoked", room_id: "room_alpha", token_hash: "hash_revoked", role: "member", main_thread_history_access: "allowed", created_by: "user_owner", created_at: "2026-04-27T00:00:00.000Z", expires_at: "2026-04-28T00:00:00.000Z", max_uses: 2 });
     store.revokeInvite("inv_revoked", "2026-04-27T00:05:00.000Z");
 
     expect(() => store.consumeInvite("inv_missing")).toThrow("invite_not_found");

@@ -11,6 +11,7 @@ describe("join requests and participant revocations", () => {
       request_token_hash: "hash_join_alpha",
       display_name: "Alice",
       role: "member",
+      main_thread_history_access: "allowed",
       status: "pending",
       requested_at: "2026-04-27T08:00:00.000Z",
       expires_at: "2026-04-27T08:10:00.000Z",
@@ -24,6 +25,7 @@ describe("join requests and participant revocations", () => {
       request_token_hash: "hash_join_beta",
       display_name: "Bob",
       role: "member",
+      main_thread_history_access: "allowed",
       status: "pending",
       requested_at: "2026-04-27T08:01:00.000Z",
       expires_at: "2026-04-27T08:11:00.000Z"
@@ -43,6 +45,7 @@ describe("join requests and participant revocations", () => {
       request_token_hash: "hash_join_alpha",
       display_name: "Alice",
       role: "member",
+      main_thread_history_access: "allowed",
       status: "pending",
       requested_at: "2026-04-27T08:00:00.000Z",
       expires_at: "2026-04-27T08:10:00.000Z"
@@ -60,7 +63,7 @@ describe("join requests and participant revocations", () => {
 
   it("marks participant tokens revoked", () => {
     const store = new EventStore(":memory:");
-    store.addParticipant({ room_id: "room_alpha", id: "user_alice", token: "cacp_token", display_name: "Alice", type: "human", role: "member" });
+    store.addParticipant({ room_id: "room_alpha", id: "user_alice", token: "cacp_token", display_name: "Alice", type: "human", role: "member", main_thread_history_access: "allowed" });
     expect(store.getParticipantByToken("room_alpha", "cacp_token")?.id).toBe("user_alice");
     store.revokeParticipant("room_alpha", "user_alice", "user_owner", "2026-04-27T08:04:00.000Z", "removed_by_owner");
     expect(store.getParticipantByToken("room_alpha", "cacp_token")).toBeUndefined();
