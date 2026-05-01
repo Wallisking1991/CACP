@@ -13,6 +13,7 @@ docs/examples/*.local.md
 .playwright-cli/
 .tmp-test-services/
 .superpowers/
+.cacp/
 
 .deploy/*.local.json
 docs/Server info.md
