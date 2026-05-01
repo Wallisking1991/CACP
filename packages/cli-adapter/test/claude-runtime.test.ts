@@ -2,6 +2,23 @@ import { describe, expect, it } from "vitest";
 import { ClaudeRuntime } from "../src/claude/runtime.js";
 
 describe("Claude persistent runtime", () => {
+  it("absorbs sdk load failure so the process does not crash from an unhandled rejection", async () => {
+    const runtime = new ClaudeRuntime({
+      sdk: Promise.reject(new Error("Claude SDK not installed")) as unknown as {
+        createSession: () => Promise<never>;
+        resumeSession: () => Promise<never>;
+      },
+      agentId: "agent_1",
+      workingDir: "D:\\Development\\2",
+      permissionMode: "read_only",
+      model: "claude-sonnet-4-20250514",
+      publishStatus: async () => undefined,
+      publishDelta: async () => undefined
+    });
+
+    await expect(runtime.selectSession({ mode: "fresh" })).rejects.toThrow("Claude SDK not installed");
+  });
+
   it("requires the owner-selected Claude session before running a turn", async () => {
     let createCalls = 0;
     const sdk = {

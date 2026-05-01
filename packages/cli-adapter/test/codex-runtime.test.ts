@@ -30,6 +30,22 @@ describe("Codex runtime", () => {
     })).rejects.toThrow("codex_session_not_selected");
   });
 
+  it("absorbs sdk load failure so the process does not crash from an unhandled rejection", async () => {
+    const runtime = new CodexRuntime({
+      sdk: Promise.reject(new Error("Codex SDK not installed")) as unknown as {
+        startThread: () => never;
+        resumeThread: () => never;
+      },
+      agentId: "agent_1",
+      workingDir: "D:\\Development\\2",
+      permissionLevel: "read_only",
+      publishStatus: async () => undefined,
+      publishDelta: async () => undefined
+    });
+
+    await expect(runtime.selectSession({ mode: "fresh" })).rejects.toThrow("Codex SDK not installed");
+  });
+
   it("maps command execution events and final text", async () => {
     const deltas: string[] = [];
     const statuses: Array<{ phase: string; current: string }> = [];

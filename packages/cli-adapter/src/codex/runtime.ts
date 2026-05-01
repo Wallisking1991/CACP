@@ -1,6 +1,6 @@
 import type { AgentRuntimeMetrics, AgentRuntimePhase } from "@cacp/protocol";
 import { loadCodexSdk } from "./codex-sdk.js";
-import type { CodexRuntimeInput, CodexThread, CodexThreadItem, CodexTurnInput, CodexTurnResult } from "./types.js";
+import type { CodexRuntimeInput, CodexSdk, CodexThread, CodexThreadItem, CodexTurnInput, CodexTurnResult } from "./types.js";
 import { toCodexThreadOptions } from "./types.js";
 
 function computeTextDelta(previous: string, next: string): string {
@@ -38,7 +38,8 @@ function promptForTurn(input: CodexTurnInput, permissionLevel: string): string {
 
 export class CodexRuntime {
   private sdk: CodexRuntimeInput["sdk"] | undefined;
-  private sdkPromise: Promise<NonNullable<CodexRuntimeInput["sdk"]>>;
+  private sdkPromise: Promise<CodexSdk | undefined>;
+  private sdkLoadError: Error | undefined;
   private agentId: string;
   private workingDir: string;
   private permissionLevel: string;
@@ -51,7 +52,10 @@ export class CodexRuntime {
 
   constructor(input: CodexRuntimeInput) {
     this.sdk = input.sdk;
-    this.sdkPromise = Promise.resolve(input.sdk ?? loadCodexSdk());
+    this.sdkPromise = Promise.resolve(input.sdk ?? loadCodexSdk()).catch((error) => {
+      this.sdkLoadError = error instanceof Error ? error : new Error(String(error));
+      return undefined;
+    });
     this.agentId = input.agentId;
     this.workingDir = input.workingDir;
     this.permissionLevel = input.permissionLevel;
@@ -62,6 +66,7 @@ export class CodexRuntime {
 
   async selectSession(selection: { mode: "fresh" } | { mode: "resume"; sessionId: string }): Promise<void> {
     const sdk = await this.sdkPromise;
+    if (!sdk) throw this.sdkLoadError ?? new Error("Codex SDK is not available");
     const options = toCodexThreadOptions({ workingDir: this.workingDir, permissionLevel: this.permissionLevel, model: this.model });
     if (selection.mode === "fresh") {
       this.thread = sdk.startThread(options);

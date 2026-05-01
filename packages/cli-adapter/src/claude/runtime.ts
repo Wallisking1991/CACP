@@ -96,14 +96,19 @@ function promptForTurn(input: ClaudeTurnInput, permissionMode: string): string {
 
 export class ClaudeRuntime {
   private session: ClaudePersistentSession | undefined;
-  private readonly sdkPromise: Promise<Pick<ClaudeSdk, "createSession" | "resumeSession">>;
+  private readonly sdkPromise: Promise<Pick<ClaudeSdk, "createSession" | "resumeSession"> | undefined>;
+  private sdkLoadError: Error | undefined;
 
   constructor(private readonly input: ClaudeRuntimeInput) {
-    this.sdkPromise = Promise.resolve(input.sdk ?? loadClaudeSdk());
+    this.sdkPromise = Promise.resolve(input.sdk ?? loadClaudeSdk()).catch((error) => {
+      this.sdkLoadError = error instanceof Error ? error : new Error(String(error));
+      return undefined;
+    });
   }
 
   async selectSession(selection: { mode: "fresh" } | { mode: "resume"; sessionId: string }): Promise<string | undefined> {
     const sdk = await this.sdkPromise;
+    if (!sdk) throw this.sdkLoadError ?? new Error("Claude SDK is not available");
     if (this.session) {
       await this.session.close();
       this.session = undefined;
