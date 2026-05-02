@@ -71,3 +71,40 @@ export function BellIcon(props: IconProps) {
     </IconFrame>
   );
 }
+
+export function BubbleIcon(props: IconProps) {
+  return (
+    <IconFrame {...props}>
+      <path d="M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-9l-5 4v-4H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z" />
+      <circle cx="9" cy="12" r="0.8" fill="currentColor" />
+      <circle cx="13" cy="12" r="0.8" fill="currentColor" />
+      <circle cx="17" cy="12" r="0.8" fill="currentColor" />
+    </IconFrame>
+  );
+}
+
+export function ClockIcon(props: IconProps) {
+  return (
+    <IconFrame {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </IconFrame>
+  );
+}
+
+export function XIcon(props: IconProps) {
+  return (
+    <IconFrame {...props}>
+      <path d="M6 6l12 12" />
+      <path d="M18 6l-12 12" />
+    </IconFrame>
+  );
+}
+
+export function CheckIcon(props: IconProps) {
+  return (
+    <IconFrame {...props}>
+      <path d="M5 12l5 5 9-11" />
+    </IconFrame>
+  );
+}
