@@ -124,4 +124,57 @@ describe("ClaudeSessionPicker", () => {
 
     expect(screen.getByText(/Claude Code session/)).toBeInTheDocument();
   });
+
+  it("keeps wantsReselect=true when a parent re-renders with a fresh-but-equivalent selection object", () => {
+    const onSelect = vi.fn();
+    const onReselectChange = vi.fn();
+    const catalog = {
+      agent_id: "agent_1",
+      working_dir: "D:\\Development\\2",
+      sessions: [{
+        session_id: "session_1",
+        title: "Planning",
+        project_dir: "D:\\Development\\2",
+        updated_at: "2026-04-29T00:00:00.000Z",
+        message_count: 2,
+        byte_size: 100,
+        importable: true
+      }]
+    };
+
+    const { rerender } = render(
+      <ClaudeSessionPicker
+        canManageRoom={true}
+        agentId="agent_1"
+        catalog={catalog}
+        selection={{ agent_id: "agent_1", mode: "fresh", selected_by: "owner" }}
+        onSelect={onSelect}
+        wantsReselect={true}
+        onReselectChange={onReselectChange}
+      />
+    );
+
+    // wantsReselect=true means the user wants to re-pick — show the full picker, not the "Session selected" view
+    expect(screen.getByRole("button", { name: /Start fresh/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Change selection/i })).not.toBeInTheDocument();
+
+    // Parent re-renders with a NEW selection object holding the SAME data (e.g. room-state derives a new object on each event).
+    rerender(
+      <ClaudeSessionPicker
+        canManageRoom={true}
+        agentId="agent_1"
+        catalog={catalog}
+        selection={{ agent_id: "agent_1", mode: "fresh", selected_by: "owner" }}
+        onSelect={onSelect}
+        wantsReselect={true}
+        onReselectChange={onReselectChange}
+      />
+    );
+
+    // The picker must still show the full picker UI — selection data did not change.
+    expect(screen.getByRole("button", { name: /Start fresh/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Change selection/i })).not.toBeInTheDocument();
+    // And it must not have asked the parent to drop wantsReselect, since the selection data is identical.
+    expect(onReselectChange).not.toHaveBeenCalledWith(false);
+  });
 });

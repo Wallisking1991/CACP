@@ -86,48 +86,6 @@ describe("room state", () => {
     expect(state.agents).toEqual([]);
   });
 
-  it("excludes messages before the last history clear", () => {
-    const state = deriveRoomState([
-      event("message.created", { message_id: "msg_old", text: "old message", kind: "human" }, 1, "user_1"),
-      event("room.history_cleared", { cleared_by: "user_1", cleared_at: "2026-04-25T00:00:02.000Z", scope: "messages" }, 2, "user_1"),
-      event("message.created", { message_id: "msg_new", text: "new message", kind: "human" }, 3, "user_1")
-    ]);
-
-    expect(state.lastHistoryClearedAt).toBe("2026-04-25T00:00:02.000Z");
-    expect(state.messages).toEqual([
-      { message_id: "cleared-evt_2", actor_id: "system", text: "__CACP_HISTORY_CLEARED__", kind: "system", created_at: "2026-04-25T00:00:02.000Z" },
-      { message_id: "msg_new", actor_id: "user_1", text: "new message", kind: "human", created_at: "2026-04-25T00:00:03.000Z" }
-    ]);
-  });
-
-  it("keeps participants, agents, and invites from all events across history clear", () => {
-    const state = deriveRoomState([
-      event("participant.joined", { participant: { id: "user_1", display_name: "Alice", role: "owner", type: "human" } }, 1),
-      event("agent.registered", { agent_id: "agent_1", name: "Claude Code Agent", capabilities: ["repo.read"] }, 2, "agent_1"),
-      event("invite.created", { role: "member", expires_at: "2026-04-26T00:00:00.000Z" }, 3, "user_1"),
-      event("room.history_cleared", { cleared_by: "user_1", cleared_at: "2026-04-25T00:00:04.000Z", scope: "messages" }, 4, "user_1"),
-      event("participant.joined", { participant: { id: "user_2", display_name: "Bob", role: "member", type: "human" } }, 5, "user_2"),
-      event("agent.registered", { agent_id: "agent_2", name: "Backup Agent", capabilities: ["repo.write"] }, 6, "agent_2"),
-      event("invite.created", { role: "observer", expires_at: "2026-04-27T00:00:00.000Z" }, 7, "user_1")
-    ]);
-
-    expect(state.participants.map((participant) => participant.id)).toEqual(["user_1", "user_2"]);
-    expect(state.agents.map((agent) => agent.agent_id)).toEqual(["agent_1", "agent_2"]);
-    expect(state.inviteCount).toBe(2);
-  });
-
-  it("scopes streaming turns to events after the last history clear", () => {
-    const state = deriveRoomState([
-      event("agent.turn.started", { turn_id: "turn_old", agent_id: "agent_1" }, 1, "agent_1"),
-      event("agent.output.delta", { turn_id: "turn_old", agent_id: "agent_1", chunk: "old" }, 2, "agent_1"),
-      event("room.history_cleared", { cleared_by: "user_1", cleared_at: "2026-04-25T00:00:03.000Z", scope: "messages" }, 3, "user_1"),
-      event("agent.turn.started", { turn_id: "turn_new", agent_id: "agent_1" }, 4, "agent_1"),
-      event("agent.output.delta", { turn_id: "turn_new", agent_id: "agent_1", chunk: "new" }, 5, "agent_1")
-    ]);
-
-    expect(state.streamingTurns).toEqual([{ turn_id: "turn_new", agent_id: "agent_1", text: "new" }]);
-  });
-
   it("derives generic Codex session catalog and selection state", () => {
     const state = deriveRoomState([
       event("agent.registered", { agent_id: "agent_1", name: "Codex", capabilities: ["codex-cli"] }, 1, "owner"),
@@ -762,78 +720,6 @@ describe("room state", () => {
         kind: "agent",
         text: "Ledger answer"
       })]);
-    });
-  });
-
-  describe("History clear clears orbit and main input state", () => {
-    it("clears orbit rounds, notes, and main input queue on room.history_cleared", () => {
-      const state = deriveRoomState([
-        event("orbit.round.opened", { round_id: "round_1" }, 1, "user_1"),
-        event("orbit.note.created", { note_id: "note_1", text: "Note" }, 2, "user_1"),
-        event("main_input.accepted", { input_id: "input_1", text: "Hello" }, 3, "user_1"),
-        event("room.history_cleared", { cleared_by: "user_1", cleared_at: "2026-04-25T00:00:04.000Z", scope: "messages" }, 4, "user_1")
-      ]);
-      expect(state.orbitNotes).toHaveLength(0);
-      expect(state.mainInputQueue).toHaveLength(0);
-    });
-
-    it("recreates initial pre-round after room.history_cleared", () => {
-      const state = deriveRoomState([
-        event("room.created", { name: "Room" }, 0, "user_1"),
-        event("orbit.round.opened", { round_id: "round_1" }, 1, "user_1"),
-        event("orbit.note.created", { note_id: "note_1", text: "Note" }, 2, "user_1"),
-        event("room.history_cleared", { cleared_by: "user_1", cleared_at: "2026-04-25T00:00:04.000Z", scope: "messages" }, 4, "user_1")
-      ]);
-      expect(state.orbitRounds).toHaveLength(1);
-      expect(state.orbitRounds[0]).toMatchObject({
-        round_id: "orbit_round_pre_room_1",
-        opened_by: "user_1"
-      });
-    });
-  });
-
-  describe("Main thread cleared at", () => {
-    it("exposes mainThreadClearedAt matching lastHistoryClearedAt", () => {
-      const state = deriveRoomState([
-        event("room.created", { name: "Room" }, 1, "user_1"),
-        event("message.created", { message_id: "msg_1", text: "Hello", kind: "human" }, 2, "user_1"),
-        event("room.history_cleared", { cleared_by: "user_1", cleared_at: "2026-04-25T00:00:03.000Z", scope: "messages" }, 3, "user_1")
-      ]);
-      expect(state.mainThreadClearedAt).toBe("2026-04-25T00:00:03.000Z");
-      expect(state.lastHistoryClearedAt).toBe(state.mainThreadClearedAt);
-    });
-
-    it("hides imported messages that appear before history clear", () => {
-      const state = deriveRoomState([
-        event("claude.session_import.started", {
-          import_id: "import_1",
-          agent_id: "agent_1",
-          session_id: "session_1",
-          title: "Old",
-          message_count: 1,
-          started_at: "2026-04-25T00:00:00.000Z"
-        }, 1, "agent_1"),
-        event("claude.session_import.message", {
-          import_id: "import_1",
-          agent_id: "agent_1",
-          session_id: "session_1",
-          sequence: 0,
-          author_role: "assistant",
-          source_kind: "assistant",
-          text: "Old import"
-        }, 2, "agent_1"),
-        event("claude.session_import.completed", {
-          import_id: "import_1",
-          agent_id: "agent_1",
-          session_id: "session_1",
-          imported_message_count: 1,
-          completed_at: "2026-04-25T00:00:01.000Z"
-        }, 3, "agent_1"),
-        event("room.history_cleared", { cleared_by: "user_1", cleared_at: "2026-04-25T00:00:02.000Z", scope: "messages" }, 4, "user_1"),
-        event("message.created", { message_id: "msg_1", text: "After clear", kind: "human" }, 5, "user_1")
-      ]);
-      expect(state.messages.some((m) => m.text === "Old import")).toBe(false);
-      expect(state.messages.some((m) => m.text === "After clear")).toBe(true);
     });
   });
 });

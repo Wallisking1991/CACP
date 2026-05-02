@@ -11,6 +11,8 @@ interface Props {
   previews?: ClaudeSessionPreviewView[];
   onRequestPreview?: (sessionId: string) => Promise<void>;
   onSelect(selection: { mode: "fresh" } | { mode: "resume"; sessionId: string }): Promise<void>;
+  wantsReselect?: boolean;
+  onReselectChange?: (next: boolean) => void;
 }
 
 function formatDate(iso: string): string {
@@ -21,22 +23,34 @@ function formatDate(iso: string): string {
   }
 }
 
-export function ClaudeSessionPicker({ canManageRoom, agentId, catalog, selection, previews = [], onRequestPreview, onSelect }: Props) {
+export function ClaudeSessionPicker({ canManageRoom, agentId, catalog, selection, previews = [], onRequestPreview, onSelect, wantsReselect: controlledWantsReselect, onReselectChange }: Props) {
   const t = useT();
   const [inspectedSession, setInspectedSession] = useState<ClaudeSessionSummary | undefined>();
   const [busy, setBusy] = useState(false);
   const [previewLoadingSessionIds, setPreviewLoadingSessionIds] = useState<Set<string>>(() => new Set());
   const [previewErrors, setPreviewErrors] = useState<Record<string, string>>({});
-  const [wantsReselect, setWantsReselect] = useState(false);
+  const [internalWantsReselect, setInternalWantsReselect] = useState(false);
+  const wantsReselect = controlledWantsReselect ?? internalWantsReselect;
+  const setWantsReselect = (next: boolean): void => {
+    if (controlledWantsReselect === undefined) {
+      setInternalWantsReselect(next);
+    }
+    onReselectChange?.(next);
+  };
   const activeSelection = selection?.agent_id === agentId ? selection : undefined;
+  const selectionKey = activeSelection
+    ? activeSelection.mode === "resume"
+      ? `resume:${activeSelection.session_id}`
+      : "fresh"
+    : "none";
 
-  const prevSelectionRef = useRef(activeSelection);
+  const prevSelectionKeyRef = useRef(selectionKey);
   useEffect(() => {
-    if (prevSelectionRef.current !== activeSelection) {
-      prevSelectionRef.current = activeSelection;
+    if (prevSelectionKeyRef.current !== selectionKey) {
+      prevSelectionKeyRef.current = selectionKey;
       setWantsReselect(false);
     }
-  }, [activeSelection]);
+  }, [selectionKey]);
 
   if (!canManageRoom || !catalog || catalog.agent_id !== agentId) return null;
 
@@ -75,6 +89,7 @@ export function ClaudeSessionPicker({ canManageRoom, agentId, catalog, selection
     setBusy(true);
     try {
       await onSelect(selectionInput);
+      setWantsReselect(false);
     } finally {
       setBusy(false);
     }

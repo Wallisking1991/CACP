@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { CacpEvent, Participant } from "@cacp/protocol";
 import {
   buildAgentContextPrompt,
-  eventsAfterLastHistoryClear,
   findActiveAgentId,
   findOpenTurn,
   hasQueuedFollowup,
@@ -50,16 +49,6 @@ describe("conversation helpers", () => {
       ...open,
       event("agent.turn.completed", { turn_id: "turn_1", agent_id: "agent_1", message_id: "msg_1" }, 4)
     ], "agent_1")).toBeUndefined();
-  });
-
-  it("scopes context after the latest history clear", () => {
-    const scoped = eventsAfterLastHistoryClear([
-      event("message.created", { message_id: "msg_old", text: "old" }, 1),
-      event("room.history_cleared", { scope: "messages", cleared_by: "user_1", cleared_at: "2026-04-25T00:00:02.000Z" }, 2),
-      event("message.created", { message_id: "msg_new", text: "new" }, 3)
-    ]);
-
-    expect(scoped.map((item) => item.payload.message_id)).toEqual(["msg_new"]);
   });
 
   it("returns only the latest durable conversation messages", () => {

@@ -45,24 +45,6 @@ describe("isTurnInFlight", () => {
     ];
     expect(isTurnInFlight(events)).toBe(true);
   });
-
-  it("returns false after room.history_cleared resets scope", () => {
-    const events = [
-      event("agent.turn.started", { turn_id: "t1", agent_id: "agent_1" }, 1, "agent_1"),
-      event("room.history_cleared", { cleared_by: "user_1", cleared_at: "2026-04-25T00:00:02.000Z", scope: "messages" }, 2),
-      event("message.created", { message_id: "msg_1", text: "hello", kind: "human" }, 3)
-    ];
-    expect(isTurnInFlight(events)).toBe(false);
-  });
-
-  it("returns true when turn starts after room.history_cleared", () => {
-    const events = [
-      event("agent.turn.started", { turn_id: "t1", agent_id: "agent_1" }, 1, "agent_1"),
-      event("room.history_cleared", { cleared_by: "user_1", cleared_at: "2026-04-25T00:00:02.000Z", scope: "messages" }, 2),
-      event("agent.turn.started", { turn_id: "t2", agent_id: "agent_1" }, 3, "agent_1")
-    ];
-    expect(isTurnInFlight(events)).toBe(true);
-  });
 });
 
 describe("humanParticipants", () => {

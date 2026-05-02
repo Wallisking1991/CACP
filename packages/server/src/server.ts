@@ -7,7 +7,7 @@ import websocket from "@fastify/websocket";
 import { z } from "zod";
 import { buildConnectionCode, evaluatePolicy, ConnectorLedgerEntrySchema, PolicySchema, VoteRecordSchema, ParticipantPresenceSchema, type CacpEvent, type Participant, type ParticipantRole, type Policy, type VoteRecord } from "@cacp/protocol";
 import { bearerToken, requireParticipant, hasAnyRole, hasHumanRole } from "./auth.js";
-import { buildAgentContextPrompt, eventsAfterLastHistoryClear, findActiveAgentId, findAgentCapabilities, findAnyOpenTurn, findOpenTurn, findQueuedFollowupMessage, findQueuedFollowupMessages, hasQueuedFollowup, recentConversationMessages, type ConversationMessage, type OpenTurn } from "./conversation.js";
+import { buildAgentContextPrompt, findActiveAgentId, findAgentCapabilities, findAnyOpenTurn, findOpenTurn, findQueuedFollowupMessage, findQueuedFollowupMessages, hasQueuedFollowup, recentConversationMessages, type ConversationMessage, type OpenTurn } from "./conversation.js";
 import { EventBus } from "./event-bus.js";
 import { EventStore, type StoredParticipant } from "./event-store.js";
 import { roomDelivery, targetedDelivery, roleDelivery, canDeliverEnvelope, HUMAN_ROLES, type RelayEnvelope } from "./relay.js";
@@ -634,20 +634,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       deny(reply, "forbidden", 403);
       return undefined;
     }
-    if (isTurnCleared(roomId, turnId)) {
-      deny(reply, "turn_cleared", 409);
-      return undefined;
-    }
     return turn;
-  }
-
-  function isTurnCleared(roomId: string, turnId: string): boolean {
-    const events = store.listEvents(roomId);
-    const postClearEvents = eventsAfterLastHistoryClear(events);
-    if (postClearEvents === events) return false;
-    const wasRequested = events.some((storedEvent) => storedEvent.type === "agent.turn.requested" && storedEvent.payload.turn_id === turnId);
-    const requestedAfterClear = postClearEvents.some((storedEvent) => storedEvent.type === "agent.turn.requested" && storedEvent.payload.turn_id === turnId);
-    return wasRequested && !requestedAfterClear;
   }
 
   function buildContextPrompt(roomId: string, agentId: string): string {
@@ -664,7 +651,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   }
 
   function openTurnInRoom(roomId: string): OpenTurn | undefined {
-    return findAnyOpenTurn(eventsAfterLastHistoryClear(store.listEvents(roomId)));
+    return findAnyOpenTurn(store.listEvents(roomId));
   }
 
   function findLastTurnId(events: CacpEvent[]): string | undefined {
@@ -706,7 +693,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     includeMessageTextForRemote?: boolean;
   }): CacpEvent[] {
     const events = store.listEvents(roomId);
-    const turnEvents = eventsAfterLastHistoryClear(events);
+    const turnEvents = events;
     const activeAgentId = findActiveAgentId(events);
     if (!activeAgentId) return [];
     const activeAgent = findParticipant(roomId, activeAgentId);
@@ -758,7 +745,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
 
   function createAgentTurnRequestEvents(roomId: string, actorId: string, reason: "human_message" | "queued_followup", contextPrompt?: string, previousTurnId?: string): CacpEvent[] {
     const events = store.listEvents(roomId);
-    const turnEvents = eventsAfterLastHistoryClear(events);
+    const turnEvents = events;
     const activeAgentId = findActiveAgentId(events);
     if (!activeAgentId) return [];
     const activeAgent = findParticipant(roomId, activeAgentId);
@@ -941,7 +928,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const actualProvider = providerForCapabilities(capabilities);
     if (!actualProvider) return { ok: false, error: "missing_local_agent_capability", status: 403 };
     if (actualProvider !== provider) return { ok: false, error: "provider_mismatch", status: 403 };
-    const openTurn = findAnyOpenTurn(eventsAfterLastHistoryClear(events));
+    const openTurn = findAnyOpenTurn(events);
     if (!openTurn || openTurn.agent_id !== agentId) return { ok: false, error: "no_active_turn", status: 403 };
     if (openTurn.turn_id !== turnId) return { ok: false, error: "turn_not_found", status: 403 };
     return { ok: true };
@@ -953,7 +940,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (activeAgentId !== agentId) return { ok: false, error: "not_active_agent", status: 403 };
     const capabilities = findAgentCapabilities(events, agentId);
     if (!capabilities.includes("claude-code")) return { ok: false, error: "missing_claude_code_capability", status: 403 };
-    const openTurn = findAnyOpenTurn(eventsAfterLastHistoryClear(events));
+    const openTurn = findAnyOpenTurn(events);
     if (!openTurn || openTurn.agent_id !== agentId) return { ok: false, error: "no_active_turn", status: 403 };
     if (openTurn.turn_id !== turnId) return { ok: false, error: "turn_not_found", status: 403 };
     return { ok: true };
@@ -1489,18 +1476,6 @@ export async function buildServer(options: BuildServerOptions = {}) {
     });
   });
 
-  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/history/clear", async (request, reply) => {
-    const participant = requireParticipant(store, request.params.roomId, request);
-    if (!participant) return deny(reply, "invalid_token");
-    if (!hasAnyRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
-    appendAndPublish(event(request.params.roomId, "room.history_cleared", participant.id, {
-      cleared_by: participant.id,
-      cleared_at: new Date().toISOString(),
-      scope: "messages"
-    }));
-    return reply.code(201).send({ ok: true });
-  });
-
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/invites", async (request, reply) => {
     if (!inviteLimiter.allow(request.ip)) return tooMany(reply);
     const participant = requireParticipant(store, request.params.roomId, request);
@@ -1781,7 +1756,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
         : hasLocalAgentSessionReady(events, activeAgentId, localProvider);
       if (!ready) return deny(reply, "agent_session_not_ready", 409);
     }
-    const turnEvents = eventsAfterLastHistoryClear(events);
+    const turnEvents = events;
     const openTurn = findAnyOpenTurn(turnEvents);
     const queuedArr = getQueuedMainInputs(roomId);
     if (openTurn && queuedArr.length >= MAX_QUEUED_PER_ROOM) {
@@ -1944,7 +1919,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const events = store.listEvents(roomId);
     const activeAgentId = findActiveAgentId(events);
     if (!activeAgentId) return deny(reply, "active_agent_unavailable", 409);
-    const turnEvents = eventsAfterLastHistoryClear(events);
+    const turnEvents = events;
     const openTurn = findAnyOpenTurn(turnEvents);
     const queuedArr = getQueuedMainInputs(roomId);
     if (openTurn && queuedArr.length >= MAX_QUEUED_PER_ROOM) {
@@ -2286,10 +2261,14 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!targetAgent || targetAgent.type !== "agent" || targetAgent.role !== "agent") return deny(reply, "invalid_target_agent", 400);
     const validation = validateClaudeAgent(request.params.roomId, body.agent_id);
     if (!validation.ok) return deny(reply, validation.error, validation.status);
-    appendAndPublish(event(request.params.roomId, "claude.session_selected", participant.id, {
-      ...body,
-      selected_by: participant.id
-    }));
+    const stored = store.transaction(() => {
+      store.purgeContentEvents(request.params.roomId);
+      return store.appendEvent(event(request.params.roomId, "claude.session_selected", participant.id, {
+        ...body,
+        selected_by: participant.id
+      }));
+    });
+    publishEvents([stored]);
     return reply.code(201).send({ ok: true });
   });
 
@@ -2412,10 +2391,14 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const body = AgentSessionSelectionBodySchema.parse(request.body);
     const validation = validateLocalAgentProvider(request.params.roomId, body.agent_id, body.provider);
     if (!validation.ok) return deny(reply, validation.error, validation.status);
-    appendAndPublish(event(request.params.roomId, "agent.session_selected", participant.id, {
-      ...body,
-      selected_by: participant.id
-    }));
+    const stored = store.transaction(() => {
+      store.purgeContentEvents(request.params.roomId);
+      return store.appendEvent(event(request.params.roomId, "agent.session_selected", participant.id, {
+        ...body,
+        selected_by: participant.id
+      }));
+    });
+    publishEvents([stored]);
     return reply.code(201).send({ ok: true });
   });
 

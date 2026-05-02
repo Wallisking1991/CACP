@@ -25,6 +25,8 @@ export interface AgentAvatarPopoverProps {
   onSelectClaudeSession?: (selection: { mode: "fresh" } | { mode: "resume"; sessionId: string }) => Promise<void>;
   onRequestAgentSessionPreview?: (sessionId: string) => Promise<void>;
   onSelectAgentSession?: (selection: { mode: "fresh" } | { mode: "resume"; sessionId: string }) => Promise<void>;
+  wantsReselect?: boolean;
+  onReselectChange?: (next: boolean) => void;
 }
 
 export function AgentAvatarPopover({
@@ -44,6 +46,8 @@ export function AgentAvatarPopover({
   onSelectClaudeSession,
   onRequestAgentSessionPreview,
   onSelectAgentSession,
+  wantsReselect,
+  onReselectChange,
 }: AgentAvatarPopoverProps) {
   const t = useT();
   const activeAgent = agents.find((agent) => agent.agent_id === activeAgentId);
@@ -89,6 +93,8 @@ export function AgentAvatarPopover({
           previews={agentSessionPreviews ?? []}
           onRequestPreview={onRequestAgentSessionPreview}
           onSelect={onSelectAgentSession ?? (async () => {})}
+          wantsReselect={wantsReselect}
+          onReselectChange={onReselectChange}
         />
       ) : (
         <ClaudeSessionPicker
@@ -99,6 +105,8 @@ export function AgentAvatarPopover({
           previews={claudeSessionPreviews}
           onRequestPreview={onRequestClaudeSessionPreview}
           onSelect={onSelectClaudeSession ?? (async () => {})}
+          wantsReselect={wantsReselect}
+          onReselectChange={onReselectChange}
         />
       )}
       {agentRuntimeStatuses?.map((status) => (

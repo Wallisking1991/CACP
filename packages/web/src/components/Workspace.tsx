@@ -23,7 +23,6 @@ export interface WorkspaceProps {
   session: RoomSession;
   events: CacpEvent[];
   onLeaveRoom: () => void;
-  onClearRoom: () => void;
   onSendMessage: (text: string) => void;
   onSelectAgent: (agentId: string) => void;
   onCreateInvite: (role: string, ttl: number, maxUses: number) => Promise<string | undefined>;
@@ -68,7 +67,6 @@ export default function Workspace({
   session,
   events,
   onLeaveRoom,
-  onClearRoom,
   onSendMessage,
   onSelectAgent,
   onCreateInvite,
@@ -124,6 +122,7 @@ export default function Workspace({
   const [showSlowStreamingNotice, setShowSlowStreamingNotice] = useState(false);
   const [agentPopoverOpen, setAgentPopoverOpen] = useState(false);
   const [peoplePopoverOpen, setPeoplePopoverOpen] = useState(false);
+  const [wantsReselect, setWantsReselect] = useState(false);
 
   const pendingNotificationCount = useMemo(() => {
     if (!isOwner) return 0;
@@ -327,7 +326,10 @@ export default function Workspace({
             onSend={onSendMessage}
             onTypingInput={(value) => typingControllerRef.current?.inputChanged(value)}
             onStopTyping={() => typingControllerRef.current?.stopNow()}
-            onClearConversation={onClearRoom}
+            onNewConversation={() => {
+              setWantsReselect(true);
+              setAgentPopoverOpen(true);
+            }}
             onSendOrbitNote={orbitVisible ? (text) => { void sendOrbitNote(session, text).catch(() => {}); } : undefined}
             onSendMainInput={(text) => { void sendMainInput(session, text).catch(() => {}); }}
           />
@@ -398,6 +400,8 @@ export default function Workspace({
           serverUrl={serverUrl}
           roomSessionToken={session.token}
           roomSessionParticipantId={session.participant_id}
+          wantsReselect={wantsReselect}
+          onReselectChange={setWantsReselect}
           onRequestClaudeSessionPreview={(sessionId) =>
             requestClaudeSessionPreview({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId ?? "", sessionId })
           }

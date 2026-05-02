@@ -107,8 +107,13 @@ export async function requestConnectorSnapshot(session: RoomSession, sinceSequen
   return await response.json() as { request_id: string };
 }
 
-export async function clearRoom(session: RoomSession): Promise<void> {
-  await postJson(`/rooms/${session.room_id}/history/clear`, session.token, {});
+export async function fetchRoomEvents(session: RoomSession): Promise<CacpEvent[]> {
+  const response = await fetch(`/rooms/${session.room_id}/events`, {
+    headers: { authorization: `Bearer ${session.token}` }
+  });
+  if (!response.ok) throw new Error(await response.text());
+  const body = (await response.json()) as { events: CacpEvent[] };
+  return body.events;
 }
 
 export async function leaveRoom(session: RoomSession): Promise<void> {

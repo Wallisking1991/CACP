@@ -30,7 +30,6 @@ const baseProps = {
     event("room.agent_selected", { agent_id: "agent_1" }, 4)
   ],
   onLeaveRoom: vi.fn(),
-  onClearRoom: vi.fn(),
   onSendMessage: vi.fn(),
   onSelectAgent: vi.fn(),
   onCreateInvite: vi.fn(async () => "http://localhost/invite"),

@@ -123,10 +123,6 @@ export default function Thread({
         }
 
         const actorName = actorNames.get(msg.actor_id) ?? msg.actor_id;
-        let displayText = msg.text;
-        if (msg.text === "__CACP_HISTORY_CLEARED__") {
-          displayText = t("thread.historyCleared");
-        }
         return (
           <article
             key={msg.message_id ?? `${msg.actor_id}-${msg.created_at}`}
@@ -136,7 +132,7 @@ export default function Thread({
               <span>{actorName}</span>
               <span>{roleLabel(msg.kind, t)}</span>
             </div>
-            <div className="message-body">{displayText}</div>
+            <div className="message-body">{msg.text}</div>
           </article>
         );
       })}

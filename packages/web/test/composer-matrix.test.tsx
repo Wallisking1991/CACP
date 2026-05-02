@@ -21,7 +21,7 @@ describe("Composer render matrix", () => {
     onSend: noop,
     onTypingInput: noop,
     onStopTyping: noop,
-    onClearConversation: noop,
+    onNewConversation: noop,
   };
 
   it("renders textarea and Send button for owner in live mode", () => {
@@ -55,19 +55,32 @@ describe("Composer render matrix", () => {
     expect(onSend).toHaveBeenCalledWith("hello");
   });
 
-  it("shows owner-only clear conversation icon and confirms before clearing", () => {
-    const onClearConversation = vi.fn();
-    renderComposer({ ...baseProps, role: "owner", onClearConversation });
+  it("shows New conversation icon for owner and calls onNewConversation directly without confirm", () => {
+    const onNewConversation = vi.fn();
+    renderComposer({ ...baseProps, role: "owner", onNewConversation });
 
-    fireEvent.click(screen.getByRole("button", { name: /Clear conversation/i }));
-    expect(screen.getByText(/Clear the visible conversation history/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Confirm clear conversation/i }));
-    expect(onClearConversation).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: /New conversation/i }));
+    expect(onNewConversation).toHaveBeenCalledTimes(1);
+    // No confirm dialog — clicking the button immediately invokes the callback
+    expect(screen.queryByText(/Clear the visible conversation history/i)).not.toBeInTheDocument();
   });
 
-  it("hides clear conversation action for members", () => {
+  it("shows New conversation icon for admin", () => {
+    const onNewConversation = vi.fn();
+    renderComposer({ ...baseProps, role: "admin", onNewConversation });
+
+    fireEvent.click(screen.getByRole("button", { name: /New conversation/i }));
+    expect(onNewConversation).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides New conversation action for members", () => {
     renderComposer({ ...baseProps, role: "member" });
-    expect(screen.queryByRole("button", { name: /Clear conversation/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /New conversation/i })).not.toBeInTheDocument();
+  });
+
+  it("hides New conversation action for observers", () => {
+    renderComposer({ ...baseProps, role: "observer" });
+    expect(screen.queryByRole("button", { name: /New conversation/i })).not.toBeInTheDocument();
   });
 
   it("notifies typing callbacks on input and send", () => {

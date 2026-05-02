@@ -38,6 +38,38 @@ export interface StoredInvite extends NewInvite {
 
 export type MainThreadHistoryAccess = "allowed" | "denied";
 
+/**
+ * Foundation event types that survive {@link EventStore.purgeContentEvents}.
+ * Everything else (messages, agent turns, orbit, main-input queue, runtime status,
+ * snapshots, imports, previews, etc.) is wiped when a new conversation/session is
+ * selected by an owner or admin.
+ *
+ * Connector-published session catalogs are preserved so the session picker can still
+ * render after a New Conversation purge — without the catalog the picker returns null
+ * and the user sees only the agent header.
+ */
+const ESSENTIAL_EVENT_TYPES = [
+  "room.created",
+  "room.configured",
+  "room.agent_selected",
+  "participant.joined",
+  "participant.left",
+  "participant.role_updated",
+  "participant.removed",
+  "agent.registered",
+  "agent.unregistered",
+  "agent.disconnected",
+  "agent.pairing_created",
+  "invite.created",
+  "invite.revoked",
+  "join_request.created",
+  "join_request.approved",
+  "join_request.rejected",
+  "join_request.expired",
+  "claude.session_catalog.updated",
+  "agent.session_catalog.updated"
+] as const;
+
 export interface NewAgentPairing {
   pairing_id: string;
   room_id: string;
@@ -251,6 +283,24 @@ export class EventStore {
     return (this.db.prepare(`
       SELECT event_json FROM events WHERE room_id = ? ORDER BY sequence ASC
     `).all(roomId) as Array<{ event_json: string }>).map((row) => CacpEventSchema.parse(JSON.parse(row.event_json)));
+  }
+
+  /**
+   * Physically delete every event in the room whose type is not in {@link ESSENTIAL_EVENT_TYPES}.
+   * Used by the "New conversation" flow: when an owner/admin selects a new (or re-resumes a)
+   * Claude / agent session, all prior content (messages, agent turns, orbit notes, main-input
+   * queue, snapshots, runtime status, imports, previews, etc.) is wiped from SQLite so the
+   * picked session starts on a clean slate. Only foundation events that the room needs to
+   * function (creation, participants, agent registration, invites, join-requests) survive.
+   *
+   * Returns the number of rows deleted.
+   */
+  purgeContentEvents(roomId: string): number {
+    const placeholders = ESSENTIAL_EVENT_TYPES.map(() => "?").join(",");
+    const result = this.db.prepare(
+      `DELETE FROM events WHERE room_id = ? AND type NOT IN (${placeholders})`
+    ).run(roomId, ...ESSENTIAL_EVENT_TYPES);
+    return result.changes;
   }
 
   addParticipant(participant: StoredParticipant & { token: string }): StoredParticipant {

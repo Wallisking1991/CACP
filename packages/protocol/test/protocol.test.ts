@@ -86,19 +86,6 @@ describe("CACP event schema", () => {
     }
   });
 
-  it("accepts the room history clear event type", () => {
-    expect(CacpEventSchema.parse({
-      protocol: "cacp",
-      version: "0.2.0",
-      event_id: "evt_room.history_cleared",
-      room_id: "room_1",
-      type: "room.history_cleared",
-      actor_id: "user_1",
-      created_at: "2026-04-26T00:00:00.000Z",
-      payload: {}
-    }).type).toBe("room.history_cleared");
-  });
-
   it("rejects retired ai.collection event types", () => {
     for (const type of [
       "ai.collection.started",

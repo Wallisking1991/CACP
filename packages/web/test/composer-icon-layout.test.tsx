@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import React from "react";
 import Composer from "../src/components/Composer.js";
 import { LangProvider } from "../src/i18n/LangProvider.js";
@@ -20,7 +20,7 @@ describe("Composer icon-only layout", () => {
     onSend: noop,
     onTypingInput: noop,
     onStopTyping: noop,
-    onClearConversation: noop,
+    onNewConversation: noop,
   };
 
   it("renders the textarea before the action bar (no row above textarea)", () => {
@@ -45,10 +45,10 @@ describe("Composer icon-only layout", () => {
     expect(screen.queryByText(/AI 正在回复/)).toBeNull();
   });
 
-  it("places the owner sweep button inside the action bar (not above the textarea)", () => {
+  it("places the owner New conversation button inside the action bar (not above the textarea)", () => {
     renderComposer({ ...baseProps, role: "owner" });
-    const sweepButton = screen.getByRole("button", { name: /Clear conversation/i });
-    const actionBar = sweepButton.closest(".composer-action-bar");
+    const newConvButton = screen.getByRole("button", { name: /New conversation/i });
+    const actionBar = newConvButton.closest(".composer-action-bar");
     expect(actionBar).not.toBeNull();
     const composer = document.querySelector(".composer");
     const textarea = composer!.querySelector("textarea");
@@ -62,18 +62,6 @@ describe("Composer icon-only layout", () => {
     expect(stack).not.toBeNull();
     const badge = stack!.querySelector(".composer-icon-stack__badge");
     expect(badge).not.toBeNull();
-  });
-
-  it("renders confirm-clear dialog with two icon buttons (cancel + confirm) and no visible text labels on them", () => {
-    renderComposer({ ...baseProps, role: "owner" });
-    const sweepButton = screen.getByRole("button", { name: /Clear conversation/i });
-    fireEvent.click(sweepButton);
-    const cancelButton = screen.getByRole("button", { name: /Cancel/i });
-    const confirmButton = screen.getByRole("button", { name: /Confirm clear conversation/i });
-    expect(cancelButton.textContent?.trim()).toBe("");
-    expect(confirmButton.textContent?.trim()).toBe("");
-    expect(cancelButton.querySelector("svg")).not.toBeNull();
-    expect(confirmButton.querySelector("svg")).not.toBeNull();
   });
 
   it("renders all action-bar buttons as icon-only (no visible text content)", () => {

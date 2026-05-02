@@ -219,8 +219,6 @@ export interface RoomViewState {
   activeAgentId?: string;
   messages: MessageView[];
   streamingTurns: StreamingTurnView[];
-  lastHistoryClearedAt?: string;
-  mainThreadClearedAt?: string;
   inviteCount: number;
   invites: InviteView[];
   roomName?: string;
@@ -331,28 +329,6 @@ function isLocalAgentProvider(value: unknown): value is AgentSessionReadyView["p
   return value === "claude-code" || value === "codex-cli";
 }
 
-function isHistoryClearScope(value: unknown): boolean {
-  return value === undefined || value === "messages" || value === "messages_and_decisions";
-}
-
-function lastHistoryClear(events: CacpEvent[]): { index: number; clearedAt?: string } {
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const storedEvent = events[index];
-    if (storedEvent.type !== "room.history_cleared") continue;
-    if (!isHistoryClearScope(storedEvent.payload.scope)) continue;
-    return {
-      index,
-      clearedAt: typeof storedEvent.payload.cleared_at === "string" ? storedEvent.payload.cleared_at : storedEvent.created_at
-    };
-  }
-  return { index: -1 };
-}
-
-function eventsAfterLastHistoryClear(events: CacpEvent[]): CacpEvent[] {
-  const historyClear = lastHistoryClear(events);
-  return events.slice(historyClear.index + 1);
-}
-
 function isValidJoinRequestStatus(value: unknown): value is JoinRequestView["status"] {
   return value === "pending" || value === "approved" || value === "rejected" || value === "expired";
 }
@@ -412,8 +388,6 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
   let connectorSyncCursor: ConnectorSyncCursor | undefined;
   const nowMs = Date.parse(options.now ?? new Date().toISOString());
   const typingTtlMs = options.typingTtlMs ?? 5000;
-  const historyClear = lastHistoryClear(events);
-  const scopedEvents = events.slice(historyClear.index + 1);
 
   for (const event of events) {
     if (event.type === "room.created" && typeof event.payload.name === "string") roomName = event.payload.name;
@@ -467,18 +441,6 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
           invites.set(event.payload.invite_id, { ...invite, used_count: newUsedCount, remaining: invite.max_uses - newUsedCount });
         }
       }
-    }
-    if (event.type === "room.history_cleared" && isHistoryClearScope(event.payload.scope)) {
-      orbitRounds.clear();
-      orbitNotes.clear();
-      mainInputQueue.clear();
-      const preRoundId = `orbit_round_pre_${event.room_id}`;
-      orbitRounds.set(preRoundId, {
-        round_id: preRoundId,
-        opened_at: event.created_at,
-        opened_by: event.actor_id,
-        note_ids: []
-      });
     }
     if (event.type === "orbit.round.opened" && typeof event.payload.round_id === "string") {
       orbitRounds.set(event.payload.round_id, {
@@ -680,7 +642,7 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     }
   }
 
-  for (const event of scopedEvents) {
+  for (const event of events) {
     if (event.type === "claude.session_preview.requested" && typeof event.payload.preview_id === "string" && typeof event.payload.agent_id === "string" && typeof event.payload.session_id === "string") {
       claudeSessionPreviews.set(event.payload.preview_id, {
         preview_id: event.payload.preview_id,
@@ -974,17 +936,6 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     }
   }
 
-  if (historyClear.index >= 0) {
-    const clearEvent = events[historyClear.index];
-    messages.unshift({
-      message_id: `cleared-${clearEvent.event_id}`,
-      actor_id: "system",
-      text: "__CACP_HISTORY_CLEARED__",
-      kind: "system",
-      created_at: clearEvent.created_at
-    });
-  }
-
   for (const activity of participantActivity.values()) {
     if (activity.typing && !typingIsFresh(activity.typing_updated_at, nowMs, typingTtlMs)) {
       activity.typing = false;
@@ -1048,8 +999,6 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     activeAgentId,
     messages: orderImportedMessages(messages),
     streamingTurns: [...streamingTurns.values()],
-    lastHistoryClearedAt: historyClear.clearedAt,
-    mainThreadClearedAt: historyClear.clearedAt,
     inviteCount,
     invites: [...invites.values()],
     roomName,
@@ -1090,7 +1039,7 @@ export function humanParticipants(participants: ParticipantView[]): ParticipantV
 
 export function isTurnInFlight(events: CacpEvent[]): boolean {
   const turns = new Map<string, boolean>();
-  for (const event of eventsAfterLastHistoryClear(events)) {
+  for (const event of events) {
     const turnId = typeof event.payload.turn_id === "string" ? event.payload.turn_id : undefined;
     if (!turnId) continue;
     if (event.type === "agent.turn.requested" || event.type === "agent.turn.started") {

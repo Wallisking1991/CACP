@@ -2,7 +2,7 @@ import { useState, useCallback } from "react";
 import { useT } from "../i18n/useT.js";
 import { roomPermissionsForRole } from "../role-permissions.js";
 import type { RoomSession } from "../api.js";
-import { SendIcon, SweepIcon, BubbleIcon, ClockIcon, XIcon, CheckIcon } from "./RoomIcons.js";
+import { SendIcon, SweepIcon, BubbleIcon, ClockIcon } from "./RoomIcons.js";
 
 export type ComposerRole = RoomSession["role"];
 
@@ -12,7 +12,7 @@ export interface ComposerProps {
   onSend: (text: string) => void;
   onTypingInput: (text: string) => void;
   onStopTyping: () => void;
-  onClearConversation: () => void;
+  onNewConversation: () => void;
   onSendOrbitNote?: (text: string) => void;
   onSendMainInput?: (text: string) => void;
 }
@@ -23,16 +23,15 @@ export default function Composer({
   onSend,
   onTypingInput,
   onStopTyping,
-  onClearConversation,
+  onNewConversation,
   onSendOrbitNote,
   onSendMainInput,
 }: ComposerProps) {
   const t = useT();
   const [text, setText] = useState("");
-  const [confirmingClear, setConfirmingClear] = useState(false);
 
   const perms = roomPermissionsForRole(role);
-  const isOwner = role === "owner";
+  const canManageNewConversation = role === "owner" || role === "admin";
   const canInput = perms.canSendMessages;
   const isQueued = turnInFlight;
 
@@ -74,10 +73,8 @@ export default function Composer({
   const sendToAgentLabel = String(t(onSendOrbitNote ? "composer.sendToAgent" : "chat.send"));
   const queuedLabel = String(t("composer.queue"));
   const queuedTitle = String(t("composer.queuedHint"));
-  const clearLabel = String(t("composer.clearConversation"));
+  const newConversationLabel = String(t("composer.newConversation"));
   const sendToPeopleLabel = String(t("composer.sendToPeople"));
-  const cancelLabel = String(t("common.cancel"));
-  const confirmClearLabel = String(t("composer.clearConversationConfirmAction"));
 
   return (
     <div className={composerClass} data-testid="composer">
@@ -97,13 +94,13 @@ export default function Composer({
 
       <div className="composer-action-bar">
         <div className="composer-action-bar__left">
-          {isOwner && (
+          {canManageNewConversation && (
             <button
               type="button"
               className="composer-icon-btn"
-              onClick={() => setConfirmingClear(true)}
-              aria-label={clearLabel}
-              title={clearLabel}
+              onClick={onNewConversation}
+              aria-label={newConversationLabel}
+              title={newConversationLabel}
             >
               <SweepIcon />
             </button>
@@ -151,33 +148,6 @@ export default function Composer({
           )}
         </div>
       </div>
-
-      {confirmingClear && (
-        <div className="composer-confirm-clear" role="dialog" aria-label={clearLabel}>
-          <p>{String(t("composer.clearConversationConfirm"))}</p>
-          <button
-            type="button"
-            className="composer-icon-btn"
-            onClick={() => setConfirmingClear(false)}
-            aria-label={cancelLabel}
-            title={cancelLabel}
-          >
-            <XIcon />
-          </button>
-          <button
-            type="button"
-            className="composer-icon-btn composer-icon-btn--warm"
-            onClick={() => {
-              setConfirmingClear(false);
-              onClearConversation();
-            }}
-            aria-label={confirmClearLabel}
-            title={confirmClearLabel}
-          >
-            <CheckIcon />
-          </button>
-        </div>
-      )}
     </div>
   );
 }

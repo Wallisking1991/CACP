@@ -21,7 +21,7 @@ describe("Composer Orbit dual-send", () => {
     onSend: noop,
     onTypingInput: noop,
     onStopTyping: noop,
-    onClearConversation: noop,
+    onNewConversation: noop,
   };
 
   it("shows single Send button when onSendOrbitNote is not provided", () => {

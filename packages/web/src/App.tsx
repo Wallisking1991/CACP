@@ -4,7 +4,6 @@ import type { CacpEvent } from "@cacp/protocol";
 import {
   approveJoinRequest,
   clearEventSocket,
-  clearRoom,
   connectEvents,
   createAgentPairing,
   createInvite,
@@ -12,6 +11,7 @@ import {
   createLocalAgentLaunch,
   createRoom,
   createRoomWithLocalAgent,
+  fetchRoomEvents,
   getRoomMe,
   inviteUrlFor,
   joinRequestStatus,
@@ -88,7 +88,16 @@ export default function App() {
     if (!currentSession || !sessionValid) return;
     const socket = connectEvents(
       currentSession,
-      (event) => setEvents((current) => mergeEvent(current, event)),
+      (event) => {
+        setEvents((current) => mergeEvent(current, event));
+        // Session-selection events trigger a server-side purge of prior content events.
+        // Re-fetch the authoritative event log so the client mirrors the new server state.
+        if (event.type === "claude.session_selected" || event.type === "agent.session_selected") {
+          void fetchRoomEvents(currentSession)
+            .then((fresh) => setEvents(fresh))
+            .catch(() => {});
+        }
+      },
       (code, reason) => {
         if (code === 4001 || reason === "participant_removed" || reason === "owner_left_room") {
           const next = { ...allSessions };
@@ -275,13 +284,6 @@ export default function App() {
     });
   }, [currentSession]);
 
-  const handleClearRoom = useCallback(() => {
-    if (!currentSession) return;
-    void run(async () => {
-      await clearRoom(currentSession);
-    });
-  }, [currentSession]);
-
   const handleSelectAgent = useCallback((agentId: string) => {
     if (!currentSession) return;
     void run(async () => {
@@ -356,7 +358,6 @@ export default function App() {
             session={currentSession}
             events={events}
             onLeaveRoom={handleLeaveRoom}
-            onClearRoom={handleClearRoom}
             onSendMessage={handleSendMessage}
             onSelectAgent={handleSelectAgent}
             onCreateInvite={handleCreateInvite}

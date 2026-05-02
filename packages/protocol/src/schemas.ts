@@ -68,7 +68,7 @@ export const EventTypeSchema = z.enum([
   "claude.runtime.status_completed",
   "claude.runtime.status_failed",
   "task.created", "task.started", "task.output", "task.completed", "task.failed", "task.cancelled",
-  "artifact.created", "context.updated", "room.history_cleared",
+  "artifact.created", "context.updated",
   "join_request.created", "join_request.approved", "join_request.rejected", "join_request.expired", "participant.removed",
   "main_input.accepted", "main_input.queued", "main_input.triggered", "main_input.cancelled", "main_input.failed",
   "connector.snapshot.requested", "connector.snapshot.started", "connector.snapshot.entry", "connector.snapshot.completed", "connector.snapshot.failed",

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CacpEvent } from "@cacp/protocol";
-import { clearEventSocket, clearRoom, createJoinRequest, createLocalAgentLaunch, createRoom, createRoomWithLocalAgent, getRoomMe, inviteUrlFor, joinRequestStatus, leaveRoom, pairingServerUrlFor, parseCacpEventMessage, requestAgentSessionPreview, requestConnectorSnapshot, selectAgentSession, startTyping, stopTyping, updatePresence, type RoomSession } from "../src/api.js";
+import { clearEventSocket, createJoinRequest, createLocalAgentLaunch, createRoom, createRoomWithLocalAgent, fetchRoomEvents, getRoomMe, inviteUrlFor, joinRequestStatus, leaveRoom, pairingServerUrlFor, parseCacpEventMessage, requestAgentSessionPreview, requestConnectorSnapshot, selectAgentSession, startTyping, stopTyping, updatePresence, type RoomSession } from "../src/api.js";
 
 const validEvent = {
   protocol: "cacp",
@@ -126,19 +126,6 @@ describe("room API", () => {
       participant_id: "user_2",
       participant_token: "member_secret",
       role: "member"
-    });
-  });
-
-  it("posts clear room requests to the room history endpoint", async () => {
-    mockJsonResponse({});
-    const session: RoomSession = { room_id: "room_1", token: "owner_secret", participant_id: "user_owner", role: "owner" };
-
-    await clearRoom(session);
-
-    expect(fetch).toHaveBeenCalledWith("/rooms/room_1/history/clear", {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: "Bearer owner_secret" },
-      body: JSON.stringify({})
     });
   });
 
@@ -301,6 +288,17 @@ describe("room API", () => {
       method: "POST",
       headers: { "content-type": "application/json", authorization: "Bearer owner_secret" },
       body: JSON.stringify({ since_sequence: 7 })
+    });
+  });
+
+  it("fetches the room event log via GET /rooms/:roomId/events", async () => {
+    const session: RoomSession = { room_id: "room_1", token: "owner_secret", participant_id: "user_owner", role: "owner" };
+    mockJsonResponse({ events: [validEvent], participant: { id: "user_owner" } });
+
+    await expect(fetchRoomEvents(session)).resolves.toEqual([validEvent]);
+
+    expect(fetch).toHaveBeenCalledWith("/rooms/room_1/events", {
+      headers: { authorization: "Bearer owner_secret" }
     });
   });
 });

@@ -26,7 +26,6 @@ describe("App room copy and layout source", () => {
   it("keeps the room workspace controls in English without default policy or decisions", () => {
     const source = allSource();
 
-    expect(source).toContain("Clear room");
     expect(source).not.toContain("Default policy");
     expect(source).not.toContain("Current Decision");
     expect(source).not.toContain("Decision History");
@@ -50,7 +49,6 @@ describe("App room copy and layout source", () => {
   it("uses room management APIs without manual question or decision responses", () => {
     const source = allSource();
 
-    expect(source).toContain("clearRoom(");
     expect(source).not.toContain("submitQuestionResponse");
     expect(source).not.toContain("cancelDecision");
   });
