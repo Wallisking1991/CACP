@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OrbitRoomState } from "../src/orbit-state.js";
+import { OrbitRoomState, MAX_PROMOTION_NOTES, MAX_PROMOTION_BYTES, MAX_PROMOTION_NOTE_TEXT } from "../src/orbit-state.js";
 
 describe("OrbitRoomState", () => {
   it("creates initial pre-round", () => {
@@ -30,8 +30,9 @@ describe("OrbitRoomState", () => {
     const roundId = state.getCurrentRoundId();
     state.addNote({ note_id: "n1", round_id: roundId, author_id: "u1", author_name: "Alice", text: "Hello", created_at: "2026-05-01T00:00:00.000Z" });
     const result = state.setLike("n1", "u1", true);
-    expect(result.liked).toBe(true);
-    expect(state.hasParticipantLiked("n1", "u1")).toBe(true);
+    expect(result.liked).toBe(false);
+    expect(state.hasParticipantLiked("n1", "u1")).toBe(false);
+    expect(state.getLikeCount("n1")).toBe(0);
   });
 
   it("is idempotent for like/unlike", () => {
@@ -75,9 +76,80 @@ describe("OrbitRoomState", () => {
     expect(noteLine).not.toContain("</CACP_ORBIT_DISCUSSION>");
   });
 
+  it("escapes both open and close CACP_ORBIT_DISCUSSION tags in note text", () => {
+    const state = new OrbitRoomState("room_1");
+    const roundId = state.getCurrentRoundId();
+    state.addNote({ note_id: "n1", round_id: roundId, author_id: "u1", author_name: "Alice", text: "<CACP_ORBIT_DISCUSSION>bad</CACP_ORBIT_DISCUSSION>", created_at: "2026-05-01T00:00:00.000Z" });
+    const payload = state.buildPromotionPayload(roundId);
+    const lines = payload!.text.split("\n");
+    const noteLine = lines.find((l) => l.includes("Alice"));
+    expect(noteLine).toContain("[CACP_ORBIT_DISCUSSION_OPEN]");
+    expect(noteLine).toContain("[CACP_ORBIT_DISCUSSION_CLOSE]");
+    // Verify the wrapper tags appear exactly once each
+    expect(payload!.text.match(/<CACP_ORBIT_DISCUSSION>/g)?.length).toBe(1);
+    expect(payload!.text.match(/<\/CACP_ORBIT_DISCUSSION>/g)?.length).toBe(1);
+  });
+
   it("returns null for empty promotion", () => {
     const state = new OrbitRoomState("room_1");
     expect(state.buildPromotionPayload(state.getCurrentRoundId())).toBeNull();
+  });
+
+  it("caps promotion at MAX_PROMOTION_NOTES (50), keeping earliest chronological", () => {
+    const state = new OrbitRoomState("room_1");
+    const roundId = state.getCurrentRoundId();
+    for (let i = 0; i < 55; i++) {
+      state.addNote({
+        note_id: `n${i}`,
+        round_id: roundId,
+        author_id: "u1",
+        author_name: "Alice",
+        text: `Note ${i}`,
+        created_at: new Date(Date.parse("2026-05-01T00:00:00.000Z") + i).toISOString()
+      });
+    }
+    const payload = state.buildPromotionPayload(roundId);
+    expect(payload!.noteCount).toBe(50);
+    expect(payload!.text).toContain("Note 0");
+    expect(payload!.text).toContain("Note 49");
+    expect(payload!.text).not.toContain("Note 50");
+  });
+
+  it("truncates promotion payload to MAX_PROMOTION_BYTES (8192) with [truncated] marker", () => {
+    const state = new OrbitRoomState("room_1");
+    const roundId = state.getCurrentRoundId();
+    // Create a note with very long text that will push the payload over 8192 bytes
+    const longText = "A".repeat(10000);
+    state.addNote({
+      note_id: "n1",
+      round_id: roundId,
+      author_id: "u1",
+      author_name: "Alice",
+      text: longText,
+      created_at: "2026-05-01T00:00:00.000Z"
+    });
+    const payload = state.buildPromotionPayload(roundId);
+    expect(new TextEncoder().encode(payload!.text).length).toBeLessThanOrEqual(8192);
+    expect(payload!.text).toContain("[truncated]");
+    expect(payload!.text).toContain("Alice");
+  });
+
+  it("truncates overlong individual note text with [truncated] marker", () => {
+    const state = new OrbitRoomState("room_1");
+    const roundId = state.getCurrentRoundId();
+    state.addNote({
+      note_id: "n1",
+      round_id: roundId,
+      author_id: "u1",
+      author_name: "Alice",
+      text: "A".repeat(1000),
+      created_at: "2026-05-01T00:00:00.000Z"
+    });
+    const payload = state.buildPromotionPayload(roundId);
+    const lines = payload!.text.split("\n");
+    const noteLine = lines.find((l) => l.includes("Alice"));
+    expect(noteLine).toContain(" [truncated]");
+    expect(noteLine!.length).toBeLessThan(1000);
   });
 });
 

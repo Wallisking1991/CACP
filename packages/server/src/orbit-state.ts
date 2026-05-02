@@ -27,6 +27,10 @@ export interface OrbitReplayParticipant {
  */
 export const MAX_REPLAY_NOTES_PER_ROUND = 200;
 
+export const MAX_PROMOTION_NOTES = 50;
+export const MAX_PROMOTION_BYTES = 8192;
+export const MAX_PROMOTION_NOTE_TEXT = 500;
+
 export interface SyntheticOrbitEvent {
   type: "orbit.round.opened" | "orbit.note.created" | "orbit.like.changed" | "orbit.round.promoted";
   actor_id: string;
@@ -90,6 +94,7 @@ export class OrbitRoomState {
     const key = `${noteId}:${participantId}`;
     const note = this.notes.get(noteId);
     if (!note) return { liked: false, count: 0 };
+    if (note.author_id === participantId) return { liked: false, count: this.getLikeCount(noteId) };
     if (liked) {
       this.likes.set(key, true);
     } else {
@@ -122,21 +127,38 @@ export class OrbitRoomState {
 
   buildPromotionPayload(roundId: string, selectedNoteIds?: string[]): { text: string; noteCount: number } | null {
     const notes = this.getNotesForRound(roundId);
-    const selected = selectedNoteIds ? notes.filter((n) => selectedNoteIds.includes(n.note_id)) : notes;
+    let selected = selectedNoteIds ? notes.filter((n) => selectedNoteIds.includes(n.note_id)) : notes;
     if (selected.length === 0) return null;
+
+    if (selected.length > MAX_PROMOTION_NOTES) {
+      selected = selected.slice(0, MAX_PROMOTION_NOTES);
+    }
 
     const lines = selected.map((note, index) => {
       const count = this.getLikeCount(note.note_id);
-      const safeText = this.escapeOrbitDiscussionText(note.text);
+      let safeText = this.escapeOrbitDiscussionText(note.text);
+      if (safeText.length > MAX_PROMOTION_NOTE_TEXT) {
+        safeText = safeText.slice(0, MAX_PROMOTION_NOTE_TEXT) + " [truncated]";
+      }
       return `${index + 1}. ${note.author_name} (+${count}): ${safeText}`;
     });
 
-    const text = `<CACP_ORBIT_DISCUSSION>\n${lines.join("\n")}\n</CACP_ORBIT_DISCUSSION>`;
-    return { text, noteCount: selected.length };
+    let inner = lines.join("\n");
+    let text = `<CACP_ORBIT_DISCUSSION>\n${inner}\n</CACP_ORBIT_DISCUSSION>`;
+
+    while (new TextEncoder().encode(text).length > MAX_PROMOTION_BYTES && lines.length > 0) {
+      lines.pop();
+      inner = lines.join("\n");
+      text = `<CACP_ORBIT_DISCUSSION>\n${inner}\n[truncated]\n</CACP_ORBIT_DISCUSSION>`;
+    }
+
+    return { text, noteCount: lines.length };
   }
 
   escapeOrbitDiscussionText(text: string): string {
-    return text.replace(/<\/CACP_ORBIT_DISCUSSION>/gi, "[CACP_ORBIT_DISCUSSION_CLOSE]");
+    return text
+      .replace(/<CACP_ORBIT_DISCUSSION>/gi, "[CACP_ORBIT_DISCUSSION_OPEN]")
+      .replace(/<\/CACP_ORBIT_DISCUSSION>/gi, "[CACP_ORBIT_DISCUSSION_CLOSE]");
   }
 
   promoteRound(roundId: string, promotedBy: string, inputId: string): void {
