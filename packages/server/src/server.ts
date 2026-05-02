@@ -5,12 +5,12 @@ import { spawn } from "node:child_process";
 import Fastify, { type FastifyReply } from "fastify";
 import websocket from "@fastify/websocket";
 import { z } from "zod";
-import { buildConnectionCode, evaluatePolicy, PolicySchema, VoteRecordSchema, ParticipantPresenceSchema, type CacpEvent, type Participant, type Policy, type VoteRecord } from "@cacp/protocol";
+import { buildConnectionCode, evaluatePolicy, PolicySchema, VoteRecordSchema, ParticipantPresenceSchema, type CacpEvent, type Participant, type ParticipantRole, type Policy, type VoteRecord } from "@cacp/protocol";
 import { bearerToken, requireParticipant, hasAnyRole, hasHumanRole } from "./auth.js";
 import { buildAgentContextPrompt, buildCollectedAnswersPrompt, eventsAfterLastHistoryClear, findActiveAgentId, findAgentCapabilities, findAnyOpenTurn, findOpenTurn, findQueuedFollowupMessage, findQueuedFollowupMessages, hasQueuedFollowup, recentConversationMessages, type ConversationMessage, type OpenTurn } from "./conversation.js";
 import { EventBus } from "./event-bus.js";
 import { EventStore, type StoredParticipant } from "./event-store.js";
-import { roomDelivery, targetedDelivery, canDeliverEnvelope, type RelayEnvelope } from "./relay.js";
+import { roomDelivery, targetedDelivery, roleDelivery, canDeliverEnvelope, type RelayEnvelope } from "./relay.js";
 import { hasAllowedOrigin, loadServerConfig, type ServerConfig } from "./config.js";
 import { event, hashToken, openSecret, prefixedId, sealSecret, token } from "./ids.js";
 import { OrbitRoomState } from "./orbit-state.js";
@@ -444,8 +444,12 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return stored;
   }
 
-  function publishRelayOnly(event: CacpEvent): void {
+  function publishLiveOnly(event: CacpEvent): void {
     bus.publish({ event, delivery: roomDelivery() });
+  }
+
+  function publishRoleFiltered(event: CacpEvent, roles: ParticipantRole[]): void {
+    bus.publish({ event, delivery: roleDelivery(roles) });
   }
 
   function publishTargeted(event: CacpEvent, participantIds: string[]): void {
@@ -1621,11 +1625,11 @@ export async function buildServer(options: BuildServerOptions = {}) {
       if (turnId) {
         const orbit = getOrbitState(roomId);
         const round = orbit.openTurnRound(turnId);
-        publishRelayOnly(event(roomId, "orbit.round.opened", participant.id, {
+        publishRoleFiltered(event(roomId, "orbit.round.opened", participant.id, {
           round_id: round.round_id,
           triggered_by_turn_id: round.triggered_by_turn_id,
           opened_at: round.opened_at
-        }));
+        }), ["owner", "admin", "member", "observer"]);
       }
     }
     return reply.code(201).send({ input_id: inputId, status: openTurn ? "queued" : "triggered" });
@@ -1663,14 +1667,14 @@ export async function buildServer(options: BuildServerOptions = {}) {
       text: body.text,
       created_at: now
     });
-    publishRelayOnly(event(roomId, "orbit.note.created", participant.id, {
+    publishRoleFiltered(event(roomId, "orbit.note.created", participant.id, {
       note_id: note.note_id,
       round_id: note.round_id,
       author_id: note.author_id,
       author_name: note.author_name,
       text: note.text,
       created_at: note.created_at
-    }));
+    }), ["owner", "admin", "member", "observer"]);
     return reply.code(201).send({ note_id: noteId });
   });
 
@@ -1685,12 +1689,12 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!note) return deny(reply, "note_not_found", 404);
     if (note.author_id === participant.id) return deny(reply, "self_like_not_allowed", 409);
     const result = orbit.setLike(request.params.noteId, participant.id, true);
-    publishRelayOnly(event(roomId, "orbit.like.changed", participant.id, {
+    publishRoleFiltered(event(roomId, "orbit.like.changed", participant.id, {
       note_id: request.params.noteId,
       participant_id: participant.id,
       liked: true,
       likes: result.count
-    }));
+    }), ["owner", "admin", "member", "observer"]);
     return reply.code(201).send({ liked: result.liked, count: result.count });
   });
 
@@ -1704,12 +1708,12 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const note = orbit.getNote(request.params.noteId);
     if (!note) return deny(reply, "note_not_found", 404);
     const result = orbit.setLike(request.params.noteId, participant.id, false);
-    publishRelayOnly(event(roomId, "orbit.like.changed", participant.id, {
+    publishRoleFiltered(event(roomId, "orbit.like.changed", participant.id, {
       note_id: request.params.noteId,
       participant_id: participant.id,
       liked: false,
       likes: result.count
-    }));
+    }), ["owner", "admin", "member", "observer"]);
     return reply.code(201).send({ liked: result.liked, count: result.count });
   });
 
@@ -1763,19 +1767,19 @@ export async function buildServer(options: BuildServerOptions = {}) {
       const turnId = (triggeredEvent.payload as { trigger_turn_id: string }).trigger_turn_id;
       if (turnId) {
         const round = orbit.openTurnRound(turnId);
-        publishRelayOnly(event(roomId, "orbit.round.opened", participant.id, {
+        publishRoleFiltered(event(roomId, "orbit.round.opened", participant.id, {
           round_id: round.round_id,
           triggered_by_turn_id: round.triggered_by_turn_id,
           opened_at: round.opened_at
-        }));
+        }), ["owner", "admin", "member", "observer"]);
       }
     }
-    publishRelayOnly(event(roomId, "orbit.round.promoted", participant.id, {
+    publishRoleFiltered(event(roomId, "orbit.round.promoted", participant.id, {
       round_id: roundId,
       promoted_by: participant.id,
       input_id: inputId,
       promoted_at: now
-    }));
+    }), ["owner", "admin", "member", "observer"]);
     return reply.code(201).send({ input_id: inputId, status: openTurn ? "queued" : "triggered", note_count: payload.noteCount });
   });
 
