@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import Fastify, { type FastifyReply } from "fastify";
 import websocket from "@fastify/websocket";
 import { z } from "zod";
-import { buildConnectionCode, evaluatePolicy, PolicySchema, VoteRecordSchema, ParticipantPresenceSchema, type CacpEvent, type Participant, type ParticipantRole, type Policy, type VoteRecord } from "@cacp/protocol";
+import { buildConnectionCode, evaluatePolicy, ConnectorLedgerEntrySchema, PolicySchema, VoteRecordSchema, ParticipantPresenceSchema, type CacpEvent, type Participant, type ParticipantRole, type Policy, type VoteRecord } from "@cacp/protocol";
 import { bearerToken, requireParticipant, hasAnyRole, hasHumanRole } from "./auth.js";
 import { buildAgentContextPrompt, buildCollectedAnswersPrompt, eventsAfterLastHistoryClear, findActiveAgentId, findAgentCapabilities, findAnyOpenTurn, findOpenTurn, findQueuedFollowupMessage, findQueuedFollowupMessages, hasQueuedFollowup, recentConversationMessages, type ConversationMessage, type OpenTurn } from "./conversation.js";
 import { EventBus } from "./event-bus.js";
@@ -316,6 +316,22 @@ export async function buildServer(options: BuildServerOptions = {}) {
       orbitStates.set(roomId, new OrbitRoomState(roomId));
     }
     return orbitStates.get(roomId)!;
+  }
+
+  /**
+   * In-memory per-room set of main-input ids that are currently in the queued
+   * (non-terminal) state. Ephemeral by design: `main_input.*` events do not
+   * persist to the durable store (spec §3/§11/§15), so we cannot recover this
+   * by replaying the event log. The cancel route uses this set instead.
+   */
+  const queuedMainInputs = new Map<string, Set<string>>();
+  function getQueuedMainInputs(roomId: string): Set<string> {
+    let set = queuedMainInputs.get(roomId);
+    if (!set) {
+      set = new Set<string>();
+      queuedMainInputs.set(roomId, set);
+    }
+    return set;
   }
   const localAgentLauncher = options.localAgentLauncher ?? defaultLocalAgentLauncher;
   const localRepoRoot = options.repoRoot ?? repoRoot;
@@ -1601,42 +1617,46 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const openTurn = findAnyOpenTurn(turnEvents);
     const inputId = prefixedId("input");
     const now = new Date().toISOString();
-    const storedEvents = store.transaction(() => {
-      const accepted = store.appendEvent(event(roomId, "main_input.accepted", participant.id, {
-        input_id: inputId,
-        author_id: participant.id,
-        text: body.text,
-        source: "composer",
-        created_at: now
-      }));
-      const queuedTurnId = openTurn ? openTurn.turn_id : (findLastTurnId(store.listEvents(roomId)) ?? "none");
-      const queued = store.appendEvent(event(roomId, "main_input.queued", participant.id, {
-        input_id: inputId,
-        queued_after_turn_id: queuedTurnId
-      }));
-      if (openTurn) return [accepted, queued];
-      const turnEvents = createAgentTurnRequestEvents(roomId, participant.id, "human_message");
-      if (turnEvents.length === 0) return deny(reply, "active_agent_unavailable", 409) as unknown as CacpEvent[];
-      const triggered = store.appendEvent(event(roomId, "main_input.triggered", participant.id, {
-        input_id: inputId,
-        trigger_turn_id: (turnEvents.find((e) => e.type === "agent.turn.requested")?.payload as { turn_id: string })?.turn_id ?? ""
-      }));
-      return [accepted, queued, triggered, ...turnEvents.map((nextEvent) => store.appendEvent(nextEvent))];
+    const accepted = event(roomId, "main_input.accepted", participant.id, {
+      input_id: inputId,
+      author_id: participant.id,
+      text: body.text,
+      source: "composer",
+      created_at: now
     });
-    if (Array.isArray(storedEvents) && storedEvents.length === 0) return reply;
-    publishEvents(storedEvents);
-    const triggeredEvent = storedEvents.find((e) => e.type === "main_input.triggered");
-    if (triggeredEvent) {
-      const turnId = (triggeredEvent.payload as { trigger_turn_id: string }).trigger_turn_id;
-      if (turnId) {
-        const orbit = getOrbitState(roomId);
-        const round = orbit.openTurnRound(turnId);
-        publishRoleFiltered(event(roomId, "orbit.round.opened", participant.id, {
-          round_id: round.round_id,
-          triggered_by_turn_id: round.triggered_by_turn_id,
-          opened_at: round.opened_at
-        }), HUMAN_ROLES);
-      }
+    const queuedTurnId = openTurn ? openTurn.turn_id : (findLastTurnId(events) ?? "none");
+    const queued = event(roomId, "main_input.queued", participant.id, {
+      input_id: inputId,
+      queued_after_turn_id: queuedTurnId
+    });
+    const queuedSet = getQueuedMainInputs(roomId);
+    let triggered: CacpEvent | undefined;
+    let extraTurnEvents: CacpEvent[] = [];
+    let triggerTurnId = "";
+    if (!openTurn) {
+      const turnRequestEvents = createAgentTurnRequestEvents(roomId, participant.id, "human_message");
+      if (turnRequestEvents.length === 0) return deny(reply, "active_agent_unavailable", 409);
+      triggerTurnId = (turnRequestEvents.find((e) => e.type === "agent.turn.requested")?.payload as { turn_id: string })?.turn_id ?? "";
+      triggered = event(roomId, "main_input.triggered", participant.id, {
+        input_id: inputId,
+        trigger_turn_id: triggerTurnId
+      });
+      extraTurnEvents = store.transaction(() => turnRequestEvents.map((nextEvent) => store.appendEvent(nextEvent)));
+    } else {
+      queuedSet.add(inputId);
+    }
+    publishLiveOnly(accepted);
+    publishLiveOnly(queued);
+    if (triggered) publishLiveOnly(triggered);
+    publishEvents(extraTurnEvents);
+    if (triggered && triggerTurnId) {
+      const orbit = getOrbitState(roomId);
+      const round = orbit.openTurnRound(triggerTurnId);
+      publishRoleFiltered(event(roomId, "orbit.round.opened", participant.id, {
+        round_id: round.round_id,
+        triggered_by_turn_id: round.triggered_by_turn_id,
+        opened_at: round.opened_at
+      }), HUMAN_ROLES);
     }
     return reply.code(201).send({ input_id: inputId, status: openTurn ? "queued" : "triggered" });
   });
@@ -1647,11 +1667,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!hasAnyRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
     const roomId = request.params.roomId;
     const inputId = request.params.inputId;
-    const events = store.listEvents(roomId);
-    const isQueued = events.some((e) => e.type === "main_input.queued" && e.payload.input_id === inputId);
-    const isTerminal = events.some((e) => (e.type === "main_input.triggered" || e.type === "main_input.cancelled" || e.type === "main_input.failed") && e.payload.input_id === inputId);
-    if (!isQueued || isTerminal) return deny(reply, "input_not_found", 409);
-    appendAndPublish(event(roomId, "main_input.cancelled", participant.id, { input_id: inputId, cancelled_by: participant.id }));
+    const queuedSet = getQueuedMainInputs(roomId);
+    if (!queuedSet.has(inputId)) return deny(reply, "input_not_found", 409);
+    queuedSet.delete(inputId);
+    publishLiveOnly(event(roomId, "main_input.cancelled", participant.id, { input_id: inputId, cancelled_by: participant.id }));
     return reply.code(201).send({ ok: true });
   });
 
@@ -1744,41 +1763,45 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const openTurn = findAnyOpenTurn(turnEvents);
     const queuedTurnId = openTurn ? openTurn.turn_id : (findLastTurnId(turnEvents) ?? "none");
 
-    const storedEvents = store.transaction(() => {
-      const accepted = store.appendEvent(event(roomId, "main_input.accepted", participant.id, {
-        input_id: inputId,
-        author_id: participant.id,
-        text: payload.text,
-        source: "orbit_promote",
-        created_at: now
-      }));
-      const queued = store.appendEvent(event(roomId, "main_input.queued", participant.id, {
-        input_id: inputId,
-        queued_after_turn_id: queuedTurnId
-      }));
-      if (openTurn) return [accepted, queued];
-      const turnEvents = createAgentTurnRequestEvents(roomId, participant.id, "human_message");
-      if (turnEvents.length === 0) return deny(reply, "active_agent_unavailable", 409) as unknown as CacpEvent[];
-      const triggered = store.appendEvent(event(roomId, "main_input.triggered", participant.id, {
-        input_id: inputId,
-        trigger_turn_id: (turnEvents.find((e) => e.type === "agent.turn.requested")?.payload as { turn_id: string })?.turn_id ?? ""
-      }));
-      orbit.promoteRound(roundId, participant.id, inputId);
-      return [accepted, queued, triggered, ...turnEvents.map((nextEvent) => store.appendEvent(nextEvent))];
+    const accepted = event(roomId, "main_input.accepted", participant.id, {
+      input_id: inputId,
+      author_id: participant.id,
+      text: payload.text,
+      source: "orbit_promote",
+      created_at: now
     });
-    if (Array.isArray(storedEvents) && storedEvents.length === 0) return reply;
-    publishEvents(storedEvents);
-    const triggeredEvent = storedEvents.find((e) => e.type === "main_input.triggered");
-    if (triggeredEvent) {
-      const turnId = (triggeredEvent.payload as { trigger_turn_id: string }).trigger_turn_id;
-      if (turnId) {
-        const round = orbit.openTurnRound(turnId);
-        publishRoleFiltered(event(roomId, "orbit.round.opened", participant.id, {
-          round_id: round.round_id,
-          triggered_by_turn_id: round.triggered_by_turn_id,
-          opened_at: round.opened_at
-        }), HUMAN_ROLES);
-      }
+    const queued = event(roomId, "main_input.queued", participant.id, {
+      input_id: inputId,
+      queued_after_turn_id: queuedTurnId
+    });
+    const queuedSet = getQueuedMainInputs(roomId);
+    let triggered: CacpEvent | undefined;
+    let extraTurnEvents: CacpEvent[] = [];
+    let triggerTurnId = "";
+    if (!openTurn) {
+      const turnRequestEvents = createAgentTurnRequestEvents(roomId, participant.id, "human_message");
+      if (turnRequestEvents.length === 0) return deny(reply, "active_agent_unavailable", 409);
+      triggerTurnId = (turnRequestEvents.find((e) => e.type === "agent.turn.requested")?.payload as { turn_id: string })?.turn_id ?? "";
+      triggered = event(roomId, "main_input.triggered", participant.id, {
+        input_id: inputId,
+        trigger_turn_id: triggerTurnId
+      });
+      extraTurnEvents = store.transaction(() => turnRequestEvents.map((nextEvent) => store.appendEvent(nextEvent)));
+      orbit.promoteRound(roundId, participant.id, inputId);
+    } else {
+      queuedSet.add(inputId);
+    }
+    publishLiveOnly(accepted);
+    publishLiveOnly(queued);
+    if (triggered) publishLiveOnly(triggered);
+    publishEvents(extraTurnEvents);
+    if (triggered && triggerTurnId) {
+      const round = orbit.openTurnRound(triggerTurnId);
+      publishRoleFiltered(event(roomId, "orbit.round.opened", participant.id, {
+        round_id: round.round_id,
+        triggered_by_turn_id: round.triggered_by_turn_id,
+        opened_at: round.opened_at
+      }), HUMAN_ROLES);
     }
     publishRoleFiltered(event(roomId, "orbit.round.promoted", participant.id, {
       round_id: roundId,
@@ -2661,7 +2684,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const snapshot = snapshotRequests.get(`${request.params.roomId}:${request.params.requestId}`);
     if (!snapshot) return deny(reply, "snapshot_not_found", 404);
     if (participant.id !== snapshot.connectorId) return deny(reply, "forbidden", 403);
-    const body = z.object({ entry: z.record(z.string(), z.unknown()) }).parse(request.body);
+    const body = z.object({ entry: ConnectorLedgerEntrySchema }).parse(request.body);
     publishTargeted(event(request.params.roomId, "connector.snapshot.entry", participant.id, {
       request_id: request.params.requestId,
       connector_id: participant.id,
