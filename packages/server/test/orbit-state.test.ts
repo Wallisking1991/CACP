@@ -136,7 +136,7 @@ describe("OrbitRoomState (flat pool)", () => {
     expect(payload!.text.match(/<\/CACP_ORBIT_DISCUSSION>/g)?.length).toBe(1);
   });
 
-  it("caps promotion at MAX_PROMOTION_NOTES (50), keeping earliest chronological", () => {
+  it("caps promotion at MAX_PROMOTION_NOTES, keeping the 50 earliest in chronological order", () => {
     const state = new OrbitRoomState("room_1");
     const ids: string[] = [];
     for (let i = 0; i < 55; i++) {
@@ -320,13 +320,11 @@ describe("OrbitRoomState.replayFor (flat pool)", () => {
     expect(result.some((e) => e.type === "orbit.notes.quoted")).toBe(false);
   });
 
-  it("orbit.notes.quoted filters out ids that no longer exist", () => {
+  it("orbit.notes.quoted payload contains every id from quotedNoteIds in insertion order", () => {
     const state = new OrbitRoomState("room_1");
     addNote(state, "n1", "2026-05-01T00:00:00.000Z");
     addNote(state, "n2", "2026-05-01T00:00:01.000Z");
     state.markQuoted(["n1", "n2"]);
-    // Simulate stale state — but since we have no removal API, simulate by reset+re-add
-    // Instead, verify both ids appear when both still exist
     const result = state.replayFor(human("u3"));
     const quoted = result.find((e) => e.type === "orbit.notes.quoted")!;
     expect(quoted.payload).toEqual({ note_ids: ["n1", "n2"] });

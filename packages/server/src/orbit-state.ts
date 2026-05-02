@@ -55,9 +55,7 @@ export class OrbitRoomState {
   private likes = new Map<string, boolean>();
   private quotedNoteIds = new Set<string>();
 
-  constructor(private readonly roomId: string) {
-    void this.roomId;
-  }
+  constructor(_roomId: string) {}
 
   addNote(note: OrbitNote): OrbitNote {
     this.notes.set(note.note_id, note);
@@ -103,6 +101,10 @@ export class OrbitRoomState {
    * in `this.notes` or that are already in `quotedNoteIds` are skipped. The
    * caller broadcasts an `orbit.notes.quoted` event using only the freshly
    * marked ids so clients don't double-count.
+   *
+   * Invariant: any id added to `quotedNoteIds` is guaranteed to exist in
+   * `this.notes` (the `!this.notes.has(id)` guard above enforces this, and
+   * there is no `removeNote` API). `replayFor` relies on this invariant.
    */
   markQuoted(noteIds: string[]): string[] {
     const fresh: string[] = [];
@@ -139,6 +141,8 @@ export class OrbitRoomState {
     if (selected.length === 0) return null;
 
     if (selected.length > MAX_PROMOTION_NOTES) {
+      // Keep the earliest 50 to anchor the discussion start; replayFor uses a
+      // different policy (keep most recent) for active-room reconnect.
       selected = selected.slice(0, MAX_PROMOTION_NOTES);
     }
 
@@ -156,15 +160,20 @@ export class OrbitRoomState {
     // from `noteIds`.
     const survivingIds = selected.map((note) => note.note_id);
 
+    const encoder = new TextEncoder();
     let inner = lines.join("\n");
     let text = `<CACP_ORBIT_DISCUSSION>\n${inner}\n</CACP_ORBIT_DISCUSSION>`;
 
-    while (new TextEncoder().encode(text).length > MAX_PROMOTION_BYTES && lines.length > 0) {
+    while (encoder.encode(text).length > MAX_PROMOTION_BYTES && lines.length > 0) {
       lines.pop();
       survivingIds.pop();
       inner = lines.join("\n");
       text = `<CACP_ORBIT_DISCUSSION>\n${inner}\n[truncated]\n</CACP_ORBIT_DISCUSSION>`;
     }
+
+    // Defensive: guarantees we never emit an empty discussion block if future
+    // limit changes make all-popped possible.
+    if (lines.length === 0) return null;
 
     return { text, noteCount: lines.length, noteIds: survivingIds };
   }
@@ -239,17 +248,15 @@ export class OrbitRoomState {
     }
 
     if (this.quotedNoteIds.size > 0) {
-      const noteIds: string[] = [];
-      for (const id of this.quotedNoteIds) {
-        if (this.notes.has(id)) noteIds.push(id);
-      }
-      if (noteIds.length > 0) {
-        out.push({
-          type: "orbit.notes.quoted",
-          actor_id: participant.id,
-          payload: { note_ids: noteIds }
-        });
-      }
+      // `markQuoted` only adds ids that exist in `this.notes`, and there is
+      // no removeNote API — so every id in `quotedNoteIds` is guaranteed
+      // valid. No filter needed.
+      const noteIds = [...this.quotedNoteIds];
+      out.push({
+        type: "orbit.notes.quoted",
+        actor_id: participant.id,
+        payload: { note_ids: noteIds }
+      });
     }
 
     return out;
