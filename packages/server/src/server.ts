@@ -350,6 +350,20 @@ export async function buildServer(options: BuildServerOptions = {}) {
   const presenceLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.presenceChangeLimit });
   const typingLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.typingEventLimit });
   const orbitLimiter = new FixedWindowRateLimiter({ windowMs: config.rateLimitWindowMs, limit: config.orbitEventLimit });
+  /**
+   * In-memory registry of rooms that are alive in *this* server process.
+   * A room is alive iff `POST /rooms` minted it during the current process
+   * lifetime. After a server restart, all SQLite-persisted rooms are
+   * dead from the client's perspective: `/me`, `/events`, and `/stream`
+   * return `room_ended` so stale tabs/Connectors clear their cache rather
+   * than replay durable history. Spec §2.33, §3, §11. (T4)
+   *
+   * Owner explicit `POST /leave` removes the room from this set
+   * ("Leave Room dissolves the room", spec §11 / §2.34). Member-leave
+   * (which the existing /leave route already rejects with 403) does not
+   * dissolve the room. The set is process-local; we never persist it.
+   */
+  const aliveRooms = new Set<string>();
   const socketCounts = new Map<string, number>();
   const participantSockets = new Map<string, Set<{ close: (code?: number, reason?: string) => void }>>();
   const pendingOffline = new Map<string, ReturnType<typeof setTimeout>>();
@@ -1203,10 +1217,17 @@ export async function buildServer(options: BuildServerOptions = {}) {
       ];
     });
     publishEvents(storedEvents);
+    aliveRooms.add(roomId);
     return reply.code(201).send({ room_id: roomId, owner_id: ownerId, owner_token: ownerToken });
   });
 
   app.get<{ Params: { roomId: string } }>("/rooms/:roomId/events", async (request, reply) => {
+    // 410 Gone (not 404): the spec models rooms as ephemeral relays, so
+    // a room that is no longer alive in this process is "existed and is
+    // gone", which is the precise semantic of 410. (T4 / spec §11.)
+    // Gate runs before auth so a stale token cannot probe whether the
+    // room ever existed across a server restart.
+    if (!aliveRooms.has(request.params.roomId)) return reply.code(410).send({ error: "room_ended" });
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
     const events = store.listEvents(request.params.roomId).filter((ev) => canViewEvent(ev, participant));
@@ -1214,6 +1235,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
   });
 
   app.get<{ Params: { roomId: string } }>("/rooms/:roomId/me", async (request, reply) => {
+    // 410 Gone — see /events above for rationale. Gate before auth. (T4)
+    if (!aliveRooms.has(request.params.roomId)) return reply.code(410).send({ error: "room_ended" });
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) {
       const token = bearerToken(request);
@@ -1293,6 +1316,14 @@ export async function buildServer(options: BuildServerOptions = {}) {
       return;
     }
     const roomId = request.params.roomId;
+    // 410 Gone equivalent over WS: room is not alive in this process.
+    // Gate runs before auth + store reads so stale tokens cannot probe
+    // room existence after restart. (T4 / spec §11.)
+    if (!aliveRooms.has(roomId)) {
+      socket.send(JSON.stringify({ error: "room_ended" }));
+      socket.close();
+      return;
+    }
     const currentCount = socketCounts.get(roomId) ?? 0;
     if (currentCount >= config.maxSocketsPerRoom) {
       socket.send(JSON.stringify({ error: "room_full" }));
@@ -1573,6 +1604,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
       return events;
     });
     publishEvents(storedEvents);
+    // Owner explicit Leave Room dissolves the room (spec §11 / §2.34).
+    // Member-leave never reaches here (rejected with 403 above), so this
+    // delete is unconditional once we get past the owner-role check. (T4)
+    aliveRooms.delete(request.params.roomId);
     closeRoomSockets(request.params.roomId, 4001, "owner_left_room");
     return reply.code(201).send({ ok: true, status: "room_closed" });
   });
