@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import React from "react";
 import Composer from "../src/components/Composer.js";
 import { LangProvider } from "../src/i18n/LangProvider.js";
@@ -67,7 +67,7 @@ describe("Composer icon-only layout", () => {
   it("renders confirm-clear dialog with two icon buttons (cancel + confirm) and no visible text labels on them", () => {
     renderComposer({ ...baseProps, role: "owner" });
     const sweepButton = screen.getByRole("button", { name: /Clear conversation/i });
-    sweepButton.click();
+    fireEvent.click(sweepButton);
     const cancelButton = screen.getByRole("button", { name: /Cancel/i });
     const confirmButton = screen.getByRole("button", { name: /Confirm clear conversation/i });
     expect(cancelButton.textContent?.trim()).toBe("");

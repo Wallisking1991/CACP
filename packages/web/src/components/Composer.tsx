@@ -2,7 +2,7 @@ import { useState, useCallback } from "react";
 import { useT } from "../i18n/useT.js";
 import { roomPermissionsForRole } from "../role-permissions.js";
 import type { RoomSession } from "../api.js";
-import { SendIcon, SweepIcon } from "./RoomIcons.js";
+import { SendIcon, SweepIcon, BubbleIcon, ClockIcon, XIcon, CheckIcon } from "./RoomIcons.js";
 
 export type ComposerRole = RoomSession["role"];
 
@@ -33,7 +33,6 @@ export default function Composer({
 
   const perms = roomPermissionsForRole(role);
   const isOwner = role === "owner";
-
   const canInput = perms.canSendMessages;
   const isQueued = turnInFlight;
 
@@ -72,105 +71,110 @@ export default function Composer({
   );
 
   const composerClass = ["composer", isQueued ? "composer-queued" : ""].filter(Boolean).join(" ");
+  const sendToAgentLabel = String(t(onSendOrbitNote ? "composer.sendToAgent" : "chat.send"));
+  const queuedLabel = String(t("composer.queue"));
+  const queuedTitle = String(t("composer.queuedHint"));
+  const clearLabel = String(t("composer.clearConversation"));
+  const sendToPeopleLabel = String(t("composer.sendToPeople"));
+  const cancelLabel = String(t("common.cancel"));
+  const confirmClearLabel = String(t("composer.clearConversationConfirmAction"));
 
   return (
     <div className={composerClass} data-testid="composer">
-      {isQueued && (
-        <div className="status-strip" style={{ background: 'var(--accent-soft)', color: 'var(--accent)', marginBottom: 8, borderRadius: 'var(--radius-chip)', padding: '6px 10px' }}>
-          <span className="status-dot pulse" />
-          {t("composer.queuedHint")}
-        </div>
-      )}
+      <textarea
+        className="input composer-input"
+        placeholder={String(t("chat.placeholder"))}
+        aria-label={t("composer.messageLabel")}
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          onTypingInput(e.target.value);
+        }}
+        onKeyDown={handleKeyDown}
+        disabled={!canInput}
+        rows={2}
+      />
 
-      {isOwner && (
-        <div className="composer-utility-row">
-          <button
-            type="button"
-            className="room-icon-button composer-clear-button"
-            onClick={() => setConfirmingClear(true)}
-            aria-label={t("composer.clearConversation")}
-            title={t("composer.clearConversation")}
-          >
-            <SweepIcon />
-          </button>
-        </div>
-      )}
-
-      <div className="composer-bottom">
-        <textarea
-          className="input"
-          placeholder={String(t("chat.placeholder"))}
-          aria-label={t("composer.messageLabel")}
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            onTypingInput(e.target.value);
-          }}
-          onKeyDown={handleKeyDown}
-          disabled={!canInput}
-          rows={2}
-        />
-        <div className="composer-actions">
-          {!isQueued && onSendOrbitNote && (
-            <>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={handleSendOrbit}
-                disabled={!text.trim()}
-                aria-label={t("composer.sendToPeople")}
-              >
-                {t("composer.sendToPeople")}
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={onSendMainInput ? handleSendMainInput : handleSend}
-                disabled={!text.trim()}
-                aria-label={t("composer.sendToAgent")}
-              >
-                <SendIcon /> {t("composer.sendToAgent")}
-              </button>
-            </>
-          )}
-          {!isQueued && !onSendOrbitNote && (
+      <div className="composer-action-bar">
+        <div className="composer-action-bar__left">
+          {isOwner && (
             <button
               type="button"
-              className="btn btn-primary"
-              onClick={handleSend}
-              disabled={!text.trim()}
+              className="composer-icon-btn"
+              onClick={() => setConfirmingClear(true)}
+              aria-label={clearLabel}
+              title={clearLabel}
             >
-              <SendIcon /> {t("chat.send")}
+              <SweepIcon />
+            </button>
+          )}
+        </div>
+        <div className="composer-action-bar__right">
+          {!isQueued && onSendOrbitNote && (
+            <button
+              type="button"
+              className="composer-icon-btn"
+              onClick={handleSendOrbit}
+              disabled={!text.trim() || !canInput}
+              aria-label={sendToPeopleLabel}
+              title={sendToPeopleLabel}
+            >
+              <BubbleIcon />
+            </button>
+          )}
+          {!isQueued && (
+            <button
+              type="button"
+              className="composer-icon-btn"
+              onClick={onSendMainInput ? handleSendMainInput : handleSend}
+              disabled={!text.trim() || !canInput}
+              aria-label={sendToAgentLabel}
+              title={sendToAgentLabel}
+            >
+              <SendIcon />
             </button>
           )}
           {isQueued && (
             <button
               type="button"
-              className="btn btn-primary"
+              className="composer-icon-btn"
               onClick={onSendMainInput ? handleSendMainInput : handleSend}
-              disabled={!text.trim()}
+              disabled={!text.trim() || !canInput}
+              aria-label={queuedLabel}
+              title={queuedTitle}
             >
-              <SendIcon /> {t("composer.queue")}
+              <span className="composer-icon-stack">
+                <SendIcon />
+                <ClockIcon className="composer-icon-stack__badge" width={10} height={10} />
+              </span>
             </button>
           )}
         </div>
       </div>
 
       {confirmingClear && (
-        <div className="composer-confirm-clear" role="dialog" aria-label={t("composer.clearConversation")}>
-          <p>{t("composer.clearConversationConfirm")}</p>
-          <button type="button" className="btn btn-warm-ghost" onClick={() => setConfirmingClear(false)}>
-            {t("common.cancel")}
+        <div className="composer-confirm-clear" role="dialog" aria-label={clearLabel}>
+          <p>{String(t("composer.clearConversationConfirm"))}</p>
+          <button
+            type="button"
+            className="composer-icon-btn"
+            onClick={() => setConfirmingClear(false)}
+            aria-label={cancelLabel}
+            title={cancelLabel}
+          >
+            <XIcon />
           </button>
           <button
             type="button"
-            className="btn btn-warm"
+            className="composer-icon-btn composer-icon-btn--warm"
             onClick={() => {
               setConfirmingClear(false);
               onClearConversation();
             }}
+            aria-label={confirmClearLabel}
+            title={confirmClearLabel}
           >
-            {t("composer.clearConversationConfirmAction")}
+            <CheckIcon />
           </button>
         </div>
       )}
