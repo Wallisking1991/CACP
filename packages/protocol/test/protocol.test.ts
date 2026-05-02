@@ -628,4 +628,61 @@ describe("orbit and connector event schemas", () => {
     expect(parsed.ledger_version).toBe(1);
     expect(parsed.sequence).toBe(1);
   });
+
+  it("rejects connector ledger entries whose text exceeds 8000 chars", () => {
+    const entry = {
+      ledger_version: 1,
+      room_id: "room_1",
+      connector_id: "conn_1",
+      agent_id: "agent_1",
+      sequence: 1,
+      entry_id: "entry_1",
+      entry_type: "human_input",
+      actor_id: "user_1",
+      actor_name: "Alice",
+      actor_role: "owner",
+      text: "x".repeat(8001),
+      source: "composer",
+      created_at: "2026-05-01T00:00:00.000Z"
+    };
+    expect(() => ConnectorLedgerEntrySchema.parse(entry)).toThrow();
+  });
+
+  it("accepts connector ledger entries with text exactly 8000 chars", () => {
+    const entry = {
+      ledger_version: 1,
+      room_id: "room_1",
+      connector_id: "conn_1",
+      agent_id: "agent_1",
+      sequence: 1,
+      entry_id: "entry_1",
+      entry_type: "human_input",
+      actor_id: "user_1",
+      actor_name: "Alice",
+      actor_role: "owner",
+      text: "x".repeat(8000),
+      source: "composer",
+      created_at: "2026-05-01T00:00:00.000Z"
+    };
+    expect(() => ConnectorLedgerEntrySchema.parse(entry)).not.toThrow();
+  });
+
+  it("rejects connector ledger entries whose actor_name exceeds 120 chars", () => {
+    const entry = {
+      ledger_version: 1,
+      room_id: "room_1",
+      connector_id: "conn_1",
+      agent_id: "agent_1",
+      sequence: 1,
+      entry_id: "entry_1",
+      entry_type: "human_input",
+      actor_id: "user_1",
+      actor_name: "a".repeat(121),
+      actor_role: "owner",
+      text: "Hello",
+      source: "composer",
+      created_at: "2026-05-01T00:00:00.000Z"
+    };
+    expect(() => ConnectorLedgerEntrySchema.parse(entry)).toThrow();
+  });
 });

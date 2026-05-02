@@ -323,8 +323,13 @@ export async function buildServer(options: BuildServerOptions = {}) {
    * (non-terminal) state. Ephemeral by design: `main_input.*` events do not
    * persist to the durable store (spec §3/§11/§15), so we cannot recover this
    * by replaying the event log. The cancel route uses this set instead.
+   *
+   * Insertion order is FIFO (relied on by the T5 auto-trigger that pops the
+   * oldest queued input when the active turn completes). Use Set#add /
+   * Set#delete only; never re-build via Array.from().sort() etc.
    */
   const queuedMainInputs = new Map<string, Set<string>>();
+  const MAX_QUEUED_PER_ROOM = 50;
   function getQueuedMainInputs(roomId: string): Set<string> {
     let set = queuedMainInputs.get(roomId);
     if (!set) {
@@ -1615,6 +1620,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
     }
     const turnEvents = eventsAfterLastHistoryClear(events);
     const openTurn = findAnyOpenTurn(turnEvents);
+    const queuedSet = getQueuedMainInputs(roomId);
+    if (openTurn && queuedSet.size >= MAX_QUEUED_PER_ROOM) {
+      return deny(reply, "queue_full", 409);
+    }
     const inputId = prefixedId("input");
     const now = new Date().toISOString();
     const accepted = event(roomId, "main_input.accepted", participant.id, {
@@ -1629,7 +1638,6 @@ export async function buildServer(options: BuildServerOptions = {}) {
       input_id: inputId,
       queued_after_turn_id: queuedTurnId
     });
-    const queuedSet = getQueuedMainInputs(roomId);
     let triggered: CacpEvent | undefined;
     let extraTurnEvents: CacpEvent[] = [];
     let triggerTurnId = "";
@@ -1761,6 +1769,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!activeAgentId) return deny(reply, "active_agent_unavailable", 409);
     const turnEvents = eventsAfterLastHistoryClear(events);
     const openTurn = findAnyOpenTurn(turnEvents);
+    const queuedSet = getQueuedMainInputs(roomId);
+    if (openTurn && queuedSet.size >= MAX_QUEUED_PER_ROOM) {
+      return deny(reply, "queue_full", 409);
+    }
     const queuedTurnId = openTurn ? openTurn.turn_id : (findLastTurnId(turnEvents) ?? "none");
 
     const accepted = event(roomId, "main_input.accepted", participant.id, {
@@ -1774,7 +1786,6 @@ export async function buildServer(options: BuildServerOptions = {}) {
       input_id: inputId,
       queued_after_turn_id: queuedTurnId
     });
-    const queuedSet = getQueuedMainInputs(roomId);
     let triggered: CacpEvent | undefined;
     let extraTurnEvents: CacpEvent[] = [];
     let triggerTurnId = "";
