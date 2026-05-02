@@ -1,4 +1,17 @@
-import type { StoredParticipant } from "./event-store.js";
+import type { ParticipantRole } from "@cacp/protocol";
+
+/**
+ * Minimal structural shape consumed by `OrbitRoomState.replayFor`. The full
+ * `StoredParticipant` from event-store carries DB metadata that this module
+ * does not need; accepting only `{ id, role }` keeps orbit-state free of an
+ * event-store import and lets unit tests pass plain object literals without
+ * fabricating token hashes / connection statuses. Real call sites pass a
+ * `StoredParticipant`, which is structurally compatible.
+ */
+export interface OrbitReplayParticipant {
+  id: string;
+  role: ParticipantRole;
+}
 
 /**
  * Hard cap for the number of notes returned per round by `replayFor`.
@@ -149,8 +162,11 @@ export class OrbitRoomState {
    * panel) and cap notes at MAX_REPLAY_NOTES_PER_ROUND, keeping the most
    * recent entries.
    *
-   * Returns an empty array for agent participants — orbit is human-only
-   * (HUMAN_ROLES gate). The caller (server.ts WS handshake) wraps each entry
+   * The primary human-vs-agent gate lives at the call site in `server.ts`
+   * (the `HUMAN_ROLES.includes(participant.role)` check before invoking
+   * `replayFor`). The early `role === "agent"` short-circuit here is a
+   * secondary defense so any future caller that forgets the outer gate
+   * still cannot leak orbit state to agents. The caller wraps each entry
    * with `event(...)` to produce a full CacpEvent. This keeps OrbitRoomState
    * free of dependencies on the `event` factory and matches the unit-test
    * style for the class.
@@ -165,7 +181,7 @@ export class OrbitRoomState {
    *      round-trip.
    *   4. orbit.round.promoted (only if current round is already promoted)
    */
-  replayFor(participant: StoredParticipant): SyntheticOrbitEvent[] {
+  replayFor(participant: OrbitReplayParticipant): SyntheticOrbitEvent[] {
     if (participant.role === "agent") return [];
 
     const round = this.rounds.get(this.currentRoundId);
@@ -185,9 +201,13 @@ export class OrbitRoomState {
 
     const allNotes = this.getNotesForRound(round.round_id);
     const notes = allNotes.length > MAX_REPLAY_NOTES_PER_ROUND
-      ? allNotes.slice(allNotes.length - MAX_REPLAY_NOTES_PER_ROUND)
+      ? allNotes.slice(-MAX_REPLAY_NOTES_PER_ROUND)
       : allNotes;
 
+    // Two-pass emission: notes first, then likes. This preserves the
+    // `round.opened < note.created < like.changed` ordering invariant the
+    // client reducer relies on (a like cannot reference a note it has not
+    // yet seen).
     for (const note of notes) {
       out.push({
         type: "orbit.note.created",
@@ -203,6 +223,9 @@ export class OrbitRoomState {
       });
     }
 
+    // Second pass: emit per-note like totals AFTER all note events, so the
+    // client reducer can attach each like to a note that already exists in
+    // its local state.
     for (const note of notes) {
       const total = this.getLikeCount(note.note_id);
       if (total <= 0) continue;

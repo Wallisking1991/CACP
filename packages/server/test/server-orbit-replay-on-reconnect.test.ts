@@ -80,7 +80,14 @@ async function listEvents(app: FastifyInstance, roomId: string, token: string) {
   return (res.json() as { events: Array<{ type: string; payload: Record<string, unknown> }> }).events;
 }
 
-async function drainReplay(ws: WebSocket, ms = 200): Promise<Array<{ type: string; payload: Record<string, unknown> }>> {
+async function drainReplay(ws: WebSocket, ms = 1500): Promise<Array<{ type: string; payload: Record<string, unknown> }>> {
+  // CI-tolerance polling deadline, NOT a known-good wait. The handshake
+  // synthesises the orbit catch-up stream synchronously, so under normal
+  // load this resolves well before the timeout. We pad the budget to 1.5s
+  // so a slow CI runner (under load, cold start, fs contention) doesn't
+  // flake by closing the socket before the synthetic events have been
+  // flushed onto the wire. Negative-case tests (e.g. "agent must NOT
+  // receive orbit replay") naturally pay the full timeout — that's fine.
   const replay: Array<{ type: string; payload: Record<string, unknown> }> = [];
   ws.addEventListener("message", (msg) => {
     replay.push(JSON.parse(msg.data as string));
