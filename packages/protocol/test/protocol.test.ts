@@ -18,7 +18,8 @@ import {
   ConnectorSnapshotEntryPayloadSchema,
   OrbitNoteCreatedPayloadSchema,
   OrbitLikeChangedPayloadSchema,
-  OrbitRoundPromotedPayloadSchema,
+  OrbitClearedPayloadSchema,
+  OrbitNotesQuotedPayloadSchema,
   ConnectorLedgerEntrySchema,
   evaluatePolicy,
   type Participant,
@@ -486,12 +487,12 @@ describe("orbit and connector event schemas", () => {
     }
   });
 
-  it("accepts orbit event types", () => {
+  it("accepts flat orbit event types and rejects retired round events", () => {
     for (const type of [
-      "orbit.round.opened",
       "orbit.note.created",
       "orbit.like.changed",
-      "orbit.round.promoted"
+      "orbit.cleared",
+      "orbit.notes.quoted"
     ] as const) {
       expect(CacpEventSchema.parse({
         protocol: "cacp",
@@ -503,6 +504,19 @@ describe("orbit and connector event schemas", () => {
         created_at: "2026-05-01T00:00:00.000Z",
         payload: {}
       }).type).toBe(type);
+    }
+
+    for (const type of ["orbit.round.opened", "orbit.round.promoted"]) {
+      expect(() => CacpEventSchema.parse({
+        protocol: "cacp",
+        version: "0.2.0",
+        event_id: `evt_${type}`,
+        room_id: "room_1",
+        type,
+        actor_id: "user_1",
+        created_at: "2026-05-01T00:00:00.000Z",
+        payload: {}
+      })).toThrow();
     }
   });
 
@@ -544,18 +558,27 @@ describe("orbit and connector event schemas", () => {
     expect(parsed.entry.entry_type).toBe("human_input");
   });
 
-  it("accepts valid orbit note created payloads", () => {
-    const payload = {
+  it("accepts flat orbit note, clear, and quoted payloads", () => {
+    expect(OrbitNoteCreatedPayloadSchema.parse({
       note_id: "note_1",
-      round_id: "round_1",
       author_id: "user_1",
       author_name: "Alice",
-      text: "Great idea!",
+      text: "Great idea",
       created_at: "2026-05-01T00:00:00.000Z"
-    };
-    const parsed = OrbitNoteCreatedPayloadSchema.parse(payload);
-    expect(parsed.note_id).toBe("note_1");
-    expect(parsed.text).toBe("Great idea!");
+    })).not.toHaveProperty("round_id");
+
+    expect(OrbitClearedPayloadSchema.parse({
+      cleared_by: "user_1",
+      cleared_at: "2026-05-01T00:00:00.000Z"
+    })).toEqual({
+      cleared_by: "user_1",
+      cleared_at: "2026-05-01T00:00:00.000Z"
+    });
+
+    const quoted = OrbitNotesQuotedPayloadSchema.parse({ note_ids: ["note_1", "note_2"] });
+    expect(quoted).toEqual({ note_ids: ["note_1", "note_2"] });
+    expect(quoted).not.toHaveProperty("input_id");
+    expect(() => OrbitNotesQuotedPayloadSchema.parse({ note_ids: [] })).toThrow();
   });
 
   it("accepts valid orbit like changed payloads", () => {
@@ -568,18 +591,6 @@ describe("orbit and connector event schemas", () => {
     const parsed = OrbitLikeChangedPayloadSchema.parse(payload);
     expect(parsed.liked).toBe(true);
     expect(parsed.likes).toBe(1);
-  });
-
-  it("accepts valid orbit round promoted payloads", () => {
-    const payload = {
-      round_id: "round_1",
-      promoted_by: "user_1",
-      input_id: "input_1",
-      promoted_at: "2026-05-01T00:00:00.000Z"
-    };
-    const parsed = OrbitRoundPromotedPayloadSchema.parse(payload);
-    expect(parsed.round_id).toBe("round_1");
-    expect(parsed.input_id).toBe("input_1");
   });
 
   it("accepts valid connector ledger entries", () => {

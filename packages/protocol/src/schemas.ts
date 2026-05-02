@@ -72,7 +72,7 @@ export const EventTypeSchema = z.enum([
   "join_request.created", "join_request.approved", "join_request.rejected", "join_request.expired", "participant.removed",
   "main_input.accepted", "main_input.queued", "main_input.triggered", "main_input.cancelled", "main_input.failed",
   "connector.snapshot.requested", "connector.snapshot.started", "connector.snapshot.entry", "connector.snapshot.completed", "connector.snapshot.failed",
-  "orbit.round.opened", "orbit.note.created", "orbit.like.changed", "orbit.round.promoted"
+  "orbit.note.created", "orbit.like.changed", "orbit.cleared", "orbit.notes.quoted"
 ]);
 
 export const CacpEventSchema = z.object({
@@ -513,15 +513,8 @@ export const ConnectorSnapshotFailedPayloadSchema = z.object({
   error: z.string().min(1).max(2000)
 });
 
-export const OrbitRoundOpenedPayloadSchema = z.object({
-  round_id: z.string().min(1),
-  triggered_by_turn_id: z.string().min(1).optional(),
-  opened_at: z.string().datetime()
-});
-
 export const OrbitNoteCreatedPayloadSchema = z.object({
   note_id: z.string().min(1),
-  round_id: z.string().min(1),
   author_id: z.string().min(1),
   author_name: z.string().min(1),
   text: z.string().min(1).max(2000),
@@ -535,11 +528,13 @@ export const OrbitLikeChangedPayloadSchema = z.object({
   likes: z.number().int().nonnegative()
 });
 
-export const OrbitRoundPromotedPayloadSchema = z.object({
-  round_id: z.string().min(1),
-  promoted_by: z.string().min(1),
-  input_id: z.string().min(1),
-  promoted_at: z.string().datetime()
+export const OrbitClearedPayloadSchema = z.object({
+  cleared_by: z.string().min(1),
+  cleared_at: z.string().datetime()
+});
+
+export const OrbitNotesQuotedPayloadSchema = z.object({
+  note_ids: z.array(z.string().min(1)).min(1)
 });
 
 export type MainInputSource = z.infer<typeof MainInputSourceSchema>;
@@ -555,7 +550,7 @@ export type ConnectorSnapshotStartedPayload = z.infer<typeof ConnectorSnapshotSt
 export type ConnectorSnapshotEntryPayload = z.infer<typeof ConnectorSnapshotEntryPayloadSchema>;
 export type ConnectorSnapshotCompletedPayload = z.infer<typeof ConnectorSnapshotCompletedPayloadSchema>;
 export type ConnectorSnapshotFailedPayload = z.infer<typeof ConnectorSnapshotFailedPayloadSchema>;
-export type OrbitRoundOpenedPayload = z.infer<typeof OrbitRoundOpenedPayloadSchema>;
 export type OrbitNoteCreatedPayload = z.infer<typeof OrbitNoteCreatedPayloadSchema>;
 export type OrbitLikeChangedPayload = z.infer<typeof OrbitLikeChangedPayloadSchema>;
-export type OrbitRoundPromotedPayload = z.infer<typeof OrbitRoundPromotedPayloadSchema>;
+export type OrbitClearedPayload = z.infer<typeof OrbitClearedPayloadSchema>;
+export type OrbitNotesQuotedPayload = z.infer<typeof OrbitNotesQuotedPayloadSchema>;
