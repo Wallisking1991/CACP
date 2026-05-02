@@ -94,16 +94,17 @@ export async function cancelMainInput(session: RoomSession, inputId: string): Pr
   await postJson(`/rooms/${session.room_id}/main-inputs/${inputId}/cancel`, session.token, {});
 }
 
-export async function requestConnectorSnapshot(session: RoomSession): Promise<{ ok: true }> {
-  const response = await fetch(`/rooms/${session.room_id}/connector-snapshot`, {
+export async function requestConnectorSnapshot(session: RoomSession, sinceSequence = 0): Promise<{ request_id: string }> {
+  const response = await fetch(`/rooms/${session.room_id}/connector-snapshots`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       authorization: `Bearer ${session.token}`
-    }
+    },
+    body: JSON.stringify({ since_sequence: sinceSequence })
   });
   if (!response.ok) throw new Error(await response.text());
-  return await response.json() as { ok: true };
+  return await response.json() as { request_id: string };
 }
 
 export async function clearRoom(session: RoomSession): Promise<void> {

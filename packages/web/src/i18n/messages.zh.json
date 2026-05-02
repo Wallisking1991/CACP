@@ -298,6 +298,7 @@
   "orbit.empty": "暂无轨道笔记",
   "orbit.like": "点赞",
   "orbit.unlike": "取消点赞",
+  "orbit.ownNote": "自己的笔记",
   "orbitPromote.title": "提升到主线程",
   "orbitPromote.empty": "没有可提升的笔记",
   "orbitPromote.promote": "提升"

@@ -7,7 +7,8 @@ import type {
   ClaudeRuntimePhase,
   ClaudeSessionPreviewMessagePayload,
   ClaudeSessionReadyPayload,
-  ClaudeSessionSummary
+  ClaudeSessionSummary,
+  ConnectorLedgerEntry
 } from "@cacp/protocol";
 
 export interface ParticipantView { id: string; display_name: string; role: string; type: string }
@@ -88,8 +89,9 @@ export interface MainInputQueueItemView {
 }
 
 export interface ConnectorSyncCursor {
-  room_id: string;
-  last_event_id: string;
+  connector_id: string;
+  last_sequence: number;
+  request_id?: string;
   synced_at: string;
 }
 
@@ -223,6 +225,7 @@ export interface AvatarStatusView {
 export interface DeriveRoomStateOptions {
   now?: string;
   typingTtlMs?: number;
+  currentParticipantId?: string;
 }
 
 export interface RoomViewState {
@@ -328,6 +331,24 @@ function stringArray(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const items = value.filter((item): item is string => typeof item === "string");
   return items.length === value.length ? items : undefined;
+}
+
+function isConnectorLedgerEntry(value: unknown): value is ConnectorLedgerEntry {
+  if (!value || typeof value !== "object") return false;
+  const entry = value as Partial<ConnectorLedgerEntry>;
+  return entry.ledger_version === 1
+    && typeof entry.entry_id === "string"
+    && typeof entry.entry_type === "string"
+    && typeof entry.actor_id === "string"
+    && typeof entry.text === "string"
+    && typeof entry.created_at === "string";
+}
+
+function connectorLedgerMessageKind(entry: ConnectorLedgerEntry): string {
+  if (entry.entry_type === "agent_final") return "agent";
+  if (entry.entry_type === "system_marker") return "system";
+  if (entry.entry_type === "imported_session_message" && entry.actor_role === "agent") return "agent";
+  return "human";
 }
 
 function isLocalAgentProvider(value: unknown): value is AgentSessionReadyView["provider"] {
@@ -527,7 +548,10 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
       const note = orbitNotes.get(event.payload.note_id);
       if (note) {
         const likes = typeof event.payload.likes === "number" ? event.payload.likes : note.likes;
-        orbitNotes.set(event.payload.note_id, { ...note, likes });
+        const likedByMe = event.payload.participant_id === options.currentParticipantId && typeof event.payload.liked === "boolean"
+          ? event.payload.liked
+          : note.liked_by_me;
+        orbitNotes.set(event.payload.note_id, { ...note, likes, liked_by_me: likedByMe });
       }
     }
     if (event.type === "orbit.round.promoted" && typeof event.payload.round_id === "string") {
@@ -559,10 +583,23 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
       const existing = mainInputQueue.get(event.payload.input_id);
       if (existing) mainInputQueue.set(event.payload.input_id, { ...existing, status: "failed" });
     }
-    if (event.type === "connector.snapshot.completed" && typeof event.payload.room_id === "string" && typeof event.payload.last_event_id === "string") {
+    if (event.type === "connector.snapshot.entry" && isConnectorLedgerEntry(event.payload.entry)) {
+      const entry = event.payload.entry;
+      if (!messages.some((message) => message.message_id === entry.entry_id)) {
+        messages.push({
+          message_id: entry.entry_id,
+          actor_id: entry.actor_id,
+          text: entry.text,
+          kind: connectorLedgerMessageKind(entry),
+          created_at: entry.created_at
+        });
+      }
+    }
+    if (event.type === "connector.snapshot.completed" && typeof event.payload.connector_id === "string" && typeof event.payload.last_sequence === "number") {
       connectorSyncCursor = {
-        room_id: event.payload.room_id,
-        last_event_id: event.payload.last_event_id,
+        connector_id: event.payload.connector_id,
+        last_sequence: event.payload.last_sequence,
+        ...(typeof event.payload.request_id === "string" ? { request_id: event.payload.request_id } : {}),
         synced_at: event.created_at
       };
     }

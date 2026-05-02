@@ -715,6 +715,14 @@ describe("room state", () => {
       expect(state.orbitNotes[0].likes).toBe(1);
     });
 
+    it("tracks whether the current participant liked an orbit note", () => {
+      const state = deriveRoomState([
+        event("orbit.note.created", { note_id: "note_1", text: "Note" }, 1, "user_1"),
+        event("orbit.like.changed", { note_id: "note_1", participant_id: "user_2", liked: true, likes: 1 }, 2, "user_2")
+      ], { currentParticipantId: "user_2" });
+      expect(state.orbitNotes[0]).toMatchObject({ likes: 1, liked_by_me: true });
+    });
+
     it("updates note likes from orbit.like.changed with liked:false", () => {
       const state = deriveRoomState([
         event("orbit.note.created", { note_id: "note_1", text: "Note" }, 1, "user_1"),
@@ -773,9 +781,40 @@ describe("room state", () => {
   describe("Connector sync events", () => {
     it("derives connector sync cursor from connector.snapshot.completed", () => {
       const state = deriveRoomState([
-        event("connector.snapshot.completed", { room_id: "room_1", last_event_id: "evt_10" }, 1, "system")
+        event("connector.snapshot.completed", { request_id: "snap_1", connector_id: "agent_1", last_sequence: 10 }, 1, "agent_1")
       ]);
-      expect(state.connectorSyncCursor).toMatchObject({ room_id: "room_1", last_event_id: "evt_10" });
+      expect(state.connectorSyncCursor).toMatchObject({ connector_id: "agent_1", last_sequence: 10 });
+    });
+
+    it("renders connector snapshot ledger entries into the main timeline", () => {
+      const state = deriveRoomState([
+        event("connector.snapshot.entry", {
+          request_id: "snap_1",
+          connector_id: "agent_1",
+          entry: {
+            ledger_version: 1,
+            room_id: "room_1",
+            connector_id: "agent_1",
+            agent_id: "agent_1",
+            sequence: 3,
+            entry_id: "entry_3",
+            entry_type: "agent_final",
+            actor_id: "agent_1",
+            actor_name: "Agent",
+            actor_role: "agent",
+            text: "Ledger answer",
+            source: "composer",
+            created_at: "2026-05-01T00:00:00.000Z",
+            turn_id: "turn_1"
+          }
+        }, 1, "agent_1")
+      ]);
+      expect(state.messages).toEqual([expect.objectContaining({
+        message_id: "entry_3",
+        actor_id: "agent_1",
+        kind: "agent",
+        text: "Ledger answer"
+      })]);
     });
   });
 

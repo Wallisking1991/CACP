@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { randomUUID } from "node:crypto";
 import WebSocket from "ws";
-import { CacpEventSchema } from "@cacp/protocol";
+import { CacpEventSchema, type ConnectorSnapshotRequestedPayload, type ParticipantRole } from "@cacp/protocol";
 import { loadRuntimeConfigFromArgs } from "./config.js";
 import { printConnectedBanner } from "./connected-banner.js";
 import { runLlmTurn } from "./llm/runner.js";
@@ -133,6 +133,40 @@ async function main() {
     try {
       const parsed = CacpEventSchema.safeParse(JSON.parse(raw.toString()));
       if (!parsed.success) return;
+
+      if (parsed.data.type === "connector.snapshot.requested") {
+        const payload = parsed.data.payload as Partial<ConnectorSnapshotRequestedPayload>;
+        if (!payload.request_id || payload.connector_id !== registered.agent_id) return;
+        const sinceSequence = typeof payload.since_sequence === "number" ? payload.since_sequence : 0;
+        try {
+          const entries = ledger.snapshotSince(sinceSequence);
+          const latestSequence = Math.max(0, ledger.getLatestSequence());
+          const firstSequence = entries[0]?.sequence ?? latestSequence;
+          const lastSequence = entries.length > 0 ? entries[entries.length - 1].sequence : latestSequence;
+          await roomClient.startSnapshot(payload.request_id, {
+            request_id: payload.request_id,
+            connector_id: registered.agent_id,
+            first_sequence: firstSequence,
+            last_sequence: lastSequence,
+            total_count: entries.length
+          });
+          for (const entry of entries) {
+            await roomClient.uploadSnapshotEntry(payload.request_id, entry);
+          }
+          await roomClient.completeSnapshot(payload.request_id, {
+            request_id: payload.request_id,
+            connector_id: registered.agent_id,
+            last_sequence: lastSequence
+          });
+        } catch (error) {
+          await roomClient.failSnapshot(payload.request_id, {
+            request_id: payload.request_id,
+            connector_id: registered.agent_id,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+        return;
+      }
 
       if (parsed.data.type === "claude.session_preview.requested" && claudeRuntime) {
         const payload = parsed.data.payload as { preview_id?: string; agent_id?: string; session_id?: string };
@@ -388,19 +422,20 @@ async function main() {
       }
 
       if (parsed.data.type === "agent.turn.requested") {
-        const payload = parsed.data.payload as { turn_id?: string; agent_id?: string; context_prompt?: string; message_text?: string; room_name?: string; speaker_name?: string; speaker_role?: string; mode?: string };
+        const payload = parsed.data.payload as { turn_id?: string; agent_id?: string; context_prompt?: string; message_text?: string; room_name?: string; speaker_name?: string; speaker_role?: string; mode?: string; source?: string };
         const turnText = payload.message_text ?? payload.context_prompt;
         if (!payload.turn_id || !turnText || payload.agent_id !== registered.agent_id || runningTasks.has(payload.turn_id)) return;
         runningTasks.add(payload.turn_id);
         let finalText = "";
         const turnId = payload.turn_id;
+        const ledgerSource = payload.source === "orbit_promote" ? "orbit_promote" : "composer";
         ledger.append({
           entry_type: "human_input",
           actor_id: parsed.data.actor_id,
           actor_name: typeof payload.speaker_name === "string" ? payload.speaker_name : "Room participant",
-          actor_role: (typeof payload.speaker_role === "string" ? payload.speaker_role : "member") as import("@cacp/protocol").ParticipantRole,
+          actor_role: (typeof payload.speaker_role === "string" ? payload.speaker_role : "member") as ParticipantRole,
           text: turnText,
-          source: "composer",
+          source: ledgerSource,
           created_at: parsed.data.created_at,
           turn_id: turnId
         });
@@ -423,7 +458,7 @@ async function main() {
               actor_name: config.agent.name,
               actor_role: "agent",
               text: result.finalText,
-              source: "composer",
+              source: ledgerSource,
               created_at: new Date().toISOString(),
               turn_id: turnId
             });
@@ -453,7 +488,7 @@ async function main() {
               actor_name: config.agent.name,
               actor_role: "agent",
               text: result.finalText,
-              source: "composer",
+              source: ledgerSource,
               created_at: new Date().toISOString(),
               turn_id: turnId
             });
@@ -484,7 +519,7 @@ async function main() {
               actor_name: config.agent.name,
               actor_role: "agent",
               text: result.finalText,
-              source: "composer",
+              source: ledgerSource,
               created_at: new Date().toISOString(),
               turn_id: turnId
             });

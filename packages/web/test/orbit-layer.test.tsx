@@ -51,13 +51,35 @@ describe("OrbitLayer", () => {
   it("shows Unlike button when liked_by_me is true", () => {
     const onUnlike = vi.fn();
     const notes = [
-      { note_id: "note_1", text: "Liked note", created_by: "user_1", created_at: "2026-04-25T00:00:00.000Z", likes: 1, liked_by_me: true }
+      { note_id: "note_1", text: "Liked note", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 1, liked_by_me: true }
     ];
     renderOrbitLayer({ ...baseProps, notes, onUnlike });
 
     expect(screen.getByRole("button", { name: /Unlike/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Unlike/i }));
     expect(onUnlike).toHaveBeenCalledWith("note_1");
+  });
+
+  it("does not allow liking my own orbit note", () => {
+    const onLike = vi.fn();
+    const notes = [
+      { note_id: "note_1", text: "My note", created_by: "user_1", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false }
+    ];
+    renderOrbitLayer({ ...baseProps, notes, onLike });
+
+    expect(screen.queryByRole("button", { name: /Like/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/Own note/i)).toBeInTheDocument();
+    expect(onLike).not.toHaveBeenCalled();
+  });
+
+  it("does not render like controls when reactions are disabled", () => {
+    const notes = [
+      { note_id: "note_1", text: "Observer visible", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 2, liked_by_me: false }
+    ];
+    renderOrbitLayer({ ...baseProps, notes, canReact: false });
+
+    expect(screen.queryByRole("button", { name: /Like/i })).not.toBeInTheDocument();
+    expect(screen.getByText("2")).toBeInTheDocument();
   });
 
   it("shows orbit-round class for notes in a round", () => {

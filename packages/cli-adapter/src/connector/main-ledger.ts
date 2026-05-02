@@ -20,6 +20,7 @@ export class MainThreadLedger {
   private agentId: string;
   private ledgerPath: string;
   private entries: ConnectorLedgerEntry[] = [];
+  private nextSequence = 0;
 
   constructor(input: MainThreadLedgerInput) {
     this.roomId = input.roomId;
@@ -43,6 +44,9 @@ export class MainThreadLedger {
       try {
         const parsed = JSON.parse(trimmed) as ConnectorLedgerEntry;
         this.entries.push(parsed);
+        if (Number.isInteger(parsed.sequence) && parsed.sequence >= this.nextSequence) {
+          this.nextSequence = parsed.sequence + 1;
+        }
       } catch {
         // Skip malformed lines
       }
@@ -50,7 +54,7 @@ export class MainThreadLedger {
   }
 
   append(input: Omit<ConnectorLedgerEntry, "ledger_version" | "room_id" | "connector_id" | "agent_id" | "sequence" | "entry_id">): ConnectorLedgerEntry {
-    const sequence = this.entries.length;
+    const sequence = this.nextSequence;
     const entry: ConnectorLedgerEntry = {
       ledger_version: 1,
       room_id: this.roomId,
@@ -63,6 +67,7 @@ export class MainThreadLedger {
     };
     this.entries.push(entry);
     appendFileSync(this.ledgerPath, JSON.stringify(entry) + "\n");
+    this.nextSequence += 1;
     return entry;
   }
 

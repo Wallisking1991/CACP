@@ -5,11 +5,17 @@ const WINDOWS_RESERVED_NAMES = new Set([
 ]);
 
 export function slugifyRoomTitle(title: string): string {
-  const slug = title
+  let slug = title
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .replace(/-+/g, "-");
+  if (slug.length > 60) {
+    slug = slug.slice(0, 60).replace(/^-+|-+$/g, "");
+  }
+  if (!slug) {
+    slug = "untitled-room";
+  }
   if (WINDOWS_RESERVED_NAMES.has(slug)) {
     return `${slug}-room`;
   }

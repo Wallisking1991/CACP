@@ -30,6 +30,15 @@ describe("slugifyRoomTitle", () => {
     expect(slugifyRoomTitle("conference")).toBe("conference");
     expect(slugifyRoomTitle("my-com1")).toBe("my-com1");
   });
+
+  it("uses untitled-room for empty or fully stripped titles", () => {
+    expect(slugifyRoomTitle("")).toBe("untitled-room");
+    expect(slugifyRoomTitle("!!!")).toBe("untitled-room");
+  });
+
+  it("caps room-title slugs at 60 characters", () => {
+    expect(slugifyRoomTitle("a".repeat(80))).toHaveLength(60);
+  });
 });
 
 describe("roomAssetDirectory", () => {

@@ -211,4 +211,29 @@ describe("Workspace refactored shell", () => {
     expect(screen.getByRole("dialog", { name: /Select Agent Session/i })).toBeInTheDocument();
     expect(screen.getByText(/Choose how Codex CLI joins this room/i)).toBeInTheDocument();
   });
+
+  it("shows Orbit by default with separate People and Agent send actions", () => {
+    render(<LangProvider><Workspace {...baseProps} /></LangProvider>);
+
+    expect(screen.getByText("Orbit")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Send to People/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Send to Agent/i })).toBeInTheDocument();
+  });
+
+  it("lists current-round Orbit notes in the promote tray", () => {
+    const props = {
+      ...baseProps,
+      showOrbit: true,
+      events: [
+        ...baseProps.events,
+        event("orbit.round.opened", { round_id: "round_1" }, 5, "user_1"),
+        event("orbit.note.created", { note_id: "note_1", round_id: "round_1", text: "Promote this note" }, 6, "user_1")
+      ]
+    };
+
+    render(<LangProvider><Workspace {...props} /></LangProvider>);
+
+    const tray = screen.getByText(/Promote to Main Thread/i).closest(".orbit-promote-tray") as HTMLElement;
+    expect(within(tray).getByText("Promote this note")).toBeInTheDocument();
+  });
 });

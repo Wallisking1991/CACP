@@ -84,6 +84,14 @@ describe("connector index source", () => {
     expect(indexSource).toContain("buildLlmPromptFromLedger");
   });
 
+  it("handles connector.snapshot.requested events by streaming ledger snapshots", () => {
+    expect(indexSource).toContain('parsed.data.type === "connector.snapshot.requested"');
+    expect(indexSource).toContain("ledger.snapshotSince");
+    expect(indexSource).toContain("roomClient.startSnapshot");
+    expect(indexSource).toContain("roomClient.uploadSnapshotEntry");
+    expect(indexSource).toContain("roomClient.completeSnapshot");
+  });
+
   it("detects and instantiates Codex CLI runtime when agent has codex-cli capability", () => {
     expect(indexSource).toContain('config.agent.capabilities.includes("codex-cli")');
     expect(indexSource).toContain("CodexRuntime");

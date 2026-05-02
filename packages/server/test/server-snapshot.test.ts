@@ -133,6 +133,23 @@ describe("POST /rooms/:roomId/connector-snapshots", () => {
     expect(res.statusCode).toBe(403);
   });
 
+  it("denies observers even if an invite explicitly grants history access", async () => {
+    app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
+    const room = await ownerAndRoom(app);
+    const agent = await registerAgent(app, room.room_id, room.owner_token);
+    await selectAgent(app, room.room_id, room.owner_token, agent.agent_id);
+    const observerToken = await joinAsRole(app, room.room_id, room.owner_token, "observer", "allowed");
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/connector-snapshots`,
+      headers: { authorization: `Bearer ${observerToken}` },
+      payload: { since_sequence: 0 }
+    });
+
+    expect(res.statusCode).toBe(403);
+  });
+
   it("returns 404 when no active agent exists", async () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     const room = await ownerAndRoom(app);

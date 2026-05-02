@@ -129,6 +129,84 @@ describe("POST /rooms/:roomId/main-inputs", () => {
     expect(roundEvent.payload.round_id).toMatch(/^orbit_round_turn_turn_/);
     expect(roundEvent.payload.triggered_by_turn_id).toMatch(/^turn_/);
   });
+
+  it("uses the submitted main input text as the immediate LLM turn prompt", async () => {
+    app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const { room } = await setupRoomWithReadyAgent(app);
+    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    await waitForOpen(ws);
+    const received = collectWsEvents(ws);
+
+    const res = await postMainInput(app, room.room_id, room.owner_token, "direct main input");
+
+    expect(res.statusCode).toBe(201);
+    await waitForEvent(received, (e) => e.type === "agent.turn.requested");
+    const requested = received.find((e) => e.type === "agent.turn.requested")!;
+    expect(requested.payload.context_prompt).toBe("direct main input");
+    expect(requested.payload.message_text).toBeUndefined();
+
+    ws.close();
+  });
+
+  it("uses the submitted main input text as the immediate local-agent message_text", async () => {
+    app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const { room, agent } = await setupRoomWithReadyLocalAgent(app);
+    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    await waitForOpen(ws);
+    const received = collectWsEvents(ws);
+
+    const res = await postMainInput(app, room.room_id, room.owner_token, "direct codex input");
+
+    expect(res.statusCode).toBe(201);
+    await waitForEvent(received, (e) => e.type === "agent.turn.requested");
+    const requested = received.find((e) => e.type === "agent.turn.requested")!;
+    expect(requested.payload).toMatchObject({
+      agent_id: agent.agent_id,
+      message_text: "direct codex input",
+      speaker_name: "Owner",
+      speaker_role: "owner",
+      source: "composer"
+    });
+    expect(requested.payload.context_prompt).toBeUndefined();
+
+    ws.close();
+  });
+
+  it("promotes selected Orbit notes as the immediate agent prompt", async () => {
+    app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const { room } = await setupRoomWithReadyAgent(app);
+    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    await waitForOpen(ws);
+    const received = collectWsEvents(ws);
+
+    const noteRes = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/orbit/notes`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: { text: "Budget risk needs detail" }
+    });
+    expect(noteRes.statusCode).toBe(201);
+    const note = noteRes.json() as { note_id: string };
+
+    const promoteRes = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/orbit/promote`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: { note_ids: [note.note_id] }
+    });
+
+    expect(promoteRes.statusCode).toBe(201);
+    await waitForEvent(received, (e) => e.type === "agent.turn.requested");
+    const requested = received.find((e) => e.type === "agent.turn.requested")!;
+    expect(String(requested.payload.context_prompt)).toContain("<CACP_ORBIT_DISCUSSION>");
+    expect(String(requested.payload.context_prompt)).toContain("Budget risk needs detail");
+    expect(requested.payload.source).toBe("orbit_promote");
+
+    ws.close();
+  });
 });
 
 describe("POST /rooms/:roomId/main-inputs/:inputId/cancel", () => {
@@ -165,6 +243,36 @@ async function setupRoomWithReadyAgent(app: FastifyInstance) {
     url: `/rooms/${room.room_id}/agents/select`,
     headers: { authorization: `Bearer ${room.owner_token}` },
     payload: { agent_id: agent.agent_id }
+  });
+  return { room, agent };
+}
+
+async function setupRoomWithReadyLocalAgent(app: FastifyInstance) {
+  const room = await ownerAndRoom(app);
+  const agentReg = await app.inject({
+    method: "POST",
+    url: `/rooms/${room.room_id}/agents/register`,
+    headers: { authorization: `Bearer ${room.owner_token}` },
+    payload: { name: "Codex", capabilities: ["codex-cli", "code-agent.persistent_session", "code-agent.local_execution"] }
+  });
+  const agent = agentReg.json() as { agent_id: string; agent_token: string };
+  await app.inject({
+    method: "POST",
+    url: `/rooms/${room.room_id}/agents/select`,
+    headers: { authorization: `Bearer ${room.owner_token}` },
+    payload: { agent_id: agent.agent_id }
+  });
+  await app.inject({
+    method: "POST",
+    url: `/rooms/${room.room_id}/agent-sessions/selection`,
+    headers: { authorization: `Bearer ${room.owner_token}` },
+    payload: { agent_id: agent.agent_id, provider: "codex-cli", mode: "fresh" }
+  });
+  await app.inject({
+    method: "POST",
+    url: `/rooms/${room.room_id}/agent-sessions/ready`,
+    headers: { authorization: `Bearer ${agent.agent_token}` },
+    payload: { agent_id: agent.agent_id, provider: "codex-cli", mode: "fresh", ready_at: "2026-05-01T00:00:00.000Z" }
   });
   return { room, agent };
 }

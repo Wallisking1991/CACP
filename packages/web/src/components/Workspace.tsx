@@ -100,7 +100,10 @@ export default function Workspace({
     return () => window.clearInterval(interval);
   }, []);
 
-  const room = useMemo(() => deriveRoomState(events, { now: new Date(typingTick).toISOString() }), [events, typingTick]);
+  const room = useMemo(
+    () => deriveRoomState(events, { now: new Date(typingTick).toISOString(), currentParticipantId: session.participant_id }),
+    [events, typingTick, session.participant_id]
+  );
   const permissions = roomPermissionsForRole(session.role);
   const isOwner = session.role === "owner";
   const peopleParticipants = useMemo(() => humanParticipants(room.participants), [room.participants]);
@@ -257,7 +260,12 @@ export default function Workspace({
     room.agentSessionCatalog.provider === activeAgentProvider &&
     !agentSelectionIsReady(room.activeAgentId, activeAgentProvider, room.agentSessionSelection, room.agentSessionReady);
 
+  const orbitVisible = showOrbit ?? true;
   const canPromoteOrbit = permissions.canManageControls;
+  const currentOrbitRound = [...room.orbitRounds].reverse().find((round) => !round.promoted_at);
+  const promotableOrbitNotes = currentOrbitRound
+    ? room.orbitNotes.filter((note) => note.round_id === currentOrbitRound.round_id)
+    : room.orbitNotes;
 
   return (
     <div className="workspace-shell">
@@ -335,7 +343,7 @@ export default function Workspace({
             onTypingInput={(value) => typingControllerRef.current?.inputChanged(value)}
             onStopTyping={() => typingControllerRef.current?.stopNow()}
             onClearConversation={onClearRoom}
-            onSendOrbitNote={showOrbit ? (text) => { void sendOrbitNote(session, text).catch(() => {}); } : undefined}
+            onSendOrbitNote={orbitVisible ? (text) => { void sendOrbitNote(session, text).catch(() => {}); } : undefined}
             onSendMainInput={(text) => { void sendMainInput(session, text).catch(() => {}); }}
           />
 
@@ -418,18 +426,19 @@ export default function Workspace({
         />
       </Popover>
 
-      {showOrbit && (
+      {orbitVisible && (
         <div className="orbit-panel">
           <OrbitLayer
             notes={room.orbitNotes}
             currentParticipantId={session.participant_id}
             actorNames={actorNames}
+            canReact={permissions.canSendMessages && session.role !== "observer"}
             onLike={(noteId) => { void likeOrbitNote(session, noteId).catch(() => {}); }}
             onUnlike={(noteId) => { void unlikeOrbitNote(session, noteId).catch(() => {}); }}
           />
           {canPromoteOrbit && (
             <OrbitPromoteTray
-              notes={room.orbitNotes.filter((n) => !n.round_id)}
+              notes={promotableOrbitNotes}
               onPromote={(noteIds) => { void promoteOrbitRound(session, noteIds).catch(() => {}); }}
               canPromote={canPromoteOrbit}
             />

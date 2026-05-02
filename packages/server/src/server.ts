@@ -754,6 +754,65 @@ export async function buildServer(options: BuildServerOptions = {}) {
     };
   }
 
+  function createMainInputTurnRequestEvents(roomId: string, input: {
+    actorId: string;
+    authorName: string;
+    authorRole: ParticipantRole;
+    text: string;
+    source: "composer" | "orbit_promote";
+    includeMessageTextForRemote?: boolean;
+  }): CacpEvent[] {
+    const events = store.listEvents(roomId);
+    const turnEvents = eventsAfterLastHistoryClear(events);
+    const activeAgentId = findActiveAgentId(events);
+    if (!activeAgentId) return [];
+    const activeAgent = findParticipant(roomId, activeAgentId);
+    if (!activeAgent || activeAgent.role !== "agent" || activeAgent.type !== "agent") return [];
+    if (!isAgentOnline(events, activeAgentId)) return [];
+    if (findAnyOpenTurn(turnEvents)) return [];
+
+    const capabilities = findAgentCapabilities(events, activeAgentId);
+    const localProvider = providerForCapabilities(capabilities);
+    if (localProvider) {
+      const ready = localProvider === "claude-code"
+        ? hasClaudeSessionReady(events, activeAgentId) || hasLocalAgentSessionReady(events, activeAgentId, localProvider)
+        : hasLocalAgentSessionReady(events, activeAgentId, localProvider);
+      if (!ready) return [];
+    }
+
+    const turnId = prefixedId("turn");
+    if (localProvider) {
+      const room = store.getRoom(roomId);
+      return [event(roomId, "agent.turn.requested", input.actorId, {
+        turn_id: turnId,
+        agent_id: activeAgentId,
+        reason: "human_message",
+        source: input.source,
+        speaker_name: input.authorName,
+        speaker_role: input.authorRole,
+        room_name: room?.name ?? "Untitled room",
+        mode: "normal",
+        message_text: input.text
+      })];
+    }
+
+    const room = input.includeMessageTextForRemote ? store.getRoom(roomId) : undefined;
+    return [event(roomId, "agent.turn.requested", input.actorId, {
+      turn_id: turnId,
+      agent_id: activeAgentId,
+      reason: "human_message",
+      source: input.source,
+      context_prompt: input.text,
+      ...(input.includeMessageTextForRemote ? {
+        speaker_name: input.authorName,
+        speaker_role: input.authorRole,
+        room_name: room?.name ?? "Untitled room",
+        mode: "normal",
+        message_text: input.text
+      } : {})
+    })];
+  }
+
   function createAgentTurnRequestEvents(roomId: string, actorId: string, reason: "human_message" | "queued_followup" | "collected_answers", contextPrompt?: string, previousTurnId?: string): CacpEvent[] {
     const events = store.listEvents(roomId);
     const turnEvents = eventsAfterLastHistoryClear(events);
@@ -867,27 +926,23 @@ export async function buildServer(options: BuildServerOptions = {}) {
 
     const next = queue.shift()!;
 
-    // Build a turn-request event with the queued input's text. We can't reuse
-    // `createAgentTurnRequestEvents("human_message")` because that pulls
-    // speaker/text from the latest `message.created` — main inputs don't
-    // create messages. Mirror `createAgentTurnRequestEvents` shape via a
-    // single object literal with conditional context_prompt spread.
-    const turnId = prefixedId("turn");
-    const room = store.getRoom(roomId);
-    const speakerName = next.author_name;
-    const speakerRole = next.author_role;
-
-    const turnEvent: CacpEvent = event(roomId, "agent.turn.requested", next.author_id, {
-      turn_id: turnId,
-      agent_id: activeAgentId,
-      reason: "human_message",
-      speaker_name: speakerName,
-      speaker_role: speakerRole,
-      room_name: room?.name ?? "Untitled room",
-      mode: "normal",
-      message_text: next.text,
-      ...(localProvider ? {} : { context_prompt: next.text })
+    // Build the turn request from the explicit queue item. Main inputs do not
+    // create `message.created` events, so recent conversation state cannot be
+    // used as the source of text, speaker, or Orbit promotion metadata.
+    const turnRequestEvents = createMainInputTurnRequestEvents(roomId, {
+      actorId: next.author_id,
+      authorName: next.author_name,
+      authorRole: next.author_role,
+      text: next.text,
+      source: next.source,
+      includeMessageTextForRemote: true
     });
+    const turnEvent = turnRequestEvents.find((nextEvent) => nextEvent.type === "agent.turn.requested");
+    if (!turnEvent || typeof turnEvent.payload.turn_id !== "string") {
+      queue.unshift(next);
+      return false;
+    }
+    const turnId = turnEvent.payload.turn_id;
 
     const triggered = event(roomId, "main_input.triggered", next.author_id, {
       input_id: next.input_id,
@@ -1807,7 +1862,13 @@ export async function buildServer(options: BuildServerOptions = {}) {
     let extraTurnEvents: CacpEvent[] = [];
     let triggerTurnId = "";
     if (!openTurn) {
-      const turnRequestEvents = createAgentTurnRequestEvents(roomId, participant.id, "human_message");
+      const turnRequestEvents = createMainInputTurnRequestEvents(roomId, {
+        actorId: participant.id,
+        authorName: participant.display_name,
+        authorRole: participant.role,
+        text: body.text,
+        source: "composer"
+      });
       if (turnRequestEvents.length === 0) return deny(reply, "active_agent_unavailable", 409);
       triggerTurnId = (turnRequestEvents.find((e) => e.type === "agent.turn.requested")?.payload as { turn_id: string })?.turn_id ?? "";
       triggered = event(roomId, "main_input.triggered", participant.id, {
@@ -1963,7 +2024,13 @@ export async function buildServer(options: BuildServerOptions = {}) {
     let extraTurnEvents: CacpEvent[] = [];
     let triggerTurnId = "";
     if (!openTurn) {
-      const turnRequestEvents = createAgentTurnRequestEvents(roomId, participant.id, "human_message");
+      const turnRequestEvents = createMainInputTurnRequestEvents(roomId, {
+        actorId: participant.id,
+        authorName: participant.display_name,
+        authorRole: participant.role,
+        text: payload.text,
+        source: "orbit_promote"
+      });
       if (turnRequestEvents.length === 0) return deny(reply, "active_agent_unavailable", 409);
       triggerTurnId = (turnRequestEvents.find((e) => e.type === "agent.turn.requested")?.payload as { turn_id: string })?.turn_id ?? "";
       triggered = event(roomId, "main_input.triggered", participant.id, {
@@ -2846,7 +2913,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/connector-snapshots", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    const canRequest = hasAnyRole(participant, ["owner", "admin"]) || participant.main_thread_history_access === "allowed";
+    const canRequest = hasAnyRole(participant, ["owner", "admin"])
+      || (participant.role === "member" && participant.main_thread_history_access === "allowed");
     if (!canRequest) return deny(reply, "forbidden", 403);
     const activeAgentId = findActiveAgentId(store.listEvents(request.params.roomId));
     if (!activeAgentId) return deny(reply, "active_agent_unavailable", 404);

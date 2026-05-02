@@ -173,4 +173,35 @@ describe("MainThreadLedger", () => {
     expect(snapshot).toHaveLength(1);
     expect(snapshot[0].text).toBe("Existing");
   });
+
+  it("continues sequence numbers from the highest existing sequence", () => {
+    ledger.append({
+      entry_type: "human_input",
+      actor_id: "u1",
+      actor_name: "Alice",
+      actor_role: "owner",
+      text: "Existing",
+      source: "composer",
+      created_at: "2026-05-01T00:00:00.000Z"
+    });
+
+    const ledger2 = new MainThreadLedger({
+      roomId: "room_1",
+      connectorId: "conn_1",
+      agentId: "agent_1",
+      ledgerDir: tempDir
+    });
+
+    const next = ledger2.append({
+      entry_type: "agent_final",
+      actor_id: "agent_1",
+      actor_name: "Agent",
+      actor_role: "agent",
+      text: "Next",
+      source: "composer",
+      created_at: "2026-05-01T00:00:01.000Z"
+    });
+
+    expect(next.sequence).toBe(1);
+  });
 });

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CacpEvent } from "@cacp/protocol";
-import { approveAiCollectionRequest, cancelAiCollection, clearEventSocket, clearRoom, createJoinRequest, createLocalAgentLaunch, createRoom, createRoomWithLocalAgent, getRoomMe, inviteUrlFor, joinRequestStatus, leaveRoom, pairingServerUrlFor, parseCacpEventMessage, rejectAiCollectionRequest, requestAiCollection, requestAgentSessionPreview, selectAgentSession, startAiCollection, startTyping, stopTyping, submitAiCollection, updatePresence, type RoomSession } from "../src/api.js";
+import { approveAiCollectionRequest, cancelAiCollection, clearEventSocket, clearRoom, createJoinRequest, createLocalAgentLaunch, createRoom, createRoomWithLocalAgent, getRoomMe, inviteUrlFor, joinRequestStatus, leaveRoom, pairingServerUrlFor, parseCacpEventMessage, rejectAiCollectionRequest, requestAiCollection, requestAgentSessionPreview, requestConnectorSnapshot, selectAgentSession, startAiCollection, startTyping, stopTyping, submitAiCollection, updatePresence, type RoomSession } from "../src/api.js";
 
 const validEvent = {
   protocol: "cacp",
@@ -317,6 +317,19 @@ describe("room API", () => {
         })
       })
     );
+  });
+
+  it("posts connector snapshot requests to the plural snapshot endpoint with a cursor", async () => {
+    const session: RoomSession = { room_id: "room_1", token: "owner_secret", participant_id: "user_owner", role: "owner" };
+    mockJsonResponse({ request_id: "snap_1" });
+
+    await expect(requestConnectorSnapshot(session, 7)).resolves.toEqual({ request_id: "snap_1" });
+
+    expect(fetch).toHaveBeenCalledWith("/rooms/room_1/connector-snapshots", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer owner_secret" },
+      body: JSON.stringify({ since_sequence: 7 })
+    });
   });
 
   it("posts Roundtable request lifecycle calls to the collection request endpoints", async () => {

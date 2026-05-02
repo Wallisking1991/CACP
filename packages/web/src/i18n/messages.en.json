@@ -298,6 +298,7 @@
   "orbit.empty": "No orbit notes yet",
   "orbit.like": "Like",
   "orbit.unlike": "Unlike",
+  "orbit.ownNote": "Own note",
   "orbitPromote.title": "Promote to Main Thread",
   "orbitPromote.empty": "No notes to promote",
   "orbitPromote.promote": "Promote"
