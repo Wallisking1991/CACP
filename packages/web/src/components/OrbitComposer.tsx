@@ -124,11 +124,11 @@ export default function OrbitComposer({
 
   return (
     <div className="orbit-composer" data-testid="orbit-composer">
-      <div className="mention-overlay-wrapper">
+      <div className="mention-overlay-wrapper composer-input-wrapper">
         <MentionOverlay text={text} mentions={mentions} />
         <textarea
           ref={textareaRef}
-          className="input composer-input"
+          className="input composer-input composer-input--with-floating-btn"
           placeholder={String(t("orbitComposer.placeholder"))}
           aria-label={t("orbitComposer.placeholder")}
           value={text}
@@ -137,6 +137,16 @@ export default function OrbitComposer({
           disabled={!canInput}
           rows={2}
         />
+        <button
+          type="button"
+          className="composer-send-floating composer-send-floating--warm"
+          onClick={handleSend}
+          disabled={!text.trim() || !canInput}
+          aria-label={t("orbitComposer.send")}
+          title={t("orbitComposer.send")}
+        >
+          <span style={{ fontSize: 16, lineHeight: 1 }}>&#10148;</span>
+        </button>
       </div>
       {mentionActive && (
         <MentionDropdown
@@ -158,20 +168,6 @@ export default function OrbitComposer({
           onClose={() => setMentionActive(false)}
         />
       )}
-      <div className="composer-action-bar">
-        <div className="composer-action-bar__left" />
-        <div className="composer-action-bar__right">
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={handleSend}
-            disabled={!text.trim() || !canInput}
-            aria-label={t("orbitComposer.send")}
-          >
-            {t("orbitComposer.send")}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

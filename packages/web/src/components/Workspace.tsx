@@ -18,7 +18,7 @@ import { Popover } from "./Popover.js";
 import { AgentAvatarPopover } from "./AgentAvatarPopover.js";
 import { PeopleAvatarPopover } from "./PeopleAvatarPopover.js";
 import { OrbitLayer } from "./OrbitLayer.js";
-import { OrbitPromoteTray } from "./OrbitPromoteTray.js";
+import { OrbitPromoteModal } from "./OrbitPromoteModal.js";
 
 export interface WorkspaceProps {
   session: RoomSession;
@@ -124,6 +124,7 @@ export default function Workspace({
   const [agentPopoverOpen, setAgentPopoverOpen] = useState(false);
   const [peoplePopoverOpen, setPeoplePopoverOpen] = useState(false);
   const [wantsReselect, setWantsReselect] = useState(false);
+  const [promoteModalOpen, setPromoteModalOpen] = useState(false);
 
   const pendingNotificationCount = useMemo(() => {
     if (!isOwner) return 0;
@@ -199,6 +200,12 @@ export default function Workspace({
           }
           break;
         }
+        case "orbit.note.created": {
+          if (shouldPlayCueForMessage({ actorId: event.actor_id, currentParticipantId: session.participant_id })) {
+            soundControllerRef.current.play("message");
+          }
+          break;
+        }
         case "agent.turn.started": {
           soundControllerRef.current.play("ai-start");
           break;
@@ -253,14 +260,17 @@ export default function Workspace({
         canReact={permissions.canSendMessages && session.role !== "observer"}
         onLike={(noteId) => { void likeOrbitNote(session, noteId).catch(() => {}); }}
         onUnlike={(noteId) => { void unlikeOrbitNote(session, noteId).catch(() => {}); }}
+        canPromote={canPromoteOrbit}
+        hasPromotable={promotableOrbitNotes.length > 0}
+        onPromoteClick={() => setPromoteModalOpen(true)}
       />
-      {canPromoteOrbit && (
-        <OrbitPromoteTray
-          notes={promotableOrbitNotes}
-          onPromote={(noteIds) => { void promoteOrbitRound(session, noteIds).catch(() => {}); }}
-          canPromote={canPromoteOrbit}
-        />
-      )}
+      <OrbitPromoteModal
+        open={promoteModalOpen}
+        notes={promotableOrbitNotes}
+        canPromote={canPromoteOrbit}
+        onPromote={(noteIds) => { void promoteOrbitRound(session, noteIds).catch(() => {}); }}
+        onClose={() => setPromoteModalOpen(false)}
+      />
       <OrbitComposer
         role={session.role}
         members={peopleParticipants}

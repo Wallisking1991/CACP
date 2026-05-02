@@ -171,7 +171,7 @@ describe("Workspace refactored shell", () => {
   it("shows Orbit by default with separate MainComposer and OrbitComposer", () => {
     render(<LangProvider><Workspace {...baseProps} /></LangProvider>);
 
-    expect(screen.getByText("Orbit")).toBeInTheDocument();
+    expect(screen.getByText("Roundtable")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Trigger Agent/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Send/i })).toBeInTheDocument();
     expect(screen.getByTestId("main-composer")).toBeInTheDocument();
@@ -187,7 +187,7 @@ describe("Workspace refactored shell", () => {
     expect(grid?.querySelector(":scope > .orbit-panel")).not.toBeNull();
   });
 
-  it("lists current-round Orbit notes in the promote tray", () => {
+  it("opens the promote modal listing current-round Orbit notes when the header button is clicked", () => {
     const props = {
       ...baseProps,
       showOrbit: true,
@@ -200,7 +200,11 @@ describe("Workspace refactored shell", () => {
 
     render(<LangProvider><Workspace {...props} /></LangProvider>);
 
-    const tray = screen.getByText(/Promote to Main Thread/i).closest(".orbit-promote-tray") as HTMLElement;
-    expect(within(tray).getByText("Promote this note")).toBeInTheDocument();
+    const openButton = screen.getByRole("button", { name: /Promote orbit notes/i });
+    expect(openButton).not.toBeDisabled();
+    fireEvent.click(openButton);
+
+    const dialog = screen.getByRole("dialog", { name: /Promote to Main Thread/i });
+    expect(within(dialog).getByText("Promote this note")).toBeInTheDocument();
   });
 });

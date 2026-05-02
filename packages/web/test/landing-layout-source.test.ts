@@ -46,6 +46,6 @@ describe("landing redesign source", () => {
     expect(header).toContain("workspace-header--studio");
     expect(css).toMatch(/@media\s*\(max-width:\s*767px\)[\s\S]*\.workspace-header/s);
     expect(css).toMatch(/@media\s*\(max-width:\s*767px\)[\s\S]*\.workspace-header--studio\s*\{[\s\S]*flex-direction:\s*column/s);
-    expect(css).toMatch(/@media\s*\(max-width:\s*767px\)[\s\S]*\.composer-icon-btn\s*\{[\s\S]*width:\s*40px/s);
+    expect(css).toMatch(/@media\s*\(max-width:\s*767px\)[\s\S]*\.composer-send-floating\s*\{[\s\S]*width:\s*40px/s);
   });
 });

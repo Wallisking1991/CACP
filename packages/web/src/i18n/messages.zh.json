@@ -266,16 +266,19 @@
   "mainComposer.send": "触发 Agent",
   "mainComposer.queued": "排队中...",
   "mainComposer.queuedHint": "Agent 正在回复，你的消息会排队到下一轮。",
-  "orbitComposer.placeholder": "和队友闲聊...",
+  "orbitComposer.placeholder": "讨论空间…",
   "orbitComposer.send": "发送",
   "mention.agentLabel": "Agent",
   "mention.memberLabel": "成员",
-  "orbit.title": "轨道",
+  "orbit.title": "圆桌",
   "orbit.empty": "暂无轨道笔记",
   "orbit.like": "点赞",
   "orbit.unlike": "取消点赞",
   "orbit.ownNote": "自己的笔记",
   "orbitPromote.title": "提升到主线程",
   "orbitPromote.empty": "没有可提升的笔记",
-  "orbitPromote.promote": "提升"
+  "orbitPromote.promote": "提升",
+  "orbitPromote.cancel": "取消",
+  "orbitPromote.openTitle": "提升轨道笔记",
+  "orbitPromote.close": "关闭"
 }

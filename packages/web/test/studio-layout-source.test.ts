@@ -16,7 +16,7 @@ describe("studio room CSS source", () => {
       ".message-human-other",
       ".message-ai-card",
       ".message-system-marker",
-      ".composer-icon-btn",
+      ".composer-send-floating",
       ".floating-logo-control",
       ".room-control-center"
     ]) {

@@ -27,13 +27,13 @@ describe("OrbitComposer", () => {
 
   it("renders textarea with orbit placeholder", () => {
     renderOrbitComposer(baseProps);
-    expect(screen.getByPlaceholderText(/Chat with the team/i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Discussion space/i)).toBeInTheDocument();
   });
 
   it("calls onSendOrbitNote on Enter", () => {
     const onSendOrbitNote = vi.fn();
     renderOrbitComposer({ ...baseProps, onSendOrbitNote });
-    const textarea = screen.getByPlaceholderText(/Chat with the team/i);
+    const textarea = screen.getByPlaceholderText(/Discussion space/i);
     fireEvent.change(textarea, { target: { value: "Hey team" } });
     fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
     expect(onSendOrbitNote).toHaveBeenCalledWith("Hey team");
@@ -42,7 +42,7 @@ describe("OrbitComposer", () => {
   it("does not send on Shift+Enter", () => {
     const onSendOrbitNote = vi.fn();
     renderOrbitComposer({ ...baseProps, onSendOrbitNote });
-    const textarea = screen.getByPlaceholderText(/Chat with the team/i);
+    const textarea = screen.getByPlaceholderText(/Discussion space/i);
     fireEvent.change(textarea, { target: { value: "Hey team" } });
     fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true });
     expect(onSendOrbitNote).not.toHaveBeenCalled();

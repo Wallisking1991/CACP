@@ -266,16 +266,19 @@
   "mainComposer.send": "Trigger Agent",
   "mainComposer.queued": "Queued...",
   "mainComposer.queuedHint": "Agent is replying. Your message will be processed next.",
-  "orbitComposer.placeholder": "Chat with the team...",
+  "orbitComposer.placeholder": "Discussion space\u2026",
   "orbitComposer.send": "Send",
   "mention.agentLabel": "Agent",
   "mention.memberLabel": "Member",
-  "orbit.title": "Orbit",
+  "orbit.title": "Roundtable",
   "orbit.empty": "No orbit notes yet",
   "orbit.like": "Like",
   "orbit.unlike": "Unlike",
   "orbit.ownNote": "Own note",
   "orbitPromote.title": "Promote to Main Thread",
   "orbitPromote.empty": "No notes to promote",
-  "orbitPromote.promote": "Promote"
+  "orbitPromote.promote": "Promote",
+  "orbitPromote.cancel": "Cancel",
+  "orbitPromote.openTitle": "Promote orbit notes",
+  "orbitPromote.close": "Close"
 }

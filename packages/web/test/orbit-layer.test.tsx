@@ -68,7 +68,7 @@ describe("OrbitLayer", () => {
     renderOrbitLayer({ ...baseProps, notes, onLike });
 
     expect(screen.queryByRole("button", { name: /Like/i })).not.toBeInTheDocument();
-    expect(screen.getByText(/Own note/i)).toBeInTheDocument();
+    expect(document.querySelector(".orbit-note--own")).not.toBeNull();
     expect(onLike).not.toHaveBeenCalled();
   });
 
@@ -88,5 +88,29 @@ describe("OrbitLayer", () => {
     ];
     renderOrbitLayer({ ...baseProps, notes });
     expect(document.querySelector(".orbit-note--round")).not.toBeNull();
+  });
+
+  it("renders the promote button in the header when canPromote is true", () => {
+    const onPromoteClick = vi.fn();
+    renderOrbitLayer({ ...baseProps, canPromote: true, hasPromotable: true, onPromoteClick });
+    const button = screen.getByRole("button", { name: /Promote orbit notes/i });
+    expect(button).toBeInTheDocument();
+    expect(button).not.toBeDisabled();
+    fireEvent.click(button);
+    expect(onPromoteClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables the promote button when there are no promotable notes", () => {
+    const onPromoteClick = vi.fn();
+    renderOrbitLayer({ ...baseProps, canPromote: true, hasPromotable: false, onPromoteClick });
+    const button = screen.getByRole("button", { name: /Promote orbit notes/i });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(onPromoteClick).not.toHaveBeenCalled();
+  });
+
+  it("hides the promote button entirely when canPromote is false", () => {
+    renderOrbitLayer({ ...baseProps, canPromote: false, hasPromotable: true, onPromoteClick: vi.fn() });
+    expect(screen.queryByRole("button", { name: /Promote orbit notes/i })).not.toBeInTheDocument();
   });
 });

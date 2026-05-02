@@ -131,11 +131,11 @@ export default function MainComposer({
 
   return (
     <div className={composerClass} data-testid="main-composer">
-      <div className="mention-overlay-wrapper">
+      <div className="mention-overlay-wrapper composer-input-wrapper">
         <MentionOverlay text={text} mentions={mentions} />
         <textarea
           ref={textareaRef}
-          className="input composer-input"
+          className="input composer-input composer-input--with-floating-btn"
           placeholder={String(t("mainComposer.placeholder"))}
           aria-label={t("mainComposer.placeholder")}
           value={text}
@@ -144,6 +144,16 @@ export default function MainComposer({
           disabled={!canInput}
           rows={2}
         />
+        <button
+          type="button"
+          className={`composer-send-floating${isQueued ? "" : " composer-send-floating--warm"}`}
+          onClick={handleSend}
+          disabled={!text.trim() || !canInput || isQueued}
+          aria-label={sendLabel}
+          title={isQueued ? queuedHint : sendLabel}
+        >
+          <span style={{ fontSize: 16, lineHeight: 1 }}>{isQueued ? "\u23F1" : "\u26A1"}</span>
+        </button>
       </div>
       {mentionActive && (
         <MentionDropdown
@@ -165,22 +175,6 @@ export default function MainComposer({
           onClose={() => setMentionActive(false)}
         />
       )}
-      <div className="composer-action-bar">
-        <div className="composer-action-bar__left" />
-        <div className="composer-action-bar__right">
-          <button
-            type="button"
-            className={`btn${isQueued ? "" : " btn-warm"}`}
-            onClick={handleSend}
-            disabled={!text.trim() || !canInput || isQueued}
-            aria-label={sendLabel}
-            title={isQueued ? queuedHint : sendLabel}
-          >
-            {isQueued ? "⏱ " : "⚡ "}
-            {sendLabel}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
