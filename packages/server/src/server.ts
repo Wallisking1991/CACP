@@ -10,7 +10,7 @@ import { bearerToken, requireParticipant, hasAnyRole, hasHumanRole } from "./aut
 import { buildAgentContextPrompt, buildCollectedAnswersPrompt, eventsAfterLastHistoryClear, findActiveAgentId, findAgentCapabilities, findAnyOpenTurn, findOpenTurn, findQueuedFollowupMessage, findQueuedFollowupMessages, hasQueuedFollowup, recentConversationMessages, type ConversationMessage, type OpenTurn } from "./conversation.js";
 import { EventBus } from "./event-bus.js";
 import { EventStore, type StoredParticipant } from "./event-store.js";
-import { roomDelivery, targetedDelivery, roleDelivery, canDeliverEnvelope, type RelayEnvelope } from "./relay.js";
+import { roomDelivery, targetedDelivery, roleDelivery, canDeliverEnvelope, HUMAN_ROLES, type RelayEnvelope } from "./relay.js";
 import { hasAllowedOrigin, loadServerConfig, type ServerConfig } from "./config.js";
 import { event, hashToken, openSecret, prefixedId, sealSecret, token } from "./ids.js";
 import { OrbitRoomState } from "./orbit-state.js";
@@ -444,6 +444,12 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return stored;
   }
 
+  /**
+   * Live-only counterpart to `publishRoleFiltered` — broadcasts an event to
+   * the room without persisting to the event store. Reserved for T2, which
+   * moves `main_input.*` events out of durable storage (so reconnecting
+   * clients do not replay stale composer state).
+   */
   function publishLiveOnly(event: CacpEvent): void {
     bus.publish({ event, delivery: roomDelivery() });
   }
@@ -1629,7 +1635,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
           round_id: round.round_id,
           triggered_by_turn_id: round.triggered_by_turn_id,
           opened_at: round.opened_at
-        }), ["owner", "admin", "member", "observer"]);
+        }), HUMAN_ROLES);
       }
     }
     return reply.code(201).send({ input_id: inputId, status: openTurn ? "queued" : "triggered" });
@@ -1674,7 +1680,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       author_name: note.author_name,
       text: note.text,
       created_at: note.created_at
-    }), ["owner", "admin", "member", "observer"]);
+    }), HUMAN_ROLES);
     return reply.code(201).send({ note_id: noteId });
   });
 
@@ -1694,7 +1700,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       participant_id: participant.id,
       liked: true,
       likes: result.count
-    }), ["owner", "admin", "member", "observer"]);
+    }), HUMAN_ROLES);
     return reply.code(201).send({ liked: result.liked, count: result.count });
   });
 
@@ -1713,7 +1719,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       participant_id: participant.id,
       liked: false,
       likes: result.count
-    }), ["owner", "admin", "member", "observer"]);
+    }), HUMAN_ROLES);
     return reply.code(201).send({ liked: result.liked, count: result.count });
   });
 
@@ -1771,7 +1777,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
           round_id: round.round_id,
           triggered_by_turn_id: round.triggered_by_turn_id,
           opened_at: round.opened_at
-        }), ["owner", "admin", "member", "observer"]);
+        }), HUMAN_ROLES);
       }
     }
     publishRoleFiltered(event(roomId, "orbit.round.promoted", participant.id, {
@@ -1779,7 +1785,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       promoted_by: participant.id,
       input_id: inputId,
       promoted_at: now
-    }), ["owner", "admin", "member", "observer"]);
+    }), HUMAN_ROLES);
     return reply.code(201).send({ input_id: inputId, status: openTurn ? "queued" : "triggered", note_count: payload.noteCount });
   });
 

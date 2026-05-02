@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
-import { roomDelivery, targetedDelivery, roleDelivery, canDeliverEnvelope, type RelayEnvelope } from "../src/relay.js";
+import { roomDelivery, targetedDelivery, roleDelivery, canDeliverEnvelope, HUMAN_ROLES, type RelayEnvelope } from "../src/relay.js";
 import { EventBus } from "../src/event-bus.js";
 import { EventStore } from "../src/event-store.js";
 import { buildServer } from "../src/server.js";
@@ -65,6 +65,20 @@ describe("relay delivery", () => {
     expect(d).toEqual({ kind: "role", roles: ["owner", "member"] });
   });
 
+  it("roleDelivery([]) throws (mirrors required_roles .min(1) constraint in schemas)", () => {
+    expect(() => roleDelivery([])).toThrow();
+  });
+
+  it("roleDelivery(HUMAN_ROLES) excludes 'agent' and includes all four human roles", () => {
+    const d = roleDelivery(HUMAN_ROLES);
+    expect(d.kind).toBe("role");
+    if (d.kind === "role") {
+      expect(d.roles).toEqual(expect.arrayContaining(["owner", "admin", "member", "observer"]));
+      expect(d.roles).not.toContain("agent");
+      expect(d.roles).toHaveLength(4);
+    }
+  });
+
   it("canDeliverEnvelope allows role delivery only for matching roles", () => {
     const envelope: RelayEnvelope = {
       event: {
@@ -85,7 +99,7 @@ describe("relay delivery", () => {
   });
 });
 
-describe("EventBus role filtering", () => {
+describe("role-filter dispatch via canDeliverEnvelope (EventBus does no filtering)", () => {
   it("invokes subscribers regardless of role; filtering is delegated to canDeliverEnvelope", () => {
     // EventBus itself just dispatches envelopes; per-subscriber role filtering happens in
     // the WS dispatch via canDeliverEnvelope. This test asserts the dispatch contract:
@@ -169,20 +183,16 @@ describe("orbit role-filtered delivery (integration)", () => {
 
       const ownerEvents: Array<{ type: string }> = [];
       const agentEvents: Array<{ type: string }> = [];
-      ownerWs.addEventListener("message", (msg) => {
-        const parsed = JSON.parse(msg.data as string);
-        ownerEvents.push(parsed);
+      const ownerNotePromise = new Promise<void>((resolve) => {
+        ownerWs.addEventListener("message", (msg) => {
+          const parsed = JSON.parse(msg.data as string);
+          ownerEvents.push(parsed);
+          if (parsed.type === "orbit.note.created") resolve();
+        });
       });
       agentWs.addEventListener("message", (msg) => {
         const parsed = JSON.parse(msg.data as string);
         agentEvents.push(parsed);
-      });
-
-      const ownerNotePromise = new Promise<void>((resolve) => {
-        ownerWs.addEventListener("message", (msg) => {
-          const parsed = JSON.parse(msg.data as string);
-          if (parsed.type === "orbit.note.created") resolve();
-        });
       });
 
       const noteRes = await app.inject({
