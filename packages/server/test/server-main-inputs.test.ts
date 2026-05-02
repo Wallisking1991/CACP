@@ -260,9 +260,13 @@ describe("FIFO main-input auto-trigger on agent turn completion (T5)", () => {
 
     await waitForEvent(received, (e) => e.type === "main_input.triggered" && e.payload.input_id === secondInput);
     const triggered = received.find((e) => e.type === "main_input.triggered" && e.payload.input_id === secondInput)!;
-    const newTurnReq = received.find((e) => e.type === "agent.turn.requested" && e.payload.turn_id === triggered.payload.trigger_turn_id);
-    expect(newTurnReq).toBeDefined();
-    expect(newTurnReq!.payload.message_text).toBe("second");
+    await waitForEvent(received, (e) => e.type === "agent.turn.requested" && e.payload.turn_id === triggered.payload.trigger_turn_id);
+    const newTurnReq = received.find((e) => e.type === "agent.turn.requested" && e.payload.turn_id === triggered.payload.trigger_turn_id)!;
+    expect(newTurnReq.payload.message_text).toBe("second");
+    // Ordering: agent.turn.requested should arrive before main_input.triggered.
+    const reqIdx = received.findIndex((e) => e.type === "agent.turn.requested" && e.payload.turn_id === triggered.payload.trigger_turn_id);
+    const trigIdx = received.findIndex((e) => e.type === "main_input.triggered" && e.payload.input_id === secondInput);
+    expect(reqIdx).toBeLessThan(trigIdx);
 
     // Third should still be queued (not yet triggered).
     expect(received.some((e) => e.type === "main_input.triggered" && e.payload.input_id === thirdInput)).toBe(false);
@@ -304,9 +308,13 @@ describe("FIFO main-input auto-trigger on agent turn completion (T5)", () => {
 
     await waitForEvent(received, (e) => e.type === "main_input.triggered" && e.payload.input_id === thirdInput);
     const thirdTriggered = received.find((e) => e.type === "main_input.triggered" && e.payload.input_id === thirdInput)!;
-    const thirdTurnReq = received.find((e) => e.type === "agent.turn.requested" && e.payload.turn_id === thirdTriggered.payload.trigger_turn_id);
-    expect(thirdTurnReq?.payload.message_text).toBe("third");
-
+    await waitForEvent(received, (e) => e.type === "agent.turn.requested" && e.payload.turn_id === thirdTriggered.payload.trigger_turn_id);
+    const thirdTurnReq = received.find((e) => e.type === "agent.turn.requested" && e.payload.turn_id === thirdTriggered.payload.trigger_turn_id)!;
+    expect(thirdTurnReq.payload.message_text).toBe("third");
+    // Ordering: agent.turn.requested should arrive before main_input.triggered.
+    const reqIdx3 = received.findIndex((e) => e.type === "agent.turn.requested" && e.payload.turn_id === thirdTriggered.payload.trigger_turn_id);
+    const trigIdx3 = received.findIndex((e) => e.type === "main_input.triggered" && e.payload.input_id === thirdInput);
+    expect(reqIdx3).toBeLessThan(trigIdx3);
     // Now complete the third turn → queue should be empty, no new triggered.
     const thirdTurnId = String(thirdTriggered.payload.trigger_turn_id);
     await startTurn(app, room.room_id, agent.agent_token, thirdTurnId);
@@ -400,9 +408,13 @@ describe("FIFO main-input auto-trigger on agent turn completion (T5)", () => {
     await waitForEvent(received, (e) => e.type === "main_input.triggered" && e.payload.input_id === thirdInput);
     expect(received.some((e) => e.type === "main_input.triggered" && e.payload.input_id === secondInput)).toBe(false);
     const triggered = received.find((e) => e.type === "main_input.triggered" && e.payload.input_id === thirdInput)!;
-    const newTurnReq = received.find((e) => e.type === "agent.turn.requested" && e.payload.turn_id === triggered.payload.trigger_turn_id);
-    expect(newTurnReq?.payload.message_text).toBe("third");
-
+    await waitForEvent(received, (e) => e.type === "agent.turn.requested" && e.payload.turn_id === triggered.payload.trigger_turn_id);
+    const newTurnReq = received.find((e) => e.type === "agent.turn.requested" && e.payload.turn_id === triggered.payload.trigger_turn_id)!;
+    expect(newTurnReq.payload.message_text).toBe("third");
+    // Ordering: agent.turn.requested should arrive before main_input.triggered.
+    const reqIdx = received.findIndex((e) => e.type === "agent.turn.requested" && e.payload.turn_id === triggered.payload.trigger_turn_id);
+    const trigIdx = received.findIndex((e) => e.type === "main_input.triggered" && e.payload.input_id === thirdInput);
+    expect(reqIdx).toBeLessThan(trigIdx);
     ws.close();
   });
 

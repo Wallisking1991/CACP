@@ -299,6 +299,28 @@ export function defaultLocalAgentLauncher(input: LocalAgentLaunchInput): LocalAg
   }
 }
 
+/**
+ * Failure-reason markers that halt the queued-main-input auto-trigger
+ * (spec §4: agent offline / unavailable / session not ready). Compared by
+ * exact equality against `failurePayload.error` to avoid false-positive
+ * substring matches in arbitrary LLM-returned error strings.
+ */
+const HALT_TRIGGER_FAILURE_ERRORS = new Set([
+  "active_agent_offline",
+  "active_agent_unavailable",
+  "agent_session_not_ready"
+]);
+
+interface QueuedMainInput {
+  input_id: string;
+  author_id: string;
+  author_name: string;
+  author_role: ParticipantRole;
+  text: string;
+  source: "composer" | "orbit_promote";
+  created_at: string;
+}
+
 export async function buildServer(options: BuildServerOptions = {}) {
   const config = options.config ?? loadServerConfig();
   const app = Fastify({ bodyLimit: config.bodyLimitBytes, trustProxy: config.deploymentMode === "cloud" });
@@ -318,29 +340,6 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return orbitStates.get(roomId)!;
   }
 
-  /**
-   * In-memory per-room FIFO array of main-input entries that are currently
-   * queued (non-terminal). Ephemeral by design: `main_input.*` events do not
-   * persist to the durable store (spec §3/§11/§15), so we cannot recover this
-   * by replaying the event log.
-   *
-   * The shape carries the full input metadata (text/author_id/source) — not
-   * just the input_id — because the T5 auto-trigger that runs on
-   * `agent.turn.completed/failed` needs to mint a fresh
-   * `agent.turn.requested` for the next queued input, and the original text
-   * lives only in the live-only `main_input.accepted` event the producing
-   * client already received. Storing it here keeps the trigger path
-   * independent of the event log.
-   *
-   * Array order is insertion order = FIFO trigger order.
-   */
-  interface QueuedMainInput {
-    input_id: string;
-    author_id: string;
-    text: string;
-    source: "composer" | "orbit_promote";
-    created_at: string;
-  }
   const queuedMainInputs = new Map<string, QueuedMainInput[]>();
   const MAX_QUEUED_PER_ROOM = 50;
   function getQueuedMainInputs(roomId: string): QueuedMainInput[] {
@@ -846,13 +845,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
    * ready, or a halting failure reason.
    */
   function triggerNextQueuedMainInput(roomId: string, terminalReason: "completed" | "failed", failureError?: string): boolean {
-    if (terminalReason === "failed" && failureError) {
-      // These error markers mean the agent cannot service the next input —
-      // halt the queue rather than triggering a doomed turn. Surface a
-      // recoverable error by leaving the queued entries in place.
-      const halts = ["active_agent_offline", "agent_session_not_ready", "active_agent_unavailable", "agent_offline"];
-      if (halts.some((h) => failureError.includes(h))) return false;
-    }
+    if (terminalReason === "failed" && failureError && HALT_TRIGGER_FAILURE_ERRORS.has(failureError)) return false;
     const queue = queuedMainInputs.get(roomId);
     if (!queue || queue.length === 0) return false;
 
@@ -877,37 +870,24 @@ export async function buildServer(options: BuildServerOptions = {}) {
     // Build a turn-request event with the queued input's text. We can't reuse
     // `createAgentTurnRequestEvents("human_message")` because that pulls
     // speaker/text from the latest `message.created` — main inputs don't
-    // create messages. Mirror the shape of the local-provider branch in
-    // `createAgentTurnRequestEvents` for parity (mode/message_text/etc).
+    // create messages. Mirror `createAgentTurnRequestEvents` shape via a
+    // single object literal with conditional context_prompt spread.
     const turnId = prefixedId("turn");
     const room = store.getRoom(roomId);
-    const participants = store.getParticipants(roomId);
-    const author = participants.find((p) => p.id === next.author_id);
-    const speakerName = author?.display_name ?? next.author_id;
-    const speakerRole = author?.role ?? "member";
+    const speakerName = next.author_name;
+    const speakerRole = next.author_role;
 
-    const turnEvent: CacpEvent = localProvider
-      ? event(roomId, "agent.turn.requested", next.author_id, {
-          turn_id: turnId,
-          agent_id: activeAgentId,
-          reason: "human_message",
-          speaker_name: speakerName,
-          speaker_role: speakerRole,
-          room_name: room?.name ?? "Untitled room",
-          mode: "normal",
-          message_text: next.text
-        })
-      : event(roomId, "agent.turn.requested", next.author_id, {
-          turn_id: turnId,
-          agent_id: activeAgentId,
-          reason: "human_message",
-          speaker_name: speakerName,
-          speaker_role: speakerRole,
-          room_name: room?.name ?? "Untitled room",
-          mode: "normal",
-          message_text: next.text,
-          context_prompt: next.text
-        });
+    const turnEvent: CacpEvent = event(roomId, "agent.turn.requested", next.author_id, {
+      turn_id: turnId,
+      agent_id: activeAgentId,
+      reason: "human_message",
+      speaker_name: speakerName,
+      speaker_role: speakerRole,
+      room_name: room?.name ?? "Untitled room",
+      mode: "normal",
+      message_text: next.text,
+      ...(localProvider ? {} : { context_prompt: next.text })
+    });
 
     const triggered = event(roomId, "main_input.triggered", next.author_id, {
       input_id: next.input_id,
@@ -915,9 +895,11 @@ export async function buildServer(options: BuildServerOptions = {}) {
     });
 
     // Persist the turn request (durable) and publish triggered (live-only).
+    // Broadcast the durable turn request first so clients see the new turn
+    // before the live-only triggered marker, matching POST /main-inputs.
     const stored = store.appendEvent(turnEvent);
-    publishLiveOnly(triggered);
     bus.publish({ event: stored, delivery: roomDelivery() });
+    publishLiveOnly(triggered);
 
     // Open the new orbit round (mirrors the producer routes).
     const orbit = getOrbitState(roomId);
@@ -1837,6 +1819,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
       queuedArr.push({
         input_id: inputId,
         author_id: participant.id,
+        author_name: participant.display_name,
+        author_role: participant.role,
         text: body.text,
         source: "composer",
         created_at: now
@@ -1992,6 +1976,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
       queuedArr.push({
         input_id: inputId,
         author_id: participant.id,
+        author_name: participant.display_name,
+        author_role: participant.role,
         text: payload.text,
         source: "orbit_promote",
         created_at: now
