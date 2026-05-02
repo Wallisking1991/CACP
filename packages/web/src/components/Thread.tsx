@@ -15,6 +15,7 @@ export interface ThreadProps {
 function messageClass(kind: string, actorId: string, currentParticipantId: string): string {
   if (kind === "agent") return "message message-ai-card";
   if (kind === "system") return "message message-system-marker";
+  if (kind === "queued") return "message message-queued";
   if (actorId === currentParticipantId) return "message message-own";
   return "message message-human-other";
 }
@@ -23,6 +24,7 @@ function roleLabel(kind: string, t: ReturnType<typeof useT>): string {
   switch (kind) {
     case "agent": return t("message.ai");
     case "system": return t("message.system");
+    case "queued": return t("message.queued");
     default: return t("message.human");
   }
 }
