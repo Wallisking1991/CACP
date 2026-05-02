@@ -1216,8 +1216,15 @@ export async function buildServer(options: BuildServerOptions = {}) {
         store.appendEvent(event(roomId, "participant.joined", ownerId, { participant: publicParticipant(owner) }))
       ];
     });
-    publishEvents(storedEvents);
+    // Mint as alive (T4 / spec §11): room is "alive" only for the lifetime
+    // of this server process. After restart the room ends. Ordering matters:
+    // we add to aliveRooms BEFORE publishEvents so that any subscriber
+    // observing room.created on the bus is guaranteed the registry already
+    // includes this roomId — closes the sub-millisecond window where a
+    // racing /events or /me request could see the event but read the gate
+    // as false.
     aliveRooms.add(roomId);
+    publishEvents(storedEvents);
     return reply.code(201).send({ room_id: roomId, owner_id: ownerId, owner_token: ownerToken });
   });
 
@@ -1607,8 +1614,20 @@ export async function buildServer(options: BuildServerOptions = {}) {
     // Owner explicit Leave Room dissolves the room (spec §11 / §2.34).
     // Member-leave never reaches here (rejected with 403 above), so this
     // delete is unconditional once we get past the owner-role check. (T4)
+    //
+    // Ordering matters: we flip the gate (aliveRooms.delete) BEFORE
+    // closeRoomSockets so the room is "dead" from the registry's
+    // perspective the moment any failure mode could short-circuit the
+    // socket cleanup. closeRoomSockets is wrapped in try/catch so a
+    // throw there cannot prevent the 201 response — the client already
+    // sees the room as gone (next /me would 410), and any leaked socket
+    // is bounded by process lifetime.
     aliveRooms.delete(request.params.roomId);
-    closeRoomSockets(request.params.roomId, 4001, "owner_left_room");
+    try {
+      closeRoomSockets(request.params.roomId, 4001, "owner_left_room");
+    } catch (err) {
+      request.log.error({ err, roomId: request.params.roomId }, "closeRoomSockets failed during owner /leave; continuing");
+    }
     return reply.code(201).send({ ok: true, status: "room_closed" });
   });
 

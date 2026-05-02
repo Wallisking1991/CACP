@@ -49,7 +49,10 @@ function addressOf(app: Awaited<ReturnType<typeof buildServer>>): string {
   return `127.0.0.1:${address.port}`;
 }
 
-function waitForOpenOrClose(socket: WebSocket, timeoutMs = 2000): Promise<{ opened: boolean; closed: boolean }> {
+function waitForOpenOrClose(
+  socket: WebSocket,
+  timeoutMs = 2000
+): Promise<{ opened: boolean; closed: boolean; error?: string }> {
   return new Promise((resolve) => {
     let opened = false;
     let closed = false;
@@ -60,9 +63,37 @@ function waitForOpenOrClose(socket: WebSocket, timeoutMs = 2000): Promise<{ open
       clearTimeout(t);
       resolve({ opened, closed });
     }, { once: true });
-    socket.addEventListener("error", () => {
+    socket.addEventListener("error", (e: Event & { message?: string }) => {
       clearTimeout(t);
-      resolve({ opened, closed });
+      resolve({ opened, closed, error: (e as { message?: string }).message ?? "ws error" });
+    }, { once: true });
+  });
+}
+
+// Resolves when the socket either receives its first message or closes,
+// whichever happens first. Used by the gate-WS test so it does not need
+// an unconditional sleep — robust on slow CI.
+function waitForFirstMessageOrClose(
+  socket: WebSocket,
+  timeoutMs = 2000
+): Promise<{ message?: unknown; closed: boolean; error?: string }> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const settle = (value: { message?: unknown; closed: boolean; error?: string }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(t);
+      resolve(value);
+    };
+    const t = setTimeout(() => settle({ closed: false }), timeoutMs);
+    socket.addEventListener("message", (msg) => {
+      let parsed: unknown;
+      try { parsed = JSON.parse((msg as MessageEvent).data as string); } catch { parsed = (msg as MessageEvent).data; }
+      settle({ message: parsed, closed: false });
+    }, { once: true });
+    socket.addEventListener("close", () => settle({ closed: true }), { once: true });
+    socket.addEventListener("error", (e: Event & { message?: string }) => {
+      settle({ closed: false, error: (e as { message?: string }).message ?? "ws error" });
     }, { once: true });
   });
 }
@@ -73,14 +104,13 @@ describe("aliveRooms registry / room_ended responses (T4)", () => {
   let tmpDir: string | undefined;
 
   afterEach(async () => {
-    await app?.close();
-    app = undefined;
-    await secondApp?.close();
-    secondApp = undefined;
+    await Promise.allSettled([app?.close(), secondApp?.close()]);
     if (tmpDir) {
-      rmSync(tmpDir, { recursive: true, force: true });
-      tmpDir = undefined;
+      try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
     }
+    app = undefined;
+    secondApp = undefined;
+    tmpDir = undefined;
   });
 
   it("returns 410 room_ended on /me for rooms that pre-existed in the SQLite file before this process started", async () => {
@@ -146,16 +176,26 @@ describe("aliveRooms registry / room_ended responses (T4)", () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     await app.listen({ host: "127.0.0.1", port: 0 });
 
-    const messages: unknown[] = [];
     const ws = new WebSocket(`ws://${addressOf(app)}/rooms/room_does_not_exist/stream?token=anything`);
-    ws.addEventListener("message", (msg) => {
-      messages.push(JSON.parse(msg.data as string));
-    });
-    const result = await waitForOpenOrClose(ws);
-    // Allow message handler a beat to run if open fired before close
-    await new Promise<void>((resolve) => setTimeout(resolve, 100));
-    expect(result.closed).toBe(true);
-    expect(messages.some((m) => (m as { error?: string }).error === "room_ended")).toBe(true);
+    // Wait exactly until the first frame arrives or the socket closes —
+    // no unconditional sleep, robust on slow CI. The gate path always
+    // sends a single { error: "room_ended" } frame and then closes, so
+    // we capture the message via the same promise.
+    const first = await waitForFirstMessageOrClose(ws);
+    // If we got a message first, give the close handler a microtask tick
+    // to follow (close always trails the gate's send by one event-loop
+    // turn). If we got close first, no message will arrive.
+    let closed = first.closed;
+    if (!closed) {
+      const after = await new Promise<{ closed: boolean }>((resolve) => {
+        if (ws.readyState === ws.CLOSED) { resolve({ closed: true }); return; }
+        const t = setTimeout(() => resolve({ closed: ws.readyState === ws.CLOSED }), 500);
+        ws.addEventListener("close", () => { clearTimeout(t); resolve({ closed: true }); }, { once: true });
+      });
+      closed = after.closed;
+    }
+    expect(closed).toBe(true);
+    expect((first.message as { error?: string } | undefined)?.error).toBe("room_ended");
   });
 
   it("gate runs before auth — malformed token + unknown room returns 410 room_ended (not 401 invalid_token)", async () => {
@@ -199,12 +239,16 @@ describe("aliveRooms registry / room_ended responses (T4)", () => {
     // Member tries to leave. Note: existing /leave route only allows owner
     // (returns 403 for non-owners). Whatever the response, the room must
     // remain alive so long as the OWNER did not call /leave.
-    await app.inject({
+    const leaveRes = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/leave`,
       headers: { authorization: `Bearer ${member.token}` },
       payload: {}
     });
+    // Pin the contract: a future regression that lets members succeed at
+    // /leave (which would dissolve the room) must fail this test instead
+    // of silently passing.
+    expect(leaveRes.statusCode).toBe(403);
 
     const meRes = await app.inject({
       method: "GET",
