@@ -168,12 +168,14 @@ describe("Workspace refactored shell", () => {
     expect(screen.getByText(/Choose how Codex CLI joins this room/i)).toBeInTheDocument();
   });
 
-  it("shows Orbit by default with separate People and Agent send actions", () => {
+  it("shows Orbit by default with separate MainComposer and OrbitComposer", () => {
     render(<LangProvider><Workspace {...baseProps} /></LangProvider>);
 
     expect(screen.getByText("Orbit")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Send to People/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Send to Agent/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Trigger Agent/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Send/i })).toBeInTheDocument();
+    expect(screen.getByTestId("main-composer")).toBeInTheDocument();
+    expect(screen.getByTestId("orbit-composer")).toBeInTheDocument();
   });
 
   it("keeps the Orbit panel inside the workspace grid so it cannot cover the composer", () => {

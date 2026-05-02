@@ -40,11 +40,11 @@ export default function OrbitComposer({
 
   const mentions: MentionRange[] = [];
   const mentionRegex = /@(\S+)/g;
-  let match;
+  let match: RegExpExecArray | null;
   while ((match = mentionRegex.exec(text)) !== null) {
-    const member = members.find((m) => m.display_name === match[1]);
+    const member = members.find((m) => m.display_name === match![1]);
     if (member) {
-      mentions.push({ start: match.index, end: match.index + match[0].length, type: "user" });
+      mentions.push({ start: match!.index, end: match!.index + match![0].length, type: "user" });
     }
   }
 

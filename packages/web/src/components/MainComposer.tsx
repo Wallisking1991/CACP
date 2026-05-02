@@ -43,11 +43,11 @@ export default function MainComposer({
 
   const mentions: MentionRange[] = [];
   const mentionRegex = /@(\S+)/g;
-  let match;
+  let match: RegExpExecArray | null;
   while ((match = mentionRegex.exec(text)) !== null) {
-    const agent = agents.find((a) => a.name === match[1]);
+    const agent = agents.find((a) => a.name === match![1]);
     if (agent) {
-      mentions.push({ start: match.index, end: match.index + match[0].length, type: "agent" });
+      mentions.push({ start: match!.index, end: match!.index + match![0].length, type: "agent" });
     }
   }
 

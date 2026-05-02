@@ -10,7 +10,8 @@ import { createTypingActivityController, type TypingActivityController } from ".
 import { createRoomSoundController, shouldPlayCueForMessage } from "../room-sound.js";
 import Header from "./Header.js";
 import Thread from "./Thread.js";
-import Composer from "./Composer.js";
+import MainComposer from "./MainComposer.js";
+import OrbitComposer from "./OrbitComposer.js";
 import { AgentSessionRequiredModal } from "./AgentSessionRequiredModal.js";
 import { FloatingLogoControl } from "./FloatingLogoControl.js";
 import { Popover } from "./Popover.js";
@@ -260,6 +261,13 @@ export default function Workspace({
           canPromote={canPromoteOrbit}
         />
       )}
+      <OrbitComposer
+        role={session.role}
+        members={peopleParticipants}
+        onSendOrbitNote={(text) => { void sendOrbitNote(session, text).catch(() => {}); }}
+        onTypingInput={(value) => typingControllerRef.current?.inputChanged(value)}
+        onStopTyping={() => typingControllerRef.current?.stopNow()}
+      />
     </div>
   ) : null;
 
@@ -320,18 +328,13 @@ export default function Workspace({
             agentImports={room.agentImports}
           />
 
-          <Composer
+          <MainComposer
             role={session.role}
             turnInFlight={turnInFlight}
-            onSend={onSendMessage}
+            agents={room.agents}
+            onSendMainInput={(text) => { void sendMainInput(session, text).catch(() => {}); }}
             onTypingInput={(value) => typingControllerRef.current?.inputChanged(value)}
             onStopTyping={() => typingControllerRef.current?.stopNow()}
-            onNewConversation={() => {
-              setWantsReselect(true);
-              setAgentPopoverOpen(true);
-            }}
-            onSendOrbitNote={orbitVisible ? (text) => { void sendOrbitNote(session, text).catch(() => {}); } : undefined}
-            onSendMainInput={(text) => { void sendMainInput(session, text).catch(() => {}); }}
           />
 
           {error && (
