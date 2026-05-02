@@ -8,7 +8,7 @@ describe("App room copy and layout source", () => {
   const headerSource = () => readFileSync(resolve(process.cwd(), "src/components/Header.tsx"), "utf8");
   const sidebarSource = () => readFileSync(resolve(process.cwd(), "src/components/Sidebar.tsx"), "utf8");
   const threadSource = () => readFileSync(resolve(process.cwd(), "src/components/Thread.tsx"), "utf8");
-  const composerSource = () => readFileSync(resolve(process.cwd(), "src/components/Composer.tsx"), "utf8");
+  const mainComposerSource = () => readFileSync(resolve(process.cwd(), "src/components/MainComposer.tsx"), "utf8");
   const landingSource = () => readFileSync(resolve(process.cwd(), "src/components/Landing.tsx"), "utf8");
   const i18nSource = () => readFileSync(resolve(process.cwd(), "src/i18n/messages.en.json"), "utf8");
   const cssSource = () => readFileSync(resolve(process.cwd(), "src/App.css"), "utf8");
@@ -19,7 +19,7 @@ describe("App room copy and layout source", () => {
     headerSource() +
     sidebarSource() +
     threadSource() +
-    composerSource() +
+    mainComposerSource() +
     landingSource() +
     i18nSource();
 
@@ -56,7 +56,7 @@ describe("App room copy and layout source", () => {
   it("gives unlabeled chat and active-agent controls accessible names", () => {
     const source = allSource();
 
-    expect(source).toContain('aria-label={t("composer.messageLabel")}');
+    expect(source).toContain('aria-label={t("mainComposer.placeholder")}');
     expect(source).toContain('aria-label={`Active agent ${activeAgent.name}`}');
   });
 
