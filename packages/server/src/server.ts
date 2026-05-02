@@ -886,15 +886,6 @@ export async function buildServer(options: BuildServerOptions = {}) {
     bus.publish({ event: stored, delivery: roomDelivery() });
     publishLiveOnly(triggered);
 
-    // Open the new orbit round (mirrors the producer routes).
-    const orbit = getOrbitState(roomId);
-    const round = orbit.openTurnRound(turnId);
-    publishRoleFiltered(event(roomId, "orbit.round.opened", next.author_id, {
-      round_id: round.round_id,
-      triggered_by_turn_id: round.triggered_by_turn_id,
-      opened_at: round.opened_at
-    }), HUMAN_ROLES);
-
     return true;
   }
 
@@ -1809,15 +1800,6 @@ export async function buildServer(options: BuildServerOptions = {}) {
     publishLiveOnly(queued);
     if (triggered) publishLiveOnly(triggered);
     publishEvents(extraTurnEvents);
-    if (triggered && triggerTurnId) {
-      const orbit = getOrbitState(roomId);
-      const round = orbit.openTurnRound(triggerTurnId);
-      publishRoleFiltered(event(roomId, "orbit.round.opened", participant.id, {
-        round_id: round.round_id,
-        triggered_by_turn_id: round.triggered_by_turn_id,
-        opened_at: round.opened_at
-      }), HUMAN_ROLES);
-    }
     return reply.code(201).send({ input_id: inputId, status: openTurn ? "queued" : "triggered" });
   });
 
@@ -1846,7 +1828,6 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const now = new Date().toISOString();
     const note = orbit.addNote({
       note_id: noteId,
-      round_id: orbit.getCurrentRoundId(),
       author_id: participant.id,
       author_name: participant.display_name,
       text: body.text,
@@ -1854,7 +1835,6 @@ export async function buildServer(options: BuildServerOptions = {}) {
     });
     publishRoleFiltered(event(roomId, "orbit.note.created", participant.id, {
       note_id: note.note_id,
-      round_id: note.round_id,
       author_id: note.author_id,
       author_name: note.author_name,
       text: note.text,
@@ -1902,16 +1882,32 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return reply.code(201).send({ liked: result.liked, count: result.count });
   });
 
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/orbit/clear", async (request, reply) => {
+    if (!orbitLimiter.allow(request.ip)) return tooMany(reply);
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    if (!hasAnyRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
+    const roomId = request.params.roomId;
+    const now = new Date().toISOString();
+    getOrbitState(roomId).reset();
+    publishRoleFiltered(event(roomId, "orbit.cleared", participant.id, {
+      cleared_by: participant.id,
+      cleared_at: now
+    }), HUMAN_ROLES);
+    return reply.code(201).send({ ok: true });
+  });
+
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/orbit/promote", async (request, reply) => {
     if (!orbitLimiter.allow(request.ip)) return tooMany(reply);
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
     if (!hasAnyRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
-    const body = z.object({ note_ids: z.array(z.string()).optional() }).parse(request.body);
+    const body = z.object({ note_ids: z.array(z.string().min(1)).min(1) }).parse(request.body);
     const roomId = request.params.roomId;
     const orbit = getOrbitState(roomId);
-    const roundId = orbit.getCurrentRoundId();
-    const payload = orbit.buildPromotionPayload(roundId, body.note_ids);
+    const freshRequestedIds = body.note_ids.filter((id) => !orbit.isQuoted(id));
+    if (freshRequestedIds.length === 0) return deny(reply, "all_already_quoted", 409);
+    const payload = orbit.buildPromotionPayload(freshRequestedIds);
     if (!payload) return deny(reply, "no_notes_selected", 409);
 
     const inputId = prefixedId("input");
@@ -1956,7 +1952,6 @@ export async function buildServer(options: BuildServerOptions = {}) {
         trigger_turn_id: triggerTurnId
       });
       extraTurnEvents = store.transaction(() => turnRequestEvents.map((nextEvent) => store.appendEvent(nextEvent)));
-      orbit.promoteRound(roundId, participant.id, inputId);
     } else {
       queuedArr.push({
         input_id: inputId,
@@ -1972,20 +1967,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
     publishLiveOnly(queued);
     if (triggered) publishLiveOnly(triggered);
     publishEvents(extraTurnEvents);
-    if (triggered && triggerTurnId) {
-      const round = orbit.openTurnRound(triggerTurnId);
-      publishRoleFiltered(event(roomId, "orbit.round.opened", participant.id, {
-        round_id: round.round_id,
-        triggered_by_turn_id: round.triggered_by_turn_id,
-        opened_at: round.opened_at
-      }), HUMAN_ROLES);
+    const quotedNoteIds = orbit.markQuoted(payload.noteIds);
+    if (quotedNoteIds.length > 0) {
+      publishRoleFiltered(event(roomId, "orbit.notes.quoted", participant.id, { note_ids: quotedNoteIds }), HUMAN_ROLES);
     }
-    publishRoleFiltered(event(roomId, "orbit.round.promoted", participant.id, {
-      round_id: roundId,
-      promoted_by: participant.id,
-      input_id: inputId,
-      promoted_at: now
-    }), HUMAN_ROLES);
     return reply.code(201).send({ input_id: inputId, status: openTurn ? "queued" : "triggered", note_count: payload.noteCount });
   });
 

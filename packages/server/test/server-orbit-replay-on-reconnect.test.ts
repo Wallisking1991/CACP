@@ -124,13 +124,13 @@ describe("orbit state TTL replay on WS reconnect", () => {
     const replay = await drainReplay(ws);
     ws.close();
 
-    expect(replay.some((e) => e.type === "orbit.round.opened")).toBe(true);
+    expect(replay.some((e) => e.type === "orbit.note.created")).toBe(true);
     const noteEvent = replay.find((e) => e.type === "orbit.note.created");
     expect(noteEvent).toBeDefined();
     expect((noteEvent!.payload as { text: string }).text).toBe("ephemeral note");
   });
 
-  it("orbit.round.opened arrives before orbit.note.created in the replay", async () => {
+  it("orbit replay starts with orbit.note.created and contains no round events", async () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     await app.listen({ host: "127.0.0.1", port: 0 });
     const { room } = await setupRoomWithAgent(app);
@@ -154,10 +154,9 @@ describe("orbit state TTL replay on WS reconnect", () => {
     ws.close();
 
     const orbitTypes = replay.filter((e) => e.type.startsWith("orbit.")).map((e) => e.type);
-    const openedIdx = orbitTypes.indexOf("orbit.round.opened");
-    const firstNoteIdx = orbitTypes.indexOf("orbit.note.created");
-    expect(openedIdx).toBeGreaterThanOrEqual(0);
-    expect(firstNoteIdx).toBeGreaterThan(openedIdx);
+    expect(orbitTypes).not.toContain("orbit.round.opened");
+    expect(orbitTypes).not.toContain("orbit.round.promoted");
+    expect(orbitTypes[0]).toBe("orbit.note.created");
   });
 
   it("observer role receives orbit replay (HUMAN_ROLES gate)", async () => {

@@ -71,7 +71,7 @@ describe("POST /rooms/:roomId/main-inputs", () => {
     expect(res.json()).toMatchObject({ error: "agent_session_not_ready" });
   });
 
-  it("opens a new orbit round when triggering an agent turn", async () => {
+  it("does not emit any orbit.round.* events when triggering an agent turn", async () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     await app.listen({ host: "127.0.0.1", port: 0 });
     const room = await ownerAndRoom(app);
@@ -96,20 +96,8 @@ describe("POST /rooms/:roomId/main-inputs", () => {
     await waitForOpen(ws);
 
     const receivedEvents: Array<{ type: string; payload: Record<string, unknown> }> = [];
-    const messagePromise = new Promise<void>((resolve) => {
-      ws.addEventListener("message", (msg) => {
-        const parsed = JSON.parse(msg.data as string);
-        receivedEvents.push(parsed);
-        // The handshake may emit a synthetic pre-round orbit.round.opened
-        // (T3 reconnect replay). Wait for the live, turn-triggered one —
-        // require triggered_by_turn_id to be a non-empty string rather than
-        // just truthy, so we can't accidentally accept a stale value.
-        if (
-          parsed.type === "orbit.round.opened" &&
-          typeof parsed.payload.triggered_by_turn_id === "string" &&
-          parsed.payload.triggered_by_turn_id.length > 0
-        ) resolve();
-      });
+    ws.addEventListener("message", (msg) => {
+      receivedEvents.push(JSON.parse(msg.data as string));
     });
 
     const res = await app.inject({
@@ -120,14 +108,12 @@ describe("POST /rooms/:roomId/main-inputs", () => {
     });
 
     expect(res.statusCode).toBe(201);
-    await messagePromise;
+    // Wait long enough for any leaked round events to land.
+    await new Promise((resolve) => setTimeout(resolve, 200));
     ws.close();
 
-    const roundEvents = receivedEvents.filter((e) => e.type === "orbit.round.opened");
-    expect(roundEvents.length).toBeGreaterThanOrEqual(1);
-    const roundEvent = roundEvents[roundEvents.length - 1];
-    expect(roundEvent.payload.round_id).toMatch(/^orbit_round_turn_turn_/);
-    expect(roundEvent.payload.triggered_by_turn_id).toMatch(/^turn_/);
+    expect(receivedEvents.some((e) => e.type === "orbit.round.opened")).toBe(false);
+    expect(receivedEvents.some((e) => e.type === "orbit.round.promoted")).toBe(false);
   });
 
   it("uses the submitted main input text as the immediate LLM turn prompt", async () => {
