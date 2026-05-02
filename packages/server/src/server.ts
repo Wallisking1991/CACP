@@ -319,24 +319,42 @@ export async function buildServer(options: BuildServerOptions = {}) {
   }
 
   /**
-   * In-memory per-room set of main-input ids that are currently in the queued
-   * (non-terminal) state. Ephemeral by design: `main_input.*` events do not
+   * In-memory per-room FIFO array of main-input entries that are currently
+   * queued (non-terminal). Ephemeral by design: `main_input.*` events do not
    * persist to the durable store (spec §3/§11/§15), so we cannot recover this
-   * by replaying the event log. The cancel route uses this set instead.
+   * by replaying the event log.
    *
-   * Insertion order is FIFO (relied on by the T5 auto-trigger that pops the
-   * oldest queued input when the active turn completes). Use Set#add /
-   * Set#delete only; never re-build via Array.from().sort() etc.
+   * The shape carries the full input metadata (text/author_id/source) — not
+   * just the input_id — because the T5 auto-trigger that runs on
+   * `agent.turn.completed/failed` needs to mint a fresh
+   * `agent.turn.requested` for the next queued input, and the original text
+   * lives only in the live-only `main_input.accepted` event the producing
+   * client already received. Storing it here keeps the trigger path
+   * independent of the event log.
+   *
+   * Array order is insertion order = FIFO trigger order.
    */
-  const queuedMainInputs = new Map<string, Set<string>>();
+  interface QueuedMainInput {
+    input_id: string;
+    author_id: string;
+    text: string;
+    source: "composer" | "orbit_promote";
+    created_at: string;
+  }
+  const queuedMainInputs = new Map<string, QueuedMainInput[]>();
   const MAX_QUEUED_PER_ROOM = 50;
-  function getQueuedMainInputs(roomId: string): Set<string> {
-    let set = queuedMainInputs.get(roomId);
-    if (!set) {
-      set = new Set<string>();
-      queuedMainInputs.set(roomId, set);
+  function getQueuedMainInputs(roomId: string): QueuedMainInput[] {
+    let arr = queuedMainInputs.get(roomId);
+    if (!arr) {
+      arr = [];
+      queuedMainInputs.set(roomId, arr);
     }
-    return set;
+    return arr;
+  }
+  function findQueuedMainInputIndex(roomId: string, inputId: string): number {
+    const arr = queuedMainInputs.get(roomId);
+    if (!arr) return -1;
+    return arr.findIndex((entry) => entry.input_id === inputId);
   }
   const localAgentLauncher = options.localAgentLauncher ?? defaultLocalAgentLauncher;
   const localRepoRoot = options.repoRoot ?? repoRoot;
@@ -811,6 +829,106 @@ export async function buildServer(options: BuildServerOptions = {}) {
       reason,
       context_prompt: contextPrompt ?? buildContextPrompt(roomId, activeAgentId)
     })];
+  }
+
+  /**
+   * T5: Pop the FIFO head of the room's queued main inputs and trigger a
+   * fresh agent turn for it. Called from `/agent-turns/:turnId/complete` and
+   * `/fail` after the terminal event is committed and broadcast.
+   *
+   * Spec §4: only one agent turn may be active at a time, and queued inputs
+   * trigger FIFO once the active turn ends — UNLESS the previous turn failed
+   * with a reason indicating the agent is offline / session not ready, in
+   * which case the queue stays intact and the user must recover.
+   *
+   * Returns true if an input was popped and a turn was requested. Returns
+   * false on any of: empty queue, agent gone offline, agent session not
+   * ready, or a halting failure reason.
+   */
+  function triggerNextQueuedMainInput(roomId: string, terminalReason: "completed" | "failed", failureError?: string): boolean {
+    if (terminalReason === "failed" && failureError) {
+      // These error markers mean the agent cannot service the next input —
+      // halt the queue rather than triggering a doomed turn. Surface a
+      // recoverable error by leaving the queued entries in place.
+      const halts = ["active_agent_offline", "agent_session_not_ready", "active_agent_unavailable", "agent_offline"];
+      if (halts.some((h) => failureError.includes(h))) return false;
+    }
+    const queue = queuedMainInputs.get(roomId);
+    if (!queue || queue.length === 0) return false;
+
+    // Re-validate agent readiness before popping. If the agent went offline
+    // or its session is no longer ready, keep the queue intact (same
+    // halting semantics as the offline failure markers above).
+    const events = store.listEvents(roomId);
+    const activeAgentId = findActiveAgentId(events);
+    if (!activeAgentId) return false;
+    if (!isAgentOnline(events, activeAgentId)) return false;
+    const capabilities = findAgentCapabilities(events, activeAgentId);
+    const localProvider = providerForCapabilities(capabilities);
+    if (localProvider) {
+      const ready = localProvider === "claude-code"
+        ? hasClaudeSessionReady(events, activeAgentId) || hasLocalAgentSessionReady(events, activeAgentId, localProvider)
+        : hasLocalAgentSessionReady(events, activeAgentId, localProvider);
+      if (!ready) return false;
+    }
+
+    const next = queue.shift()!;
+
+    // Build a turn-request event with the queued input's text. We can't reuse
+    // `createAgentTurnRequestEvents("human_message")` because that pulls
+    // speaker/text from the latest `message.created` — main inputs don't
+    // create messages. Mirror the shape of the local-provider branch in
+    // `createAgentTurnRequestEvents` for parity (mode/message_text/etc).
+    const turnId = prefixedId("turn");
+    const room = store.getRoom(roomId);
+    const participants = store.getParticipants(roomId);
+    const author = participants.find((p) => p.id === next.author_id);
+    const speakerName = author?.display_name ?? next.author_id;
+    const speakerRole = author?.role ?? "member";
+
+    const turnEvent: CacpEvent = localProvider
+      ? event(roomId, "agent.turn.requested", next.author_id, {
+          turn_id: turnId,
+          agent_id: activeAgentId,
+          reason: "human_message",
+          speaker_name: speakerName,
+          speaker_role: speakerRole,
+          room_name: room?.name ?? "Untitled room",
+          mode: "normal",
+          message_text: next.text
+        })
+      : event(roomId, "agent.turn.requested", next.author_id, {
+          turn_id: turnId,
+          agent_id: activeAgentId,
+          reason: "human_message",
+          speaker_name: speakerName,
+          speaker_role: speakerRole,
+          room_name: room?.name ?? "Untitled room",
+          mode: "normal",
+          message_text: next.text,
+          context_prompt: next.text
+        });
+
+    const triggered = event(roomId, "main_input.triggered", next.author_id, {
+      input_id: next.input_id,
+      trigger_turn_id: turnId
+    });
+
+    // Persist the turn request (durable) and publish triggered (live-only).
+    const stored = store.appendEvent(turnEvent);
+    publishLiveOnly(triggered);
+    bus.publish({ event: stored, delivery: roomDelivery() });
+
+    // Open the new orbit round (mirrors the producer routes).
+    const orbit = getOrbitState(roomId);
+    const round = orbit.openTurnRound(turnId);
+    publishRoleFiltered(event(roomId, "orbit.round.opened", next.author_id, {
+      round_id: round.round_id,
+      triggered_by_turn_id: round.triggered_by_turn_id,
+      opened_at: round.opened_at
+    }), HUMAN_ROLES);
+
+    return true;
   }
 
   function validateClaudeAgent(roomId: string, agentId: string): { ok: true } | { ok: false; error: string; status: number } {
@@ -1685,8 +1803,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
     }
     const turnEvents = eventsAfterLastHistoryClear(events);
     const openTurn = findAnyOpenTurn(turnEvents);
-    const queuedSet = getQueuedMainInputs(roomId);
-    if (openTurn && queuedSet.size >= MAX_QUEUED_PER_ROOM) {
+    const queuedArr = getQueuedMainInputs(roomId);
+    if (openTurn && queuedArr.length >= MAX_QUEUED_PER_ROOM) {
       return deny(reply, "queue_full", 409);
     }
     const inputId = prefixedId("input");
@@ -1716,7 +1834,13 @@ export async function buildServer(options: BuildServerOptions = {}) {
       });
       extraTurnEvents = store.transaction(() => turnRequestEvents.map((nextEvent) => store.appendEvent(nextEvent)));
     } else {
-      queuedSet.add(inputId);
+      queuedArr.push({
+        input_id: inputId,
+        author_id: participant.id,
+        text: body.text,
+        source: "composer",
+        created_at: now
+      });
     }
     publishLiveOnly(accepted);
     publishLiveOnly(queued);
@@ -1740,9 +1864,9 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!hasAnyRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
     const roomId = request.params.roomId;
     const inputId = request.params.inputId;
-    const queuedSet = getQueuedMainInputs(roomId);
-    if (!queuedSet.has(inputId)) return deny(reply, "input_not_found", 409);
-    queuedSet.delete(inputId);
+    const idx = findQueuedMainInputIndex(roomId, inputId);
+    if (idx < 0) return deny(reply, "input_not_found", 409);
+    queuedMainInputs.get(roomId)!.splice(idx, 1);
     publishLiveOnly(event(roomId, "main_input.cancelled", participant.id, { input_id: inputId, cancelled_by: participant.id }));
     return reply.code(201).send({ ok: true });
   });
@@ -1834,8 +1958,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!activeAgentId) return deny(reply, "active_agent_unavailable", 409);
     const turnEvents = eventsAfterLastHistoryClear(events);
     const openTurn = findAnyOpenTurn(turnEvents);
-    const queuedSet = getQueuedMainInputs(roomId);
-    if (openTurn && queuedSet.size >= MAX_QUEUED_PER_ROOM) {
+    const queuedArr = getQueuedMainInputs(roomId);
+    if (openTurn && queuedArr.length >= MAX_QUEUED_PER_ROOM) {
       return deny(reply, "queue_full", 409);
     }
     const queuedTurnId = openTurn ? openTurn.turn_id : (findLastTurnId(turnEvents) ?? "none");
@@ -1865,7 +1989,13 @@ export async function buildServer(options: BuildServerOptions = {}) {
       extraTurnEvents = store.transaction(() => turnRequestEvents.map((nextEvent) => store.appendEvent(nextEvent)));
       orbit.promoteRound(roundId, participant.id, inputId);
     } else {
-      queuedSet.add(inputId);
+      queuedArr.push({
+        input_id: inputId,
+        author_id: participant.id,
+        text: payload.text,
+        source: "orbit_promote",
+        created_at: now
+      });
     }
     publishLiveOnly(accepted);
     publishLiveOnly(queued);
@@ -2630,6 +2760,11 @@ export async function buildServer(options: BuildServerOptions = {}) {
       return [completed, finalMessage, ...followupEvents];
     });
     publishEvents(storedEvents);
+    // T5: after the terminal event has been committed and broadcast,
+    // pop the FIFO head of the queued main inputs (if any) and trigger a
+    // fresh turn for it. Done after publishEvents so clients see
+    // `agent.turn.completed` strictly before `main_input.triggered`.
+    triggerNextQueuedMainInput(request.params.roomId, "completed");
     return reply.code(201).send({ ok: true, message_id: messageId });
   });
 
@@ -2640,11 +2775,14 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!turn) return;
     if (turn.terminal_status) return deny(reply, "turn_closed", 409);
     if (!turn.started) return deny(reply, "turn_not_started", 409);
+    // Parse outside the transaction so the error string is available for the
+    // T5 auto-trigger decision below.
+    const failurePayload = TurnFailedSchema.parse(request.body);
     const storedEvents = store.transaction(() => {
       const failed = store.appendEvent(event(request.params.roomId, "agent.turn.failed", participant.id, {
         turn_id: request.params.turnId,
         agent_id: participant.id,
-        ...TurnFailedSchema.parse(request.body)
+        ...failurePayload
       }));
       const followupEvents = hasQueuedFollowup(store.listEvents(request.params.roomId), request.params.turnId)
         ? createAgentTurnRequestEvents(request.params.roomId, participant.id, "queued_followup", undefined, request.params.turnId).map((nextEvent) => store.appendEvent(nextEvent))
@@ -2652,6 +2790,9 @@ export async function buildServer(options: BuildServerOptions = {}) {
       return [failed, ...followupEvents];
     });
     publishEvents(storedEvents);
+    // T5: trigger the next queued main input, BUT not if the failure reason
+    // indicates the agent is offline / session not ready (spec §4).
+    triggerNextQueuedMainInput(request.params.roomId, "failed", failurePayload.error);
     return reply.code(201).send({ ok: true });
   });
 
