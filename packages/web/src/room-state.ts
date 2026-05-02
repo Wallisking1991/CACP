@@ -936,6 +936,19 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     }
   }
 
+  // Map main-input queue items to virtual messages for Thread rendering
+  for (const item of mainInputQueue.values()) {
+    if (item.status === "cancelled" || item.status === "failed") continue;
+    messages.push({
+      message_id: item.input_id,
+      actor_id: item.actor_id,
+      text: item.text,
+      kind: "queued",
+      created_at: item.created_at
+    });
+  }
+  messages.sort((a, b) => a.created_at.localeCompare(b.created_at));
+
   for (const activity of participantActivity.values()) {
     if (activity.typing && !typingIsFresh(activity.typing_updated_at, nowMs, typingTtlMs)) {
       activity.typing = false;
