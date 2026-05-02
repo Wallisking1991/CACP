@@ -2215,6 +2215,98 @@ textarea.input {
   padding-top: 4px;
 }
 
+/* MainComposer */
+.main-composer {
+  border-top: 1px solid var(--border);
+  background: var(--surface-warm);
+  padding: 8px 16px;
+}
+.main-composer-queued {
+  background: var(--surface-queued);
+}
+
+/* OrbitComposer */
+.orbit-composer {
+  border-top: 1px solid var(--border-soft);
+  padding: 10px 0 0;
+}
+
+/* Mention overlay (sits above textarea) */
+.mention-overlay-wrapper {
+  position: relative;
+}
+.mention-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: transparent;
+  pointer-events: none;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow: hidden;
+  z-index: 1;
+}
+.mention-overlay__agent {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 3px;
+  padding: 0 2px;
+}
+.mention-overlay__user {
+  color: #2563eb;
+  background: #dbeafe;
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+/* Mention dropdown */
+.mention-dropdown {
+  position: absolute;
+  z-index: 10;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(28, 24, 19, 0.08);
+  max-height: 200px;
+  overflow-y: auto;
+  min-width: 180px;
+}
+.mention-dropdown__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.mention-dropdown__item:hover,
+.mention-dropdown__item.is-active {
+  background: var(--surface-warm);
+}
+.mention-dropdown__icon {
+  font-size: 12px;
+}
+.mention-dropdown__label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-4);
+  padding: 6px 12px 2px;
+}
+
+/* Orbit note mentioned highlight */
+.orbit-note--mentioned {
+  border-left: 3px solid #3b82f6;
+  padding-left: 9px;
+}
+
 .floating-logo-control {
   position: fixed;
   right: -26px;
