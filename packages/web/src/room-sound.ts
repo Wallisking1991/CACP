@@ -1,4 +1,4 @@
-export type RoomSoundCue = "message" | "ai-start" | "roundtable" | "agent-online" | "join-request";
+export type RoomSoundCue = "message" | "ai-start" | "agent-online" | "join-request";
 
 export interface RoomSoundController {
   enabled: () => boolean;
@@ -63,7 +63,7 @@ function synthTone(cue: RoomSoundCue, volume: number): void {
   if (!context) return;
   const oscillator = context.createOscillator();
   const gain = context.createGain();
-  const frequency = cue === "ai-start" ? 180 : cue === "roundtable" ? 330 : 260;
+  const frequency = cue === "ai-start" ? 180 : 260;
   oscillator.frequency.value = frequency;
   oscillator.type = "sine";
   const targetGain = 0.035 * volume;

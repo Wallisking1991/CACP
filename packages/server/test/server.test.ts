@@ -38,9 +38,6 @@ describe("CACP server", () => {
     const bob = await joinViaApproval(app, created.room_id, created.owner_token, inviteResponse.json().invite_token, "Bob");
 
     expect((await app.inject({ method: "POST", url: `/rooms/${created.room_id}/messages`, headers: { authorization: `Bearer ${bob.participant_token}` }, payload: { text: "Protocol first." } })).statusCode).toBe(201);
-    expect((await app.inject({ method: "POST", url: `/rooms/${created.room_id}/ai-collection/start`, headers: ownerAuth, payload: {} })).statusCode).toBe(201);
-    expect((await app.inject({ method: "POST", url: `/rooms/${created.room_id}/messages`, headers: ownerAuth, payload: { text: "Collect owner input." } })).statusCode).toBe(201);
-    expect((await app.inject({ method: "POST", url: `/rooms/${created.room_id}/ai-collection/cancel`, headers: ownerAuth, payload: {} })).statusCode).toBe(201);
 
     const proposal = (await app.inject({ method: "POST", url: `/rooms/${created.room_id}/proposals`, headers: ownerAuth, payload: { title: "Adopt protocol-first MVP", proposal_type: "proposal", policy: { type: "owner_approval" } } })).json();
     const voteResponse = await app.inject({ method: "POST", url: `/rooms/${created.room_id}/proposals/${proposal.proposal_id}/votes`, headers: ownerAuth, payload: { vote: "approve", comment: "Approved." } });
@@ -56,7 +53,7 @@ describe("CACP server", () => {
     const eventTypes = eventsResponse.json().events.map((event: { type: string }) => event.type);
     expect(eventTypes).toEqual(expect.arrayContaining([
       "room.created", "participant.joined", "invite.created", "message.created",
-      "ai.collection.started", "ai.collection.cancelled", "proposal.created", "proposal.vote_cast", "proposal.approved",
+      "proposal.created", "proposal.vote_cast", "proposal.approved",
       "agent.registered", "task.created", "task.started", "task.output", "task.completed"
     ]));
     expect(eventTypes.some((type: string) => type.startsWith("decision.") || type.startsWith("question."))).toBe(false);

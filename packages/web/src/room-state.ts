@@ -19,8 +19,6 @@ export interface MessageView {
   text: string;
   kind: string;
   created_at: string;
-  collection_id?: string;
-  cancelledMessageCount?: number;
   claudeImportId?: string;
   claudeSessionId?: string;
   claudeSourceKind?: string;
@@ -47,19 +45,6 @@ export interface InviteView {
   remaining: number;
   revoked: boolean;
 }
-export interface AiCollectionView {
-  collection_id: string;
-  started_by: string;
-  started_at: string;
-  messages: MessageView[];
-  submitted_by?: string;
-  submitted_at?: string;
-  cancelled_by?: string;
-  cancelled_at?: string;
-  message_ids?: string[];
-}
-export interface RoundtableRequestView { request_id: string; requested_by: string; requester_name: string; created_at: string }
-
 export interface OrbitNoteView {
   note_id: string;
   text: string;
@@ -200,7 +185,7 @@ export interface AgentRuntimeStatusView {
 }
 
 export type ParticipantPresenceView = "online" | "idle" | "offline";
-export type AvatarStatusKind = "working" | "typing" | "roundtable" | "online" | "idle" | "offline";
+export type AvatarStatusKind = "working" | "typing" | "online" | "idle" | "offline";
 export type AvatarStatusGroup = "humans" | "agents";
 
 export interface ParticipantActivityView {
@@ -234,15 +219,12 @@ export interface RoomViewState {
   activeAgentId?: string;
   messages: MessageView[];
   streamingTurns: StreamingTurnView[];
-  activeCollection?: AiCollectionView;
-  collectionHistory: AiCollectionView[];
   lastHistoryClearedAt?: string;
   mainThreadClearedAt?: string;
   inviteCount: number;
   invites: InviteView[];
   roomName?: string;
   joinRequests: JoinRequestView[];
-  pendingRoundtableRequest?: RoundtableRequestView;
   claudeSessionCatalog?: ClaudeSessionCatalogView;
   claudeSessionSelection?: ClaudeSessionSelectionView;
   claudeSessionReady?: ClaudeSessionReadyView;
@@ -327,12 +309,6 @@ function isParticipant(value: unknown): value is ParticipantView {
   return typeof participant.id === "string" && typeof participant.display_name === "string" && typeof participant.role === "string" && typeof participant.type === "string";
 }
 
-function stringArray(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const items = value.filter((item): item is string => typeof item === "string");
-  return items.length === value.length ? items : undefined;
-}
-
 function isConnectorLedgerEntry(value: unknown): value is ConnectorLedgerEntry {
   if (!value || typeof value !== "object") return false;
   const entry = value as Partial<ConnectorLedgerEntry>;
@@ -400,10 +376,9 @@ function avatarPriority(status: AvatarStatusKind): number {
   switch (status) {
     case "working": return 0;
     case "typing": return 1;
-    case "roundtable": return 2;
-    case "online": return 3;
-    case "idle": return 4;
-    case "offline": return 5;
+    case "online": return 2;
+    case "idle": return 3;
+    case "offline": return 4;
   }
 }
 
@@ -412,9 +387,7 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
   const agents = new Map<string, AgentView>();
   const messages: MessageView[] = [];
   const streamingTurns = new Map<string, StreamingTurnView>();
-  const collections = new Map<string, AiCollectionView>();
   const joinRequests = new Map<string, JoinRequestView>();
-  const roundtableRequests = new Map<string, RoundtableRequestView>();
   let activeAgentId: string | undefined;
   const invites = new Map<string, InviteView>();
   let inviteCount = 0;
@@ -495,20 +468,7 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
         }
       }
     }
-    if (event.type === "ai.collection.requested" && typeof event.payload.request_id === "string" && typeof event.payload.requested_by === "string") {
-      const requester = participants.get(event.payload.requested_by);
-      roundtableRequests.set(event.payload.request_id, {
-        request_id: event.payload.request_id,
-        requested_by: event.payload.requested_by,
-        requester_name: requester?.display_name ?? event.payload.requested_by,
-        created_at: event.created_at
-      });
-    }
-    if ((event.type === "ai.collection.request_approved" || event.type === "ai.collection.request_rejected") && typeof event.payload.request_id === "string") {
-      roundtableRequests.delete(event.payload.request_id);
-    }
     if (event.type === "room.history_cleared" && isHistoryClearScope(event.payload.scope)) {
-      roundtableRequests.clear();
       orbitRounds.clear();
       orbitNotes.clear();
       mainInputQueue.clear();
@@ -988,57 +948,15 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
         failed_at: typeof event.payload.failed_at === "string" ? event.payload.failed_at : event.created_at
       });
     }
-    if (event.type === "ai.collection.started" && typeof event.payload.collection_id === "string") {
-      collections.set(event.payload.collection_id, {
-        collection_id: event.payload.collection_id,
-        started_by: typeof event.payload.started_by === "string" ? event.payload.started_by : event.actor_id,
-        started_at: event.created_at,
-        messages: []
-      });
-    }
     if (event.type === "message.created" && typeof event.payload.text === "string") {
       const message: MessageView = {
         message_id: typeof event.payload.message_id === "string" ? event.payload.message_id : undefined,
         actor_id: event.actor_id,
         text: event.payload.text,
         kind: typeof event.payload.kind === "string" ? event.payload.kind : "human",
-        created_at: event.created_at,
-        ...(typeof event.payload.collection_id === "string" ? { collection_id: event.payload.collection_id } : {})
+        created_at: event.created_at
       };
       messages.push(message);
-      if (message.collection_id) {
-        const collection = collections.get(message.collection_id);
-        if (collection) collections.set(message.collection_id, { ...collection, messages: [...collection.messages, message] });
-      }
-    }
-    if (event.type === "ai.collection.submitted" && typeof event.payload.collection_id === "string") {
-      const collection = collections.get(event.payload.collection_id);
-      if (collection) {
-        collections.set(event.payload.collection_id, {
-          ...collection,
-          submitted_by: typeof event.payload.submitted_by === "string" ? event.payload.submitted_by : event.actor_id,
-          submitted_at: event.created_at,
-          message_ids: stringArray(event.payload.message_ids) ?? []
-        });
-      }
-    }
-    if (event.type === "ai.collection.cancelled" && typeof event.payload.collection_id === "string") {
-      const collection = collections.get(event.payload.collection_id);
-      if (collection) {
-        collections.set(event.payload.collection_id, {
-          ...collection,
-          cancelled_by: typeof event.payload.cancelled_by === "string" ? event.payload.cancelled_by : event.actor_id,
-          cancelled_at: event.created_at
-        });
-        messages.push({
-          message_id: `cancelled-${event.payload.collection_id}`,
-          actor_id: "system",
-          text: "__CACP_COLLECTION_CANCELLED__",
-          kind: "system",
-          created_at: event.created_at,
-          cancelledMessageCount: collection.messages.length
-        });
-      }
     }
     if (event.type === "message.created" && typeof event.payload.text === "string") {
       latestSenderId = event.actor_id;
@@ -1073,13 +991,6 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     }
   }
 
-  const collectionViews = [...collections.values()];
-  const activeCollection = [...collectionViews].reverse().find((collection) => !collection.submitted_at && !collection.cancelled_at);
-  const collectionHistory = collectionViews.filter((collection) => Boolean(collection.submitted_at || collection.cancelled_at));
-  // Only one pending Roundtable request is allowed per room in this version.
-  // We intentionally expose only the first (oldest) pending request.
-  const pendingRoundtableRequest = [...roundtableRequests.values()][0];
-
   const workingAgentIds = new Set<string>([...streamingTurns.values()].map((turn) => turn.agent_id));
   for (const status of claudeRuntimeStatuses.values()) {
     if (status.phase !== "completed" && status.phase !== "failed") workingAgentIds.add(status.agent_id);
@@ -1088,14 +999,6 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     if (status.phase !== "completed" && status.phase !== "failed") workingAgentIds.add(status.agent_id);
   }
 
-  const roundtableParticipantIds = new Set<string>();
-  if (activeCollection) {
-    for (const participant of participants.values()) {
-      if (participant.type !== "agent") roundtableParticipantIds.add(participant.id);
-    }
-  }
-  if (pendingRoundtableRequest) roundtableParticipantIds.add(pendingRoundtableRequest.requested_by);
-
   const avatarStatuses: AvatarStatusView[] = [
     ...[...participants.values()]
       .filter(isHumanParticipant)
@@ -1103,13 +1006,11 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
       const activity = participantActivity.get(participant.id);
       const status: AvatarStatusKind = activity?.typing
         ? "typing"
-        : roundtableParticipantIds.has(participant.id)
-          ? "roundtable"
-          : activity?.presence === "idle"
-            ? "idle"
-            : activity?.presence === "offline"
-              ? "offline"
-              : "online";
+        : activity?.presence === "idle"
+          ? "idle"
+          : activity?.presence === "offline"
+            ? "offline"
+            : "online";
       return {
         id: participant.id,
         display_name: participant.display_name,
@@ -1117,7 +1018,7 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
         kind: "human",
         group: "humans",
         status,
-        active: status === "typing" || status === "roundtable" || participant.id === latestSenderId || participant.role === "owner"
+        active: status === "typing" || participant.id === latestSenderId || participant.role === "owner"
       };
     }),
     ...[...agents.values()].map((agent): AvatarStatusView => {
@@ -1147,15 +1048,12 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     activeAgentId,
     messages: orderImportedMessages(messages),
     streamingTurns: [...streamingTurns.values()],
-    activeCollection,
-    collectionHistory,
     lastHistoryClearedAt: historyClear.clearedAt,
     mainThreadClearedAt: historyClear.clearedAt,
     inviteCount,
     invites: [...invites.values()],
     roomName,
     joinRequests: [...joinRequests.values()].filter((r) => r.status === "pending"),
-    pendingRoundtableRequest,
     claudeSessionCatalog,
     claudeSessionSelection,
     claudeSessionReady,
@@ -1190,15 +1088,6 @@ export function humanParticipants(participants: ParticipantView[]): ParticipantV
   return participants.filter(isHumanParticipant);
 }
 
-export function isCollectionActive(events: CacpEvent[]): boolean {
-  let active = false;
-  for (const event of eventsAfterLastHistoryClear(events)) {
-    if (event.type === "ai.collection.started") active = true;
-    if (event.type === "ai.collection.submitted" || event.type === "ai.collection.cancelled") active = false;
-  }
-  return active;
-}
-
 export function isTurnInFlight(events: CacpEvent[]): boolean {
   const turns = new Map<string, boolean>();
   for (const event of eventsAfterLastHistoryClear(events)) {
@@ -1212,11 +1101,4 @@ export function isTurnInFlight(events: CacpEvent[]): boolean {
     }
   }
   return [...turns.values()].some((open) => open);
-}
-
-export function collectedMessageIds(events: CacpEvent[], collectionId: string): string[] {
-  return events
-    .filter((event) => event.type === "message.created" && (event.payload as Record<string, unknown>).collection_id === collectionId)
-    .map((event) => typeof (event.payload as Record<string, unknown>).message_id === "string" ? (event.payload as Record<string, unknown>).message_id as string : "")
-    .filter(Boolean);
 }

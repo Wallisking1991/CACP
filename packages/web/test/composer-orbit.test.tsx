@@ -17,16 +17,8 @@ describe("Composer Orbit dual-send", () => {
 
   const baseProps = {
     role: "owner" as const,
-    mode: "live" as const,
     turnInFlight: false,
-    collectCount: 0,
-    canSendMessages: true,
-    pendingRoundtableRequest: false,
     onSend: noop,
-    onToggleMode: noop,
-    onSubmitCollection: noop,
-    onCancelCollection: noop,
-    onRequestRoundtable: noop,
     onTypingInput: noop,
     onStopTyping: noop,
     onClearConversation: noop,
@@ -39,11 +31,10 @@ describe("Composer Orbit dual-send", () => {
     expect(screen.queryByRole("button", { name: /Send to Agent/i })).not.toBeInTheDocument();
   });
 
-  it("shows dual-send buttons when onSendOrbitNote is provided in live mode", () => {
+  it("shows dual-send buttons when onSendOrbitNote is provided", () => {
     const onSendOrbitNote = vi.fn();
     renderComposer({ ...baseProps, onSendOrbitNote });
 
-    expect(screen.queryByRole("button", { name: /Send$/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Send to People/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Send to Agent/i })).toBeInTheDocument();
   });
@@ -59,16 +50,30 @@ describe("Composer Orbit dual-send", () => {
     expect(onSendOrbitNote).toHaveBeenCalledWith("orbit note");
   });
 
-  it("calls onSend when Send to Agent is clicked", () => {
+  it("calls onSendMainInput when Send to Agent is clicked (when provided)", () => {
     const onSend = vi.fn();
     const onSendOrbitNote = vi.fn();
-    renderComposer({ ...baseProps, onSend, onSendOrbitNote });
+    const onSendMainInput = vi.fn();
+    renderComposer({ ...baseProps, onSend, onSendOrbitNote, onSendMainInput });
 
     const textarea = screen.getByPlaceholderText(/Type a message/i);
     fireEvent.change(textarea, { target: { value: "agent message" } });
     fireEvent.click(screen.getByRole("button", { name: /Send to Agent/i }));
 
-    expect(onSend).toHaveBeenCalledWith("agent message");
+    expect(onSendMainInput).toHaveBeenCalledWith("agent message");
+    expect(onSendOrbitNote).not.toHaveBeenCalled();
+  });
+
+  it("falls back to onSend when Send to Agent is clicked without onSendMainInput", () => {
+    const onSend = vi.fn();
+    const onSendOrbitNote = vi.fn();
+    renderComposer({ ...baseProps, onSend, onSendOrbitNote });
+
+    const textarea = screen.getByPlaceholderText(/Type a message/i);
+    fireEvent.change(textarea, { target: { value: "agent fallback" } });
+    fireEvent.click(screen.getByRole("button", { name: /Send to Agent/i }));
+
+    expect(onSend).toHaveBeenCalledWith("agent fallback");
     expect(onSendOrbitNote).not.toHaveBeenCalled();
   });
 
@@ -102,7 +107,7 @@ describe("Composer Orbit dual-send", () => {
 
     expect(screen.queryByRole("button", { name: /Send to People/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Send to Agent/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Queue message/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Queue/i })).toBeInTheDocument();
   });
 
   it("calls onSendMainInput when Queue is clicked during turnInFlight", () => {
@@ -111,7 +116,7 @@ describe("Composer Orbit dual-send", () => {
 
     const textarea = screen.getByPlaceholderText(/Type a message/i);
     fireEvent.change(textarea, { target: { value: "queued input" } });
-    fireEvent.click(screen.getByRole("button", { name: /Queue message/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Queue/i }));
 
     expect(onSendMainInput).toHaveBeenCalledWith("queued input");
   });
@@ -122,17 +127,8 @@ describe("Composer Orbit dual-send", () => {
 
     const textarea = screen.getByPlaceholderText(/Type a message/i);
     fireEvent.change(textarea, { target: { value: "queued fallback" } });
-    fireEvent.click(screen.getByRole("button", { name: /Queue message/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Queue/i }));
 
     expect(onSend).toHaveBeenCalledWith("queued fallback");
-  });
-
-  it("does not show dual-send in collect mode", () => {
-    const onSendOrbitNote = vi.fn();
-    renderComposer({ ...baseProps, mode: "collect", onSendOrbitNote });
-
-    expect(screen.queryByRole("button", { name: /Send to People/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Send to Agent/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Add/i })).toBeInTheDocument();
   });
 });

@@ -31,10 +31,6 @@ export function LiveIcon(props: IconProps) {
   return <IconFrame {...props}><circle cx="12" cy="12" r="3" /><path d="M5 12a7 7 0 0 1 14 0" /><path d="M7 17a9 9 0 0 0 10 0" /></IconFrame>;
 }
 
-export function RoundtableIcon(props: IconProps) {
-  return <IconFrame {...props}><circle cx="12" cy="12" r="6" /><circle cx="12" cy="4" r="1.5" /><circle cx="19" cy="16" r="1.5" /><circle cx="5" cy="16" r="1.5" /></IconFrame>;
-}
-
 export function SoundIcon(props: IconProps) {
   return <IconFrame {...props}><path d="M4 10v4h4l5 4V6L8 10H4Z" /><path d="M16 9c1 1 1 5 0 6" /><path d="M19 7c2 3 2 7 0 10" /></IconFrame>;
 }

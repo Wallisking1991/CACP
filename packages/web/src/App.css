@@ -948,7 +948,7 @@ textarea.input {
 }
 
 .popover-list-item:hover {
-  background: var(--surface-collect);
+  background: var(--surface-round);
 }
 
 .popover-list-item-name {
@@ -1044,12 +1044,18 @@ textarea.input {
   min-height: 0;
   display: grid;
   grid-template-columns: 1fr;
+  grid-template-rows: minmax(0, 1fr);
   gap: 16px;
   align-items: stretch;
 }
 
+.workspace-grid--with-orbit {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+}
+
 .chat-panel {
   position: relative;
+  min-width: 0;
   min-height: 0;
   height: 100%;
   display: flex;
@@ -1165,11 +1171,6 @@ textarea.input {
   padding: 12px 16px;
 }
 
-.composer-collect {
-  background: var(--surface-collect);
-  border-top-color: var(--accent-border);
-}
-
 .composer-queued {
   background: var(--surface-queued);
 }
@@ -1179,31 +1180,6 @@ textarea.input {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 8px;
-}
-
-.mode-toggle {
-  display: inline-flex;
-  gap: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-button);
-  overflow: hidden;
-}
-
-.mode-toggle-btn {
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--ink-3);
-  background: transparent;
-  border: none;
-  border-radius: 0;
-  cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
-}
-
-.mode-toggle-btn.active {
-  background: var(--ink);
-  color: var(--invert);
 }
 
 .composer-hint {
@@ -1229,21 +1205,6 @@ textarea.input {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.collect-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
-  border-radius: var(--radius-pill);
-  background: var(--accent);
-  color: white;
-  font-size: 11px;
-  font-weight: 700;
-  margin-right: 6px;
 }
 
 .status-strip {
@@ -1992,19 +1953,6 @@ textarea.input {
   50% { box-shadow: 0 0 0 4px rgba(59, 130, 246, 0); }
 }
 
-.role-avatar--roundtable {
-  border-color: #a855f7;
-  box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.35);
-  animation: studio-breathe 2s ease-in-out infinite;
-}
-
-.role-avatar--roundtable .role-avatar__status {
-  background: #a855f7;
-  border-color: var(--surface);
-  width: 8px;
-  height: 8px;
-}
-
 .role-avatar-overflow {
   color: var(--ink-4);
   font-size: 12px;
@@ -2052,12 +2000,6 @@ textarea.input {
   color: var(--ink-4);
 }
 
-.message-roundtable-queued {
-  background: var(--surface-queued);
-  border-style: dashed;
-  border-color: var(--accent-border);
-}
-
 .composer-utility-row {
   display: flex;
   justify-content: flex-end;
@@ -2090,6 +2032,7 @@ textarea.input {
 
 /* Orbit Layer */
 .orbit-panel {
+  min-width: 0;
   min-height: 0;
   height: 100%;
   display: flex;
@@ -2138,7 +2081,7 @@ textarea.input {
 
 .orbit-note--round {
   border-color: var(--accent-border);
-  background: var(--surface-collect);
+  background: var(--surface-round);
 }
 
 .orbit-note-meta {
@@ -2371,7 +2314,6 @@ textarea.input {
 @media (prefers-reduced-motion: reduce) {
   .role-avatar--working,
   .role-avatar--typing .role-avatar__status,
-  .role-avatar--roundtable,
   .floating-logo-control {
     animation: none;
     transition: none;
@@ -2384,6 +2326,19 @@ textarea.input {
   .workspace-shell {
     width: calc(100% - 16px);
     padding: 8px 0;
+  }
+
+  .workspace-grid--with-orbit {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) minmax(140px, 30dvh);
+    gap: 10px;
+  }
+
+  .orbit-panel {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    padding-left: 0;
+    padding-top: 10px;
   }
 
   .workspace-header {

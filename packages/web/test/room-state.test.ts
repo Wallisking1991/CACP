@@ -100,31 +100,6 @@ describe("room state", () => {
     ]);
   });
 
-  it("derives active and completed AI answer collections", () => {
-    const state = deriveRoomState([
-      event("participant.joined", { participant: { id: "user_1", display_name: "Alice", role: "owner", type: "human" } }, 1),
-      event("ai.collection.started", { collection_id: "collection_1", started_by: "user_1" }, 2, "user_1"),
-      event("message.created", { message_id: "msg_1", text: "Alice answer", kind: "human", collection_id: "collection_1" }, 3, "user_1"),
-      event("ai.collection.submitted", { collection_id: "collection_1", submitted_by: "user_1", message_ids: ["msg_1"] }, 4, "user_1"),
-      event("ai.collection.started", { collection_id: "collection_2", started_by: "user_1" }, 5, "user_1"),
-      event("message.created", { message_id: "msg_2", text: "Second answer", kind: "human", collection_id: "collection_2" }, 6, "user_1")
-    ]);
-
-    expect(state.messages.find((message) => message.message_id === "msg_2")?.collection_id).toBe("collection_2");
-    expect(state.activeCollection).toMatchObject({
-      collection_id: "collection_2",
-      started_by: "user_1",
-      messages: [{ message_id: "msg_2", text: "Second answer", collection_id: "collection_2" }]
-    });
-    expect(state.collectionHistory).toHaveLength(1);
-    expect(state.collectionHistory[0]).toMatchObject({
-      collection_id: "collection_1",
-      submitted_by: "user_1",
-      message_ids: ["msg_1"],
-      messages: [{ message_id: "msg_1", text: "Alice answer", collection_id: "collection_1" }]
-    });
-  });
-
   it("keeps participants, agents, and invites from all events across history clear", () => {
     const state = deriveRoomState([
       event("participant.joined", { participant: { id: "user_1", display_name: "Alice", role: "owner", type: "human" } }, 1),
@@ -151,34 +126,6 @@ describe("room state", () => {
     ]);
 
     expect(state.streamingTurns).toEqual([{ turn_id: "turn_new", agent_id: "agent_1", text: "new" }]);
-  });
-
-  it("derives the pending Roundtable request from collection request events", () => {
-    const state = deriveRoomState([
-      event("participant.joined", { participant: { id: "user_1", display_name: "Alice", role: "owner", type: "human" } }, 1),
-      event("participant.joined", { participant: { id: "user_2", display_name: "Bob", role: "member", type: "human" } }, 2, "user_2"),
-      event("ai.collection.requested", { request_id: "collection_request_1", requested_by: "user_2" }, 3, "user_2")
-    ]);
-    expect(state.pendingRoundtableRequest).toEqual({
-      request_id: "collection_request_1",
-      requested_by: "user_2",
-      requester_name: "Bob",
-      created_at: "2026-04-25T00:00:03.000Z"
-    });
-
-    const resolved = deriveRoomState([
-      event("ai.collection.requested", { request_id: "collection_request_1", requested_by: "user_2" }, 1, "user_2"),
-      event("ai.collection.request_rejected", { request_id: "collection_request_1", rejected_by: "user_1" }, 2, "user_1")
-    ]);
-    expect(resolved.pendingRoundtableRequest).toBeUndefined();
-
-    const approved = deriveRoomState([
-      event("participant.joined", { participant: { id: "user_1", display_name: "Alice", role: "owner", type: "human" } }, 1),
-      event("participant.joined", { participant: { id: "user_2", display_name: "Bob", role: "member", type: "human" } }, 2, "user_2"),
-      event("ai.collection.requested", { request_id: "collection_request_1", requested_by: "user_2" }, 3, "user_2"),
-      event("ai.collection.request_approved", { request_id: "collection_request_1", approved_by: "user_1" }, 4, "user_1")
-    ]);
-    expect(approved.pendingRoundtableRequest).toBeUndefined();
   });
 
   it("derives generic Codex session catalog and selection state", () => {

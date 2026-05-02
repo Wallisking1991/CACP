@@ -28,4 +28,13 @@ describe("studio room CSS source", () => {
     expect(css).toContain("@media (prefers-reduced-motion: reduce)");
     expect(css).toContain(".role-avatar--working");
   });
+
+  it("defines an in-grid Orbit side panel layout instead of an overlay sibling", () => {
+    expect(css).toMatch(
+      /\.workspace-grid--with-orbit\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(280px,\s*360px\)/s
+    );
+    expect(css).toMatch(
+      /@media\s*\(max-width:\s*767px\)[\s\S]*\.workspace-grid--with-orbit\s*\{[\s\S]*grid-template-columns:\s*1fr/s
+    );
+  });
 });

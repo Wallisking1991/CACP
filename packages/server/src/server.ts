@@ -7,7 +7,7 @@ import websocket from "@fastify/websocket";
 import { z } from "zod";
 import { buildConnectionCode, evaluatePolicy, ConnectorLedgerEntrySchema, PolicySchema, VoteRecordSchema, ParticipantPresenceSchema, type CacpEvent, type Participant, type ParticipantRole, type Policy, type VoteRecord } from "@cacp/protocol";
 import { bearerToken, requireParticipant, hasAnyRole, hasHumanRole } from "./auth.js";
-import { buildAgentContextPrompt, buildCollectedAnswersPrompt, eventsAfterLastHistoryClear, findActiveAgentId, findAgentCapabilities, findAnyOpenTurn, findOpenTurn, findQueuedFollowupMessage, findQueuedFollowupMessages, hasQueuedFollowup, recentConversationMessages, type ConversationMessage, type OpenTurn } from "./conversation.js";
+import { buildAgentContextPrompt, eventsAfterLastHistoryClear, findActiveAgentId, findAgentCapabilities, findAnyOpenTurn, findOpenTurn, findQueuedFollowupMessage, findQueuedFollowupMessages, hasQueuedFollowup, recentConversationMessages, type ConversationMessage, type OpenTurn } from "./conversation.js";
 import { EventBus } from "./event-bus.js";
 import { EventStore, type StoredParticipant } from "./event-store.js";
 import { roomDelivery, targetedDelivery, roleDelivery, canDeliverEnvelope, HUMAN_ROLES, type RelayEnvelope } from "./relay.js";
@@ -145,9 +145,6 @@ type TaskTerminalStatus = "completed" | "failed" | "cancelled";
 type TaskState = { target_agent_id: string; started: boolean; terminal_status?: TaskTerminalStatus };
 type TurnTerminalStatus = "completed" | "failed";
 type TurnState = { agent_id: string; started: boolean; terminal_status?: TurnTerminalStatus };
-type ActiveCollection = { collection_id: string; started_by: string; started_at: string };
-type PendingCollectionRequest = { request_id: string; requested_by: string; requested_at: string };
-type CollectedMessage = { message_id?: string; actor_id: string; text: string; kind: string; created_at: string };
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -666,48 +663,6 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return buildAgentContextPrompt({ participants: participants.map(publicParticipant), messages, agentName: agent?.display_name ?? agentId });
   }
 
-  function buildCollectedContextPrompt(roomId: string, agentId: string, collectionId: string): string {
-    const participants = store.getParticipants(roomId);
-    const names = new Map(participants.map((participant) => [participant.id, participant.display_name]));
-    const agent = participants.find((participant) => participant.id === agentId);
-    const messages = collectedMessagesFor(roomId, collectionId).map((message) => ({
-      actorName: names.get(message.actor_id) ?? message.actor_id,
-      kind: message.kind,
-      text: message.text
-    }));
-    return buildCollectedAnswersPrompt({ participants: participants.map(publicParticipant), messages, agentName: agent?.display_name ?? agentId });
-  }
-
-  function activeCollectionFor(roomId: string): ActiveCollection | undefined {
-    let active: ActiveCollection | undefined;
-    for (const storedEvent of eventsAfterLastHistoryClear(store.listEvents(roomId))) {
-      if (storedEvent.type === "ai.collection.started" && typeof storedEvent.payload.collection_id === "string") {
-        active = {
-          collection_id: storedEvent.payload.collection_id,
-          started_by: typeof storedEvent.payload.started_by === "string" ? storedEvent.payload.started_by : storedEvent.actor_id,
-          started_at: storedEvent.created_at
-        };
-      }
-      if ((storedEvent.type === "ai.collection.submitted" || storedEvent.type === "ai.collection.cancelled") && typeof storedEvent.payload.collection_id === "string" && active?.collection_id === storedEvent.payload.collection_id) {
-        active = undefined;
-      }
-    }
-    return active;
-  }
-
-  function pendingCollectionRequestFor(roomId: string): PendingCollectionRequest | undefined {
-    let pending: PendingCollectionRequest | undefined;
-    for (const storedEvent of eventsAfterLastHistoryClear(store.listEvents(roomId))) {
-      if (storedEvent.type === "ai.collection.requested" && typeof storedEvent.payload.request_id === "string" && typeof storedEvent.payload.requested_by === "string") {
-        pending = { request_id: storedEvent.payload.request_id, requested_by: storedEvent.payload.requested_by, requested_at: storedEvent.created_at };
-      }
-      if ((storedEvent.type === "ai.collection.request_approved" || storedEvent.type === "ai.collection.request_rejected") && typeof storedEvent.payload.request_id === "string" && pending?.request_id === storedEvent.payload.request_id) {
-        pending = undefined;
-      }
-    }
-    return pending;
-  }
-
   function openTurnInRoom(roomId: string): OpenTurn | undefined {
     return findAnyOpenTurn(eventsAfterLastHistoryClear(store.listEvents(roomId)));
   }
@@ -720,18 +675,6 @@ export async function buildServer(options: BuildServerOptions = {}) {
       }
     }
     return undefined;
-  }
-
-  function collectedMessagesFor(roomId: string, collectionId: string): CollectedMessage[] {
-    return eventsAfterLastHistoryClear(store.listEvents(roomId))
-      .filter((storedEvent) => storedEvent.type === "message.created" && storedEvent.payload.collection_id === collectionId && typeof storedEvent.payload.text === "string")
-      .map((storedEvent) => ({
-        message_id: typeof storedEvent.payload.message_id === "string" ? storedEvent.payload.message_id : undefined,
-        actor_id: storedEvent.actor_id,
-        text: String(storedEvent.payload.text),
-        kind: typeof storedEvent.payload.kind === "string" ? storedEvent.payload.kind : "human",
-        created_at: storedEvent.created_at
-      }));
   }
 
   function claudeQueuedFollowupDetails(messages: ConversationMessage[], names: Map<string, string>, roles: Map<string, string>): { messageText: string; speakerName: string; speakerRole: string } | undefined {
@@ -813,7 +756,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     })];
   }
 
-  function createAgentTurnRequestEvents(roomId: string, actorId: string, reason: "human_message" | "queued_followup" | "collected_answers", contextPrompt?: string, previousTurnId?: string): CacpEvent[] {
+  function createAgentTurnRequestEvents(roomId: string, actorId: string, reason: "human_message" | "queued_followup", contextPrompt?: string, previousTurnId?: string): CacpEvent[] {
     const events = store.listEvents(roomId);
     const turnEvents = eventsAfterLastHistoryClear(events);
     const activeAgentId = findActiveAgentId(events);
@@ -844,7 +787,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       let messageText = "";
       let speakerName = "";
       let speakerRole = "";
-      const mode = reason === "collected_answers" ? "roundtable" : reason === "queued_followup" ? "followup" : "normal";
+      const mode = reason === "queued_followup" ? "followup" : "normal";
       if (reason === "human_message") {
         const latestMessage = recentConversationMessages(events, 1)[0];
         if (latestMessage) {
@@ -2077,112 +2020,18 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!participant) return deny(reply, "invalid_token");
     if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
     const body = z.object({ text: z.string().min(1).max(config.maxMessageLength) }).parse(request.body);
-    const activeCollection = activeCollectionFor(request.params.roomId);
     const storedEvents = store.transaction(() => {
       const messageId = prefixedId("msg");
       const message = store.appendEvent(event(request.params.roomId, "message.created", participant.id, {
         message_id: messageId,
         text: body.text,
-        kind: "human",
-        ...(activeCollection ? { collection_id: activeCollection.collection_id } : {})
+        kind: "human"
       }));
-
-      if (activeCollection) return [message];
 
       return [message, ...createAgentTurnRequestEvents(request.params.roomId, participant.id, "human_message").map((nextEvent) => store.appendEvent(nextEvent))];
     });
     publishEvents(storedEvents);
     return reply.code(201).send(storedEvents[0]);
-  });
-
-  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/ai-collection/start", async (request, reply) => {
-    const participant = requireParticipant(store, request.params.roomId, request);
-    if (!participant) return deny(reply, "invalid_token");
-    if (!hasHumanRole(participant, ["owner"])) return deny(reply, "forbidden", 403);
-    if (activeCollectionFor(request.params.roomId)) return deny(reply, "active_collection_exists", 409);
-    if (pendingCollectionRequestFor(request.params.roomId)) return deny(reply, "pending_collection_request_exists", 409);
-    if (openTurnInRoom(request.params.roomId)) return deny(reply, "active_turn_in_flight", 409);
-    const collectionId = prefixedId("collection");
-    appendAndPublish(event(request.params.roomId, "ai.collection.started", participant.id, {
-      collection_id: collectionId,
-      started_by: participant.id
-    }));
-    return reply.code(201).send({ collection_id: collectionId });
-  });
-
-  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/ai-collection/request", async (request, reply) => {
-    const participant = requireParticipant(store, request.params.roomId, request);
-    if (!participant) return deny(reply, "invalid_token");
-    if (!hasHumanRole(participant, ["admin", "member"])) return deny(reply, "forbidden", 403);
-    if (activeCollectionFor(request.params.roomId)) return deny(reply, "active_collection_exists", 409);
-    if (pendingCollectionRequestFor(request.params.roomId)) return deny(reply, "pending_collection_request_exists", 409);
-    const requestId = prefixedId("collection_request");
-    appendAndPublish(event(request.params.roomId, "ai.collection.requested", participant.id, { request_id: requestId, requested_by: participant.id }));
-    return reply.code(201).send({ request_id: requestId, requested_by: participant.id, status: "pending" });
-  });
-
-  app.post<{ Params: { roomId: string; requestId: string } }>("/rooms/:roomId/ai-collection/requests/:requestId/approve", async (request, reply) => {
-    const participant = requireParticipant(store, request.params.roomId, request);
-    if (!participant) return deny(reply, "invalid_token");
-    if (!hasHumanRole(participant, ["owner"])) return deny(reply, "forbidden", 403);
-    const pending = pendingCollectionRequestFor(request.params.roomId);
-    if (!pending || pending.request_id !== request.params.requestId) return deny(reply, "no_pending_collection_request", 409);
-    if (activeCollectionFor(request.params.roomId)) return deny(reply, "active_collection_exists", 409);
-    if (openTurnInRoom(request.params.roomId)) return deny(reply, "active_turn_in_flight", 409);
-    const collectionId = prefixedId("collection");
-    const storedEvents = store.transaction(() => [
-      store.appendEvent(event(request.params.roomId, "ai.collection.request_approved", participant.id, { request_id: request.params.requestId, approved_by: participant.id, collection_id: collectionId })),
-      store.appendEvent(event(request.params.roomId, "ai.collection.started", participant.id, { collection_id: collectionId, started_by: participant.id, request_id: request.params.requestId }))
-    ]);
-    publishEvents(storedEvents);
-    return reply.code(201).send({ ok: true, collection_id: collectionId, request_id: request.params.requestId });
-  });
-
-  app.post<{ Params: { roomId: string; requestId: string } }>("/rooms/:roomId/ai-collection/requests/:requestId/reject", async (request, reply) => {
-    const participant = requireParticipant(store, request.params.roomId, request);
-    if (!participant) return deny(reply, "invalid_token");
-    if (!hasHumanRole(participant, ["owner"])) return deny(reply, "forbidden", 403);
-    const pending = pendingCollectionRequestFor(request.params.roomId);
-    if (!pending || pending.request_id !== request.params.requestId) return deny(reply, "no_pending_collection_request", 409);
-    appendAndPublish(event(request.params.roomId, "ai.collection.request_rejected", participant.id, { request_id: request.params.requestId, rejected_by: participant.id }));
-    return reply.code(201).send({ ok: true, request_id: request.params.requestId });
-  });
-
-  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/ai-collection/submit", async (request, reply) => {
-    const participant = requireParticipant(store, request.params.roomId, request);
-    if (!participant) return deny(reply, "invalid_token");
-    if (!hasHumanRole(participant, ["owner"])) return deny(reply, "forbidden", 403);
-    const activeCollection = activeCollectionFor(request.params.roomId);
-    if (!activeCollection) return deny(reply, "no_active_collection", 409);
-    if (openTurnInRoom(request.params.roomId)) return deny(reply, "active_turn_in_flight", 409);
-    const activeAgentId = findActiveAgentId(store.listEvents(request.params.roomId));
-    const contextPrompt = activeAgentId ? buildCollectedContextPrompt(request.params.roomId, activeAgentId, activeCollection.collection_id) : undefined;
-    const collectedMessages = collectedMessagesFor(request.params.roomId, activeCollection.collection_id);
-    const messageIds = collectedMessages.flatMap((message) => message.message_id ? [message.message_id] : []);
-    const storedEvents = store.transaction(() => {
-      const submitted = store.appendEvent(event(request.params.roomId, "ai.collection.submitted", participant.id, {
-        collection_id: activeCollection.collection_id,
-        submitted_by: participant.id,
-        message_ids: messageIds
-      }));
-      const turnEvents = createAgentTurnRequestEvents(request.params.roomId, participant.id, "collected_answers", contextPrompt).map((nextEvent) => store.appendEvent(nextEvent));
-      return [submitted, ...turnEvents];
-    });
-    publishEvents(storedEvents);
-    return reply.code(201).send({ ok: true, collection_id: activeCollection.collection_id, message_ids: messageIds });
-  });
-
-  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/ai-collection/cancel", async (request, reply) => {
-    const participant = requireParticipant(store, request.params.roomId, request);
-    if (!participant) return deny(reply, "invalid_token");
-    if (!hasHumanRole(participant, ["owner"])) return deny(reply, "forbidden", 403);
-    const activeCollection = activeCollectionFor(request.params.roomId);
-    if (!activeCollection) return deny(reply, "no_active_collection", 409);
-    appendAndPublish(event(request.params.roomId, "ai.collection.cancelled", participant.id, {
-      collection_id: activeCollection.collection_id,
-      cancelled_by: participant.id
-    }));
-    return reply.code(201).send({ ok: true, collection_id: activeCollection.collection_id });
   });
 
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/proposals", async (request, reply) => {

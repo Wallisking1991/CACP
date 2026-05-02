@@ -32,17 +32,11 @@ const baseProps = {
   onLeaveRoom: vi.fn(),
   onClearRoom: vi.fn(),
   onSendMessage: vi.fn(),
-  onStartCollection: vi.fn(),
-  onSubmitCollection: vi.fn(),
-  onCancelCollection: vi.fn(),
   onSelectAgent: vi.fn(),
   onCreateInvite: vi.fn(async () => "http://localhost/invite"),
   onApproveJoinRequest: vi.fn(),
   onRejectJoinRequest: vi.fn(),
-  onRemoveParticipant: vi.fn(),
-  onRequestRoundtable: vi.fn(),
-  onApproveRoundtableRequest: vi.fn(),
-  onRejectRoundtableRequest: vi.fn()
+  onRemoveParticipant: vi.fn()
 };
 
 describe("Workspace refactored shell", () => {
@@ -125,43 +119,6 @@ describe("Workspace refactored shell", () => {
     expect(onApproveJoinRequest).toHaveBeenCalledWith("join_req_1");
   });
 
-  it("shows notification badge with roundtable request", () => {
-    const props = {
-      ...baseProps,
-      events: [
-        event("room.created", { name: "Room" }, 1),
-        event("participant.joined", { participant: { id: "user_1", display_name: "Owner", role: "owner", type: "human" } }, 2),
-        event("participant.joined", { participant: { id: "user_member", display_name: "Bob", role: "member", type: "human" } }, 3, "user_member"),
-        event("ai.collection.requested", { request_id: "collection_request_1", requested_by: "user_member" }, 4, "user_member")
-      ]
-    };
-    render(<LangProvider><Workspace {...props} /></LangProvider>);
-
-    expect(screen.getByText("1")).toBeInTheDocument();
-  });
-
-  it("opens notification panel with roundtable request when notification button is clicked", () => {
-    const onApproveRoundtableRequest = vi.fn();
-    const props = {
-      ...baseProps,
-      events: [
-        event("room.created", { name: "Room" }, 1),
-        event("participant.joined", { participant: { id: "user_1", display_name: "Owner", role: "owner", type: "human" } }, 2),
-        event("participant.joined", { participant: { id: "user_member", display_name: "Bob", role: "member", type: "human" } }, 3, "user_member"),
-        event("ai.collection.requested", { request_id: "collection_request_1", requested_by: "user_member" }, 4, "user_member")
-      ],
-      onApproveRoundtableRequest
-    };
-    render(<LangProvider><Workspace {...props} /></LangProvider>);
-
-    fireEvent.click(screen.getByRole("button", { name: /notifications/i }));
-    expect(screen.getByText("Bob")).toBeInTheDocument();
-    expect(screen.getByText(/Roundtable request/i)).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /Start/i }));
-    expect(onApproveRoundtableRequest).toHaveBeenCalledWith("collection_request_1");
-  });
-
   it("opens people popover when human avatar is clicked", () => {
     render(<LangProvider><Workspace {...baseProps} /></LangProvider>);
 
@@ -218,6 +175,15 @@ describe("Workspace refactored shell", () => {
     expect(screen.getByText("Orbit")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Send to People/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Send to Agent/i })).toBeInTheDocument();
+  });
+
+  it("keeps the Orbit panel inside the workspace grid so it cannot cover the composer", () => {
+    render(<LangProvider><Workspace {...baseProps} /></LangProvider>);
+
+    const grid = document.querySelector(".workspace-grid");
+    expect(grid).not.toBeNull();
+    expect(grid?.querySelector(":scope > .chat-panel")).not.toBeNull();
+    expect(grid?.querySelector(":scope > .orbit-panel")).not.toBeNull();
   });
 
   it("lists current-round Orbit notes in the promote tray", () => {

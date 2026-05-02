@@ -2,9 +2,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useLocation, useMatch, useNavigate } from "react-router-dom";
 import type { CacpEvent } from "@cacp/protocol";
 import {
-  approveAiCollectionRequest,
   approveJoinRequest,
-  cancelAiCollection,
   clearEventSocket,
   clearRoom,
   connectEvents,
@@ -19,14 +17,10 @@ import {
   joinRequestStatus,
   leaveRoom,
   parseInviteUrl,
-  rejectAiCollectionRequest,
   rejectJoinRequest,
   removeParticipant,
-  requestAiCollection,
   selectAgent,
   sendMessage,
-  startAiCollection,
-  submitAiCollection,
   type LocalAgentLaunch,
   type RoomSession,
 } from "./api.js";
@@ -288,27 +282,6 @@ export default function App() {
     });
   }, [currentSession]);
 
-  const handleStartCollection = useCallback(() => {
-    if (!currentSession) return;
-    void run(async () => {
-      await startAiCollection(currentSession);
-    });
-  }, [currentSession]);
-
-  const handleSubmitCollection = useCallback(() => {
-    if (!currentSession) return;
-    void run(async () => {
-      await submitAiCollection(currentSession);
-    });
-  }, [currentSession]);
-
-  const handleCancelCollection = useCallback(() => {
-    if (!currentSession) return;
-    void run(async () => {
-      await cancelAiCollection(currentSession);
-    });
-  }, [currentSession]);
-
   const handleSelectAgent = useCallback((agentId: string) => {
     if (!currentSession) return;
     void run(async () => {
@@ -355,21 +328,6 @@ export default function App() {
     });
   }, [currentSession]);
 
-  const handleRequestRoundtable = useCallback(() => {
-    if (!currentSession) return;
-    void run(async () => { await requestAiCollection(currentSession); });
-  }, [currentSession]);
-
-  const handleApproveRoundtableRequest = useCallback((requestId: string) => {
-    if (!currentSession) return;
-    void run(async () => { await approveAiCollectionRequest(currentSession, requestId); });
-  }, [currentSession]);
-
-  const handleRejectRoundtableRequest = useCallback((requestId: string) => {
-    if (!currentSession) return;
-    void run(async () => { await rejectAiCollectionRequest(currentSession, requestId); });
-  }, [currentSession]);
-
   // Redirect to root when on room route but no valid session
   useEffect(() => {
     if (urlRoomId && (!currentSession || sessionValid === false)) {
@@ -400,17 +358,11 @@ export default function App() {
             onLeaveRoom={handleLeaveRoom}
             onClearRoom={handleClearRoom}
             onSendMessage={handleSendMessage}
-            onStartCollection={handleStartCollection}
-            onSubmitCollection={handleSubmitCollection}
-            onCancelCollection={handleCancelCollection}
             onSelectAgent={handleSelectAgent}
             onCreateInvite={handleCreateInvite}
             onApproveJoinRequest={handleApproveJoinRequest}
             onRejectJoinRequest={handleRejectJoinRequest}
             onRemoveParticipant={handleRemoveParticipant}
-            onRequestRoundtable={handleRequestRoundtable}
-            onApproveRoundtableRequest={handleApproveRoundtableRequest}
-            onRejectRoundtableRequest={handleRejectRoundtableRequest}
             createdInvite={createdInvite}
             error={error}
             cloudMode={isCloudMode()}

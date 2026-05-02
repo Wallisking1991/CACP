@@ -154,31 +154,6 @@ export function buildAgentContextPrompt(input: { participants: Participant[]; me
     "Recent conversation:",
     messages || "No recent conversation.",
     "",
-    "Reply in concise, actionable Chinese by default. Do not modify files unless explicitly asked.",
-    "If multiple humans should answer before you continue, ask the host to use Roundtable Mode to collect answers. Do not output structured governance code blocks."
-  ].join("\n");
-}
-
-export function buildCollectedAnswersPrompt(input: { participants: Participant[]; messages: PromptMessage[]; agentName: string }): string {
-  const participants = input.participants
-    .map((participant) => `- ${participant.display_name}(${participant.role})`)
-    .join("\n");
-  const messages = input.messages
-    .map((message) => `${message.actorName}: ${message.text}`)
-    .join("\n");
-  return [
-    `You are ${input.agentName}, an AI agent participating in a CACP multi-person collaboration room.`,
-    "",
-    "The host just ended a Roundtable Mode collection round. Human messages during the collection were not sent to AI one by one.",
-    "Synthesize the collected answers below and continue the discussion without mechanically repeating every message.",
-    "",
-    "Current room participants:",
-    participants || "- No visible participants",
-    "",
-    "Collected answers:",
-    messages || "No collected answers.",
-    "",
-    "Reply in concise, actionable Chinese by default. Do not modify files unless explicitly asked.",
-    "If more human input is needed, ask the host to keep using Roundtable Mode. Do not output structured governance code blocks."
+    "Reply in concise, actionable Chinese by default. Do not modify files unless explicitly asked."
   ].join("\n");
 }

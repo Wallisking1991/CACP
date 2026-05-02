@@ -264,7 +264,7 @@ describe("CACP server hardening", () => {
     expect(responses.map((response) => response.statusCode)).toEqual([403, 403, 403]);
   });
 
-  it("restricts control APIs to owners/admins while Roundtable Mode remains owner-only", async () => {
+  it("restricts control APIs to owners/admins", async () => {
     const dbPath = tempDbPath();
     const app = await trackedServer(dbPath);
     const { room, ownerAuth } = await createRoom(app, "Control Owner");
@@ -288,8 +288,6 @@ describe("CACP server hardening", () => {
     expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-pairings`, headers: adminAuth, payload: { agent_type: "claude-code", permission_level: "read_only", working_dir: "." } })).statusCode).toBe(201);
     expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/select`, headers: adminAuth, payload: { agent_id: adminAgent.json().agent_id } })).statusCode).toBe(201);
     expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/invites`, headers: adminAuth, payload: { role: "observer" } })).statusCode).toBe(201);
-    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/ai-collection/start`, headers: adminAuth, payload: {} })).statusCode).toBe(403);
-    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/ai-collection/start`, headers: ownerAuth, payload: {} })).statusCode).toBe(201);
   });
 
   it("prevents registered agent tokens from creating human collaboration content", async () => {

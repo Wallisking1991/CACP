@@ -2,23 +2,14 @@ import { useState, useCallback } from "react";
 import { useT } from "../i18n/useT.js";
 import { roomPermissionsForRole } from "../role-permissions.js";
 import type { RoomSession } from "../api.js";
-import { LiveIcon, RoundtableIcon, SendIcon, SweepIcon } from "./RoomIcons.js";
+import { SendIcon, SweepIcon } from "./RoomIcons.js";
 
-export type ComposerMode = "live" | "collect";
 export type ComposerRole = RoomSession["role"];
 
 export interface ComposerProps {
   role: ComposerRole;
-  mode: ComposerMode;
   turnInFlight: boolean;
-  collectCount: number;
-  canSendMessages: boolean;
-  pendingRoundtableRequest: boolean;
   onSend: (text: string) => void;
-  onToggleMode: () => void;
-  onSubmitCollection: () => void;
-  onCancelCollection: () => void;
-  onRequestRoundtable: () => void;
   onTypingInput: (text: string) => void;
   onStopTyping: () => void;
   onClearConversation: () => void;
@@ -28,16 +19,8 @@ export interface ComposerProps {
 
 export default function Composer({
   role,
-  mode,
   turnInFlight,
-  collectCount,
-  canSendMessages,
-  pendingRoundtableRequest,
   onSend,
-  onToggleMode,
-  onSubmitCollection,
-  onCancelCollection,
-  onRequestRoundtable,
   onTypingInput,
   onStopTyping,
   onClearConversation,
@@ -50,14 +33,9 @@ export default function Composer({
 
   const perms = roomPermissionsForRole(role);
   const isOwner = role === "owner";
-  const isLive = mode === "live";
 
-  const effectiveCanSend = perms.canSendMessages;
-  const canToggleMode = isOwner && !turnInFlight;
-  const canInput = effectiveCanSend && !(!isLive && turnInFlight);
-  const isQueued = isLive && turnInFlight;
-
-  const canRequestRoundtable = (role === "admin" || role === "member") && effectiveCanSend && isLive && !pendingRoundtableRequest;
+  const canInput = perms.canSendMessages;
+  const isQueued = turnInFlight;
 
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
@@ -93,13 +71,7 @@ export default function Composer({
     [handleSend]
   );
 
-  const composerClass = [
-    "composer",
-    isQueued ? "composer-queued" : "",
-    !isLive ? "composer-collect" : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
+  const composerClass = ["composer", isQueued ? "composer-queued" : ""].filter(Boolean).join(" ");
 
   return (
     <div className={composerClass} data-testid="composer">
@@ -124,45 +96,6 @@ export default function Composer({
         </div>
       )}
 
-      <div className="composer-top">
-        <div className="mode-toggle">
-          <button
-            type="button"
-            className={`mode-toggle-btn ${isLive ? "active" : ""}`}
-            disabled={!canToggleMode}
-            onClick={isLive ? undefined : onToggleMode}
-            aria-pressed={isLive}
-          >
-            <LiveIcon /> {t("composer.live")}
-          </button>
-          <button
-            type="button"
-            className={`mode-toggle-btn ${!isLive ? "active" : ""}`}
-            disabled={isOwner ? (!canToggleMode || pendingRoundtableRequest) : !canRequestRoundtable}
-            onClick={isOwner ? (!isLive ? undefined : onToggleMode) : onRequestRoundtable}
-            aria-pressed={!isLive}
-          >
-            <RoundtableIcon /> {isOwner || !isLive ? t("composer.roundtable") : pendingRoundtableRequest ? t("composer.roundtablePending") : t("composer.requestRoundtable")}
-          </button>
-        </div>
-
-        {isLive && !isQueued && (
-          <span className="composer-hint">{t("composer.liveHint")}</span>
-        )}
-        {isLive && isQueued && (
-          <span className="composer-hint">{t("composer.modeLocked")}</span>
-        )}
-        {!isLive && isOwner && (
-          <span className="composer-hint">
-            <span className="collect-badge">{collectCount}</span>
-            {t("composer.roundtableActiveHint")}
-          </span>
-        )}
-        {!isLive && !isOwner && (
-          <span className="composer-hint">{t("composer.memberRoundtableHint")}</span>
-        )}
-      </div>
-
       <div className="composer-bottom">
         <textarea
           className="input"
@@ -178,7 +111,7 @@ export default function Composer({
           rows={2}
         />
         <div className="composer-actions">
-          {isLive && !isQueued && onSendOrbitNote && (
+          {!isQueued && onSendOrbitNote && (
             <>
               <button
                 type="button"
@@ -200,7 +133,7 @@ export default function Composer({
               </button>
             </>
           )}
-          {isLive && !isQueued && !onSendOrbitNote && (
+          {!isQueued && !onSendOrbitNote && (
             <button
               type="button"
               className="btn btn-primary"
@@ -210,7 +143,7 @@ export default function Composer({
               <SendIcon /> {t("chat.send")}
             </button>
           )}
-          {isLive && isQueued && (
+          {isQueued && (
             <button
               type="button"
               className="btn btn-primary"
@@ -218,16 +151,6 @@ export default function Composer({
               disabled={!text.trim()}
             >
               <SendIcon /> {t("composer.queue")}
-            </button>
-          )}
-          {!isLive && (
-            <button
-              type="button"
-              className="btn btn-warm"
-              onClick={handleSend}
-              disabled={!canInput || !text.trim()}
-            >
-              {t("composer.add")}
             </button>
           )}
         </div>
@@ -249,35 +172,6 @@ export default function Composer({
           >
             {t("composer.clearConversationConfirmAction")}
           </button>
-        </div>
-      )}
-
-      {!isLive && isOwner && (
-        <div className="composer-actions" style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border-soft)', justifyContent: 'space-between' }}>
-          <span className="composer-hint">{t("composer.ownerOnlyHint")}</span>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              type="button"
-              className="btn btn-warm-ghost"
-              onClick={onCancelCollection}
-            >
-              {t("composer.cancelRoundtable")}
-            </button>
-            <button
-              type="button"
-              className="btn btn-warm"
-              onClick={onSubmitCollection}
-              disabled={collectCount === 0}
-            >
-              {t("composer.submitRoundtable", { count: collectCount })}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {!isLive && !isOwner && (
-        <div className="status-strip">
-          <span className="composer-hint">{t("composer.lockedHint")}</span>
         </div>
       )}
     </div>

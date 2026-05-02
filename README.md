@@ -10,7 +10,7 @@ It starts from a simple belief: the next generation of AI tools should not only 
 
 Most current AI and AI Agent products still assume a one-to-one interaction model: one user talks to one AI assistant or one local coding agent. That model is powerful, but many real-world problems are not solved by one person alone. Product design, software requirements, open-source planning, security reviews, business decisions, and creative work often need multiple people with different knowledge to build a shared understanding before AI can produce a high-quality answer.
 
-CACP is an open-source exploration of that missing collaboration layer. It provides a shared AI room where humans can discuss together, invite members or observers, connect a local or API-based agent, and use Roundtable Mode to collect human perspectives before submitting them to AI as one structured context.
+CACP is an open-source exploration of that missing collaboration layer. It provides a shared AI room where humans can discuss together, invite members or observers, connect a local or API-based agent, and use side-channel Orbit notes plus a Send-to-Agent main input queue to mix free-form human discussion with structured AI turns.
 
 This is an early prototype and protocol experiment. The core experience is already runnable and suitable for trying, studying, and contributing to, but it should not be treated as a production-ready collaboration platform yet.
 
@@ -26,7 +26,7 @@ It includes:
 - A room server that stores room state as an append-only event log and broadcasts updates in real time.
 - A local connector that bridges the web room to a persistent Claude Code session or LLM API agents.
 - A protocol package that defines shared event types, participant roles, connection codes, and room contracts.
-- Roundtable Mode, which lets people discuss first and send the collected human context to AI only when the room owner submits it.
+- An Orbit side-channel for human-only notes plus a FIFO Send-to-Agent queue, so people can chat freely while AI turns stay ordered and predictable.
 
 Local execution is Claude Code-first:
 
@@ -132,7 +132,7 @@ The room owner can create invite links.
 
 Roles:
 
-- Owner: manages the room, approves join requests, starts or submits Roundtable Mode, and manages participants.
+- Owner: manages the room, approves join requests, clears conversation history, and manages participants.
 - Member: can participate in the discussion.
 - Observer: can watch the room but does not participate in the conversation.
 - Agent: the connected AI participant.
@@ -145,21 +145,14 @@ In normal chat mode, messages are sent to the room and can trigger the active ag
 
 This is useful when the room wants immediate AI feedback.
 
-### 7. Use Roundtable Mode
+### 7. Mix discussion with AI turns
 
-Roundtable Mode is the key CACP interaction pattern.
+Every message goes live by default. The composer offers two send actions so people can talk freely without losing AI focus:
 
-Use it when you want people to discuss first before AI answers.
+- **Send to People** posts an Orbit note that other humans see in the side panel; AI does not respond to Orbit notes until someone promotes them.
+- **Send to Agent** appends to the FIFO main input queue. Each entry triggers exactly one AI turn; if the agent is already responding, the next item is dispatched automatically when the current turn finishes.
 
-Typical flow:
-
-1. The owner starts Roundtable Mode, or a member requests it and the owner approves.
-2. Participants add their perspectives in the room.
-3. These messages are collected and do not trigger AI one by one.
-4. The owner submits the round.
-5. The agent receives the collected human context and responds once.
-
-This is useful when a topic needs multiple viewpoints, such as product design, architecture discussion, business analysis, or creative brainstorming.
+Use Orbit notes for brainstorming, side comments, and shared context. Use Send to Agent when you want a structured AI answer. Either action keeps the conversation real-time — there is no separate collection mode to start or submit.
 
 ## Safety boundary for users
 
@@ -309,7 +302,7 @@ Do not commit:
 Contributions are welcome, especially in these areas:
 
 - Protocol design and event semantics.
-- Room UX and Roundtable Mode improvements.
+- Room UX, Orbit side-channel, and Send-to-Agent queue improvements.
 - Local Connector usability.
 - Agent adapter compatibility.
 - LLM provider adapters.

@@ -34,12 +34,9 @@ export interface HeaderProps {
   // Notifications
   pendingNotificationCount?: number;
   joinRequests?: JoinRequestView[];
-  roundtableRequest?: { request_id: string; display_name: string; created_at: string };
   turnInFlight?: boolean;
   onApproveJoinRequest?: (requestId: string) => void;
   onRejectJoinRequest?: (requestId: string) => void;
-  onApproveRoundtableRequest?: (requestId: string) => void;
-  onRejectRoundtableRequest?: (requestId: string) => void;
   // Avatar popovers
   onClickHumanAvatar?: () => void;
   onClickAgentAvatar?: () => void;
@@ -69,12 +66,9 @@ export default function Header({
   onTestSound,
   pendingNotificationCount = 0,
   joinRequests = [],
-  roundtableRequest,
   turnInFlight = false,
   onApproveJoinRequest,
   onRejectJoinRequest,
-  onApproveRoundtableRequest,
-  onRejectRoundtableRequest,
   onClickHumanAvatar,
   onClickAgentAvatar,
   railRef,
@@ -184,12 +178,9 @@ export default function Header({
         <Popover triggerRef={notificationBtnRef} open={notificationOpen} onClose={() => setNotificationOpen(false)}>
           <NotificationPanel
             joinRequests={joinRequests}
-            roundtableRequest={roundtableRequest}
             turnInFlight={turnInFlight}
             onApproveJoinRequest={onApproveJoinRequest ?? (() => {})}
             onRejectJoinRequest={onRejectJoinRequest ?? (() => {})}
-            onApproveRoundtableRequest={onApproveRoundtableRequest ?? (() => {})}
-            onRejectRoundtableRequest={onRejectRoundtableRequest ?? (() => {})}
           />
         </Popover>
 

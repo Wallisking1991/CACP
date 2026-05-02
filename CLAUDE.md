@@ -78,7 +78,9 @@ Key event types:
 - `room.created`, `participant.joined`, `participant.left`, `participant.removed`
 - `message.created` — human or agent messages
 - `agent.turn.requested`, `agent.turn.started`, `agent.output.delta`, `agent.turn.completed`, `agent.turn.failed` — agent streaming turn lifecycle
-- `ai.collection.started`, `ai.collection.submitted`, `ai.collection.cancelled` — Roundtable Mode (collects human messages before triggering agent)
+- `main_input.accepted`, `main_input.queued`, `main_input.triggered`, `main_input.cancelled`, `main_input.failed` — Send-to-Agent FIFO queue lifecycle (auto-triggered when an agent turn finishes)
+- `orbit.round.opened`, `orbit.note.created`, `orbit.like.changed`, `orbit.round.promoted` — Orbit side-channel notes (Send to People) and promotion to the main thread
+- `connector.snapshot.requested`, `connector.snapshot.started`, `connector.snapshot.entry`, `connector.snapshot.completed`, `connector.snapshot.failed` — Local Connector ledger snapshot relay (live-only, not persisted)
 - `agent.pairing_created`, `agent.registered`, `agent.status_changed` — agent connection lifecycle
 - `join_request.created`, `join_request.approved`, `join_request.rejected` — owner-approved joins
 

@@ -18,7 +18,6 @@ function renderThread(currentParticipantId = "user_1") {
         streamingTurns={[]}
         actorNames={new Map([["user_1", "Wei"], ["user_2", "Bob"], ["agent_1", "Claude Code Agent"]])}
         showSlowStreamingNotice={false}
-        activeCollectionId={undefined}
         claudeImports={[]}
       />
     </LangProvider>

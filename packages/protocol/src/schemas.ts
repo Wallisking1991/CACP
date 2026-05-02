@@ -36,7 +36,6 @@ export const ParticipantTypingStoppedPayloadSchema = z.object({
 export const EventTypeSchema = z.enum([
   "room.created", "room.configured", "room.agent_selected", "participant.joined", "participant.left", "participant.role_updated", "participant.presence_changed", "participant.typing_started", "participant.typing_stopped", "invite.created", "invite.revoked",
   "message.created",
-  "ai.collection.started", "ai.collection.submitted", "ai.collection.cancelled", "ai.collection.requested", "ai.collection.request_approved", "ai.collection.request_rejected",
   "proposal.created", "proposal.vote_cast", "proposal.approved", "proposal.rejected", "proposal.expired",
   "agent.registered", "agent.unregistered", "agent.disconnected", "agent.pairing_created", "agent.status_changed", "agent.action_approval_requested", "agent.action_approval_resolved",
   "agent.turn.requested", "agent.turn.followup_queued", "agent.turn.started", "agent.output.delta", "agent.turn.completed", "agent.turn.failed",
@@ -112,22 +111,6 @@ export const RoomHistoryClearedPayloadSchema = z.object({
   cleared_by: z.string().min(1),
   cleared_at: z.string().datetime(),
   scope: z.enum(["messages", "messages_and_decisions"])
-});
-
-export const AiCollectionRequestedPayloadSchema = z.object({
-  request_id: z.string().min(1),
-  requested_by: z.string().min(1)
-});
-
-export const AiCollectionRequestApprovedPayloadSchema = z.object({
-  request_id: z.string().min(1),
-  approved_by: z.string().min(1),
-  collection_id: z.string().min(1)
-});
-
-export const AiCollectionRequestRejectedPayloadSchema = z.object({
-  request_id: z.string().min(1),
-  rejected_by: z.string().min(1)
 });
 
 export const ClaudeSessionSummarySchema = z.object({
@@ -406,9 +389,6 @@ export type VoteRecord = z.infer<typeof VoteRecordSchema>;
 export type Policy = z.infer<typeof PolicySchema>;
 export type RequiredUnknown = z.infer<typeof RequiredUnknownSchema>;
 export type RoomHistoryClearedPayload = z.infer<typeof RoomHistoryClearedPayloadSchema>;
-export type AiCollectionRequestedPayload = z.infer<typeof AiCollectionRequestedPayloadSchema>;
-export type AiCollectionRequestApprovedPayload = z.infer<typeof AiCollectionRequestApprovedPayloadSchema>;
-export type AiCollectionRequestRejectedPayload = z.infer<typeof AiCollectionRequestRejectedPayloadSchema>;
 export type ClaudeSessionSummary = z.infer<typeof ClaudeSessionSummarySchema>;
 export type ClaudeSessionCatalogUpdatedPayload = z.infer<typeof ClaudeSessionCatalogUpdatedPayloadSchema>;
 export type ClaudeSessionSelectedPayload = z.infer<typeof ClaudeSessionSelectedPayloadSchema>;

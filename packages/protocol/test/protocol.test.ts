@@ -2,9 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   AgentTypeSchema,
   CacpEventSchema,
-  AiCollectionRequestedPayloadSchema,
-  AiCollectionRequestApprovedPayloadSchema,
-  AiCollectionRequestRejectedPayloadSchema,
   ClaudeSessionCatalogUpdatedPayloadSchema,
   ClaudeSessionImportStartedPayloadSchema,
   ClaudeSessionSelectedPayloadSchema,
@@ -89,17 +86,29 @@ describe("CACP event schema", () => {
     }
   });
 
-  it("accepts AI flow control and history clear event types", () => {
+  it("accepts the room history clear event type", () => {
+    expect(CacpEventSchema.parse({
+      protocol: "cacp",
+      version: "0.2.0",
+      event_id: "evt_room.history_cleared",
+      room_id: "room_1",
+      type: "room.history_cleared",
+      actor_id: "user_1",
+      created_at: "2026-04-26T00:00:00.000Z",
+      payload: {}
+    }).type).toBe("room.history_cleared");
+  });
+
+  it("rejects retired ai.collection event types", () => {
     for (const type of [
       "ai.collection.started",
       "ai.collection.submitted",
       "ai.collection.cancelled",
       "ai.collection.requested",
       "ai.collection.request_approved",
-      "ai.collection.request_rejected",
-      "room.history_cleared"
-    ] as const) {
-      expect(CacpEventSchema.parse({
+      "ai.collection.request_rejected"
+    ]) {
+      expect(() => CacpEventSchema.parse({
         protocol: "cacp",
         version: "0.2.0",
         event_id: `evt_${type}`,
@@ -108,30 +117,8 @@ describe("CACP event schema", () => {
         actor_id: "user_1",
         created_at: "2026-04-26T00:00:00.000Z",
         payload: {}
-      }).type).toBe(type);
+      })).toThrow();
     }
-  });
-
-  it("accepts AI collection request payload shapes", () => {
-    const requested = AiCollectionRequestedPayloadSchema.parse({
-      request_id: "req_1",
-      requested_by: "user_a"
-    });
-    expect(requested.request_id).toBe("req_1");
-    expect(requested.requested_by).toBe("user_a");
-
-    const approved = AiCollectionRequestApprovedPayloadSchema.parse({
-      request_id: "req_1",
-      approved_by: "user_b",
-      collection_id: "col_1"
-    });
-    expect(approved.collection_id).toBe("col_1");
-
-    const rejected = AiCollectionRequestRejectedPayloadSchema.parse({
-      request_id: "req_1",
-      rejected_by: "user_c"
-    });
-    expect(rejected.rejected_by).toBe("user_c");
   });
 
   it("rejects removed structured decision and question event types", () => {

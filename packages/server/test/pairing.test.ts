@@ -37,7 +37,6 @@ describe("agent pairing profiles", () => {
       "manual_flow_control"
     ]);
     expect(profile.system_prompt).toContain("CACP");
-    expect(profile.system_prompt).toContain("Roundtable Mode");
     expect(profile.system_prompt).not.toContain("???");
   });
 

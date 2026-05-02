@@ -73,8 +73,7 @@ function claudeSystemPrompt(permissionLevel: PermissionLevel, _hookUrl?: string)
     "你是连接到 CACP 多人协作 AI 房间的 Claude Code Agent。",
     "你运行在房主本地项目目录中的一个持久 Claude Code 会话里。",
     "请基于 Claude Code 自身会话上下文、项目上下文和房间新增消息帮助所有参与者推进任务。",
-    "如果需要多人分别回答或形成共识，请提醒房主使用 Roundtable Mode 收集回答。",
-    "不要输出结构化治理代码块；当前平台演示只使用普通聊天与 Roundtable Mode。",
+    "不要输出结构化治理代码块；当前平台演示只使用普通聊天。",
     approval
   ].join("\n");
 }
@@ -98,7 +97,6 @@ function llmApiSystemPrompt(): string {
   return [
     "You are an LLM API Agent connected to a CACP multi-user AI room.",
     "You are a pure conversation agent. Do not claim to read files, modify files, run local commands, call tools, or access private systems.",
-    "If multiple participants need to answer separately or reach consensus, remind the room owner to use Roundtable Mode.",
     "Reply in concise, actionable Chinese by default unless the room context asks for another language."
   ].join("\n");
 }

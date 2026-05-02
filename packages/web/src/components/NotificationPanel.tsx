@@ -3,25 +3,18 @@ import type { JoinRequestView } from "../room-state.js";
 
 export interface NotificationPanelProps {
   joinRequests: JoinRequestView[];
-  roundtableRequest?: { request_id: string; display_name: string; created_at: string };
   turnInFlight: boolean;
   onApproveJoinRequest: (requestId: string) => void;
   onRejectJoinRequest: (requestId: string) => void;
-  onApproveRoundtableRequest: (requestId: string) => void;
-  onRejectRoundtableRequest: (requestId: string) => void;
 }
 
 export function NotificationPanel({
   joinRequests,
-  roundtableRequest,
-  turnInFlight,
   onApproveJoinRequest,
   onRejectJoinRequest,
-  onApproveRoundtableRequest,
-  onRejectRoundtableRequest,
 }: NotificationPanelProps) {
   const t = useT();
-  const hasNotifications = joinRequests.length > 0 || roundtableRequest;
+  const hasNotifications = joinRequests.length > 0;
 
   return (
     <div className="popover-content notification-popover">
@@ -52,29 +45,6 @@ export function NotificationPanel({
               </span>
             </div>
           ))}
-          {roundtableRequest ? (
-            <div key={roundtableRequest.request_id} className="popover-list-item">
-              <span className="popover-list-item-name">{roundtableRequest.display_name}</span>
-              <span className="popover-list-item-meta">{t("sidebar.roundtableRequestLabel")}</span>
-              <span className="popover-list-item-actions">
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  disabled={turnInFlight}
-                  onClick={() => onApproveRoundtableRequest(roundtableRequest.request_id)}
-                >
-                  {t("sidebar.start")}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => onRejectRoundtableRequest(roundtableRequest.request_id)}
-                >
-                  {t("sidebar.reject")}
-                </button>
-              </span>
-            </div>
-          ) : null}
         </div>
       )}
     </div>

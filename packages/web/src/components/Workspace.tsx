@@ -3,7 +3,7 @@ import type { CacpEvent } from "@cacp/protocol";
 import type { RoomSession } from "../api.js";
 import { startTyping, stopTyping, updatePresence, createAgentPairing } from "../api.js";
 import { roomPermissionsForRole } from "../role-permissions.js";
-import { deriveRoomState, humanParticipants, isCollectionActive, isTurnInFlight } from "../room-state.js";
+import { deriveRoomState, humanParticipants, isTurnInFlight } from "../room-state.js";
 import type { AgentSessionReadyView, AgentSessionSelectionView, ClaudeSessionReadyView, ClaudeSessionSelectionView } from "../room-state.js";
 import { requestClaudeSessionPreview, selectClaudeSession, requestAgentSessionPreview, selectAgentSession, sendOrbitNote, likeOrbitNote, unlikeOrbitNote, promoteOrbitRound, sendMainInput } from "../api.js";
 import { createTypingActivityController, type TypingActivityController } from "../activity-client.js";
@@ -25,17 +25,11 @@ export interface WorkspaceProps {
   onLeaveRoom: () => void;
   onClearRoom: () => void;
   onSendMessage: (text: string) => void;
-  onStartCollection: () => void;
-  onSubmitCollection: () => void;
-  onCancelCollection: () => void;
   onSelectAgent: (agentId: string) => void;
   onCreateInvite: (role: string, ttl: number, maxUses: number) => Promise<string | undefined>;
   onApproveJoinRequest: (requestId: string) => void;
   onRejectJoinRequest: (requestId: string) => void;
   onRemoveParticipant: (participantId: string) => void;
-  onRequestRoundtable: () => void;
-  onApproveRoundtableRequest: (requestId: string) => void;
-  onRejectRoundtableRequest: (requestId: string) => void;
   createdInvite?: { url: string; role: string; ttl: number };
   error?: string;
   cloudMode?: boolean;
@@ -76,17 +70,11 @@ export default function Workspace({
   onLeaveRoom,
   onClearRoom,
   onSendMessage,
-  onStartCollection,
-  onSubmitCollection,
-  onCancelCollection,
   onSelectAgent,
   onCreateInvite,
   onApproveJoinRequest,
   onRejectJoinRequest,
   onRemoveParticipant,
-  onRequestRoundtable,
-  onApproveRoundtableRequest,
-  onRejectRoundtableRequest,
   createdInvite,
   error,
   cloudMode,
@@ -115,9 +103,6 @@ export default function Workspace({
       ? "claude-code"
       : undefined;
   const turnInFlight = isTurnInFlight(events);
-  const collectionActive = isCollectionActive(events);
-
-  const composerMode: "live" | "collect" = collectionActive ? "collect" : "live";
 
   const actorNames = useMemo(() => {
     const names = new Map<string, string>();
@@ -142,10 +127,8 @@ export default function Workspace({
 
   const pendingNotificationCount = useMemo(() => {
     if (!isOwner) return 0;
-    let count = room.joinRequests.length;
-    if (room.pendingRoundtableRequest) count += 1;
-    return count;
-  }, [isOwner, room.joinRequests, room.pendingRoundtableRequest]);
+    return room.joinRequests.length;
+  }, [isOwner, room.joinRequests]);
 
   const streamingKey = useMemo(
     () => room.streamingTurns.map((t) => t.turn_id).join("|"),
@@ -224,10 +207,6 @@ export default function Workspace({
           soundControllerRef.current.play("join-request");
           break;
         }
-        case "ai.collection.started": {
-          soundControllerRef.current.play("roundtable");
-          break;
-        }
         case "agent.status_changed": {
           if (event.payload.status === "online") {
             soundControllerRef.current.play("agent-online");
@@ -237,8 +216,6 @@ export default function Workspace({
       }
     }
   }, [events, session.room_id, session.participant_id]);
-
-  const collectCount = room.activeCollection?.messages.length ?? 0;
 
   const myDisplayName = peopleParticipants.find((p) => p.id === session.participant_id)?.display_name;
 
@@ -267,9 +244,29 @@ export default function Workspace({
     ? room.orbitNotes.filter((note) => note.round_id === currentOrbitRound.round_id)
     : room.orbitNotes;
 
+  const orbitPanel = orbitVisible ? (
+    <div className="orbit-panel">
+      <OrbitLayer
+        notes={room.orbitNotes}
+        currentParticipantId={session.participant_id}
+        actorNames={actorNames}
+        canReact={permissions.canSendMessages && session.role !== "observer"}
+        onLike={(noteId) => { void likeOrbitNote(session, noteId).catch(() => {}); }}
+        onUnlike={(noteId) => { void unlikeOrbitNote(session, noteId).catch(() => {}); }}
+      />
+      {canPromoteOrbit && (
+        <OrbitPromoteTray
+          notes={promotableOrbitNotes}
+          onPromote={(noteIds) => { void promoteOrbitRound(session, noteIds).catch(() => {}); }}
+          canPromote={canPromoteOrbit}
+        />
+      )}
+    </div>
+  ) : null;
+
   return (
     <div className="workspace-shell">
-      <div className="workspace-grid">
+      <div className={`workspace-grid${orbitVisible ? " workspace-grid--with-orbit" : ""}`}>
         <div className="chat-panel">
           <Header
             roomName={room.roomName ?? session.room_id}
@@ -304,12 +301,9 @@ export default function Workspace({
             onTestSound={() => soundControllerRef.current.play("message")}
             pendingNotificationCount={pendingNotificationCount}
             joinRequests={room.joinRequests}
-            roundtableRequest={room.pendingRoundtableRequest ?? undefined}
             turnInFlight={turnInFlight}
             onApproveJoinRequest={onApproveJoinRequest}
             onRejectJoinRequest={onRejectJoinRequest}
-            onApproveRoundtableRequest={onApproveRoundtableRequest}
-            onRejectRoundtableRequest={onRejectRoundtableRequest}
             onClickHumanAvatar={() => setPeoplePopoverOpen(true)}
             onClickAgentAvatar={() => setAgentPopoverOpen(true)}
             railRef={railRef}
@@ -323,23 +317,14 @@ export default function Workspace({
             streamingTurns={room.streamingTurns}
             actorNames={actorNames}
             showSlowStreamingNotice={showSlowStreamingNotice}
-            activeCollectionId={room.activeCollection?.collection_id}
             claudeImports={room.claudeImports}
             agentImports={room.agentImports}
           />
 
           <Composer
             role={session.role}
-            mode={composerMode}
             turnInFlight={turnInFlight}
-            collectCount={collectCount}
-            canSendMessages={permissions.canSendMessages}
-            pendingRoundtableRequest={Boolean(room.pendingRoundtableRequest)}
             onSend={onSendMessage}
-            onToggleMode={composerMode === "live" ? onStartCollection : onCancelCollection}
-            onSubmitCollection={onSubmitCollection}
-            onCancelCollection={onCancelCollection}
-            onRequestRoundtable={onRequestRoundtable}
             onTypingInput={(value) => typingControllerRef.current?.inputChanged(value)}
             onStopTyping={() => typingControllerRef.current?.stopNow()}
             onClearConversation={onClearRoom}
@@ -353,6 +338,8 @@ export default function Workspace({
             </p>
           )}
         </div>
+
+        {orbitPanel}
       </div>
 
       {needsClaudeSessionSelection && room.activeAgentId && room.claudeSessionCatalog && (
@@ -425,26 +412,6 @@ export default function Workspace({
           }
         />
       </Popover>
-
-      {orbitVisible && (
-        <div className="orbit-panel">
-          <OrbitLayer
-            notes={room.orbitNotes}
-            currentParticipantId={session.participant_id}
-            actorNames={actorNames}
-            canReact={permissions.canSendMessages && session.role !== "observer"}
-            onLike={(noteId) => { void likeOrbitNote(session, noteId).catch(() => {}); }}
-            onUnlike={(noteId) => { void unlikeOrbitNote(session, noteId).catch(() => {}); }}
-          />
-          {canPromoteOrbit && (
-            <OrbitPromoteTray
-              notes={promotableOrbitNotes}
-              onPromote={(noteIds) => { void promoteOrbitRound(session, noteIds).catch(() => {}); }}
-              canPromote={canPromoteOrbit}
-            />
-          )}
-        </div>
-      )}
 
       <FloatingLogoControl active={turnInFlight} pendingCount={0} onOpen={() => {}} />
     </div>
