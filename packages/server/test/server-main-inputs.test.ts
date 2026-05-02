@@ -100,7 +100,9 @@ describe("POST /rooms/:roomId/main-inputs", () => {
       ws.addEventListener("message", (msg) => {
         const parsed = JSON.parse(msg.data as string);
         receivedEvents.push(parsed);
-        if (parsed.type === "orbit.round.opened") resolve();
+        // The handshake may emit a synthetic pre-round orbit.round.opened
+        // (T3 reconnect replay). Wait for the live, turn-triggered one.
+        if (parsed.type === "orbit.round.opened" && parsed.payload.triggered_by_turn_id) resolve();
       });
     });
 

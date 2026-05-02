@@ -1313,6 +1313,17 @@ export async function buildServer(options: BuildServerOptions = {}) {
     for (const existingEvent of store.listEvents(roomId)) {
       if (canViewEvent(existingEvent, participant)) socket.send(JSON.stringify(existingEvent));
     }
+    // Orbit events are live-only (T2: not persisted). Without a synthetic
+    // catch-up here, a refreshing human would see an empty orbit layer. We
+    // emit AFTER the durable replay (so order is durable-first) and BEFORE
+    // bus.subscribe (so a brand-new note that arrives mid-handshake cannot
+    // race ahead of its round.opened). See spec §6 + orbit-state.replayFor.
+    if (HUMAN_ROLES.includes(participant.role)) {
+      const orbit = getOrbitState(roomId);
+      for (const synthetic of orbit.replayFor(participant)) {
+        socket.send(JSON.stringify(event(roomId, synthetic.type, synthetic.actor_id, synthetic.payload)));
+      }
+    }
     const unsubscribe = bus.subscribe(roomId, (envelope) => {
       if (canDeliverEnvelope(envelope, participant) && canViewEvent(envelope.event, participant)) {
         socket.send(JSON.stringify(envelope.event));

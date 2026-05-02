@@ -1,3 +1,25 @@
+import type { StoredParticipant } from "./event-store.js";
+
+/**
+ * Hard cap for the number of notes returned per round by `replayFor`.
+ *
+ * Spec §6 ("bounded active-room replay for refresh/reconnect") requires the
+ * synthetic catch-up stream to be bounded so a long-running round with
+ * thousands of notes cannot blow up handshake latency or socket buffers. We
+ * keep the most recent N entries (sorted ascending so the client still
+ * receives them in chronological order) — older notes are simply dropped
+ * from replay. Since orbit events are now live-only (T2: not persisted),
+ * truncated history is unrecoverable, but spec §6 explicitly accepts that
+ * trade-off: orbit is an ephemeral side-channel, not durable state.
+ */
+export const MAX_REPLAY_NOTES_PER_ROUND = 200;
+
+export interface SyntheticOrbitEvent {
+  type: "orbit.round.opened" | "orbit.note.created" | "orbit.like.changed" | "orbit.round.promoted";
+  actor_id: string;
+  payload: Record<string, unknown>;
+}
+
 export interface OrbitNote {
   note_id: string;
   round_id: string;
@@ -115,5 +137,100 @@ export class OrbitRoomState {
 
   getRound(roundId: string): OrbitRound | undefined {
     return this.rounds.get(roundId);
+  }
+
+  /**
+   * Build a bounded synthetic catch-up stream for a reconnecting participant.
+   *
+   * Orbit events are live-only (T2: never persisted to the durable event log),
+   * so without this method a refreshing client would see an empty orbit layer
+   * after the WS handshake replay finishes. Per spec §6, we replay only the
+   * **current round** (older rounds are not relevant to the active-round
+   * panel) and cap notes at MAX_REPLAY_NOTES_PER_ROUND, keeping the most
+   * recent entries.
+   *
+   * Returns an empty array for agent participants — orbit is human-only
+   * (HUMAN_ROLES gate). The caller (server.ts WS handshake) wraps each entry
+   * with `event(...)` to produce a full CacpEvent. This keeps OrbitRoomState
+   * free of dependencies on the `event` factory and matches the unit-test
+   * style for the class.
+   *
+   * Order:
+   *   1. orbit.round.opened (current round)
+   *   2. orbit.note.created (chronological by created_at)
+   *   3. orbit.like.changed — one per note that has at least one like, with
+   *      `participant_id` and `liked` reflecting the **reconnecting** user's
+   *      personal state, and `likes` carrying the canonical total. This lets
+   *      the client reducer set `liked_by_me` correctly without a second
+   *      round-trip.
+   *   4. orbit.round.promoted (only if current round is already promoted)
+   */
+  replayFor(participant: StoredParticipant): SyntheticOrbitEvent[] {
+    if (participant.role === "agent") return [];
+
+    const round = this.rounds.get(this.currentRoundId);
+    if (!round) return [];
+
+    const out: SyntheticOrbitEvent[] = [];
+
+    out.push({
+      type: "orbit.round.opened",
+      actor_id: participant.id,
+      payload: {
+        round_id: round.round_id,
+        triggered_by_turn_id: round.triggered_by_turn_id,
+        opened_at: round.opened_at
+      }
+    });
+
+    const allNotes = this.getNotesForRound(round.round_id);
+    const notes = allNotes.length > MAX_REPLAY_NOTES_PER_ROUND
+      ? allNotes.slice(allNotes.length - MAX_REPLAY_NOTES_PER_ROUND)
+      : allNotes;
+
+    for (const note of notes) {
+      out.push({
+        type: "orbit.note.created",
+        actor_id: note.author_id,
+        payload: {
+          note_id: note.note_id,
+          round_id: note.round_id,
+          author_id: note.author_id,
+          author_name: note.author_name,
+          text: note.text,
+          created_at: note.created_at
+        }
+      });
+    }
+
+    for (const note of notes) {
+      const total = this.getLikeCount(note.note_id);
+      if (total <= 0) continue;
+      out.push({
+        type: "orbit.like.changed",
+        actor_id: participant.id,
+        payload: {
+          note_id: note.note_id,
+          participant_id: participant.id,
+          liked: this.hasParticipantLiked(note.note_id, participant.id),
+          likes: total
+        }
+      });
+    }
+
+    if (round.promoted_at && round.promoted_by && round.input_id) {
+      out.push({
+        type: "orbit.round.promoted",
+        actor_id: round.promoted_by,
+        payload: {
+          round_id: round.round_id,
+          promoted_by: round.promoted_by,
+          input_id: round.input_id,
+          promoted_at: round.promoted_at
+        }
+      });
+    }
+
+    return out;
   }
 }
