@@ -2436,6 +2436,10 @@ textarea.input {
   border-left: 1px solid var(--border);
   padding-left: 16px;
   overflow: hidden;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.82) 0%, rgba(250, 248, 245, 0.72) 100%);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 16px 48px rgba(28, 24, 19, 0.07);
 }
 
 .orbit-layer {
@@ -2455,6 +2459,7 @@ textarea.input {
   padding-bottom: 8px;
   border-bottom: 1px solid var(--border-soft);
   flex-shrink: 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .orbit-promote-open-btn {
@@ -2471,13 +2476,18 @@ textarea.input {
   cursor: pointer;
   font-size: 14px;
   line-height: 1;
-  transition: background 150ms ease, border-color 150ms ease, color 150ms ease, opacity 150ms ease;
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), background 150ms ease, border-color 150ms ease, color 150ms ease, opacity 150ms ease;
 }
 
 .orbit-promote-open-btn:hover:not(:disabled) {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--invert);
+  transform: scale(1.12);
+}
+
+.orbit-promote-open-btn:active:not(:disabled) {
+  transform: scale(0.94);
 }
 
 .orbit-promote-open-btn:disabled {
@@ -2502,6 +2512,7 @@ textarea.input {
   text-align: center;
   padding: 24px 12px;
   margin: 0;
+  opacity: 0.8;
 }
 
 .orbit-notes {
@@ -2515,6 +2526,7 @@ textarea.input {
   scrollbar-width: thin;
   scrollbar-gutter: stable;
   padding-bottom: 4px;
+  padding-right: 2px;
 }
 .orbit-notes > :first-child { margin-top: auto; }
 .orbit-notes::-webkit-scrollbar { width: 8px; }
@@ -2530,8 +2542,13 @@ textarea.input {
   border-radius: var(--radius-card);
   background: var(--surface-warm);
   padding: 12px;
-  transition: border-color 150ms ease, background 150ms ease;
+  transition: border-color 150ms ease, background 150ms ease, transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
   flex-shrink: 0;
+}
+
+.orbit-note:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(28, 24, 19, 0.06);
 }
 
 .orbit-note--quoted { opacity: 0.72; }
@@ -2622,9 +2639,17 @@ textarea.input {
   background: #fef2f2;
   color: #b91c1c;
   cursor: pointer;
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), background 150ms ease;
 }
 
-.orbit-clear-btn:hover { background: #fee2e2; }
+.orbit-clear-btn:hover {
+  background: #fee2e2;
+  transform: scale(1.12);
+}
+
+.orbit-clear-btn:active {
+  transform: scale(0.94);
+}
 .orbit-clear-btn:focus-visible {
   outline: 2px solid #b91c1c;
   outline-offset: 2px;
@@ -2670,7 +2695,7 @@ textarea.input {
 }
 
 .orbit-note--own {
-  background: var(--surface);
+  background: linear-gradient(135deg, var(--surface) 0%, var(--surface-warm) 100%);
   border-left: 3px solid var(--accent-border);
   padding-left: 10px;
 }
@@ -2734,7 +2759,7 @@ textarea.input {
   background: transparent;
   color: var(--ink-4);
   cursor: pointer;
-  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), background 150ms ease, border-color 150ms ease, color 150ms ease;
   font-size: 14px;
   line-height: 1;
 }
@@ -2743,6 +2768,11 @@ textarea.input {
   background: var(--surface-warm);
   border-color: var(--border-soft);
   color: var(--ink-2);
+  transform: scale(1.12);
+}
+
+.orbit-like-btn:active:not(:disabled) {
+  transform: scale(0.94);
 }
 
 .orbit-like-btn--active {
