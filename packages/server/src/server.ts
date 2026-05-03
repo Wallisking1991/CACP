@@ -1705,7 +1705,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!target) return deny(reply, "unknown_participant", 404);
     if (target.role === "owner") return deny(reply, "cannot_remove_owner", 409);
     if (target.id === actor.id) return deny(reply, "cannot_remove_self", 409);
-    if (actor.role === "admin" && (target.role === "admin" || target.role === "owner")) return deny(reply, "cannot_remove_admin", 409);
+    if (actor.role === "admin" && target.role === "admin") return deny(reply, "cannot_remove_admin", 409);
     const removedAt = new Date().toISOString();
     const storedEvents = store.transaction(() => {
       store.revokeParticipant(request.params.roomId, target.id, actor.id, removedAt, body.reason ?? "removed_by_owner");

@@ -12,6 +12,10 @@ function prefersReducedMotion(): boolean {
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
+function snakeToPascal(value: string): string {
+  return value.replace(/(^|_)([a-z])/g, (_, _sep, letter) => letter.toUpperCase());
+}
+
 interface LandingProps {
   onCreate: (params: { roomName: string; displayName: string; agentType: string; permissionLevel: string }) => void;
   onJoin: (params: { roomId: string; inviteToken: string; displayName: string }) => void;
@@ -232,7 +236,7 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
                     margin: "4px 0 8px"
                   }}
                 >
-                  {t(`landing.join.invite${inviteCheckReason === "limit_reached" ? "LimitReached" : inviteCheckReason.charAt(0).toUpperCase() + inviteCheckReason.slice(1)}` as Parameters<typeof t>[0])}
+                  {t(`landing.join.invite${snakeToPascal(inviteCheckReason)}` as Parameters<typeof t>[0])}
                 </p>
               )}
 

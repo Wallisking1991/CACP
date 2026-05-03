@@ -18,7 +18,7 @@ async function joinViaApproval(app: FastifyInstance, roomId: string, ownerToken:
   return status.json() as { participant_id: string; participant_token: string; role: string };
 }
 
-function updateParticipantRole(dbPath: string, roomId: string, participantId: string, role: "admin" | "member" | "observer") {
+function updateParticipantRole(dbPath: string, roomId: string, participantId: string, role: "owner" | "admin" | "member" | "observer") {
   const db = new Database(dbPath);
   try {
     db.prepare("UPDATE participants SET role = ? WHERE room_id = ? AND participant_id = ?").run(role, roomId, participantId);
@@ -116,7 +116,7 @@ describe("participant role update", () => {
 
   it("rejects member updating roles", async () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
-    const room = (await app.inject({ method: "POST", url: "/rooms", payload: { name: "Room", display_name: "Owner" } })).json() as { room_id: string; owner_token: string };
+    const room = (await app.inject({ method: "POST", url: "/rooms", payload: { name: "Room", display_name: "Owner" } })).json() as { room_id: string; owner_token: string; owner_id: string };
     const invite = (await app.inject({ method: "POST", url: `/rooms/${room.room_id}/invites`, headers: { authorization: `Bearer ${room.owner_token}` }, payload: { role: "member" } })).json() as { invite_token: string };
     const joined = await joinViaApproval(app, room.room_id, room.owner_token, invite.invite_token, "Alice");
 

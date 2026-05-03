@@ -161,6 +161,27 @@ describe("Landing redesign", () => {
     expect(screen.getByTestId("landing-invite-error")).toHaveTextContent(/limit/i);
     expect(screen.getByRole("button", { name: "Join shared room" })).toBeDisabled();
   });
+
+  it("disables join button and shows translated error when invite is not found", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ valid: false, reason: "not_found" })
+    });
+
+    renderLandingWithInviteUrl();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("landing-invite-error")).toBeInTheDocument();
+    });
+
+    const errorEl = screen.getByTestId("landing-invite-error");
+    // The user must see the translated copy, not a raw i18n key with mixed
+    // snake_case/camelCase like "landing.join.inviteNot_found".
+    expect(errorEl.textContent ?? "").not.toMatch(/landing\.join\.invite/);
+    expect(errorEl.textContent ?? "").not.toMatch(/inviteNot_found/);
+    expect(errorEl).toHaveTextContent(/invalid|does not exist/i);
+    expect(screen.getByRole("button", { name: "Join shared room" })).toBeDisabled();
+  });
 });
 
 function renderLandingWithInviteUrl() {
