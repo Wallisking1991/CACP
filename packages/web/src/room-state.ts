@@ -52,15 +52,7 @@ export interface OrbitNoteView {
   created_at: string;
   likes: number;
   liked_by_me: boolean;
-  round_id?: string;
-}
-
-export interface OrbitRoundView {
-  round_id: string;
-  opened_at: string;
-  opened_by: string;
-  promoted_at?: string;
-  note_ids: string[];
+  quoted: boolean;
 }
 
 export type MainInputStatus = "accepted" | "queued" | "triggered" | "cancelled" | "failed";
@@ -238,7 +230,6 @@ export interface RoomViewState {
   participantActivity: Map<string, ParticipantActivityView>;
   avatarStatuses: AvatarStatusView[];
   latestSenderId?: string;
-  orbitRounds: OrbitRoundView[];
   orbitNotes: OrbitNoteView[];
   mainInputQueue: MainInputQueueItemView[];
   connectorSyncCursor?: ConnectorSyncCursor;
@@ -382,7 +373,6 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
   const agentRuntimeStatuses = new Map<string, AgentRuntimeStatusView>();
   const participantActivity = new Map<string, ParticipantActivityView>();
   let latestSenderId: string | undefined;
-  const orbitRounds = new Map<string, OrbitRoundView>();
   const orbitNotes = new Map<string, OrbitNoteView>();
   const mainInputQueue = new Map<string, MainInputQueueItemView>();
   let connectorSyncCursor: ConnectorSyncCursor | undefined;
@@ -442,29 +432,17 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
         }
       }
     }
-    if (event.type === "orbit.round.opened" && typeof event.payload.round_id === "string") {
-      orbitRounds.set(event.payload.round_id, {
-        round_id: event.payload.round_id,
-        opened_at: event.created_at,
-        opened_by: event.actor_id,
-        note_ids: []
-      });
-    }
     if (event.type === "orbit.note.created" && typeof event.payload.note_id === "string" && typeof event.payload.text === "string") {
-      const note: OrbitNoteView = {
+      const createdAt = typeof event.payload.created_at === "string" ? event.payload.created_at : event.created_at;
+      orbitNotes.set(event.payload.note_id, {
         note_id: event.payload.note_id,
         text: event.payload.text,
         created_by: event.actor_id,
-        created_at: event.created_at,
+        created_at: createdAt,
         likes: 0,
         liked_by_me: false,
-        ...(typeof event.payload.round_id === "string" ? { round_id: event.payload.round_id } : {})
-      };
-      orbitNotes.set(event.payload.note_id, note);
-      if (typeof event.payload.round_id === "string") {
-        const round = orbitRounds.get(event.payload.round_id);
-        if (round) orbitRounds.set(event.payload.round_id, { ...round, note_ids: [...round.note_ids, event.payload.note_id] });
-      }
+        quoted: false
+      });
     }
     if (event.type === "orbit.like.changed" && typeof event.payload.note_id === "string") {
       const note = orbitNotes.get(event.payload.note_id);
@@ -476,9 +454,15 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
         orbitNotes.set(event.payload.note_id, { ...note, likes, liked_by_me: likedByMe });
       }
     }
-    if (event.type === "orbit.round.promoted" && typeof event.payload.round_id === "string") {
-      const round = orbitRounds.get(event.payload.round_id);
-      if (round) orbitRounds.set(event.payload.round_id, { ...round, promoted_at: event.created_at });
+    if (event.type === "orbit.notes.quoted" && Array.isArray(event.payload.note_ids)) {
+      for (const noteId of event.payload.note_ids) {
+        if (typeof noteId !== "string") continue;
+        const note = orbitNotes.get(noteId);
+        if (note) orbitNotes.set(noteId, { ...note, quoted: true });
+      }
+    }
+    if (event.type === "orbit.cleared") {
+      orbitNotes.clear();
     }
     if (event.type === "main_input.accepted" && typeof event.payload.input_id === "string" && typeof event.payload.text === "string") {
       mainInputQueue.set(event.payload.input_id, {
@@ -1035,8 +1019,7 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     participantActivity,
     avatarStatuses,
     latestSenderId,
-    orbitRounds: [...orbitRounds.values()],
-    orbitNotes: [...orbitNotes.values()],
+    orbitNotes: [...orbitNotes.values()].sort((a, b) => a.created_at.localeCompare(b.created_at)),
     mainInputQueue: [...mainInputQueue.values()],
     connectorSyncCursor
   };

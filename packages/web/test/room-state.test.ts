@@ -587,29 +587,12 @@ describe("room state", () => {
   });
 
   describe("Orbit events", () => {
-    it("derives orbit rounds from orbit.round.opened", () => {
-      const state = deriveRoomState([
-        event("orbit.round.opened", { round_id: "round_1" }, 1, "user_1")
-      ]);
-      expect(state.orbitRounds).toHaveLength(1);
-      expect(state.orbitRounds[0]).toMatchObject({ round_id: "round_1", opened_by: "user_1", note_ids: [] });
-    });
-
     it("derives orbit notes from orbit.note.created", () => {
       const state = deriveRoomState([
         event("orbit.note.created", { note_id: "note_1", text: "Hello orbit" }, 1, "user_1")
       ]);
       expect(state.orbitNotes).toHaveLength(1);
-      expect(state.orbitNotes[0]).toMatchObject({ note_id: "note_1", text: "Hello orbit", created_by: "user_1", likes: 0, liked_by_me: false });
-    });
-
-    it("associates orbit notes with rounds", () => {
-      const state = deriveRoomState([
-        event("orbit.round.opened", { round_id: "round_1" }, 1, "user_1"),
-        event("orbit.note.created", { note_id: "note_1", text: "Round note", round_id: "round_1" }, 2, "user_1")
-      ]);
-      expect(state.orbitRounds[0].note_ids).toEqual(["note_1"]);
-      expect(state.orbitNotes[0].round_id).toBe("round_1");
+      expect(state.orbitNotes[0]).toMatchObject({ note_id: "note_1", text: "Hello orbit", created_by: "user_1", likes: 0, liked_by_me: false, quoted: false });
     });
 
     it("updates note likes from orbit.like.changed with liked:true", () => {
@@ -637,12 +620,21 @@ describe("room state", () => {
       expect(state.orbitNotes[0].likes).toBe(0);
     });
 
-    it("marks round as promoted from orbit.round.promoted", () => {
+    it("derives flat orbit notes with payload created_at and quoted state", () => {
       const state = deriveRoomState([
-        event("orbit.round.opened", { round_id: "round_1" }, 1, "user_1"),
-        event("orbit.round.promoted", { round_id: "round_1" }, 2, "user_1")
-      ]);
-      expect(state.orbitRounds[0].promoted_at).toBe("2026-04-25T00:00:02.000Z");
+        event("orbit.note.created", { note_id: "note_1", text: "Flat note", created_at: "2026-05-01T12:00:00.000Z" }, 1, "user_1"),
+        event("orbit.notes.quoted", { note_ids: ["note_1"] }, 2, "user_1")
+      ], { currentParticipantId: "user_2" });
+      expect(state.orbitNotes).toEqual([{ note_id: "note_1", text: "Flat note", created_by: "user_1", created_at: "2026-05-01T12:00:00.000Z", likes: 0, liked_by_me: false, quoted: true }]);
+      expect(state).not.toHaveProperty("orbitRounds");
+    });
+
+    it("clears orbit notes when orbit.cleared arrives", () => {
+      const state = deriveRoomState([
+        event("orbit.note.created", { note_id: "note_1", text: "Flat note", created_at: "2026-05-01T12:00:00.000Z" }, 1, "user_1"),
+        event("orbit.cleared", { cleared_by: "user_1", cleared_at: "2026-05-01T12:00:01.000Z" }, 2, "user_1")
+      ], { currentParticipantId: "user_2" });
+      expect(state.orbitNotes).toEqual([]);
     });
   });
 

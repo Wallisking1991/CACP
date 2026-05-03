@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CacpEvent } from "@cacp/protocol";
-import { clearEventSocket, createJoinRequest, createLocalAgentLaunch, createRoom, createRoomWithLocalAgent, fetchRoomEvents, getRoomMe, inviteUrlFor, joinRequestStatus, leaveRoom, pairingServerUrlFor, parseCacpEventMessage, requestAgentSessionPreview, requestConnectorSnapshot, selectAgentSession, startTyping, stopTyping, updatePresence, type RoomSession } from "../src/api.js";
+import { clearEventSocket, clearOrbit, createJoinRequest, createLocalAgentLaunch, createRoom, createRoomWithLocalAgent, fetchRoomEvents, getRoomMe, inviteUrlFor, joinRequestStatus, leaveRoom, pairingServerUrlFor, parseCacpEventMessage, requestAgentSessionPreview, requestConnectorSnapshot, selectAgentSession, startTyping, stopTyping, updatePresence, type RoomSession } from "../src/api.js";
 
 const validEvent = {
   protocol: "cacp",
@@ -288,6 +288,19 @@ describe("room API", () => {
       method: "POST",
       headers: { "content-type": "application/json", authorization: "Bearer owner_secret" },
       body: JSON.stringify({ since_sequence: 7 })
+    });
+  });
+
+  it("clearOrbit posts to the orbit clear endpoint", async () => {
+    const session: RoomSession = { room_id: "room_1", token: "token_1", participant_id: "user_1", role: "owner" };
+    mockJsonResponse({ ok: true });
+
+    await clearOrbit(session);
+
+    expect(fetch).toHaveBeenCalledWith("/rooms/room_1/orbit/clear", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer token_1" },
+      body: JSON.stringify({})
     });
   });
 

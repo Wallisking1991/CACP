@@ -86,6 +86,10 @@ export async function promoteOrbitRound(session: RoomSession, noteIds?: string[]
   return await postJson(`/rooms/${session.room_id}/orbit/promote`, session.token, { note_ids: noteIds });
 }
 
+export async function clearOrbit(session: RoomSession): Promise<{ ok: true }> {
+  return await postJson(`/rooms/${session.room_id}/orbit/clear`, session.token, {});
+}
+
 export async function sendMainInput(session: RoomSession, text: string): Promise<{ input_id: string; status: string }> {
   return await postJson(`/rooms/${session.room_id}/main-inputs`, session.token, { text });
 }
