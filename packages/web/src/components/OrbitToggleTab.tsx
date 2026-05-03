@@ -16,7 +16,6 @@ export function OrbitToggleTab({ open, unreadCount, onClick }: OrbitToggleTabPro
       className={`orbit-toggle-tab${open ? " orbit-toggle-tab--open" : ""}`}
       aria-label={label}
       aria-pressed={open}
-      title={label}
       onClick={onClick}
     >
       <span className="orbit-toggle-tab__label" aria-hidden="true">{t("orbit.title")}</span>

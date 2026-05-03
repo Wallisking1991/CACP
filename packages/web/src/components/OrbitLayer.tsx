@@ -114,7 +114,7 @@ export function OrbitLayer({
           const ownNote = note.created_by === currentParticipantId;
           const showReactionControls = canReact && !ownNote;
           return (
-            <div key={note.note_id} className={`orbit-note ${note.quoted ? "orbit-note--quoted" : ""} ${ownNote ? "orbit-note--own" : ""}`}>
+            <div key={note.note_id} className={["orbit-note", note.quoted && "orbit-note--quoted", ownNote && "orbit-note--own"].filter(Boolean).join(" ")}>
               <div className="orbit-note-meta">
                 <span>{actorNames.get(note.created_by) || note.created_by}</span>
                 <span className="orbit-note-time">{new Date(note.created_at).toLocaleTimeString()}</span>

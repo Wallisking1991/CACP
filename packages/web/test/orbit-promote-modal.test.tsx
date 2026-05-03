@@ -102,4 +102,38 @@ describe("OrbitPromoteModal", () => {
     }
     expect(screen.getByRole("button", { name: /^Promote$/i })).toBeDisabled();
   });
+
+  it("preserves user deselections when parent re-renders with a new notes array of the same ids", () => {
+    const onPromote = vi.fn();
+    const { rerender } = render(
+      <LangProvider>
+        <OrbitPromoteModal {...baseProps} notes={sampleNotes} onPromote={onPromote} />
+      </LangProvider>
+    );
+    // Both selected by default.
+    const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
+    expect(checkboxes.every((c) => c.checked)).toBe(true);
+
+    // User deselects the first note.
+    fireEvent.click(checkboxes[0]);
+    expect((screen.getAllByRole("checkbox")[0] as HTMLInputElement).checked).toBe(false);
+    expect((screen.getAllByRole("checkbox")[1] as HTMLInputElement).checked).toBe(true);
+
+    // Parent re-derives a new notes array reference with the same ids (e.g. WebSocket tick).
+    const reDerivedNotes = sampleNotes.map((note) => ({ ...note }));
+    rerender(
+      <LangProvider>
+        <OrbitPromoteModal {...baseProps} notes={reDerivedNotes} onPromote={onPromote} />
+      </LangProvider>
+    );
+
+    // User's deselection must survive.
+    const refreshed = screen.getAllByRole("checkbox") as HTMLInputElement[];
+    expect(refreshed[0].checked).toBe(false);
+    expect(refreshed[1].checked).toBe(true);
+
+    // Promote should call with only the still-selected note.
+    fireEvent.click(screen.getByRole("button", { name: /^Promote$/i }));
+    expect(onPromote).toHaveBeenCalledWith(["note_2"]);
+  });
 });

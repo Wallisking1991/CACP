@@ -15,10 +15,13 @@ export function OrbitPromoteModal({ open, notes, canPromote, onPromote, onClose 
   const t = useT();
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
+  const noteIdsKey = notes.map((note) => note.note_id).join(",");
   useEffect(() => {
     if (open) setSelected(new Set(notes.map((note) => note.note_id)));
     else setSelected(new Set());
-  }, [open, notes]);
+    // noteIdsKey captures notes identity so user deselections survive parent re-renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, noteIdsKey]);
 
   useEffect(() => {
     if (!open) return;

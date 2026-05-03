@@ -13,4 +13,20 @@ describe("OrbitToggleTab", () => {
     fireEvent.click(button);
     expect(onClick).toHaveBeenCalledOnce();
   });
+
+  it("hides the unread badge when count is zero", () => {
+    render(<LangProvider><OrbitToggleTab open={false} unreadCount={0} onClick={vi.fn()} /></LangProvider>);
+    expect(document.querySelector(".orbit-unread-badge")).toBeNull();
+  });
+
+  it("reflects open state via aria-pressed", () => {
+    const { rerender } = render(
+      <LangProvider><OrbitToggleTab open={true} unreadCount={0} onClick={vi.fn()} /></LangProvider>
+    );
+    expect(screen.getByRole("button")).toHaveAttribute("aria-pressed", "true");
+    rerender(
+      <LangProvider><OrbitToggleTab open={false} unreadCount={0} onClick={vi.fn()} /></LangProvider>
+    );
+    expect(screen.getByRole("button")).toHaveAttribute("aria-pressed", "false");
+  });
 });
