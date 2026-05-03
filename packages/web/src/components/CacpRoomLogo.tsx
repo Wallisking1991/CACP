@@ -82,9 +82,9 @@ export default function CacpRoomLogo({ ariaLabel = "CACP", className = "" }: Cac
             <stop offset="100%" stopColor="#c2410c" stopOpacity="0" />
           </radialGradient>
           <linearGradient id="cacp-room-line" x1="14" y1="14" x2="82" y2="82">
-            <stop offset="0%" stopColor="#7c2d12" stopOpacity="0.2" />
-            <stop offset="48%" stopColor="#f97316" stopOpacity="0.95" />
-            <stop offset="100%" stopColor="#1c1813" stopOpacity="0.38" />
+            <stop offset="0%" stopColor="#7c2d12" stopOpacity="0.65" />
+            <stop offset="48%" stopColor="#f97316" stopOpacity="1" />
+            <stop offset="100%" stopColor="#1c1813" stopOpacity="0.55" />
           </linearGradient>
         </defs>
 
@@ -95,14 +95,14 @@ export default function CacpRoomLogo({ ariaLabel = "CACP", className = "" }: Cac
         <path className="room-logo-draw room-logo-link" d="M48 48 69 40" />
         <path className="room-logo-draw room-logo-link" d="M48 48 43 72" />
 
-        <circle className="room-logo-core room-logo-core-glow" cx="48" cy="48" r="17" />
-        <circle className="room-logo-core room-logo-core-solid" cx="48" cy="48" r="6" />
-        <circle className="room-logo-node" cx="33" cy="32" r="4" />
-        <circle className="room-logo-node" cx="69" cy="40" r="4" />
-        <circle className="room-logo-node" cx="43" cy="72" r="4" />
+        <circle className="room-logo-core room-logo-core-glow" cx="48" cy="48" r="20" />
+        <circle className="room-logo-core room-logo-core-solid" cx="48" cy="48" r="7.5" />
+        <circle className="room-logo-node" cx="33" cy="32" r="5.5" />
+        <circle className="room-logo-node" cx="69" cy="40" r="5.5" />
+        <circle className="room-logo-node" cx="43" cy="72" r="5.5" />
 
         <g className="room-logo-orbit-dot">
-          <circle cx="73" cy="61" r="2" />
+          <circle cx="73" cy="61" r="3" />
         </g>
       </svg>
     </div>
