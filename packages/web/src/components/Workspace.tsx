@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useLayoutEffect } from "react";
+import gsap from "gsap";
 import type { CacpEvent } from "@cacp/protocol";
 import type { RoomSession } from "../api.js";
 import { startTyping, stopTyping, updatePresence, createAgentPairing } from "../api.js";
@@ -290,6 +291,39 @@ export default function Workspace({
     }
   }, [events, session.room_id, session.participant_id]);
 
+  const shellRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const shell = shellRef.current;
+    if (!shell) return;
+
+    const prefersReduced =
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    if (prefersReduced) return;
+
+    const ctx = gsap.context(() => {
+      gsap.set(".workspace-header, .thread, .main-composer, .orbit-panel", {
+        opacity: 0,
+        y: 14,
+      });
+
+      const tl = gsap.timeline({
+        defaults: { ease: "power2.out" },
+        delay: 0.15,
+      });
+
+      tl.to(".workspace-header", { opacity: 1, y: 0, duration: 0.5 })
+        .to(".thread", { opacity: 1, y: 0, duration: 0.45 }, "-=0.28")
+        .to(".main-composer", { opacity: 1, y: 0, duration: 0.4 }, "-=0.24")
+        .to(".orbit-panel", { opacity: 1, y: 0, duration: 0.4 }, "-=0.28");
+    }, shell);
+
+    return () => ctx.revert();
+  }, []);
+
   const myDisplayName = peopleParticipants.find((p) => p.id === session.participant_id)?.display_name;
 
   const serverUrl = typeof window !== "undefined" ? window.location.origin : "http://localhost:3737";
@@ -347,7 +381,7 @@ export default function Workspace({
   ) : null;
 
   return (
-    <div className="workspace-shell">
+    <div className="workspace-shell" ref={shellRef}>
       <div className="workspace-orb workspace-orb--primary" aria-hidden="true" />
       <div className="workspace-orb workspace-orb--secondary" aria-hidden="true" />
       <div className={`workspace-grid${panelOpen ? " workspace-grid--with-orbit" : ""}`}>
