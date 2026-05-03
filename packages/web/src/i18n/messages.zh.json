@@ -275,10 +275,19 @@
   "orbit.like": "点赞",
   "orbit.unlike": "取消点赞",
   "orbit.ownNote": "自己的笔记",
+  "orbit.note.quoted": "已引用",
+  "orbit.toggle": "切换讨论面板",
+  "orbit.clear": "清空讨论",
+  "orbit.clear.confirm.title": "清空讨论？",
+  "orbit.clear.confirm.body": "所有笔记和点赞将被永久清除。",
+  "orbit.clear.confirm.confirm": "清空",
+  "orbit.clear.confirm.cancel": "取消",
   "orbitPromote.title": "提升到主线程",
   "orbitPromote.empty": "没有可提升的笔记",
   "orbitPromote.promote": "提升",
   "orbitPromote.cancel": "取消",
   "orbitPromote.openTitle": "提升轨道笔记",
-  "orbitPromote.close": "关闭"
+  "orbitPromote.close": "关闭",
+  "orbitPromote.selectAll": "全选",
+  "orbitPromote.deselectAll": "全不选"
 }

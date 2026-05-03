@@ -28,7 +28,7 @@ describe("OrbitLayer", () => {
 
   it("renders orbit notes with text and author", () => {
     const notes = [
-      { note_id: "note_1", text: "Hello orbit", created_by: "user_1", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false }
+      { note_id: "note_1", text: "Hello orbit", created_by: "user_1", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: false }
     ];
     renderOrbitLayer({ ...baseProps, notes });
 
@@ -39,7 +39,7 @@ describe("OrbitLayer", () => {
   it("shows like count and calls onLike when like button clicked", () => {
     const onLike = vi.fn();
     const notes = [
-      { note_id: "note_1", text: "Note text", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 2, liked_by_me: false }
+      { note_id: "note_1", text: "Note text", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 2, liked_by_me: false, quoted: false }
     ];
     renderOrbitLayer({ ...baseProps, notes, onLike });
 
@@ -51,7 +51,7 @@ describe("OrbitLayer", () => {
   it("shows Unlike button when liked_by_me is true", () => {
     const onUnlike = vi.fn();
     const notes = [
-      { note_id: "note_1", text: "Liked note", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 1, liked_by_me: true }
+      { note_id: "note_1", text: "Liked note", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 1, liked_by_me: true, quoted: false }
     ];
     renderOrbitLayer({ ...baseProps, notes, onUnlike });
 
@@ -63,7 +63,7 @@ describe("OrbitLayer", () => {
   it("does not allow liking my own orbit note", () => {
     const onLike = vi.fn();
     const notes = [
-      { note_id: "note_1", text: "My note", created_by: "user_1", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false }
+      { note_id: "note_1", text: "My note", created_by: "user_1", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: false }
     ];
     renderOrbitLayer({ ...baseProps, notes, onLike });
 
@@ -74,7 +74,7 @@ describe("OrbitLayer", () => {
 
   it("does not render like controls when reactions are disabled", () => {
     const notes = [
-      { note_id: "note_1", text: "Observer visible", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 2, liked_by_me: false }
+      { note_id: "note_1", text: "Observer visible", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 2, liked_by_me: false, quoted: false }
     ];
     renderOrbitLayer({ ...baseProps, notes, canReact: false });
 
@@ -82,12 +82,16 @@ describe("OrbitLayer", () => {
     expect(screen.getByText("2")).toBeInTheDocument();
   });
 
-  it("shows orbit-round class for notes in a round", () => {
-    const notes = [
-      { note_id: "note_1", text: "Round note", created_by: "user_1", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false, round_id: "round_1" }
-    ];
-    renderOrbitLayer({ ...baseProps, notes });
-    expect(document.querySelector(".orbit-note--round")).not.toBeNull();
+  it("renders quoted badge and keeps like button interactive", () => {
+    const onLike = vi.fn();
+    renderOrbitLayer({
+      ...baseProps,
+      notes: [{ note_id: "note_1", text: "Quoted note", created_by: "user_2", created_at: "2026-05-01T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: true }],
+      onLike
+    });
+    expect(screen.getByText("Quoted")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Like/i }));
+    expect(onLike).toHaveBeenCalledWith("note_1");
   });
 
   it("renders the promote button in the header when canPromote is true", () => {

@@ -275,10 +275,19 @@
   "orbit.like": "Like",
   "orbit.unlike": "Unlike",
   "orbit.ownNote": "Own note",
+  "orbit.note.quoted": "Quoted",
+  "orbit.toggle": "Toggle discussion",
+  "orbit.clear": "Clear discussion",
+  "orbit.clear.confirm.title": "Clear discussion?",
+  "orbit.clear.confirm.body": "All notes and likes will be permanently removed.",
+  "orbit.clear.confirm.confirm": "Clear",
+  "orbit.clear.confirm.cancel": "Cancel",
   "orbitPromote.title": "Promote to Main Thread",
   "orbitPromote.empty": "No notes to promote",
   "orbitPromote.promote": "Promote",
   "orbitPromote.cancel": "Cancel",
   "orbitPromote.openTitle": "Promote orbit notes",
-  "orbitPromote.close": "Close"
+  "orbitPromote.close": "Close",
+  "orbitPromote.selectAll": "Select all",
+  "orbitPromote.deselectAll": "Deselect all"
 }

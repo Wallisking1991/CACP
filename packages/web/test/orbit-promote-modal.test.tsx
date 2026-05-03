@@ -13,8 +13,8 @@ function renderModal(props: React.ComponentProps<typeof OrbitPromoteModal>) {
 }
 
 const sampleNotes = [
-  { note_id: "note_1", text: "First note", created_by: "user_1", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false },
-  { note_id: "note_2", text: "Second note", created_by: "user_2", created_at: "2026-04-25T00:00:01.000Z", likes: 0, liked_by_me: false },
+  { note_id: "note_1", text: "First note", created_by: "user_1", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: false },
+  { note_id: "note_2", text: "Second note", created_by: "user_2", created_at: "2026-04-25T00:00:01.000Z", likes: 0, liked_by_me: false, quoted: false },
 ];
 
 describe("OrbitPromoteModal", () => {
@@ -46,21 +46,15 @@ describe("OrbitPromoteModal", () => {
     expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
   });
 
-  it("Promote button is disabled when nothing selected", () => {
-    renderModal(baseProps);
-    expect(screen.getByRole("button", { name: /^Promote$/i })).toBeDisabled();
-  });
-
-  it("calls onPromote with selected note ids and closes dialog", () => {
+  it("selects all notes by default and toggles select all", () => {
     const onPromote = vi.fn();
-    const onClose = vi.fn();
-    renderModal({ ...baseProps, onPromote, onClose });
-    const checkboxes = screen.getAllByRole("checkbox");
-    fireEvent.click(checkboxes[0]);
-    fireEvent.click(checkboxes[1]);
+    renderModal({ ...baseProps, onPromote });
+    expect(screen.getAllByRole("checkbox").every((checkbox) => (checkbox as HTMLInputElement).checked)).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: /Deselect all/i }));
+    expect(screen.getByRole("button", { name: /^Promote$/i })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /Select all/i }));
     fireEvent.click(screen.getByRole("button", { name: /^Promote$/i }));
     expect(onPromote).toHaveBeenCalledWith(["note_1", "note_2"]);
-    expect(onClose).toHaveBeenCalled();
   });
 
   it("closes when Cancel button is clicked without calling onPromote", () => {

@@ -16,10 +16,9 @@ export function OrbitPromoteModal({ open, notes, canPromote, onPromote, onClose 
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    if (!open) {
-      setSelected(new Set());
-    }
-  }, [open]);
+    if (open) setSelected(new Set(notes.map((note) => note.note_id)));
+    else setSelected(new Set());
+  }, [open, notes]);
 
   useEffect(() => {
     if (!open) return;
@@ -44,8 +43,11 @@ export function OrbitPromoteModal({ open, notes, canPromote, onPromote, onClose 
     setSelected(next);
   };
 
+  const allSelected = notes.length > 0 && selected.size === notes.length;
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(notes.map((note) => note.note_id)));
+
   const handlePromote = () => {
-    const ids = [...selected];
+    const ids = notes.map((note) => note.note_id).filter((id) => selected.has(id));
     if (ids.length === 0 || !canPromote) return;
     onPromote(ids);
     onClose();
@@ -55,6 +57,7 @@ export function OrbitPromoteModal({ open, notes, canPromote, onPromote, onClose 
   const cancelLabel = String(t("orbitPromote.cancel"));
   const closeLabel = String(t("orbitPromote.close"));
   const titleLabel = String(t("orbitPromote.title"));
+  const toggleAllLabel = String(t(allSelected ? "orbitPromote.deselectAll" : "orbitPromote.selectAll"));
 
   return createPortal(
     <div
@@ -70,6 +73,14 @@ export function OrbitPromoteModal({ open, notes, canPromote, onPromote, onClose 
       >
         <div className="orbit-promote-modal-header">
           <h2 className="orbit-promote-modal-title">{titleLabel}</h2>
+          <button
+            type="button"
+            className="orbit-promote-modal-toggle-all"
+            onClick={toggleAll}
+            disabled={notes.length === 0 || !canPromote}
+          >
+            {toggleAllLabel}
+          </button>
           <button
             type="button"
             className="orbit-promote-modal-close"

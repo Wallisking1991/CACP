@@ -8,7 +8,7 @@ export interface OrbitNoteView {
   created_at: string;
   likes: number;
   liked_by_me: boolean;
-  round_id?: string;
+  quoted: boolean;
 }
 
 export interface OrbitLayerProps {
@@ -21,6 +21,8 @@ export interface OrbitLayerProps {
   canPromote?: boolean;
   hasPromotable?: boolean;
   onPromoteClick?: () => void;
+  canClear?: boolean;
+  onClearClick?: () => void;
 }
 
 export function OrbitLayer({
@@ -33,6 +35,8 @@ export function OrbitLayer({
   canPromote = false,
   hasPromotable = false,
   onPromoteClick,
+  canClear = false,
+  onClearClick,
 }: OrbitLayerProps) {
   const t = useT();
   const notesContainerRef = useRef<HTMLDivElement>(null);
@@ -56,6 +60,7 @@ export function OrbitLayer({
   };
 
   const promoteLabel = String(t("orbitPromote.openTitle"));
+  const clearLabel = String(t("orbit.clear"));
   const promoteButton = canPromote ? (
     <button
       type="button"
@@ -68,6 +73,17 @@ export function OrbitLayer({
       <span className="orbit-promote-open-btn__icon">&#11014;</span>
     </button>
   ) : null;
+  const clearButton = canClear ? (
+    <button
+      type="button"
+      className="orbit-clear-btn"
+      onClick={onClearClick}
+      aria-label={clearLabel}
+      title={clearLabel}
+    >
+      <span className="orbit-clear-btn__icon" aria-hidden="true">&#128465;</span>
+    </button>
+  ) : null;
 
   if (notes.length === 0) {
     return (
@@ -75,6 +91,7 @@ export function OrbitLayer({
         <div className="orbit-header">
           <span className="section-label">{t("orbit.title")}</span>
           {promoteButton}
+          {clearButton}
         </div>
         <p className="orbit-empty">{t("orbit.empty")}</p>
       </div>
@@ -86,6 +103,7 @@ export function OrbitLayer({
       <div className="orbit-header">
         <span className="section-label">{t("orbit.title")}</span>
         {promoteButton}
+        {clearButton}
       </div>
       <div
         className="orbit-notes"
@@ -96,10 +114,11 @@ export function OrbitLayer({
           const ownNote = note.created_by === currentParticipantId;
           const showReactionControls = canReact && !ownNote;
           return (
-            <div key={note.note_id} className={`orbit-note ${note.round_id ? "orbit-note--round" : ""} ${ownNote ? "orbit-note--own" : ""}`}>
+            <div key={note.note_id} className={`orbit-note ${note.quoted ? "orbit-note--quoted" : ""} ${ownNote ? "orbit-note--own" : ""}`}>
               <div className="orbit-note-meta">
                 <span>{actorNames.get(note.created_by) || note.created_by}</span>
                 <span className="orbit-note-time">{new Date(note.created_at).toLocaleTimeString()}</span>
+                {note.quoted && <span className="orbit-note-quoted-badge">{t("orbit.note.quoted")}</span>}
               </div>
               <p className="orbit-note-text">{note.text}</p>
               <div className="orbit-note-actions">
