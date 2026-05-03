@@ -297,7 +297,7 @@ describe("CACP server conversation room", () => {
 
     await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "First Claude question" } });
     await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "Second queued from owner" } });
-    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: member.auth, payload: { text: "Third queued from member" } });
+    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "Third queued from owner" } });
 
     let events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
     expect(events.filter((event) => event.type === "agent.turn.followup_queued")).toHaveLength(1);
@@ -313,7 +313,7 @@ describe("CACP server conversation room", () => {
     expect(requestedTurns[1].payload).toMatchObject({
       agent_id: agent.agent_id,
       reason: "queued_followup",
-      message_text: "Queued room messages:\nAlice (owner): Second queued from owner\nBob (member): Third queued from member",
+      message_text: "Queued room messages:\nAlice (owner): Second queued from owner\nAlice (owner): Third queued from owner",
       speaker_name: "Room participants",
       speaker_role: "member",
       room_name: "Conversation Room",

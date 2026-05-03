@@ -21,6 +21,7 @@ import {
   removeParticipant,
   selectAgent,
   sendMessage,
+  updateParticipantRole,
   type LocalAgentLaunch,
   type RoomSession,
 } from "./api.js";
@@ -96,6 +97,14 @@ export default function App() {
           void fetchRoomEvents(currentSession)
             .then((fresh) => setEvents(fresh))
             .catch(() => {});
+        }
+        if (event.type === "participant.role_updated") {
+          const payload = event.payload as { participant_id?: string; new_role?: string };
+          if (payload.participant_id === currentSession.participant_id && payload.new_role) {
+            const updated = { ...currentSession, role: payload.new_role };
+            saveStoredSession(window.localStorage, updated);
+            setAllSessions((prev) => ({ ...prev, [updated.room_id]: updated }));
+          }
         }
       },
       (code, reason) => {
@@ -330,6 +339,13 @@ export default function App() {
     });
   }, [currentSession]);
 
+  const handleUpdateParticipantRole = useCallback((participantId: string, role: string) => {
+    if (!currentSession) return;
+    void run(async () => {
+      await updateParticipantRole(currentSession, participantId, role);
+    });
+  }, [currentSession]);
+
   // Redirect to root when on room route but no valid session
   useEffect(() => {
     if (urlRoomId && (!currentSession || sessionValid === false)) {
@@ -364,6 +380,7 @@ export default function App() {
             onApproveJoinRequest={handleApproveJoinRequest}
             onRejectJoinRequest={handleRejectJoinRequest}
             onRemoveParticipant={handleRemoveParticipant}
+            onUpdateParticipantRole={handleUpdateParticipantRole}
             createdInvite={createdInvite}
             error={error}
             cloudMode={isCloudMode()}

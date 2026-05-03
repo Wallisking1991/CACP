@@ -32,7 +32,7 @@ export default function MainComposer({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const perms = roomPermissionsForRole(role);
-  const canInput = perms.canSendMessages;
+  const canInput = perms.canSendMainInput;
   const isQueued = turnInFlight;
 
   const mentionItems: MentionItem[] = agents.map((a) => ({

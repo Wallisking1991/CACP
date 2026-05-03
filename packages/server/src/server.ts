@@ -77,6 +77,7 @@ const JoinRequestCreateSchema = z.object({ invite_token: z.string().min(1), disp
 const JoinRequestStatusQuerySchema = z.object({ request_token: z.string().min(1) });
 const JoinRequestListQuerySchema = z.object({ status: z.enum(["pending", "approved", "rejected", "expired"]).optional() });
 const JoinDecisionSchema = z.object({ reason: z.string().max(300).optional() });
+const UpdateRoleSchema = z.object({ role: z.enum(["admin", "member", "observer"]) });
 const AgentActionApprovalSchema = z.object({ tool_name: z.string().min(1).max(100), tool_input: z.unknown().optional(), description: z.string().max(500).optional() });
 const AgentActionApprovalQuerySchema = z.object({ token: z.string().optional(), wait_ms: z.coerce.number().int().min(0).max(5 * 60 * 1000).default(0) });
 const SelectAgentSchema = z.object({ agent_id: z.string().min(1) });
@@ -1577,7 +1578,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.get<{ Params: { roomId: string }; Querystring: { status?: string } }>("/rooms/:roomId/join-requests", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (!hasHumanRole(participant, ["owner"])) return deny(reply, "forbidden", 403);
+    if (!hasHumanRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
     const query = JoinRequestListQuerySchema.parse(request.query);
     return { requests: store.listJoinRequests(request.params.roomId, query.status).map(publicJoinRequest) };
   });
@@ -1585,7 +1586,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.post<{ Params: { roomId: string; requestId: string } }>("/rooms/:roomId/join-requests/:requestId/approve", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (!hasHumanRole(participant, ["owner"])) return deny(reply, "forbidden", 403);
+    if (!hasHumanRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
     const participantId = prefixedId("user");
     const participantToken = token();
     const decidedAt = new Date().toISOString();
@@ -1637,7 +1638,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.post<{ Params: { roomId: string; requestId: string } }>("/rooms/:roomId/join-requests/:requestId/reject", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (!hasHumanRole(participant, ["owner"])) return deny(reply, "forbidden", 403);
+    if (!hasHumanRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
     JoinDecisionSchema.parse(request.body);
     const current = store.getJoinRequest(request.params.requestId);
     if (!current || current.room_id !== request.params.roomId) return deny(reply, "unknown_join_request", 404);
@@ -1698,12 +1699,13 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.post<{ Params: { roomId: string; participantId: string } }>("/rooms/:roomId/participants/:participantId/remove", async (request, reply) => {
     const actor = requireParticipant(store, request.params.roomId, request);
     if (!actor) return deny(reply, "invalid_token");
-    if (!hasHumanRole(actor, ["owner"])) return deny(reply, "forbidden", 403);
+    if (!hasHumanRole(actor, ["owner", "admin"])) return deny(reply, "forbidden", 403);
     const body = z.object({ reason: z.string().max(300).optional() }).parse(request.body);
     const target = findParticipant(request.params.roomId, request.params.participantId);
     if (!target) return deny(reply, "unknown_participant", 404);
     if (target.role === "owner") return deny(reply, "cannot_remove_owner", 409);
     if (target.id === actor.id) return deny(reply, "cannot_remove_self", 409);
+    if (actor.role === "admin" && (target.role === "admin" || target.role === "owner")) return deny(reply, "cannot_remove_admin", 409);
     const removedAt = new Date().toISOString();
     const storedEvents = store.transaction(() => {
       store.revokeParticipant(request.params.roomId, target.id, actor.id, removedAt, body.reason ?? "removed_by_owner");
@@ -1728,11 +1730,37 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return reply.code(201).send({ ok: true });
   });
 
+  app.post<{ Params: { roomId: string; participantId: string } }>("/rooms/:roomId/participants/:participantId/role", async (request, reply) => {
+    const actor = requireParticipant(store, request.params.roomId, request);
+    if (!actor) return deny(reply, "invalid_token");
+    if (!hasHumanRole(actor, ["owner"])) return deny(reply, "forbidden", 403);
+    const body = UpdateRoleSchema.parse(request.body);
+    const target = findParticipant(request.params.roomId, request.params.participantId);
+    if (!target) return deny(reply, "unknown_participant", 404);
+    if (target.id === actor.id) return deny(reply, "cannot_change_own_role", 409);
+    if (target.role === "owner") return deny(reply, "cannot_change_owner_role", 409);
+    const updatedAt = new Date().toISOString();
+    const storedEvents = store.transaction(() => {
+      store.updateParticipantRole(request.params.roomId, target.id, body.role);
+      return [
+        store.appendEvent(event(request.params.roomId, "participant.role_updated", actor.id, {
+          participant_id: target.id,
+          old_role: target.role,
+          new_role: body.role,
+          updated_by: actor.id,
+          updated_at: updatedAt
+        }))
+      ];
+    });
+    publishEvents(storedEvents);
+    return reply.code(201).send({ ok: true, participant: publicParticipant({ ...target, role: body.role }) });
+  });
+
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/main-inputs", async (request, reply) => {
     if (!messageLimiter.allow(request.ip)) return tooMany(reply);
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
+    if (!hasHumanRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
     const body = z.object({ text: z.string().min(1).max(config.maxMessageLength) }).parse(request.body);
     const roomId = request.params.roomId;
     const events = store.listEvents(roomId);
@@ -1978,7 +2006,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!messageLimiter.allow(request.ip)) return tooMany(reply);
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
+    if (!hasHumanRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
     const body = z.object({ text: z.string().min(1).max(config.maxMessageLength) }).parse(request.body);
     const storedEvents = store.transaction(() => {
       const messageId = prefixedId("msg");
@@ -1997,7 +2025,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/proposals", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
+    if (!hasHumanRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
     const body = ProposalSchema.parse(request.body);
     const proposalId = prefixedId("prop");
     appendAndPublish(event(request.params.roomId, "proposal.created", participant.id, { proposal_id: proposalId, ...body }));

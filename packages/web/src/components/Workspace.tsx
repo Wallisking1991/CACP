@@ -33,6 +33,7 @@ export interface WorkspaceProps {
   onApproveJoinRequest: (requestId: string) => void;
   onRejectJoinRequest: (requestId: string) => void;
   onRemoveParticipant: (participantId: string) => void;
+  onUpdateParticipantRole?: (participantId: string, role: string) => void;
   createdInvite?: { url: string; role: string; ttl: number };
   error?: string;
   cloudMode?: boolean;
@@ -75,6 +76,7 @@ export default function Workspace({
   onApproveJoinRequest,
   onRejectJoinRequest,
   onRemoveParticipant,
+  onUpdateParticipantRole,
   createdInvite,
   error,
   cloudMode,
@@ -137,9 +139,9 @@ export default function Workspace({
   const orbitBubbleTimersRef = useRef<Map<string, number>>(new Map());
 
   const pendingNotificationCount = useMemo(() => {
-    if (!isOwner) return 0;
+    if (!permissions.canManageJoinRequests) return 0;
     return room.joinRequests.length;
-  }, [isOwner, room.joinRequests]);
+  }, [permissions.canManageJoinRequests, room.joinRequests]);
 
   const streamingKey = useMemo(
     () => room.streamingTurns.map((t) => t.turn_id).join("|"),
@@ -358,7 +360,7 @@ export default function Workspace({
         notes={room.orbitNotes}
         currentParticipantId={session.participant_id}
         actorNames={actorNames}
-        canReact={permissions.canSendMessages && session.role !== "observer"}
+        canReact={permissions.canSendOrbitNotes}
         onLike={(noteId) => { void likeOrbitNote(session, noteId).catch(() => {}); }}
         onUnlike={(noteId) => { void unlikeOrbitNote(session, noteId).catch(() => {}); }}
         canPromote={canPromoteOrbit}
@@ -497,8 +499,10 @@ export default function Workspace({
         <PeopleAvatarPopover
           participants={peopleParticipants}
           isOwner={isOwner}
+          canRemoveParticipants={permissions.canRemoveParticipants}
           currentParticipantId={session.participant_id}
           onRemoveParticipant={onRemoveParticipant}
+          onUpdateRole={onUpdateParticipantRole}
         />
       </Popover>
 

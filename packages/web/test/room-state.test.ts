@@ -86,6 +86,19 @@ describe("room state", () => {
     expect(state.agents).toEqual([]);
   });
 
+  it("updates participant role via participant.role_updated event", () => {
+    const state = deriveRoomState([
+      event("participant.joined", { participant: { id: "user_1", display_name: "Alice", role: "owner", type: "human" } }, 1),
+      event("participant.joined", { participant: { id: "user_2", display_name: "Bob", role: "member", type: "human" } }, 2),
+      event("participant.role_updated", { participant_id: "user_2", old_role: "member", new_role: "admin", updated_by: "user_1", updated_at: "2026-04-25T00:00:03.000Z" }, 3, "user_1")
+    ]);
+
+    expect(state.participants).toEqual([
+      { id: "user_1", display_name: "Alice", role: "owner", type: "human" },
+      { id: "user_2", display_name: "Bob", role: "admin", type: "human" }
+    ]);
+  });
+
   it("derives generic Codex session catalog and selection state", () => {
     const state = deriveRoomState([
       event("agent.registered", { agent_id: "agent_1", name: "Codex", capabilities: ["codex-cli"] }, 1, "owner"),

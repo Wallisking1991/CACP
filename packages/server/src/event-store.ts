@@ -312,6 +312,12 @@ export class EventStore {
     return { room_id: participant.room_id, id: participant.id, display_name: participant.display_name, type: participant.type, role: participant.role, main_thread_history_access: participant.main_thread_history_access };
   }
 
+  updateParticipantRole(roomId: string, participantId: string, role: ParticipantRole): void {
+    this.db.prepare(`
+      UPDATE participants SET role = ? WHERE room_id = ? AND participant_id = ?
+    `).run(role, roomId, participantId);
+  }
+
   getParticipantByToken(roomId: string, participantToken: string): StoredParticipant | undefined {
     const tokenHash = hashParticipantToken(participantToken);
     const row = this.db.prepare(`

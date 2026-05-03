@@ -537,6 +537,14 @@ export const OrbitNotesQuotedPayloadSchema = z.object({
   note_ids: z.array(z.string().min(1)).min(1)
 });
 
+export const ParticipantRoleUpdatedPayloadSchema = z.object({
+  participant_id: z.string().min(1),
+  old_role: ParticipantRoleSchema,
+  new_role: ParticipantRoleSchema,
+  updated_by: z.string().min(1),
+  updated_at: z.string().datetime()
+});
+
 export type MainInputSource = z.infer<typeof MainInputSourceSchema>;
 export type MainInputStatus = z.infer<typeof MainInputStatusSchema>;
 export type MainInputAcceptedPayload = z.infer<typeof MainInputAcceptedPayloadSchema>;
@@ -554,3 +562,4 @@ export type OrbitNoteCreatedPayload = z.infer<typeof OrbitNoteCreatedPayloadSche
 export type OrbitLikeChangedPayload = z.infer<typeof OrbitLikeChangedPayloadSchema>;
 export type OrbitClearedPayload = z.infer<typeof OrbitClearedPayloadSchema>;
 export type OrbitNotesQuotedPayload = z.infer<typeof OrbitNotesQuotedPayloadSchema>;
+export type ParticipantRoleUpdatedPayload = z.infer<typeof ParticipantRoleUpdatedPayloadSchema>;

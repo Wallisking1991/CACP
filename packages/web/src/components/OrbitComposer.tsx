@@ -30,7 +30,7 @@ export default function OrbitComposer({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const perms = roomPermissionsForRole(role);
-  const canInput = perms.canSendMessages;
+  const canInput = perms.canSendOrbitNotes;
 
   const mentionItems: MentionItem[] = members.map((m) => ({
     id: m.id,

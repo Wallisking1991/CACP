@@ -388,9 +388,9 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
       if (removed?.type === "agent") agents.delete(event.payload.participant_id);
       participants.delete(event.payload.participant_id);
     }
-    if (event.type === "participant.role_updated" && typeof event.payload.participant_id === "string" && typeof event.payload.role === "string") {
+    if (event.type === "participant.role_updated" && typeof event.payload.participant_id === "string" && typeof event.payload.new_role === "string") {
       const participant = participants.get(event.payload.participant_id);
-      if (participant) participants.set(participant.id, { ...participant, role: event.payload.role });
+      if (participant) participants.set(participant.id, { ...participant, role: event.payload.new_role });
     }
     if (event.type === "invite.created") {
       inviteCount += 1;

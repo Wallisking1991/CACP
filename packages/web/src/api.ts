@@ -302,6 +302,10 @@ export async function removeParticipant(session: RoomSession, participantId: str
   await postJson(`/rooms/${session.room_id}/participants/${participantId}/remove`, session.token, {});
 }
 
+export async function updateParticipantRole(session: RoomSession, participantId: string, role: string): Promise<void> {
+  await postJson(`/rooms/${session.room_id}/participants/${participantId}/role`, session.token, { role });
+}
+
 export async function createLocalAgentLaunch(session: RoomSession, input: AgentSetupInput): Promise<LocalAgentLaunch> {
   return await postJson(`/rooms/${session.room_id}/agent-pairings/start-local`, session.token, { ...input, server_url: pairingServerUrlFor(currentBrowserOrigin()) });
 }
