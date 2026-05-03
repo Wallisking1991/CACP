@@ -127,7 +127,7 @@ describe("Workspace refactored shell", () => {
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("People")).toBeInTheDocument();
-    expect(screen.getAllByText("Wei")).toHaveLength(1);
+    expect(within(screen.getByRole("dialog")).getByText("Wei")).toBeInTheDocument();
   });
 
   it("opens agent popover when agent avatar is clicked", () => {
@@ -137,7 +137,7 @@ describe("Workspace refactored shell", () => {
     fireEvent.click(agentStack);
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getAllByText("Claude Code Agent")).toHaveLength(1);
+    expect(within(screen.getByRole("dialog")).getByText("Claude Code Agent")).toBeInTheDocument();
   });
 
   it("keeps the Codex session-required modal open after selection until the connector reports ready", () => {

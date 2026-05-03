@@ -83,10 +83,11 @@ describe("RoleAvatarRail", () => {
     expect(firstAgentIndex).toBeLessThan(firstHumanIndex);
   });
 
-  it("does not render avatar names below initials", () => {
+  it("renders avatar names below initials", () => {
     render(<RoleAvatarRail avatars={avatars} maxVisible={6} />);
 
-    expect(document.querySelector(".role-avatar__name")).not.toBeInTheDocument();
+    const names = Array.from(document.querySelectorAll(".role-avatar__name"));
+    expect(names.map((n) => n.textContent)).toEqual(["Claude Code Agent", "Bob", "Alice"]);
   });
 
   it("renders orbit bubble for matching avatar", () => {

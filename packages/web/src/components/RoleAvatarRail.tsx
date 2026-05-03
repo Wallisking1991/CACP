@@ -61,6 +61,7 @@ export function RoleAvatarRail({ avatars, maxVisible = 10, isOwner, currentParti
             <span className="role-avatar__initials">{initials(avatar.display_name)}</span>
             <span className="role-avatar__status" aria-hidden="true" />
           </span>
+          <span className="role-avatar__name">{avatar.display_name}</span>
           {orbitBubbles?.get(avatar.id) ? (
             <OrbitBubble text={orbitBubbles.get(avatar.id)!} avatarId={avatar.id} />
           ) : null}
@@ -79,6 +80,7 @@ export function RoleAvatarRail({ avatars, maxVisible = 10, isOwner, currentParti
             <span className="role-avatar__initials">{initials(avatar.display_name)}</span>
             <span className="role-avatar__status" aria-hidden="true" />
           </span>
+          <span className="role-avatar__name">{avatar.display_name}</span>
           {orbitBubbles?.get(avatar.id) ? (
             <OrbitBubble text={orbitBubbles.get(avatar.id)!} avatarId={avatar.id} />
           ) : null}
