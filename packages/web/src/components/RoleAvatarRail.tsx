@@ -1,5 +1,6 @@
 import { useT } from "../i18n/useT.js";
 import type { AvatarStatusView } from "../room-state.js";
+import { OrbitBubble } from "./OrbitBubble.js";
 
 export interface RoleAvatarRailProps {
   avatars: AvatarStatusView[];
@@ -10,6 +11,7 @@ export interface RoleAvatarRailProps {
   onClickHumanAvatar?: () => void;
   onClickAgentAvatar?: () => void;
   railRef?: React.RefObject<HTMLDivElement | null>;
+  orbitBubbles?: Map<string, string>;
 }
 
 function initials(name: string): string {
@@ -26,7 +28,7 @@ function splitVisible(avatars: AvatarStatusView[], maxVisible: number): { visibl
   return { visible, hiddenCount: Math.max(0, avatars.length - visible.length) };
 }
 
-export function RoleAvatarRail({ avatars, maxVisible = 10, isOwner, currentParticipantId, onRemoveAvatar, onClickHumanAvatar, onClickAgentAvatar, railRef }: RoleAvatarRailProps) {
+export function RoleAvatarRail({ avatars, maxVisible = 10, isOwner, currentParticipantId, onRemoveAvatar, onClickHumanAvatar, onClickAgentAvatar, railRef, orbitBubbles }: RoleAvatarRailProps) {
   const t = useT();
 
   function statusLabel(status: AvatarStatusView["status"]): string {
@@ -42,31 +44,16 @@ export function RoleAvatarRail({ avatars, maxVisible = 10, isOwner, currentParti
 
   const humans = avatars.filter((avatar) => avatar.group === "humans");
   const agents = avatars.filter((avatar) => avatar.group === "agents");
-  const { visible, hiddenCount } = splitVisible([...humans, ...agents], maxVisible);
+  const { visible, hiddenCount } = splitVisible([...agents, ...humans], maxVisible);
 
   return (
     <div className="role-avatar-rail" ref={railRef} aria-label={t("room.controls")}>
-      {humans.length > 0 ? <span className="avatar-group-label">{t("avatar.group.humans")}</span> : null}
-      {visible.filter((avatar) => avatar.group === "humans").map((avatar) => (
-        <div
-          key={avatar.id}
-          className="role-avatar-stack"
-          title={avatarLabel(avatar)}
-          onClick={onClickHumanAvatar}
-          style={{ cursor: onClickHumanAvatar ? "pointer" : undefined }}
-        >
-          <span className={`role-avatar role-avatar--${avatar.kind} role-avatar--${avatar.status}`} aria-label={avatarLabel(avatar)}>
-            <span className="role-avatar__initials">{initials(avatar.display_name)}</span>
-            <span className="role-avatar__status" aria-hidden="true" />
-          </span>
-          <span className="role-avatar__name">{avatar.display_name}</span>
-        </div>
-      ))}
       {agents.length > 0 ? <span className="avatar-group-label">{t("avatar.group.agents")}</span> : null}
       {visible.filter((avatar) => avatar.group === "agents").map((avatar) => (
         <div
           key={avatar.id}
           className="role-avatar-stack"
+          data-avatar-id={avatar.id}
           title={avatarLabel(avatar)}
           onClick={onClickAgentAvatar}
           style={{ cursor: onClickAgentAvatar ? "pointer" : undefined }}
@@ -76,6 +63,29 @@ export function RoleAvatarRail({ avatars, maxVisible = 10, isOwner, currentParti
             <span className="role-avatar__status" aria-hidden="true" />
           </span>
           <span className="role-avatar__name">{avatar.display_name}</span>
+          {orbitBubbles?.get(avatar.id) ? (
+            <OrbitBubble text={orbitBubbles.get(avatar.id)!} avatarId={avatar.id} />
+          ) : null}
+        </div>
+      ))}
+      {humans.length > 0 ? <span className="avatar-group-label">{t("avatar.group.humans")}</span> : null}
+      {visible.filter((avatar) => avatar.group === "humans").map((avatar) => (
+        <div
+          key={avatar.id}
+          className="role-avatar-stack"
+          data-avatar-id={avatar.id}
+          title={avatarLabel(avatar)}
+          onClick={onClickHumanAvatar}
+          style={{ cursor: onClickHumanAvatar ? "pointer" : undefined }}
+        >
+          <span className={`role-avatar role-avatar--${avatar.kind} role-avatar--${avatar.status}`} aria-label={avatarLabel(avatar)}>
+            <span className="role-avatar__initials">{initials(avatar.display_name)}</span>
+            <span className="role-avatar__status" aria-hidden="true" />
+          </span>
+          <span className="role-avatar__name">{avatar.display_name}</span>
+          {orbitBubbles?.get(avatar.id) ? (
+            <OrbitBubble text={orbitBubbles.get(avatar.id)!} avatarId={avatar.id} />
+          ) : null}
         </div>
       ))}
       {hiddenCount > 0 ? <span className="role-avatar-overflow">+{hiddenCount}</span> : null}

@@ -1,5 +1,11 @@
 {
   "enabledPlugins": {
     "claude-mem@thedotmack": true
+  },
+    "hooks": {
+    "PostToolUse": [{
+      "matcher": "Edit|Write",
+      "hooks": [{"type": "command", "command": "pnpm tsc --noEmit && pnpm prettier --write $CLAUDE_FILE_PATHS"}]
+    }]
   }
 }

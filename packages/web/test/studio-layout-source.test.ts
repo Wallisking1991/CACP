@@ -17,7 +17,6 @@ describe("studio room CSS source", () => {
       ".message-ai-card",
       ".message-system-marker",
       ".composer-send-floating",
-      ".floating-logo-control",
       ".room-control-center"
     ]) {
       expect(css).toContain(selector);

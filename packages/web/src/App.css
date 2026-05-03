@@ -720,6 +720,7 @@ textarea.input {
 
 .workspace-header {
   position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1060,7 +1061,7 @@ textarea.input {
   height: 100%;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid var(--border);
   border-radius: var(--radius-frame);
   background: var(--surface);
@@ -1870,6 +1871,8 @@ textarea.input {
   flex-direction: column;
   align-items: center;
   gap: 3px;
+  position: relative;
+  z-index: 2;
 }
 
 .role-avatar__name {
@@ -1978,6 +1981,77 @@ textarea.input {
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
   padding: 4px 8px;
+}
+
+.orbit-bubble {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  width: fit-content;
+  min-width: 240px;
+  max-width: 360px;
+  background: #fff;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  box-shadow: 0 8px 32px rgba(70, 48, 27, 0.22);
+  pointer-events: none;
+}
+
+.orbit-bubble::before {
+  content: "";
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 7px solid transparent;
+  border-bottom-color: var(--accent);
+}
+
+.orbit-bubble__text {
+  display: block;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--ink);
+  max-height: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
+}
+
+.orbit-bubble--enter {
+  animation: orbitBubbleIn 250ms ease forwards;
+}
+
+.orbit-bubble--exit {
+  animation: orbitBubbleOut 200ms ease forwards;
+}
+
+@keyframes orbitBubbleIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+@keyframes orbitBubbleOut {
+  from {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-6px);
+  }
 }
 
 .message-own {
@@ -2164,23 +2238,22 @@ textarea.input {
 
 .orbit-toggle-tab {
   position: fixed;
-  right: 0;
+  right: 12px;
   top: 50%;
   transform: translateY(-50%);
   z-index: 40;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 44px;
-  width: 28px;
-  height: 96px;
+  width: 48px;
+  height: 48px;
   padding: 0;
-  border: 1px solid var(--ink-3, #d1d5db);
-  border-right: none;
-  border-radius: 8px 0 0 8px;
-  background: var(--surface-1, #ffffff);
+  border: 1px solid var(--accent-border);
+  border-radius: 50%;
+  background: var(--surface);
   color: var(--ink-1, #111827);
   cursor: pointer;
+  box-shadow: var(--studio-shadow);
   transition: background-color 120ms ease, border-color 120ms ease;
 }
 
@@ -2194,13 +2267,6 @@ textarea.input {
 .orbit-toggle-tab--open {
   background: var(--accent-soft, #dbeafe);
   border-color: var(--accent, #2563eb);
-}
-
-.orbit-toggle-tab__label {
-  writing-mode: vertical-rl;
-  font-size: 12px;
-  letter-spacing: 0.04em;
-  user-select: none;
 }
 
 .orbit-unread-badge {
@@ -2643,50 +2709,6 @@ textarea.input {
   padding-left: 9px;
 }
 
-.floating-logo-control {
-  position: fixed;
-  right: -26px;
-  z-index: 35;
-  width: 58px;
-  height: 58px;
-  border-radius: 999px;
-  border: 1px solid var(--accent-border);
-  background: var(--surface);
-  box-shadow: var(--studio-shadow);
-  cursor: pointer;
-  transform: translateY(-50%);
-  transition: right var(--motion-med) ease, transform var(--motion-med) ease;
-}
-
-.floating-logo-control:hover,
-.floating-logo-control:focus-visible {
-  right: 12px;
-}
-
-.floating-logo-control__mark {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-}
-
-.floating-logo-control__badge {
-  position: absolute;
-  top: -4px;
-  left: -4px;
-  min-width: 18px;
-  height: 18px;
-  border-radius: 999px;
-  background: var(--accent);
-  color: white;
-  font-size: 10px;
-  font-weight: 800;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
 .room-control-overlay {
   position: fixed;
   inset: 0;
@@ -2767,8 +2789,7 @@ textarea.input {
 
 @media (prefers-reduced-motion: reduce) {
   .role-avatar--working,
-  .role-avatar--typing .role-avatar__status,
-  .floating-logo-control {
+  .role-avatar--typing .role-avatar__status {
     animation: none;
     transition: none;
   }

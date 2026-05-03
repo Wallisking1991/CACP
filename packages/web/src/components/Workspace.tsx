@@ -14,7 +14,6 @@ import Thread from "./Thread.js";
 import MainComposer from "./MainComposer.js";
 import OrbitComposer from "./OrbitComposer.js";
 import { AgentSessionRequiredModal } from "./AgentSessionRequiredModal.js";
-import { FloatingLogoControl } from "./FloatingLogoControl.js";
 import { Popover } from "./Popover.js";
 import { AgentAvatarPopover } from "./AgentAvatarPopover.js";
 import { PeopleAvatarPopover } from "./PeopleAvatarPopover.js";
@@ -126,10 +125,15 @@ export default function Workspace({
   const [wantsReselect, setWantsReselect] = useState(false);
   const [promoteModalOpen, setPromoteModalOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
+  const panelOpenRef = useRef(panelOpen);
+  useEffect(() => { panelOpenRef.current = panelOpen; }, [panelOpen]);
   const [unreadOrbit, setUnreadOrbit] = useState(0);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const seenOrbitEventIdsRef = useRef<Set<string>>(new Set());
   const orbitUnreadBaselineReadyRef = useRef(false);
+
+  const [orbitBubbles, setOrbitBubbles] = useState<Map<string, { text: string; id: string }>>(new Map());
+  const orbitBubbleTimersRef = useRef<Map<string, number>>(new Map());
 
   const pendingNotificationCount = useMemo(() => {
     if (!isOwner) return 0;
@@ -239,6 +243,32 @@ export default function Workspace({
         case "orbit.note.created": {
           if (shouldPlayCueForMessage({ actorId: event.actor_id, currentParticipantId: session.participant_id })) {
             soundControllerRef.current.play("message");
+          }
+          // Show bubble if not self and orbit panel is closed
+          if (event.actor_id !== session.participant_id && !panelOpenRef.current && typeof event.payload.text === "string") {
+            const avatarId = event.actor_id;
+            const text = event.payload.text;
+            const bubbleId = `${avatarId}-${Date.now()}`;
+            setOrbitBubbles((prev) => {
+              const next = new Map(prev);
+              next.set(avatarId, { text, id: bubbleId });
+              return next;
+            });
+            // Clear any existing timer for this avatar
+            const existingTimer = orbitBubbleTimersRef.current.get(avatarId);
+            if (existingTimer) window.clearTimeout(existingTimer);
+            const timer = window.setTimeout(() => {
+              setOrbitBubbles((prev) => {
+                const next = new Map(prev);
+                const current = next.get(avatarId);
+                if (current && current.id === bubbleId) {
+                  next.delete(avatarId);
+                }
+                return next;
+              });
+              orbitBubbleTimersRef.current.delete(avatarId);
+            }, 4000); // slightly longer than bubble duration (3500ms) + exit animation
+            orbitBubbleTimersRef.current.set(avatarId, timer);
           }
           break;
         }
@@ -361,6 +391,7 @@ export default function Workspace({
             railRef={railRef}
             createdInvite={createdInvite}
             invites={room.invites}
+            orbitBubbles={new Map(Array.from(orbitBubbles.entries()).map(([k, v]) => [k, v.text]))}
           />
 
           <Thread
@@ -464,8 +495,6 @@ export default function Workspace({
           }
         />
       </Popover>
-
-      <FloatingLogoControl active={turnInFlight} pendingCount={0} onOpen={() => {}} />
 
       {panelOpen && (
         <button

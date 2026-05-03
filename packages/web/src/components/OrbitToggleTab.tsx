@@ -1,4 +1,5 @@
 import { useT } from "../i18n/useT.js";
+import { BubbleIcon } from "./RoomIcons.js";
 
 export interface OrbitToggleTabProps {
   open: boolean;
@@ -18,7 +19,7 @@ export function OrbitToggleTab({ open, unreadCount, onClick }: OrbitToggleTabPro
       aria-pressed={open}
       onClick={onClick}
     >
-      <span className="orbit-toggle-tab__label" aria-hidden="true">{t("orbit.title")}</span>
+      <BubbleIcon width={20} height={20} />
       {unreadCount > 0 && <span className="orbit-unread-badge">{displayCount}</span>}
     </button>
   );

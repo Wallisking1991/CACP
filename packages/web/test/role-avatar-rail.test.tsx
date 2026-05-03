@@ -74,4 +74,33 @@ describe("RoleAvatarRail", () => {
 
     expect(screen.queryByRole("button", { name: /remove/i })).not.toBeInTheDocument();
   });
+
+  it("renders agents before humans in the rail", () => {
+    render(<RoleAvatarRail avatars={avatars} maxVisible={6} />);
+
+    const rail = document.querySelector(".role-avatar-rail") as HTMLElement;
+    const groupLabels = Array.from(rail.querySelectorAll(".avatar-group-label")).map((el) => el.textContent);
+    expect(groupLabels).toEqual(["Agents", "Humans"]);
+
+    const stacks = Array.from(rail.querySelectorAll(".role-avatar-stack"));
+    const firstAgentIndex = stacks.findIndex((s) => s.querySelector('[aria-label*="Claude Code Agent"]'));
+    const firstHumanIndex = stacks.findIndex((s) => s.querySelector('[aria-label*="Alice"]'));
+    expect(firstAgentIndex).toBeLessThan(firstHumanIndex);
+  });
+
+  it("renders orbit bubble for matching avatar", () => {
+    const bubbles = new Map([
+      ["user_2", "Bob's orbit note"],
+    ]);
+    render(<RoleAvatarRail avatars={avatars} maxVisible={6} orbitBubbles={bubbles} />);
+
+    expect(document.querySelector(".orbit-bubble")).toBeInTheDocument();
+    expect(document.querySelector(".orbit-bubble__text")).toHaveTextContent("Bob's orbit note");
+  });
+
+  it("does not render orbit bubble when no match", () => {
+    render(<RoleAvatarRail avatars={avatars} maxVisible={6} />);
+
+    expect(document.querySelector(".orbit-bubble")).not.toBeInTheDocument();
+  });
 });

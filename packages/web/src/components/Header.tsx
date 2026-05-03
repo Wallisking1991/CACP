@@ -44,6 +44,8 @@ export interface HeaderProps {
   // Invite
   createdInvite?: { url: string; role: string; ttl: number; max_uses: number };
   invites?: InviteView[];
+  // Orbit bubbles
+  orbitBubbles?: Map<string, string>;
 }
 
 export default function Header({
@@ -74,6 +76,7 @@ export default function Header({
   railRef,
   createdInvite,
   invites,
+  orbitBubbles,
 }: HeaderProps) {
   const t = useT();
   const langCtx = useContext(LangContext);
@@ -135,6 +138,7 @@ export default function Header({
         onClickHumanAvatar={onClickHumanAvatar}
         onClickAgentAvatar={onClickAgentAvatar}
         railRef={railRef}
+        orbitBubbles={orbitBubbles}
       />
 
       <div className="header-actions">

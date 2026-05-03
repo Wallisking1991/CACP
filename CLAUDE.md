@@ -8,6 +8,21 @@ CACP (Collaborative Agent Communication Protocol) is a local-first collaborative
 
 Live demo: https://cacp.zuchongai.com/
 
+## Context Management
+- When resuming compacted sessions, start fresh rather than continuing if context is large
+- Avoid re-exploring or re-planning when a plan document already exists - read it and execute
+- Prefer concise execution over verbose planning phases
+
+## Testing Discipline
+- Always run tests after multi-file changes; report pass count (e.g., '709/709 passing')
+- Scope test runs to affected packages when possible to save time
+- Fix failing tests before committing
+
+## Cross-Platform Shell
+- This environment is Windows; do NOT use PowerShell env var syntax in bash commands
+- For packaging/transfer, prefer Python/paramiko fallback over tar append (which fails on Windows)
+- PowerShell ConstrainedLanguage mode blocks UTF-8 encoding setup - use alternatives
+
 ## Working Style
 
 These guidelines apply to every task in this repository — read them before starting any non-trivial work.
