@@ -348,6 +348,8 @@ export default function Workspace({
 
   return (
     <div className="workspace-shell">
+      <div className="workspace-orb workspace-orb--primary" aria-hidden="true" />
+      <div className="workspace-orb workspace-orb--secondary" aria-hidden="true" />
       <div className={`workspace-grid${panelOpen ? " workspace-grid--with-orbit" : ""}`}>
         <div className="chat-panel">
           <Header

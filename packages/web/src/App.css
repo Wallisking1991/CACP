@@ -716,6 +716,69 @@ textarea.input {
   overflow: hidden;
   margin: 0 auto;
   padding: 12px 0 14px;
+  isolation: isolate;
+}
+
+.workspace-shell::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -3;
+  background:
+    linear-gradient(rgba(194, 65, 12, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(194, 65, 12, 0.055) 1px, transparent 1px),
+    radial-gradient(circle at 18% 22%, rgba(249, 115, 22, 0.18), transparent 32%),
+    radial-gradient(circle at 82% 72%, rgba(124, 45, 18, 0.12), transparent 34%),
+    var(--bg);
+  background-size: 42px 42px, 42px 42px, auto, auto, auto;
+}
+
+.workspace-shell::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background: linear-gradient(110deg, transparent 0%, rgba(255, 247, 237, 0.18) 45%, rgba(249, 115, 22, 0.16) 50%, transparent 56%);
+  transform: translateX(-34%);
+  animation: workspace-sheen 14s ease-in-out infinite;
+}
+
+.workspace-orb {
+  position: fixed;
+  z-index: -1;
+  width: 360px;
+  height: 360px;
+  border-radius: 50%;
+  filter: blur(48px);
+  opacity: 0.48;
+  pointer-events: none;
+  transform: translate3d(0, 0, 0);
+}
+
+.workspace-orb--primary {
+  left: max(24px, calc((100vw - 1600px) / 2));
+  top: 9%;
+  background: rgba(249, 115, 22, 0.32);
+  animation: workspace-orb-float 15s ease-in-out infinite;
+}
+
+.workspace-orb--secondary {
+  right: max(24px, calc((100vw - 1600px) / 2));
+  bottom: 8%;
+  background: rgba(124, 45, 18, 0.18);
+  animation: workspace-orb-float 18s ease-in-out infinite reverse;
+}
+
+@keyframes workspace-sheen {
+  0%, 42% { transform: translateX(-38%); opacity: 0; }
+  52% { opacity: 1; }
+  64%, 100% { transform: translateX(38%); opacity: 0; }
+}
+
+@keyframes workspace-orb-float {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(18px, -14px, 0) scale(1.08); }
 }
 
 .workspace-header {
@@ -1433,12 +1496,15 @@ textarea.input {
 
   .landing-shell::after,
   .landing-orb,
-  .landing-primary-action::after {
+  .landing-primary-action::after,
+  .workspace-shell::after,
+  .workspace-orb {
     animation: none;
     transition: none;
   }
 
-  .landing-orb {
+  .landing-orb,
+  .workspace-orb {
     opacity: 0.18;
   }
 }
