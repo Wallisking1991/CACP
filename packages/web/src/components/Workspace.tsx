@@ -5,7 +5,7 @@ import { startTyping, stopTyping, updatePresence, createAgentPairing } from "../
 import { roomPermissionsForRole } from "../role-permissions.js";
 import { deriveRoomState, humanParticipants, isTurnInFlight } from "../room-state.js";
 import type { AgentSessionReadyView, AgentSessionSelectionView, ClaudeSessionReadyView, ClaudeSessionSelectionView } from "../room-state.js";
-import { requestClaudeSessionPreview, selectClaudeSession, requestAgentSessionPreview, selectAgentSession, sendOrbitNote, likeOrbitNote, unlikeOrbitNote, promoteOrbitRound, sendMainInput, clearOrbit } from "../api.js";
+import { requestClaudeSessionPreview, selectClaudeSession, requestAgentSessionPreview, selectAgentSession, sendOrbitNote, likeOrbitNote, unlikeOrbitNote, promoteOrbitNotes, sendMainInput, clearOrbit } from "../api.js";
 import { createTypingActivityController, type TypingActivityController } from "../activity-client.js";
 import { createRoomSoundController, shouldPlayCueForMessage } from "../room-sound.js";
 import { useT } from "../i18n/useT.js";
@@ -291,7 +291,7 @@ export default function Workspace({
         open={promoteModalOpen}
         notes={promotableOrbitNotes}
         canPromote={canPromoteOrbit}
-        onPromote={(noteIds) => { void promoteOrbitRound(session, noteIds).catch(() => {}); }}
+        onPromote={(noteIds) => { void promoteOrbitNotes(session, noteIds).catch(() => {}); }}
         onClose={() => setPromoteModalOpen(false)}
       />
       <OrbitComposer

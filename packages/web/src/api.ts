@@ -82,7 +82,7 @@ export async function unlikeOrbitNote(session: RoomSession, noteId: string): Pro
   }).then((r) => r.json());
 }
 
-export async function promoteOrbitRound(session: RoomSession, noteIds?: string[]): Promise<{ input_id: string; status: string; note_count: number }> {
+export async function promoteOrbitNotes(session: RoomSession, noteIds?: string[]): Promise<{ input_id: string; status: string; note_count: number }> {
   return await postJson(`/rooms/${session.room_id}/orbit/promote`, session.token, { note_ids: noteIds });
 }
 
