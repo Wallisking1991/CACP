@@ -1329,8 +1329,15 @@ textarea.input {
   flex-direction: column;
   gap: 8px;
   border-top: 1px solid var(--border);
-  background: var(--surface-warm);
+  background: linear-gradient(180deg, rgba(255,255,255,0.85) 0%, rgba(250,248,245,0.92) 100%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   padding: 8px 16px;
+  transition: box-shadow var(--motion-fast);
+}
+
+.composer:focus-within {
+  box-shadow: 0 -4px 20px rgba(194, 65, 12, 0.06);
 }
 
 .composer-queued {
@@ -1342,6 +1349,11 @@ textarea.input {
   max-height: 140px;
   resize: none;
   border-radius: var(--radius-composer);
+  transition: box-shadow var(--motion-fast);
+}
+
+.composer-input:focus {
+  box-shadow: 0 0 0 3px rgba(194, 65, 12, 0.08);
 }
 
 .composer-input--with-floating-btn {
@@ -1368,13 +1380,18 @@ textarea.input {
   color: var(--ink-3);
   cursor: pointer;
   z-index: 2;
-  transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast), opacity var(--motion-fast);
+  transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast), opacity var(--motion-fast), transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .composer-send-floating:hover:not(:disabled) {
   background: var(--surface-warm);
   border-color: var(--border-soft);
   color: var(--ink);
+  transform: scale(1.08);
+}
+
+.composer-send-floating:active:not(:disabled) {
+  transform: scale(0.96);
 }
 
 .composer-send-floating:focus-visible {
@@ -1388,13 +1405,23 @@ textarea.input {
 }
 
 .composer-send-floating--warm {
-  color: var(--accent);
-  border-color: var(--accent-border);
+  background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%);
+  color: #fff;
+  border-color: transparent;
 }
 
 .composer-send-floating--warm:hover:not(:disabled) {
-  background: var(--accent-soft);
-  border-color: var(--accent);
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  border-color: transparent;
+}
+
+@keyframes composer-pulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(234, 88, 12, 0.35); }
+  50% { transform: scale(1.05); box-shadow: 0 0 0 8px rgba(234, 88, 12, 0); }
+}
+
+.main-composer-queued .composer-send-floating {
+  animation: composer-pulse 2s ease-in-out infinite;
 }
 
 /* Sidebar */
@@ -2906,9 +2933,17 @@ textarea.input {
 /* MainComposer */
 .main-composer {
   border-top: 1px solid var(--border);
-  background: var(--surface-warm);
+  background: linear-gradient(180deg, rgba(255,255,255,0.85) 0%, rgba(250,248,245,0.92) 100%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   padding: 8px 16px;
+  transition: box-shadow var(--motion-fast);
 }
+
+.main-composer:focus-within {
+  box-shadow: 0 -4px 20px rgba(194, 65, 12, 0.06);
+}
+
 .main-composer-queued {
   background: var(--surface-queued);
 }
