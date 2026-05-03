@@ -305,10 +305,11 @@ export default function Workspace({
     if (prefersReduced) return;
 
     const ctx = gsap.context(() => {
-      gsap.set(".workspace-header, .thread, .main-composer, .orbit-panel", {
-        opacity: 0,
-        y: 14,
-      });
+      const targets = gsap.utils.toArray<HTMLElement>(".workspace-header, .thread, .main-composer");
+      const orbitPanel = shell.querySelector<HTMLElement>(".orbit-panel");
+      if (orbitPanel) targets.push(orbitPanel);
+
+      gsap.set(targets, { opacity: 0, y: 14 });
 
       const tl = gsap.timeline({
         defaults: { ease: "power2.out" },
@@ -317,8 +318,11 @@ export default function Workspace({
 
       tl.to(".workspace-header", { opacity: 1, y: 0, duration: 0.5 })
         .to(".thread", { opacity: 1, y: 0, duration: 0.45 }, "-=0.28")
-        .to(".main-composer", { opacity: 1, y: 0, duration: 0.4 }, "-=0.24")
-        .to(".orbit-panel", { opacity: 1, y: 0, duration: 0.4 }, "-=0.28");
+        .to(".main-composer", { opacity: 1, y: 0, duration: 0.4 }, "-=0.24");
+
+      if (orbitPanel) {
+        tl.to(orbitPanel, { opacity: 1, y: 0, duration: 0.4 }, "-=0.28");
+      }
     }, shell);
 
     return () => ctx.revert();
