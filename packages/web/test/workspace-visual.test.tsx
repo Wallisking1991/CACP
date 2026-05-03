@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { render } from "@testing-library/react";
 import Workspace from "../src/components/Workspace.js";
+import Thread from "../src/components/Thread.js";
 
 describe("Workspace visual atmosphere", () => {
   it("renders header with logo and glassmorphism classes", () => {
@@ -87,5 +88,23 @@ describe("Workspace visual atmosphere", () => {
     expect(container.querySelector(".workspace-header")).not.toBeNull();
     expect(container.querySelector(".thread")).not.toBeNull();
     expect(container.querySelector(".main-composer")).not.toBeNull();
+  });
+
+  it("renders Thread with messages that have the message class", () => {
+    const { container } = render(
+      <Thread
+        currentParticipantId="p1"
+        messages={[
+          { message_id: "m1", actor_id: "p1", text: "Hello world", kind: "human", created_at: "2026-04-30T00:00:00.000Z" },
+          { message_id: "m2", actor_id: "p2", text: "Hi there", kind: "agent", created_at: "2026-04-30T00:00:01.000Z" },
+        ]}
+        streamingTurns={[]}
+        actorNames={new Map([["p1", "Alice"], ["p2", "Bob"]])}
+        showSlowStreamingNotice={false}
+      />
+    );
+
+    const messages = container.querySelectorAll(".message");
+    expect(messages.length).toBeGreaterThanOrEqual(2);
   });
 });
