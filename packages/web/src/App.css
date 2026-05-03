@@ -721,52 +721,52 @@ textarea.input {
 
 .workspace-shell::before {
   content: "";
-  position: fixed;
+  position: absolute;
   inset: 0;
-  z-index: -3;
+  z-index: 0;
   background:
-    linear-gradient(rgba(194, 65, 12, 0.055) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(194, 65, 12, 0.055) 1px, transparent 1px),
-    radial-gradient(circle at 18% 22%, rgba(249, 115, 22, 0.18), transparent 32%),
-    radial-gradient(circle at 82% 72%, rgba(124, 45, 18, 0.12), transparent 34%),
+    linear-gradient(rgba(194, 65, 12, 0.18) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(194, 65, 12, 0.18) 1px, transparent 1px),
+    radial-gradient(circle at 22% 18%, rgba(249, 115, 22, 0.50), transparent 44%),
+    radial-gradient(circle at 88% 78%, rgba(124, 45, 18, 0.34), transparent 46%),
     var(--bg);
   background-size: 42px 42px, 42px 42px, auto, auto, auto;
 }
 
 .workspace-shell::after {
   content: "";
-  position: fixed;
+  position: absolute;
   inset: 0;
-  z-index: -2;
+  z-index: 1;
   pointer-events: none;
-  background: linear-gradient(110deg, transparent 0%, rgba(255, 247, 237, 0.18) 45%, rgba(249, 115, 22, 0.16) 50%, transparent 56%);
+  background: linear-gradient(110deg, transparent 0%, rgba(255, 247, 237, 0.22) 45%, rgba(249, 115, 22, 0.20) 50%, transparent 56%);
   transform: translateX(-34%);
   animation: workspace-sheen 14s ease-in-out infinite;
 }
 
 .workspace-orb {
-  position: fixed;
-  z-index: -1;
-  width: 360px;
-  height: 360px;
+  position: absolute;
+  z-index: 2;
+  width: 380px;
+  height: 380px;
   border-radius: 50%;
-  filter: blur(48px);
-  opacity: 0.48;
+  filter: blur(56px);
+  opacity: 0.65;
   pointer-events: none;
   transform: translate3d(0, 0, 0);
 }
 
 .workspace-orb--primary {
-  left: max(24px, calc((100vw - 1600px) / 2));
-  top: 9%;
-  background: rgba(249, 115, 22, 0.32);
+  left: -2%;
+  top: 2%;
+  background: rgba(249, 115, 22, 0.42);
   animation: workspace-orb-float 15s ease-in-out infinite;
 }
 
 .workspace-orb--secondary {
-  right: max(24px, calc((100vw - 1600px) / 2));
-  bottom: 8%;
-  background: rgba(124, 45, 18, 0.18);
+  right: -2%;
+  bottom: 2%;
+  background: rgba(124, 45, 18, 0.28);
   animation: workspace-orb-float 18s ease-in-out infinite reverse;
 }
 
@@ -1921,13 +1921,19 @@ textarea.input {
 .workspace-header--studio {
   min-height: 54px;
   align-items: center;
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  background: rgba(253, 250, 242, 0.72);
-  border-bottom: 1px solid rgba(232, 223, 208, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  background: linear-gradient(145deg, rgba(253, 250, 242, 0.88), rgba(253, 249, 241, 0.76));
+  border: 1px solid rgba(232, 223, 208, 0.78);
   box-shadow:
-    0 1px 3px rgba(70, 48, 27, 0.04),
-    0 4px 12px rgba(70, 48, 27, 0.02);
+    0 8px 32px rgba(28, 24, 19, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  transition: box-shadow var(--motion-med) ease, border-color var(--motion-med) ease;
+}
+
+.workspace-header--studio:hover {
+  border-color: rgba(232, 223, 208, 0.95);
+  box-shadow: 0 12px 40px rgba(28, 24, 19, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.72);
 }
 
 .workspace-header--studio .role-avatar-rail {
