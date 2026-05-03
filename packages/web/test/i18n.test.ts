@@ -8,6 +8,24 @@ describe("resolveLang", () => {
     expect(Object.keys(zhMessages).sort()).toEqual(Object.keys(enMessages).sort());
   });
 
+  it("includes the orbit open-discussion keys in both catalogs", () => {
+    const requiredKeys = [
+      "orbit.note.quoted",
+      "orbit.toggle",
+      "orbit.clear",
+      "orbit.clear.confirm.title",
+      "orbit.clear.confirm.body",
+      "orbit.clear.confirm.confirm",
+      "orbit.clear.confirm.cancel",
+      "orbitPromote.selectAll",
+      "orbitPromote.deselectAll",
+    ];
+    for (const key of requiredKeys) {
+      expect(enMessages).toHaveProperty(key);
+      expect(zhMessages).toHaveProperty(key);
+    }
+  });
+
   it("defaults to zh when navigator language starts with zh", () => {
     expect(resolveLang(null, "zh-CN")).toBe("zh");
     expect(resolveLang(null, "zh-TW")).toBe("zh");

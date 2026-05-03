@@ -2125,19 +2125,156 @@ textarea.input {
   justify-content: flex-end;
   gap: 10px;
   overflow-y: auto;
-  scrollbar-color: var(--border-soft) transparent;
+  scrollbar-color: var(--ink-4, #9ca3af) transparent;
   padding-bottom: 4px;
-  mask-image: linear-gradient(to bottom, transparent 0px, black 16px);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0px, black 16px);
 }
+.orbit-notes::-webkit-scrollbar { width: 8px; }
+.orbit-notes::-webkit-scrollbar-thumb {
+  background: var(--ink-4, #9ca3af);
+  border-radius: 4px;
+}
+.orbit-notes::-webkit-scrollbar-track { background: transparent; }
 
 .orbit-note {
+  position: relative;
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   background: var(--surface-warm);
   padding: 12px;
   transition: border-color 150ms ease, background 150ms ease;
   flex-shrink: 0;
+}
+
+.orbit-note--quoted { opacity: 0.72; }
+
+.orbit-note-quoted-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--accent-soft, #dbeafe);
+  color: var(--accent, #2563eb);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.orbit-toggle-tab {
+  position: fixed;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  width: 28px;
+  height: 96px;
+  padding: 0;
+  border: 1px solid var(--ink-3, #d1d5db);
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+  background: var(--surface-1, #ffffff);
+  color: var(--ink-1, #111827);
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.orbit-toggle-tab:hover { background: var(--surface-2, #f3f4f6); }
+
+.orbit-toggle-tab:focus-visible {
+  outline: 2px solid var(--accent, #2563eb);
+  outline-offset: 2px;
+}
+
+.orbit-toggle-tab--open {
+  background: var(--accent-soft, #dbeafe);
+  border-color: var(--accent, #2563eb);
+}
+
+.orbit-toggle-tab__label {
+  writing-mode: vertical-rl;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  user-select: none;
+}
+
+.orbit-unread-badge {
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 4px var(--accent-soft, #dbeafe);
+  animation: orbit-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes orbit-pulse {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(1.25); }
+  100% { transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbit-unread-badge { animation: none; }
+}
+
+.orbit-clear-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+  cursor: pointer;
+}
+
+.orbit-clear-btn:hover { background: #fee2e2; }
+.orbit-clear-btn:focus-visible {
+  outline: 2px solid #b91c1c;
+  outline-offset: 2px;
+}
+
+.orbit-mobile-backdrop {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .orbit-mobile-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    background: rgba(0, 0, 0, 0.4);
+    border: none;
+    cursor: pointer;
+    padding: 0;
+  }
+  .workspace-grid--with-orbit .orbit-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 35;
+    overflow: auto;
+    overscroll-behavior: contain;
+    padding-top: env(safe-area-inset-top, 0);
+    padding-bottom: env(safe-area-inset-bottom, 0);
+    padding-left: env(safe-area-inset-left, 0);
+    padding-right: env(safe-area-inset-right, 0);
+  }
 }
 
 .orbit-note--round {

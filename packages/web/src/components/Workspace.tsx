@@ -5,9 +5,10 @@ import { startTyping, stopTyping, updatePresence, createAgentPairing } from "../
 import { roomPermissionsForRole } from "../role-permissions.js";
 import { deriveRoomState, humanParticipants, isTurnInFlight } from "../room-state.js";
 import type { AgentSessionReadyView, AgentSessionSelectionView, ClaudeSessionReadyView, ClaudeSessionSelectionView } from "../room-state.js";
-import { requestClaudeSessionPreview, selectClaudeSession, requestAgentSessionPreview, selectAgentSession, sendOrbitNote, likeOrbitNote, unlikeOrbitNote, promoteOrbitRound, sendMainInput } from "../api.js";
+import { requestClaudeSessionPreview, selectClaudeSession, requestAgentSessionPreview, selectAgentSession, sendOrbitNote, likeOrbitNote, unlikeOrbitNote, promoteOrbitRound, sendMainInput, clearOrbit } from "../api.js";
 import { createTypingActivityController, type TypingActivityController } from "../activity-client.js";
 import { createRoomSoundController, shouldPlayCueForMessage } from "../room-sound.js";
+import { useT } from "../i18n/useT.js";
 import Header from "./Header.js";
 import Thread from "./Thread.js";
 import MainComposer from "./MainComposer.js";
@@ -19,6 +20,8 @@ import { AgentAvatarPopover } from "./AgentAvatarPopover.js";
 import { PeopleAvatarPopover } from "./PeopleAvatarPopover.js";
 import { OrbitLayer } from "./OrbitLayer.js";
 import { OrbitPromoteModal } from "./OrbitPromoteModal.js";
+import { OrbitToggleTab } from "./OrbitToggleTab.js";
+import { OrbitClearConfirmDialog } from "./OrbitClearConfirmDialog.js";
 
 export interface WorkspaceProps {
   session: RoomSession;
@@ -34,8 +37,6 @@ export interface WorkspaceProps {
   error?: string;
   cloudMode?: boolean;
   createdPairing?: { connection_code: string; download_url: string; expires_at: string };
-  showOrbit?: boolean;
-  onToggleOrbit?: () => void;
 }
 
 function claudeSelectionIsReady(
@@ -78,9 +79,8 @@ export default function Workspace({
   error,
   cloudMode,
   createdPairing,
-  showOrbit,
-  onToggleOrbit,
 }: WorkspaceProps) {
+  const t = useT();
   const [typingTick, setTypingTick] = useState(() => Date.now());
   useEffect(() => {
     const interval = window.setInterval(() => setTypingTick(Date.now()), 2000);
@@ -125,6 +125,11 @@ export default function Workspace({
   const [peoplePopoverOpen, setPeoplePopoverOpen] = useState(false);
   const [wantsReselect, setWantsReselect] = useState(false);
   const [promoteModalOpen, setPromoteModalOpen] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [unreadOrbit, setUnreadOrbit] = useState(0);
+  const [clearDialogOpen, setClearDialogOpen] = useState(false);
+  const seenOrbitEventIdsRef = useRef<Set<string>>(new Set());
+  const orbitUnreadBaselineReadyRef = useRef(false);
 
   const pendingNotificationCount = useMemo(() => {
     if (!isOwner) return 0;
@@ -145,6 +150,25 @@ export default function Workspace({
     const timeout = window.setTimeout(() => setShowSlowStreamingNotice(true), 8000);
     return () => window.clearTimeout(timeout);
   }, [streamingKey]);
+
+  useEffect(() => {
+    const known = seenOrbitEventIdsRef.current;
+    const orbitNoteEvents = events.filter((event) => event.type === "orbit.note.created");
+    const newOrbitEvents = orbitNoteEvents.filter((event) => !known.has(event.event_id));
+    for (const event of orbitNoteEvents) known.add(event.event_id);
+    if (!orbitUnreadBaselineReadyRef.current) {
+      orbitUnreadBaselineReadyRef.current = true;
+      return;
+    }
+    if (!panelOpen) {
+      const foreignCount = newOrbitEvents.filter((event) => event.actor_id !== session.participant_id).length;
+      if (foreignCount > 0) setUnreadOrbit((current) => current + foreignCount);
+    }
+  }, [events, panelOpen, session.participant_id]);
+
+  useEffect(() => {
+    if (panelOpen) setUnreadOrbit(0);
+  }, [panelOpen]);
 
   useEffect(() => {
     typingControllerRef.current?.dispose();
@@ -244,14 +268,11 @@ export default function Workspace({
     room.agentSessionCatalog.provider === activeAgentProvider &&
     !agentSelectionIsReady(room.activeAgentId, activeAgentProvider, room.agentSessionSelection, room.agentSessionReady);
 
-  const orbitVisible = showOrbit ?? true;
   const canPromoteOrbit = permissions.canManageControls;
-  const currentOrbitRound = [...room.orbitRounds].reverse().find((round) => !round.promoted_at);
-  const promotableOrbitNotes = currentOrbitRound
-    ? room.orbitNotes.filter((note) => note.round_id === currentOrbitRound.round_id)
-    : room.orbitNotes;
+  const canClearOrbit = permissions.canManageControls;
+  const promotableOrbitNotes = room.orbitNotes.filter((note) => !note.quoted);
 
-  const orbitPanel = orbitVisible ? (
+  const orbitPanel = panelOpen ? (
     <div className="orbit-panel">
       <OrbitLayer
         notes={room.orbitNotes}
@@ -263,6 +284,8 @@ export default function Workspace({
         canPromote={canPromoteOrbit}
         hasPromotable={promotableOrbitNotes.length > 0}
         onPromoteClick={() => setPromoteModalOpen(true)}
+        canClear={canClearOrbit}
+        onClearClick={() => setClearDialogOpen(true)}
       />
       <OrbitPromoteModal
         open={promoteModalOpen}
@@ -283,7 +306,7 @@ export default function Workspace({
 
   return (
     <div className="workspace-shell">
-      <div className={`workspace-grid${orbitVisible ? " workspace-grid--with-orbit" : ""}`}>
+      <div className={`workspace-grid${panelOpen ? " workspace-grid--with-orbit" : ""}`}>
         <div className="chat-panel">
           <Header
             roomName={room.roomName ?? session.room_id}
@@ -431,6 +454,28 @@ export default function Workspace({
       </Popover>
 
       <FloatingLogoControl active={turnInFlight} pendingCount={0} onOpen={() => {}} />
+
+      {panelOpen && (
+        <button
+          type="button"
+          className="orbit-mobile-backdrop"
+          aria-label={String(t("orbit.toggle"))}
+          onClick={() => setPanelOpen(false)}
+        />
+      )}
+      <OrbitToggleTab
+        open={panelOpen}
+        unreadCount={unreadOrbit}
+        onClick={() => setPanelOpen((open) => !open)}
+      />
+      <OrbitClearConfirmDialog
+        open={clearDialogOpen}
+        onCancel={() => setClearDialogOpen(false)}
+        onConfirm={() => {
+          setClearDialogOpen(false);
+          void clearOrbit(session).catch(() => {});
+        }}
+      />
     </div>
   );
 }

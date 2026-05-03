@@ -168,18 +168,32 @@ describe("Workspace refactored shell", () => {
     expect(screen.getByText(/Choose how Codex CLI joins this room/i)).toBeInTheDocument();
   });
 
-  it("shows Orbit by default with separate MainComposer and OrbitComposer", () => {
+  it("starts collapsed and toggles Orbit from the right-edge tab", () => {
     render(<LangProvider><Workspace {...baseProps} /></LangProvider>);
-
-    expect(screen.getByText("Roundtable")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Trigger Agent/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Send/i })).toBeInTheDocument();
-    expect(screen.getByTestId("main-composer")).toBeInTheDocument();
-    expect(screen.getByTestId("orbit-composer")).toBeInTheDocument();
+    expect(document.querySelector(".orbit-layer")).toBeNull();
+    const toggle = screen.getByRole("button", { name: /Toggle discussion/i });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(toggle);
+    expect(document.querySelector(".orbit-layer")).not.toBeNull();
+    expect(document.querySelector(".workspace-grid--with-orbit")).not.toBeNull();
   });
 
-  it("keeps the Orbit panel inside the workspace grid so it cannot cover the composer", () => {
+  it("shows the main composer regardless of Orbit panel state", () => {
     render(<LangProvider><Workspace {...baseProps} /></LangProvider>);
+
+    expect(screen.getByRole("button", { name: /Trigger Agent/i })).toBeInTheDocument();
+    expect(screen.getByTestId("main-composer")).toBeInTheDocument();
+    expect(screen.queryByTestId("orbit-composer")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Toggle discussion/i }));
+    expect(screen.getByTestId("orbit-composer")).toBeInTheDocument();
+    expect(screen.getByTestId("main-composer")).toBeInTheDocument();
+  });
+
+  it("keeps the Orbit panel inside the workspace grid when open so it cannot cover the composer", () => {
+    render(<LangProvider><Workspace {...baseProps} /></LangProvider>);
+
+    fireEvent.click(screen.getByRole("button", { name: /Toggle discussion/i }));
 
     const grid = document.querySelector(".workspace-grid");
     expect(grid).not.toBeNull();
@@ -187,18 +201,39 @@ describe("Workspace refactored shell", () => {
     expect(grid?.querySelector(":scope > .orbit-panel")).not.toBeNull();
   });
 
-  it("opens the promote modal listing current-round Orbit notes when the header button is clicked", () => {
+  it("does not count initial replay as unread but counts later foreign notes", () => {
+    const initial = [
+      ...baseProps.events,
+      event("participant.joined", { participant: { id: "user_2", display_name: "Bob", role: "member", type: "human" } }, 4),
+      event("orbit.note.created", { note_id: "note_1", text: "Replay" }, 5, "user_2")
+    ];
+    const { rerender } = render(<LangProvider><Workspace {...baseProps} events={initial} /></LangProvider>);
+    expect(screen.queryByText("1")).not.toBeInTheDocument();
+    rerender(
+      <LangProvider>
+        <Workspace
+          {...baseProps}
+          events={[...initial, event("orbit.note.created", { note_id: "note_2", text: "Live" }, 6, "user_2")]}
+        />
+      </LangProvider>
+    );
+    expect(screen.getByText("1")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Toggle discussion/i }));
+    expect(screen.queryByText("1")).not.toBeInTheDocument();
+  });
+
+  it("opens the promote modal listing flat-pool Orbit notes when the header button is clicked", () => {
     const props = {
       ...baseProps,
-      showOrbit: true,
       events: [
         ...baseProps.events,
-        event("orbit.round.opened", { round_id: "round_1" }, 5, "user_1"),
-        event("orbit.note.created", { note_id: "note_1", round_id: "round_1", text: "Promote this note" }, 6, "user_1")
+        event("orbit.note.created", { note_id: "note_1", text: "Promote this note" }, 5, "user_1")
       ]
     };
 
     render(<LangProvider><Workspace {...props} /></LangProvider>);
+
+    fireEvent.click(screen.getByRole("button", { name: /Toggle discussion/i }));
 
     const openButton = screen.getByRole("button", { name: /Promote orbit notes/i });
     expect(openButton).not.toBeDisabled();
