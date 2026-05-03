@@ -838,11 +838,10 @@ textarea.input {
 
 .room-logo-draw {
   fill: none;
-  stroke: #c2410c;
-  stroke-width: 5.5;
+  stroke: url(#cacp-room-line);
+  stroke-width: 3;
   stroke-linecap: round;
   stroke-linejoin: round;
-  filter: drop-shadow(0 1.5px 3px rgba(194, 65, 12, 0.35));
 }
 
 .room-logo-core-glow {
@@ -856,9 +855,8 @@ textarea.input {
 }
 
 .room-logo-node {
-  fill: #4d4239;
+  fill: var(--ink-2);
   stroke: none;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
 }
 
 .room-logo-orbit-dot {
@@ -1969,9 +1967,11 @@ textarea.input {
 }
 
 .room-identity__user-line {
-  margin-top: 2px;
-  color: var(--ink-4);
-  font-size: 12px;
+  margin-top: 3px;
+  color: var(--ink-3);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
 }
 
 .room-identity-avatar {
