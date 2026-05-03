@@ -2122,12 +2122,14 @@ textarea.input {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
   gap: 10px;
   overflow-y: auto;
   scrollbar-color: var(--ink-4, #9ca3af) transparent;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
   padding-bottom: 4px;
 }
+.orbit-notes > :first-child { margin-top: auto; }
 .orbit-notes::-webkit-scrollbar { width: 8px; }
 .orbit-notes::-webkit-scrollbar-thumb {
   background: var(--ink-4, #9ca3af);
@@ -2264,16 +2266,22 @@ textarea.input {
     cursor: pointer;
     padding: 0;
   }
-  .workspace-grid--with-orbit .orbit-layer {
+  .workspace-grid--with-orbit .orbit-panel {
     position: fixed;
     inset: 0;
     z-index: 35;
-    overflow: auto;
+    background: var(--bg, #fff);
+    border-left: 0;
+    border-top: 0;
     overscroll-behavior: contain;
-    padding-top: env(safe-area-inset-top, 0);
-    padding-bottom: env(safe-area-inset-bottom, 0);
-    padding-left: env(safe-area-inset-left, 0);
-    padding-right: env(safe-area-inset-right, 0);
+    padding: 12px;
+    padding-top: calc(12px + env(safe-area-inset-top, 0));
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0));
+    padding-left: calc(12px + env(safe-area-inset-left, 0));
+    padding-right: calc(12px + env(safe-area-inset-right, 0));
+  }
+  .workspace-grid--with-orbit .orbit-layer {
+    overflow: auto;
   }
 }
 

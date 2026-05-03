@@ -152,6 +152,7 @@ export default function Workspace({
   }, [streamingKey]);
 
   useEffect(() => {
+    if (events.length === 0) return;
     const known = seenOrbitEventIdsRef.current;
     const orbitNoteEvents = events.filter((event) => event.type === "orbit.note.created");
     const newOrbitEvents = orbitNoteEvents.filter((event) => !known.has(event.event_id));
@@ -161,7 +162,18 @@ export default function Workspace({
       return;
     }
     if (!panelOpen) {
-      const foreignCount = newOrbitEvents.filter((event) => event.actor_id !== session.participant_id).length;
+      const myJoinEvent = events.find((event) => {
+        if (event.type !== "participant.joined") return false;
+        const payload = event.payload as { participant?: { id?: string } };
+        return payload.participant?.id === session.participant_id;
+      });
+      const myJoinTime = myJoinEvent ? Date.parse(myJoinEvent.created_at) : 0;
+      const foreignCount = newOrbitEvents.filter((event) => {
+        if (event.actor_id === session.participant_id) return false;
+        const payload = event.payload as { created_at?: string };
+        const noteCreatedAt = payload.created_at ? Date.parse(payload.created_at) : Date.parse(event.created_at);
+        return noteCreatedAt >= myJoinTime;
+      }).length;
       if (foreignCount > 0) setUnreadOrbit((current) => current + foreignCount);
     }
   }, [events, panelOpen, session.participant_id]);

@@ -222,6 +222,68 @@ describe("Workspace refactored shell", () => {
     expect(screen.queryByText("1")).not.toBeInTheDocument();
   });
 
+  it("does not count orbit notes from the initial WS replay as unread on a fresh join", () => {
+    // Reproduces the live-join bug: a participant whose initial events array
+    // is empty (mounting before WS replay arrives) should NOT see the unread
+    // badge once the replay batch lands. Notes posted before this participant
+    // joined are filtered by payload.created_at < participant_joined_at —
+    // mirroring how the server attaches a fresh event-level created_at on
+    // synthetic replay events while preserving each note's original
+    // creation time inside the payload.
+    const aliceJoinedAt = "2026-04-30T00:00:02.000Z";
+    const bobJoinedAt = "2026-04-30T01:00:00.000Z";
+    const replayDeliveredAt = "2026-04-30T02:00:00.000Z"; // server attaches NOW when replaying
+    const earlyAliceNote = event("orbit.note.created", { note_id: "early_1", text: "Before Bob", created_at: "2026-04-30T00:30:00.000Z" }, 5, "user_1");
+    earlyAliceNote.created_at = replayDeliveredAt;
+    const earlyAliceNote2 = event("orbit.note.created", { note_id: "early_2", text: "Before Bob 2", created_at: "2026-04-30T00:45:00.000Z" }, 6, "user_1");
+    earlyAliceNote2.created_at = replayDeliveredAt;
+
+    const bobBaseProps = {
+      ...baseProps,
+      session: { room_id: "room_1", token: "bob_secret", participant_id: "user_2", role: "member" as const }
+    };
+
+    const { rerender } = render(<LangProvider><Workspace {...bobBaseProps} events={[]} /></LangProvider>);
+    expect(screen.queryByText("1")).not.toBeInTheDocument();
+
+    // Replay arrives one event at a time via WS.
+    const aliceJoin = event("participant.joined", { participant: { id: "user_1", display_name: "Alice", role: "owner", type: "human" } }, 2);
+    aliceJoin.created_at = aliceJoinedAt;
+    const bobJoin = event("participant.joined", { participant: { id: "user_2", display_name: "Bob", role: "member", type: "human" } }, 3, "user_2");
+    bobJoin.created_at = bobJoinedAt;
+
+    const replayEvents = [event("room.created", { name: "Room" }, 1), aliceJoin, bobJoin, earlyAliceNote, earlyAliceNote2];
+    for (let i = 1; i <= replayEvents.length; i++) {
+      rerender(<LangProvider><Workspace {...bobBaseProps} events={replayEvents.slice(0, i)} /></LangProvider>);
+    }
+    expect(screen.queryByText("1")).not.toBeInTheDocument();
+    expect(screen.queryByText("2")).not.toBeInTheDocument();
+  });
+
+  it("counts a foreign orbit note that arrives after the current participant joined", () => {
+    const bobBaseProps = {
+      ...baseProps,
+      session: { room_id: "room_1", token: "bob_secret", participant_id: "user_2", role: "member" as const }
+    };
+    const aliceJoin = event("participant.joined", { participant: { id: "user_1", display_name: "Alice", role: "owner", type: "human" } }, 2);
+    aliceJoin.created_at = "2026-04-30T00:00:02.000Z";
+    const bobJoin = event("participant.joined", { participant: { id: "user_2", display_name: "Bob", role: "member", type: "human" } }, 3, "user_2");
+    bobJoin.created_at = "2026-04-30T01:00:00.000Z";
+
+    const initial = [event("room.created", { name: "Room" }, 1), aliceJoin, bobJoin];
+    const { rerender } = render(<LangProvider><Workspace {...bobBaseProps} events={[]} /></LangProvider>);
+    for (let i = 1; i <= initial.length; i++) {
+      rerender(<LangProvider><Workspace {...bobBaseProps} events={initial.slice(0, i)} /></LangProvider>);
+    }
+    expect(screen.queryByText("1")).not.toBeInTheDocument();
+
+    // Alice posts a NEW note AFTER Bob joined
+    const liveAliceNote = event("orbit.note.created", { note_id: "live_1", text: "After Bob joined" }, 4, "user_1");
+    liveAliceNote.created_at = "2026-04-30T01:30:00.000Z";
+    rerender(<LangProvider><Workspace {...bobBaseProps} events={[...initial, liveAliceNote]} /></LangProvider>);
+    expect(screen.getByText("1")).toBeInTheDocument();
+  });
+
   it("opens the promote modal listing flat-pool Orbit notes when the header button is clicked", () => {
     const props = {
       ...baseProps,
