@@ -3,6 +3,7 @@ import { useT } from "../i18n/useT.js";
 import { LangContext, type Lang } from "../i18n/LangProvider.js";
 import type { AvatarStatusView, InviteView, JoinRequestView } from "../room-state.js";
 import { RoomIdentity } from "./RoomIdentity.js";
+import CacpRoomLogo from "./CacpRoomLogo.js";
 import { RoleAvatarRail } from "./RoleAvatarRail.js";
 import { MoreMenu } from "./MoreMenu.js";
 import { BellIcon } from "./RoomIcons.js";
@@ -90,6 +91,10 @@ export default function Header({
 
   return (
     <header className="workspace-header workspace-header--studio">
+      <div className="header-brand">
+        <CacpRoomLogo className="header-brand__logo" ariaLabel="CACP Room" />
+        <div className="header-brand__divider" />
+      </div>
       <RoomIdentity
         roomName={roomName}
         roomId={roomId}

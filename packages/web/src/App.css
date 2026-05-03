@@ -791,9 +791,77 @@ textarea.input {
   margin-bottom: 12px;
   min-height: 56px;
   padding: 10px 16px;
-  border: 1px solid var(--border);
+  border: 1px solid rgba(232, 223, 208, 0.78);
   border-radius: var(--radius-frame);
-  background: var(--surface);
+  background: linear-gradient(145deg, rgba(253, 250, 242, 0.88), rgba(253, 249, 241, 0.76));
+  backdrop-filter: blur(16px);
+  box-shadow: 0 8px 32px rgba(28, 24, 19, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  transition: box-shadow var(--motion-med) ease, border-color var(--motion-med) ease;
+}
+
+.workspace-header:hover {
+  border-color: rgba(232, 223, 208, 0.95);
+  box-shadow: 0 12px 40px rgba(28, 24, 19, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.header-brand__logo {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+}
+
+.header-brand__divider {
+  width: 1px;
+  height: 28px;
+  background: linear-gradient(to bottom, transparent, var(--border) 40%, var(--border) 60%, transparent);
+  opacity: 0.7;
+}
+
+.cacp-room-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cacp-room-logo__mark {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.room-logo-draw {
+  fill: none;
+  stroke: url(#room-line);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.room-logo-core-glow {
+  fill: url(#room-core-glow);
+  stroke: none;
+}
+
+.room-logo-core-solid {
+  fill: var(--accent);
+  stroke: none;
+}
+
+.room-logo-node {
+  fill: var(--ink-2);
+  stroke: none;
+}
+
+.room-logo-orbit-dot {
+  fill: var(--accent);
+  stroke: none;
 }
 
 .header-title h1 {
