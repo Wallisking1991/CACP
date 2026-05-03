@@ -1,16 +1,13 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useContext, useRef, useState } from "react";
 import { useT } from "../i18n/useT.js";
 import { LangContext, type Lang } from "../i18n/LangProvider.js";
-import { useContext } from "react";
-import type { AvatarStatusView } from "../room-state.js";
-import { GlobeIcon, LogOutIcon, SoundIcon, BellIcon } from "./RoomIcons.js";
+import type { AvatarStatusView, InviteView, JoinRequestView } from "../room-state.js";
 import { RoomIdentity } from "./RoomIdentity.js";
 import { RoleAvatarRail } from "./RoleAvatarRail.js";
+import { MoreMenu } from "./MoreMenu.js";
+import { BellIcon } from "./RoomIcons.js";
 import { Popover } from "./Popover.js";
-import { SoundPanel } from "./SoundPanel.js";
 import { NotificationPanel } from "./NotificationPanel.js";
-import { LogPanel } from "./LogPanel.js";
-import type { InviteView, JoinRequestView } from "../room-state.js";
 
 export interface HeaderProps {
   roomName: string;
@@ -81,39 +78,15 @@ export default function Header({
   const t = useT();
   const langCtx = useContext(LangContext);
 
-  const [soundOpen, setSoundOpen] = useState(false);
-  const [notificationOpen, setNotificationOpen] = useState(false);
-  const [logOpen, setLogOpen] = useState(false);
-
-  const soundBtnRef = useRef<HTMLButtonElement>(null);
-  const notificationBtnRef = useRef<HTMLButtonElement>(null);
-  const logBtnRef = useRef<HTMLButtonElement>(null);
-
   const handleToggleLang = useCallback(() => {
     const next: Lang = langCtx?.lang === "zh" ? "en" : "zh";
     langCtx?.setLang(next);
   }, [langCtx]);
 
-  const closeAll = useCallback(() => {
-    setSoundOpen(false);
-    setNotificationOpen(false);
-    setLogOpen(false);
-  }, []);
+  const currentLang = langCtx?.lang ?? "en";
 
-  const toggleSound = useCallback(() => {
-    closeAll();
-    setSoundOpen((v) => !v);
-  }, [closeAll]);
-
-  const toggleNotification = useCallback(() => {
-    closeAll();
-    setNotificationOpen((v) => !v);
-  }, [closeAll]);
-
-  const toggleLog = useCallback(() => {
-    closeAll();
-    setLogOpen((v) => !v);
-  }, [closeAll]);
+  const notificationTriggerRef = useRef<HTMLButtonElement>(null);
+  const [notificationOpen, setNotificationOpen] = useState(false);
 
   return (
     <header className="workspace-header workspace-header--studio">
@@ -142,44 +115,23 @@ export default function Header({
       />
 
       <div className="header-actions">
-        {onSoundEnabledChange && onSoundVolumeChange && onTestSound ? (
-          <>
-            <button
-              ref={soundBtnRef}
-              type="button"
-              className={`room-icon-button${soundOpen ? " is-active" : ""}`}
-              onClick={toggleSound}
-              aria-label={t("room.sound")}
-              title={t("room.sound")}
-            >
-              <SoundIcon />
-            </button>
-            <Popover triggerRef={soundBtnRef} open={soundOpen} onClose={() => setSoundOpen(false)}>
-              <SoundPanel
-                soundEnabled={soundEnabled ?? false}
-                soundVolume={soundVolume ?? 0.5}
-                onSoundEnabledChange={onSoundEnabledChange}
-                onSoundVolumeChange={onSoundVolumeChange}
-                onTestSound={onTestSound}
-              />
-            </Popover>
-          </>
-        ) : null}
-
         <button
-          ref={notificationBtnRef}
+          ref={notificationTriggerRef}
           type="button"
-          className={`room-icon-button${notificationOpen ? " is-active" : ""}${pendingNotificationCount > 0 ? " has-badge" : ""}`}
-          onClick={toggleNotification}
-          aria-label={t("sidebar.notificationsLabel")}
-          title={t("sidebar.notificationsLabel")}
+          className="notification-button"
+          aria-label="Notifications"
+          onClick={() => setNotificationOpen((v) => !v)}
         >
           <BellIcon />
-          {pendingNotificationCount > 0 ? (
-            <span className="header-badge">{pendingNotificationCount}</span>
-          ) : null}
+          {pendingNotificationCount > 0 && (
+            <span className="notification-badge">{pendingNotificationCount}</span>
+          )}
         </button>
-        <Popover triggerRef={notificationBtnRef} open={notificationOpen} onClose={() => setNotificationOpen(false)}>
+        <Popover
+          triggerRef={notificationTriggerRef}
+          open={notificationOpen}
+          onClose={() => setNotificationOpen(false)}
+        >
           <NotificationPanel
             joinRequests={joinRequests}
             turnInFlight={turnInFlight}
@@ -187,41 +139,16 @@ export default function Header({
             onRejectJoinRequest={onRejectJoinRequest ?? (() => {})}
           />
         </Popover>
-
-        <button
-          ref={logBtnRef}
-          type="button"
-          className={`room-icon-button${logOpen ? " is-active" : ""}`}
-          onClick={toggleLog}
-          aria-label={t("sidebar.logsLink")}
-          title={t("sidebar.logsLink")}
-        >
-          <span style={{ fontSize: 14, fontWeight: 700 }}>L</span>
-        </button>
-        <Popover triggerRef={logBtnRef} open={logOpen} onClose={() => setLogOpen(false)}>
-          <LogPanel />
-        </Popover>
-
-        <button
-          type="button"
-          className="lang-toggle room-icon-button"
-          onClick={handleToggleLang}
-          aria-label={t("lang.toggle")}
-          title={t("lang.toggle")}
-        >
-          <GlobeIcon />
-        </button>
-        {onLeaveRoom ? (
-          <button
-            type="button"
-            className="leave-room-btn room-icon-button"
-            onClick={onLeaveRoom}
-            aria-label={t("room.leave")}
-            title={t("room.leave")}
-          >
-            <LogOutIcon />
-          </button>
-        ) : null}
+        <MoreMenu
+          soundEnabled={soundEnabled}
+          soundVolume={soundVolume}
+          onSoundEnabledChange={onSoundEnabledChange}
+          onSoundVolumeChange={onSoundVolumeChange}
+          onTestSound={onTestSound}
+          currentLang={currentLang}
+          onToggleLang={handleToggleLang}
+          onLeaveRoom={onLeaveRoom}
+        />
       </div>
     </header>
   );

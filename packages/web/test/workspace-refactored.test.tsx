@@ -39,13 +39,11 @@ const baseProps = {
 };
 
 describe("Workspace refactored shell", () => {
-  it("shows header with room name, sound, notification, and log buttons", () => {
+  it("shows header with room name and MoreMenu button", () => {
     render(<LangProvider><Workspace {...baseProps} /></LangProvider>);
 
     expect(screen.getByText("CACP AI Room")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /sound/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /notifications/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /logs/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /more options/i })).toBeInTheDocument();
   });
 
   it("does not show Room Control Center button", () => {
@@ -53,17 +51,19 @@ describe("Workspace refactored shell", () => {
     expect(screen.queryByRole("button", { name: /Room controls/i })).not.toBeInTheDocument();
   });
 
-  it("opens sound panel when sound button is clicked", () => {
+  it("opens sound panel through MoreMenu", () => {
     render(<LangProvider><Workspace {...baseProps} /></LangProvider>);
 
-    fireEvent.click(screen.getByRole("button", { name: /sound/i }));
+    fireEvent.click(screen.getByRole("button", { name: /more options/i }));
+    fireEvent.click(screen.getByText(/Sound/));
     expect(screen.getByRole("slider", { name: /volume/i })).toBeInTheDocument();
   });
 
-  it("opens log panel when log button is clicked", () => {
+  it("opens log panel through MoreMenu", () => {
     render(<LangProvider><Workspace {...baseProps} /></LangProvider>);
 
-    fireEvent.click(screen.getByRole("button", { name: /logs/i }));
+    fireEvent.click(screen.getByRole("button", { name: /more options/i }));
+    fireEvent.click(screen.getByText(/Logs/));
     expect(screen.getByText(/coming soon/i)).toBeInTheDocument();
   });
 
@@ -78,6 +78,7 @@ describe("Workspace refactored shell", () => {
     };
     render(<LangProvider><Workspace {...props} /></LangProvider>);
 
+    expect(screen.getByRole("button", { name: /notifications/i })).toBeInTheDocument();
     expect(screen.getByText("1")).toBeInTheDocument();
   });
 
@@ -126,7 +127,7 @@ describe("Workspace refactored shell", () => {
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("People")).toBeInTheDocument();
-    expect(screen.getAllByText("Wei")).toHaveLength(2);
+    expect(screen.getAllByText("Wei")).toHaveLength(1);
   });
 
   it("opens agent popover when agent avatar is clicked", () => {
@@ -136,7 +137,7 @@ describe("Workspace refactored shell", () => {
     fireEvent.click(agentStack);
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getAllByText("Claude Code Agent")).toHaveLength(2);
+    expect(screen.getAllByText("Claude Code Agent")).toHaveLength(1);
   });
 
   it("keeps the Codex session-required modal open after selection until the connector reports ready", () => {

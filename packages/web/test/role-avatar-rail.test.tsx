@@ -16,8 +16,6 @@ describe("RoleAvatarRail", () => {
 
     expect(screen.getByLabelText("Bob, Member, typing")).toBeInTheDocument();
     expect(screen.getByLabelText("Claude Code Agent, AI, working")).toBeInTheDocument();
-    expect(screen.getByText("Humans")).toBeInTheDocument();
-    expect(screen.getByText("Agents")).toBeInTheDocument();
   });
 
   it("folds inactive overflow into a count", () => {
@@ -79,13 +77,16 @@ describe("RoleAvatarRail", () => {
     render(<RoleAvatarRail avatars={avatars} maxVisible={6} />);
 
     const rail = document.querySelector(".role-avatar-rail") as HTMLElement;
-    const groupLabels = Array.from(rail.querySelectorAll(".avatar-group-label")).map((el) => el.textContent);
-    expect(groupLabels).toEqual(["Agents", "Humans"]);
-
     const stacks = Array.from(rail.querySelectorAll(".role-avatar-stack"));
     const firstAgentIndex = stacks.findIndex((s) => s.querySelector('[aria-label*="Claude Code Agent"]'));
     const firstHumanIndex = stacks.findIndex((s) => s.querySelector('[aria-label*="Alice"]'));
     expect(firstAgentIndex).toBeLessThan(firstHumanIndex);
+  });
+
+  it("does not render avatar names below initials", () => {
+    render(<RoleAvatarRail avatars={avatars} maxVisible={6} />);
+
+    expect(document.querySelector(".role-avatar__name")).not.toBeInTheDocument();
   });
 
   it("renders orbit bubble for matching avatar", () => {

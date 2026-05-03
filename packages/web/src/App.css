@@ -726,8 +726,8 @@ textarea.input {
   justify-content: space-between;
   gap: 14px;
   margin-bottom: 12px;
-  min-height: 64px;
-  padding: 12px 16px;
+  min-height: 56px;
+  padding: 10px 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius-frame);
   background: var(--surface);
@@ -1728,11 +1728,15 @@ textarea.input {
 }
 
 .workspace-header--studio {
-  min-height: 62px;
+  min-height: 54px;
   align-items: center;
-  backdrop-filter: blur(18px);
-  background: var(--studio-panel);
-  box-shadow: var(--studio-shadow-soft);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  background: rgba(253, 250, 242, 0.72);
+  border-bottom: 1px solid rgba(232, 223, 208, 0.6);
+  box-shadow:
+    0 1px 3px rgba(70, 48, 27, 0.04),
+    0 4px 12px rgba(70, 48, 27, 0.02);
 }
 
 .workspace-header--studio .role-avatar-rail {
@@ -1743,18 +1747,147 @@ textarea.input {
 .room-identity {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   min-width: min(340px, 32vw);
 }
 
-.room-identity h2 {
-  font-size: clamp(16px, 1.5vw, 22px);
+.room-identity__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
-.room-identity p {
-  margin-top: 3px;
+.room-identity__title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.room-identity h2 {
+  font-size: clamp(18px, 1.6vw, 24px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.room-identity__user-line {
+  margin-top: 2px;
   color: var(--ink-4);
   font-size: 12px;
+}
+
+.room-identity-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-warm);
+  border: 1px solid var(--border);
+  color: var(--ink-2);
+  flex-shrink: 0;
+}
+
+.room-identity-avatar__initials {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.role-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-4);
+  background: var(--surface-warm);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+  flex-shrink: 0;
+}
+
+.share-menu-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  background: var(--surface-warm);
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: background 200ms ease, border-color 200ms ease, color 200ms ease;
+  flex-shrink: 0;
+}
+
+.share-menu-button:hover {
+  background: var(--surface);
+  border-color: var(--border-soft);
+  color: var(--ink-2);
+}
+
+.share-menu-button.is-open {
+  background: var(--surface);
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+
+.share-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.share-menu-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-button);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease;
+  text-align: left;
+}
+
+.share-menu-item:hover {
+  background: var(--surface);
+  border-color: var(--border-soft);
+}
+
+.share-menu-item__hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--ink-4);
+  background: var(--surface-warm);
+  padding: 2px 6px;
+  border-radius: var(--radius-chip);
+  border: 1px solid var(--border-soft);
+}
+
+.share-menu-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0;
+  background: transparent;
+  border: none;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+
+.share-menu-back:hover {
+  color: var(--ink-2);
 }
 
 .room-id-chip {
@@ -1828,23 +1961,18 @@ textarea.input {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: 8px;
   min-width: 0;
 }
 
 .avatar-group-label {
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  color: var(--ink-5);
-  text-transform: uppercase;
-  margin-left: 6px;
+  display: none;
 }
 
 .role-avatar {
   position: relative;
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   border-radius: 999px;
   display: inline-flex;
   align-items: center;
@@ -1876,13 +2004,7 @@ textarea.input {
 }
 
 .role-avatar__name {
-  font-size: 10px;
-  color: var(--ink-4);
-  max-width: 40px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  overflow: hidden;
-  line-height: 1.2;
+  display: none;
 }
 
 .role-avatar__status {
@@ -2795,6 +2917,143 @@ textarea.input {
   }
 }
 
+.more-menu-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(253, 250, 242, 0.6);
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: background 180ms ease, border-color 180ms ease, color 180ms ease;
+}
+
+.more-menu-button:hover {
+  background: var(--surface-warm);
+  border-color: var(--border-soft);
+  color: var(--ink-2);
+}
+
+.more-menu-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #ef4444;
+  border: 2px solid var(--surface);
+}
+
+.notification-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(253, 250, 242, 0.6);
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: background 180ms ease, border-color 180ms ease, color 180ms ease;
+}
+
+.notification-button:hover {
+  background: var(--surface-warm);
+  border-color: var(--border-soft);
+  color: var(--ink-2);
+}
+
+.notification-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #ef4444;
+  border: 2px solid var(--surface);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.more-menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 200px;
+}
+
+.more-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 150ms ease;
+  width: 100%;
+  text-align: left;
+}
+
+.more-menu-item:hover {
+  background: var(--surface-warm);
+}
+
+.more-menu-item--danger {
+  color: #dc2626;
+}
+
+.more-menu-item--danger:hover {
+  background: #fef2f2;
+}
+
+.more-menu-divider {
+  height: 1px;
+  background: var(--border-soft);
+  margin: 4px 8px;
+}
+
+.more-menu-back {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-soft);
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  margin-bottom: 4px;
+}
+
+.more-menu-back:hover {
+  background: var(--surface-warm);
+}
+
 /* Breakpoints */
 
 @media (max-width: 767px) {
@@ -2891,7 +3150,7 @@ textarea.input {
     display: contents;
   }
 
-  .room-identity > div:first-child {
+  .room-identity__main {
     grid-area: title;
     min-width: 0;
     overflow: hidden;
@@ -2904,19 +3163,11 @@ textarea.input {
     font-size: 16px;
   }
 
-  .room-identity p {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 11px;
-  }
-
-  .room-identity .room-id-chip {
+  .room-identity .share-menu-button {
     grid-area: chip;
     justify-self: start;
-    font-size: 11px;
-    padding: 4px 8px;
-    min-height: 26px;
+    width: 28px;
+    height: 28px;
   }
 
   .connection-code-panel {
