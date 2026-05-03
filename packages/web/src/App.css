@@ -3461,3 +3461,97 @@ textarea.input {
     flex-direction: column;
   }
 }
+
+/* Header background animation */
+.header-background {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+.header-breathe-layer {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(24px);
+  transform-origin: center;
+  will-change: transform, opacity;
+}
+
+.header-breathe-layer--1 {
+  width: 160px;
+  height: 160px;
+  left: 18%;
+  top: 50%;
+  margin-top: -80px;
+  background: radial-gradient(circle, rgba(249, 115, 22, 0.14), transparent 70%);
+  animation: header-breathe-slow 8s ease-in-out infinite;
+}
+
+.header-breathe-layer--2 {
+  width: 100px;
+  height: 100px;
+  left: 22%;
+  top: 50%;
+  margin-top: -50px;
+  background: radial-gradient(circle, rgba(249, 115, 22, 0.18), transparent 70%);
+  animation: header-breathe-fast 6s ease-in-out infinite;
+}
+
+/* State-driven brightness changes */
+.workspace-header--studio.header--thinking .header-breathe-layer--1 {
+  opacity: 1.5;
+}
+
+.workspace-header--studio.header--thinking .header-breathe-layer--2 {
+  opacity: 1.33;
+}
+
+.workspace-header--studio.header--streaming .header-breathe-layer--1 {
+  opacity: 2;
+}
+
+.workspace-header--studio.header--streaming .header-breathe-layer--2 {
+  opacity: 1.67;
+}
+
+.header-ripple {
+  position: absolute;
+  width: 60px;
+  height: 60px;
+  margin-left: -30px;
+  margin-top: -30px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(249, 115, 22, 0.28), rgba(249, 115, 22, 0.08) 40%, transparent 70%);
+  will-change: transform, opacity;
+  animation: header-ripple-expand 3.5s ease-out forwards;
+}
+
+.header-ripple--streaming {
+  animation-duration: 2s;
+}
+
+@keyframes header-breathe-slow {
+  0%, 100% { transform: scale(0.9); opacity: 0.9; }
+  50% { transform: scale(1.05); opacity: 1; }
+}
+
+@keyframes header-breathe-fast {
+  0%, 100% { transform: scale(0.95); opacity: 0.9; }
+  50% { transform: scale(1.08); opacity: 1; }
+}
+
+@keyframes header-ripple-expand {
+  0% { transform: scale(0.3); opacity: 0.25; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .header-ripple,
+  .header-breathe-layer {
+    animation: none !important;
+    opacity: 0.04;
+  }
+}

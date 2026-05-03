@@ -1,4 +1,4 @@
-import { useCallback, useContext, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useT } from "../i18n/useT.js";
 import { LangContext, type Lang } from "../i18n/LangProvider.js";
 import type { AvatarStatusView, InviteView, JoinRequestView } from "../room-state.js";
@@ -9,6 +9,151 @@ import { MoreMenu } from "./MoreMenu.js";
 import { BellIcon } from "./RoomIcons.js";
 import { Popover } from "./Popover.js";
 import { NotificationPanel } from "./NotificationPanel.js";
+
+type AnimationState = "idle" | "thinking" | "streaming";
+
+interface Ripple {
+  id: number;
+  x: number;
+  y: number;
+  mode: "thinking" | "streaming";
+}
+
+function deriveAgentAnimationState(
+  avatarStatuses: AvatarStatusView[],
+  turnInFlight: boolean,
+): AnimationState {
+  if (!turnInFlight) return "idle";
+  const agent = avatarStatuses.find((a) => a.kind === "agent");
+  if (!agent) return "idle";
+  if (agent.status === "typing") return "streaming";
+  if (agent.status === "working") return "thinking";
+  return "idle";
+}
+
+function findEmptyArea(headerEl: HTMLElement): { x: number; y: number } | null {
+  const brand = headerEl.querySelector(".header-brand") as HTMLElement | null;
+  const identity = headerEl.querySelector(".room-identity") as HTMLElement | null;
+  const rail = headerEl.querySelector(".role-avatar-rail") as HTMLElement | null;
+  const actions = headerEl.querySelector(".header-actions") as HTMLElement | null;
+
+  if (!brand || !identity || !rail || !actions) return null;
+
+  const headerRect = headerEl.getBoundingClientRect();
+  const brandRect = brand.getBoundingClientRect();
+  const identityRect = identity.getBoundingClientRect();
+  const railRect = rail.getBoundingClientRect();
+  const actionsRect = actions.getBoundingClientRect();
+
+  const gapBStart = identityRect.right - headerRect.left;
+  const gapBEnd = railRect.left - headerRect.left;
+  const gapCStart = railRect.right - headerRect.left;
+  const gapCEnd = actionsRect.left - headerRect.left;
+
+  const gapBWidth = gapBEnd - gapBStart;
+  const gapCWidth = gapCEnd - gapCStart;
+
+  let usableStart = gapBStart;
+  let usableEnd = gapBEnd;
+
+  if (gapBWidth >= 0 && gapCWidth >= 0) {
+    usableStart = gapBStart;
+    usableEnd = gapCEnd;
+  } else if (gapCWidth > gapBWidth) {
+    usableStart = gapCStart;
+    usableEnd = gapCEnd;
+  }
+
+  const usableWidth = usableEnd - usableStart;
+  if (usableWidth < 80) return null;
+
+  const centerX = usableStart + usableWidth / 2 + (Math.random() * 40 - 20);
+  const centerY = headerRect.height / 2 + (Math.random() * 16 - 8);
+
+  return { x: centerX, y: centerY };
+}
+
+function HeaderBackground({
+  avatarStatuses,
+  turnInFlight,
+  headerRef,
+}: {
+  avatarStatuses: AvatarStatusView[];
+  turnInFlight: boolean;
+  headerRef: React.RefObject<HTMLElement | null>;
+}) {
+  const [ripples, setRipples] = useState<Ripple[]>([]);
+  const [emptyArea, setEmptyArea] = useState<{ x: number; y: number } | null>(null);
+  const stateRef = useRef<AnimationState>("idle");
+  const nextIdRef = useRef(0);
+
+  const state = deriveAgentAnimationState(avatarStatuses, turnInFlight);
+  stateRef.current = state;
+
+  useLayoutEffect(() => {
+    function compute() {
+      if (headerRef.current) {
+        setEmptyArea(findEmptyArea(headerRef.current));
+      }
+    }
+    compute();
+    window.addEventListener("resize", compute);
+    return () => window.removeEventListener("resize", compute);
+  }, [headerRef]);
+
+  useEffect(() => {
+    if (state === "idle") return;
+
+    const intervalMs = state === "streaming" ? 800 : 2500;
+    const initialDelay = state === "thinking" ? 1500 : 0;
+
+    const spawn = () => {
+      const area = emptyArea;
+      if (!area) return;
+
+      setRipples((prev) => {
+        const next: Ripple = {
+          id: nextIdRef.current++,
+          x: area.x,
+          y: area.y,
+          mode: stateRef.current === "streaming" ? "streaming" : "thinking",
+        };
+        const combined = [...prev, next];
+        return combined.slice(-3);
+      });
+    };
+
+    let intervalId: ReturnType<typeof setInterval>;
+    const initialTimer = setTimeout(() => {
+      spawn();
+      intervalId = setInterval(spawn, intervalMs);
+    }, initialDelay);
+
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(intervalId);
+    };
+  }, [state, emptyArea]);
+
+  const removeRipple = useCallback((id: number) => {
+    setRipples((prev) => prev.filter((r) => r.id !== id));
+  }, []);
+
+  return (
+    <div className="header-background" aria-hidden="true">
+      <div className="header-breathe-layer header-breathe-layer--1" />
+      <div className="header-breathe-layer header-breathe-layer--2" />
+      {ripples.map((r) => (
+        <div
+          key={r.id}
+          className={`header-ripple ${r.mode === "streaming" ? "header-ripple--streaming" : ""}`}
+          style={{ left: r.x, top: r.y }}
+          onAnimationEnd={() => removeRipple(r.id)}
+        />
+      ))}
+    </div>
+  );
+}
 
 export interface HeaderProps {
   roomName: string;
@@ -88,9 +233,20 @@ export default function Header({
 
   const notificationTriggerRef = useRef<HTMLButtonElement>(null);
   const [notificationOpen, setNotificationOpen] = useState(false);
+  const headerRef = useRef<HTMLElement>(null);
+
+  const animationState = deriveAgentAnimationState(avatarStatuses, turnInFlight);
 
   return (
-    <header className="workspace-header workspace-header--studio">
+    <header
+      ref={headerRef}
+      className={`workspace-header workspace-header--studio ${animationState !== "idle" ? `header--${animationState}` : ""}`}
+    >
+      <HeaderBackground
+        avatarStatuses={avatarStatuses}
+        turnInFlight={turnInFlight}
+        headerRef={headerRef}
+      />
       <div className="header-brand">
         <CacpRoomLogo className="header-brand__logo" ariaLabel="CACP Room" />
         <div className="header-brand__divider" />
