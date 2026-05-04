@@ -352,7 +352,7 @@ function avatarPriority(status: AvatarStatusKind): number {
 export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOptions = {}): RoomViewState {
   const participants = new Map<string, ParticipantView>();
   const agents = new Map<string, AgentView>();
-  const messages: MessageView[] = [];
+  let messages: MessageView[] = [];
   const streamingTurns = new Map<string, StreamingTurnView>();
   const joinRequests = new Map<string, JoinRequestView>();
   let activeAgentId: string | undefined;
@@ -375,6 +375,7 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
   let latestSenderId: string | undefined;
   const orbitNotes = new Map<string, OrbitNoteView>();
   const mainInputQueue = new Map<string, MainInputQueueItemView>();
+  const mainInputStatusByMessageId = new Map<string, string>();
   let connectorSyncCursor: ConnectorSyncCursor | undefined;
   const nowMs = Date.parse(options.now ?? new Date().toISOString());
   const typingTtlMs = options.typingTtlMs ?? 5000;
@@ -472,22 +473,27 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
         created_at: event.created_at,
         actor_id: event.actor_id
       });
+      mainInputStatusByMessageId.set(typeof event.payload.message_id === "string" ? event.payload.message_id : event.payload.input_id, "accepted");
     }
     if (event.type === "main_input.queued" && typeof event.payload.input_id === "string") {
       const existing = mainInputQueue.get(event.payload.input_id);
       if (existing) mainInputQueue.set(event.payload.input_id, { ...existing, status: "queued" });
+      mainInputStatusByMessageId.set(typeof event.payload.message_id === "string" ? event.payload.message_id : event.payload.input_id, "queued");
     }
     if (event.type === "main_input.triggered" && typeof event.payload.input_id === "string") {
       const existing = mainInputQueue.get(event.payload.input_id);
       if (existing) mainInputQueue.set(event.payload.input_id, { ...existing, status: "triggered" });
+      mainInputStatusByMessageId.set(typeof event.payload.message_id === "string" ? event.payload.message_id : event.payload.input_id, "triggered");
     }
     if (event.type === "main_input.cancelled" && typeof event.payload.input_id === "string") {
       const existing = mainInputQueue.get(event.payload.input_id);
       if (existing) mainInputQueue.set(event.payload.input_id, { ...existing, status: "cancelled" });
+      mainInputStatusByMessageId.set(typeof event.payload.message_id === "string" ? event.payload.message_id : event.payload.input_id, "cancelled");
     }
     if (event.type === "main_input.failed" && typeof event.payload.input_id === "string") {
       const existing = mainInputQueue.get(event.payload.input_id);
       if (existing) mainInputQueue.set(event.payload.input_id, { ...existing, status: "failed" });
+      mainInputStatusByMessageId.set(typeof event.payload.message_id === "string" ? event.payload.message_id : event.payload.input_id, "failed");
     }
     if (event.type === "connector.snapshot.entry" && isConnectorLedgerEntry(event.payload.entry)) {
       const entry = event.payload.entry;
@@ -920,18 +926,34 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     }
   }
 
-  // Map main-input queue items to virtual messages for Thread rendering
+  // Map main-input queue items to virtual messages for Thread rendering.
+  // Skip items that already have a persisted message.created to avoid duplicates.
   for (const item of mainInputQueue.values()) {
     if (item.status === "cancelled" || item.status === "failed") continue;
+    const hasMessageCreated = messages.some((m) => m.message_id === item.input_id);
+    if (hasMessageCreated) continue;
     messages.push({
       message_id: item.input_id,
       actor_id: item.actor_id,
       text: item.text,
-      kind: "queued",
+      kind: item.status === "triggered" ? "human" : "queued",
       created_at: item.created_at
     });
   }
   messages.sort((a, b) => a.created_at.localeCompare(b.created_at));
+
+  // Apply main_input status overrides to persisted message.created items.
+  const filteredMessages = messages.filter((msg) => {
+    const status = mainInputStatusByMessageId.get(msg.message_id ?? "");
+    return status !== "cancelled" && status !== "failed";
+  });
+  for (let i = 0; i < filteredMessages.length; i++) {
+    const status = mainInputStatusByMessageId.get(filteredMessages[i].message_id ?? "");
+    if (status === "accepted" || status === "queued") {
+      filteredMessages[i] = { ...filteredMessages[i], kind: "queued" };
+    }
+  }
+  messages = filteredMessages;
 
   for (const activity of participantActivity.values()) {
     if (activity.typing && !typingIsFresh(activity.typing_updated_at, nowMs, typingTtlMs)) {

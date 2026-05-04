@@ -116,6 +116,36 @@ describe("POST /rooms/:roomId/main-inputs", () => {
     expect(receivedEvents.some((e) => e.type === "orbit.round.promoted")).toBe(false);
   });
 
+  it("persists main_input lifecycle events so reconnecting clients see queue state", async () => {
+    app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const { room } = await setupRoomWithReadyAgent(app);
+
+    const ws1 = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    await waitForOpen(ws1);
+    const received1 = collectWsEvents(ws1);
+
+    const r1 = await postMainInput(app, room.room_id, room.owner_token, "first");
+    expect(r1.statusCode).toBe(201);
+    await waitForEvent(received1, (e) => e.type === "agent.turn.requested");
+
+    const r2 = await postMainInput(app, room.room_id, room.owner_token, "second");
+    expect((r2.json() as { status: string }).status).toBe("queued");
+    const secondInput = (r2.json() as { input_id: string }).input_id;
+    await waitForEvent(received1, (e) => e.type === "main_input.queued" && e.payload.input_id === secondInput);
+    ws1.close();
+
+    const ws2 = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    await waitForOpen(ws2);
+    const received2 = collectWsEvents(ws2);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(received2.some((e) => e.type === "main_input.accepted")).toBe(true);
+    expect(received2.some((e) => e.type === "main_input.queued")).toBe(true);
+    expect(received2.some((e) => e.type === "main_input.triggered")).toBe(true);
+    ws2.close();
+  });
+
   it("uses the submitted main input text as the immediate LLM turn prompt", async () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     await app.listen({ host: "127.0.0.1", port: 0 });
@@ -158,6 +188,34 @@ describe("POST /rooms/:roomId/main-inputs", () => {
     expect(requested.payload.context_prompt).toBeUndefined();
 
     ws.close();
+  });
+
+  it("persists message.created so reconnecting clients see the human input", async () => {
+    app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const { room } = await setupRoomWithReadyAgent(app);
+
+    // First connection: send main input, then disconnect.
+    const ws1 = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    await waitForOpen(ws1);
+    const received1 = collectWsEvents(ws1);
+
+    const res = await postMainInput(app, room.room_id, room.owner_token, "hello for persistence");
+    expect(res.statusCode).toBe(201);
+    await waitForEvent(received1, (e) => e.type === "agent.turn.requested");
+    ws1.close();
+
+    // Second connection: replay should include the durable message.created.
+    const ws2 = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    await waitForOpen(ws2);
+    const received2 = collectWsEvents(ws2);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(received2.some((e) => e.type === "message.created")).toBe(true);
+    const msgEvent = received2.find((e) => e.type === "message.created")!;
+    expect(msgEvent.payload.text).toBe("hello for persistence");
+    expect(msgEvent.payload.kind).toBe("human");
+    ws2.close();
   });
 
   it("promotes selected Orbit notes as the immediate agent prompt", async () => {
@@ -441,6 +499,25 @@ describe("FIFO main-input auto-trigger on agent turn completion (T5)", () => {
     expect(failRes.statusCode).toBe(201);
 
     await waitForEvent(received, (e) => e.type === "main_input.triggered" && e.payload.input_id === secondInput);
+
+    ws.close();
+  });
+
+  it("allows failing a turn before it has been started", async () => {
+    app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const { room, agent } = await setupRoomWithReadyAgent(app);
+    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    await waitForOpen(ws);
+    const received = collectWsEvents(ws);
+
+    await postMainInput(app, room.room_id, room.owner_token, "first");
+    await waitForEvent(received, (e) => e.type === "agent.turn.requested");
+    const firstTurnId = String(received.find((e) => e.type === "agent.turn.requested")!.payload.turn_id);
+
+    // Do NOT call startTurn. Fail immediately from requested state.
+    const failRes = await failTurn(app, room.room_id, agent.agent_token, firstTurnId, "model_connection_failed");
+    expect(failRes.statusCode).toBe(201);
 
     ws.close();
   });

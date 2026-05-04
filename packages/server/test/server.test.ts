@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildServer } from "../src/server.js";
+import { localTestConfig } from "./test-config.js";
 
 async function createRoom() {
   const app = await buildServer({ dbPath: ":memory:" });
@@ -9,6 +10,19 @@ async function createRoom() {
     payload: { name: "MVP Room", display_name: "Alice" }
   });
   return { app, created: response.json() as { room_id: string; owner_id: string; owner_token: string } };
+}
+
+function addressOf(app: Awaited<ReturnType<typeof buildServer>>): string {
+  const address = app.server.address();
+  if (!address || typeof address === "string") throw new Error("server did not bind to a TCP port");
+  return `127.0.0.1:${address.port}`;
+}
+
+function waitForOpen(socket: WebSocket): Promise<void> {
+  return new Promise((resolve, reject) => {
+    socket.addEventListener("open", () => resolve(), { once: true });
+    socket.addEventListener("error", () => reject(new Error("websocket failed to open")), { once: true });
+  });
 }
 
 async function joinViaApproval(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerToken: string, inviteToken: string, displayName: string) {
@@ -171,6 +185,44 @@ describe("CACP server", () => {
     const eventsResponse = await app.inject({ method: "GET", url: `/rooms/${created.room_id}/events`, headers: ownerAuth });
     const eventTypes = eventsResponse.json().events.map((event: { type: string }) => event.type);
     expect(eventTypes).toContain("invite.revoked");
+
+    await app.close();
+  });
+
+  it("closes room and deletes all data when owner disconnects websocket", async () => {
+    const app = await buildServer({ dbPath: ":memory:", config: localTestConfig(), removalGraceMs: 50 });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const created = await app.inject({ method: "POST", url: "/rooms", payload: { name: "Test Room", display_name: "Owner" } });
+    const room = created.json() as { room_id: string; owner_token: string };
+
+    // Owner connects WebSocket
+    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    await waitForOpen(ws);
+    ws.close();
+
+    // Wait for grace period to expire
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    // Room should be ended
+    const me = await app.inject({ method: "GET", url: `/rooms/${room.room_id}/me`, headers: { authorization: `Bearer ${room.owner_token}` } });
+    expect(me.statusCode).toBe(410);
+    expect(me.json()).toMatchObject({ error: "room_ended" });
+
+    await app.close();
+  });
+
+  it("deletes all room data when owner explicitly leaves", async () => {
+    const app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
+    const created = await app.inject({ method: "POST", url: "/rooms", payload: { name: "Test Room", display_name: "Owner" } });
+    const room = created.json() as { room_id: string; owner_token: string };
+
+    const leave = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/leave`, headers: { authorization: `Bearer ${room.owner_token}` }, payload: {} });
+    expect(leave.statusCode).toBe(201);
+
+    // Room should be ended
+    const me = await app.inject({ method: "GET", url: `/rooms/${room.room_id}/me`, headers: { authorization: `Bearer ${room.owner_token}` } });
+    expect(me.statusCode).toBe(410);
+    expect(me.json()).toMatchObject({ error: "room_ended" });
 
     await app.close();
   });

@@ -360,6 +360,16 @@ export class EventStore {
     `).get(roomId) as StoredRoom | undefined;
   }
 
+  deleteRoom(roomId: string): void {
+    this.db.prepare(`DELETE FROM events WHERE room_id = ?`).run(roomId);
+    this.db.prepare(`DELETE FROM participants WHERE room_id = ?`).run(roomId);
+    this.db.prepare(`DELETE FROM rooms WHERE room_id = ?`).run(roomId);
+    this.db.prepare(`DELETE FROM invites WHERE room_id = ?`).run(roomId);
+    this.db.prepare(`DELETE FROM agent_pairings WHERE room_id = ?`).run(roomId);
+    this.db.prepare(`DELETE FROM join_requests WHERE room_id = ?`).run(roomId);
+    this.db.prepare(`DELETE FROM participant_revocations WHERE room_id = ?`).run(roomId);
+  }
+
   createInvite(invite: NewInvite): StoredInvite {
     this.db.prepare(`
       INSERT INTO invites (invite_id, room_id, token_hash, role, main_thread_history_access, created_by, created_at, expires_at, max_uses)

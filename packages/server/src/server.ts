@@ -139,7 +139,7 @@ export interface LocalAgentLaunchResult { pid?: number }
 
 export type LocalAgentLauncher = (input: LocalAgentLaunchInput) => Promise<LocalAgentLaunchResult> | LocalAgentLaunchResult;
 
-export interface BuildServerOptions { dbPath?: string; localAgentLauncher?: LocalAgentLauncher; repoRoot?: string; config?: ServerConfig }
+export interface BuildServerOptions { dbPath?: string; localAgentLauncher?: LocalAgentLauncher; repoRoot?: string; config?: ServerConfig; removalGraceMs?: number }
 type ProposalTerminalStatus = "approved" | "rejected" | "expired";
 type ProposalState = { policy: Policy; votes: VoteRecord[]; terminal_status?: ProposalTerminalStatus };
 type TaskTerminalStatus = "completed" | "failed" | "cancelled";
@@ -382,7 +382,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   const socketCounts = new Map<string, number>();
   const participantSockets = new Map<string, Set<{ close: (code?: number, reason?: string) => void }>>();
   const pendingOffline = new Map<string, ReturnType<typeof setTimeout>>();
-  const REMOVAL_GRACE_MS = 10000;
+  const REMOVAL_GRACE_MS = options.removalGraceMs ?? 10000;
   let isClosing = false;
 
   function socketKey(roomId: string, participantId: string): string {
@@ -450,6 +450,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
       });
       publishEvents(storedEvents);
       closeRoomSockets(roomId, 4001, "owner_disconnected");
+      aliveRooms.delete(roomId);
+      store.deleteRoom(roomId);
       return;
     }
 
@@ -877,15 +879,15 @@ export async function buildServer(options: BuildServerOptions = {}) {
 
     const triggered = event(roomId, "main_input.triggered", next.author_id, {
       input_id: next.input_id,
-      trigger_turn_id: turnId
+      trigger_turn_id: turnId,
+      message_id: next.input_id
     });
 
-    // Persist the turn request (durable) and publish triggered (live-only).
-    // Broadcast the durable turn request first so clients see the new turn
-    // before the live-only triggered marker, matching POST /main-inputs.
+    // Persist the turn request and triggered marker so reconnecting clients
+    // see the complete main-input lifecycle.
     const stored = store.appendEvent(turnEvent);
     bus.publish({ event: stored, delivery: roomDelivery() });
-    publishLiveOnly(triggered);
+    appendAndPublish(triggered);
 
     return true;
   }
@@ -1693,6 +1695,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     } catch (err) {
       request.log.error({ err, roomId: request.params.roomId }, "closeRoomSockets failed during owner /leave; continuing");
     }
+    store.deleteRoom(request.params.roomId);
     return reply.code(201).send({ ok: true, status: "room_closed" });
   });
 
@@ -1788,13 +1791,22 @@ export async function buildServer(options: BuildServerOptions = {}) {
       author_id: participant.id,
       text: body.text,
       source: "composer",
-      created_at: now
+      created_at: now,
+      message_id: inputId
     });
     const queuedTurnId = openTurn ? openTurn.turn_id : (findLastTurnId(events) ?? "none");
     const queued = event(roomId, "main_input.queued", participant.id, {
       input_id: inputId,
-      queued_after_turn_id: queuedTurnId
+      queued_after_turn_id: queuedTurnId,
+      message_id: inputId
     });
+    const messageCreated = event(roomId, "message.created", participant.id, {
+      message_id: inputId,
+      text: body.text,
+      kind: "human",
+      created_at: now
+    });
+    appendAndPublish(messageCreated);
     let triggered: CacpEvent | undefined;
     let extraTurnEvents: CacpEvent[] = [];
     let triggerTurnId = "";
@@ -1810,7 +1822,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
       triggerTurnId = (turnRequestEvents.find((e) => e.type === "agent.turn.requested")?.payload as { turn_id: string })?.turn_id ?? "";
       triggered = event(roomId, "main_input.triggered", participant.id, {
         input_id: inputId,
-        trigger_turn_id: triggerTurnId
+        trigger_turn_id: triggerTurnId,
+        message_id: inputId
       });
       extraTurnEvents = store.transaction(() => turnRequestEvents.map((nextEvent) => store.appendEvent(nextEvent)));
     } else {
@@ -1824,9 +1837,9 @@ export async function buildServer(options: BuildServerOptions = {}) {
         created_at: now
       });
     }
-    publishLiveOnly(accepted);
-    publishLiveOnly(queued);
-    if (triggered) publishLiveOnly(triggered);
+    appendAndPublish(accepted);
+    appendAndPublish(queued);
+    if (triggered) appendAndPublish(triggered);
     publishEvents(extraTurnEvents);
     return reply.code(201).send({ input_id: inputId, status: openTurn ? "queued" : "triggered" });
   });
@@ -1840,7 +1853,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const idx = findQueuedMainInputIndex(roomId, inputId);
     if (idx < 0) return deny(reply, "input_not_found", 409);
     queuedMainInputs.get(roomId)!.splice(idx, 1);
-    publishLiveOnly(event(roomId, "main_input.cancelled", participant.id, { input_id: inputId, cancelled_by: participant.id }));
+    appendAndPublish(event(roomId, "main_input.cancelled", participant.id, { input_id: inputId, message_id: inputId, cancelled_by: participant.id }));
     return reply.code(201).send({ ok: true });
   });
 
@@ -2672,7 +2685,6 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const turn = requireAssignedAgentTurn(request.params.roomId, request.params.turnId, participant, reply);
     if (!turn) return;
     if (turn.terminal_status) return deny(reply, "turn_closed", 409);
-    if (!turn.started) return deny(reply, "turn_not_started", 409);
     // Parse outside the transaction so the error string is available for the
     // T5 auto-trigger decision below.
     const failurePayload = TurnFailedSchema.parse(request.body);

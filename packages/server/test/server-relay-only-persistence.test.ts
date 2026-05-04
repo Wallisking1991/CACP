@@ -52,11 +52,11 @@ async function listEvents(app: FastifyInstance, roomId: string, token: string) {
   return (res.json() as { events: Array<{ type: string; payload: Record<string, unknown> }> }).events;
 }
 
-describe("main_input.* events are live-only (no durable persistence)", () => {
+describe("main_input.* events are persisted to durable storage", () => {
   let app: FastifyInstance | undefined;
   afterEach(async () => { await app?.close(); app = undefined; });
 
-  it("POST /rooms/:roomId/main-inputs does not persist main_input.accepted in /events", async () => {
+  it("POST /rooms/:roomId/main-inputs persists main_input.accepted in /events", async () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     const { room } = await setupRoomWithAgent(app);
 
@@ -69,10 +69,10 @@ describe("main_input.* events are live-only (no durable persistence)", () => {
     expect(res.statusCode).toBe(201);
 
     const events = await listEvents(app, room.room_id, room.owner_token);
-    expect(events.some((e) => e.type.startsWith("main_input."))).toBe(false);
+    expect(events.some((e) => e.type === "main_input.accepted")).toBe(true);
   });
 
-  it("WS handshake replay does not include main_input.* events", async () => {
+  it("WS handshake replay includes main_input.* events", async () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     await app.listen({ host: "127.0.0.1", port: 0 });
     const { room } = await setupRoomWithAgent(app);
@@ -81,7 +81,7 @@ describe("main_input.* events are live-only (no durable persistence)", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/main-inputs`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "ephemeral body" }
+      payload: { text: "persistent body" }
     });
     expect(res.statusCode).toBe(201);
 
@@ -97,10 +97,10 @@ describe("main_input.* events are live-only (no durable persistence)", () => {
     });
     ws.close();
 
-    expect(replay.some((e) => e.type.startsWith("main_input."))).toBe(false);
+    expect(replay.some((e) => e.type.startsWith("main_input."))).toBe(true);
   });
 
-  it("main_input.queued and main_input.triggered are delivered live but not persisted", async () => {
+  it("main_input.queued and main_input.triggered are delivered live and persisted", async () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     await app.listen({ host: "127.0.0.1", port: 0 });
     const { room } = await setupRoomWithAgent(app);
@@ -140,12 +140,14 @@ describe("main_input.* events are live-only (no durable persistence)", () => {
     expect(queuedLive.length).toBeGreaterThanOrEqual(2);
     expect(triggeredLive.length).toBeGreaterThanOrEqual(1);
 
-    // But /events must NOT contain any main_input.* type
+    // /events must ALSO contain all main_input.* types
     const events = await listEvents(app, room.room_id, room.owner_token);
-    expect(events.some((e) => e.type.startsWith("main_input."))).toBe(false);
+    expect(events.some((e) => e.type === "main_input.accepted")).toBe(true);
+    expect(events.some((e) => e.type === "main_input.queued")).toBe(true);
+    expect(events.some((e) => e.type === "main_input.triggered")).toBe(true);
   });
 
-  it("main_input.cancelled is delivered live but not persisted", async () => {
+  it("main_input.cancelled is delivered live and persisted", async () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     await app.listen({ host: "127.0.0.1", port: 0 });
     const { room } = await setupRoomWithAgent(app);
@@ -192,8 +194,7 @@ describe("main_input.* events are live-only (no durable persistence)", () => {
     expect(liveEvents.some((e) => e.type === "main_input.cancelled")).toBe(true);
 
     const events = await listEvents(app, room.room_id, room.owner_token);
-    expect(events.some((e) => e.type === "main_input.cancelled")).toBe(false);
-    expect(events.some((e) => e.type.startsWith("main_input."))).toBe(false);
+    expect(events.some((e) => e.type === "main_input.cancelled")).toBe(true);
   });
 
   it("orbit.note.created is delivered live but not persisted", async () => {

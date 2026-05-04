@@ -92,16 +92,10 @@ describe("participant removal", () => {
       app = undefined;
       const store = new EventStore(dbPath);
       try {
-        const events = store.listEvents(room.room_id);
-        const removals = events.filter((event) => event.type === "participant.removed");
-        expect(removals).toEqual(expect.arrayContaining([
-          expect.objectContaining({ payload: expect.objectContaining({ participant_id: room.owner_id, removed_by: room.owner_id, reason: "owner_left_room" }) }),
-          expect.objectContaining({ payload: expect.objectContaining({ participant_id: joined.participant_id, removed_by: room.owner_id, reason: "owner_left_room" }) }),
-          expect.objectContaining({ payload: expect.objectContaining({ participant_id: agent.agent_id, removed_by: room.owner_id, reason: "owner_left_room" }) })
-        ]));
-        expect(events).toEqual(expect.arrayContaining([
-          expect.objectContaining({ type: "agent.status_changed", payload: expect.objectContaining({ agent_id: agent.agent_id, status: "offline" }) })
-        ]));
+        // Room data should be fully deleted when owner leaves
+        expect(store.getRoom(room.room_id)).toBeUndefined();
+        expect(store.listEvents(room.room_id)).toHaveLength(0);
+        expect(store.getParticipants(room.room_id)).toHaveLength(0);
       } finally {
         store.close();
       }
