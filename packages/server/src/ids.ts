@@ -48,6 +48,6 @@ export function openSecret(sealed: string, secret: string): string {
   }
 }
 
-export function event(roomId: string, type: EventType, actorId: string, payload: Record<string, unknown>): CacpEvent {
-  return { protocol: "cacp", version: "0.2.0", event_id: prefixedId("evt"), room_id: roomId, type, actor_id: actorId, created_at: new Date().toISOString(), payload };
+export function event(roomId: string, type: EventType, actorId: string, payload: Record<string, unknown>, createdAt?: string, eventId?: string): CacpEvent {
+  return { protocol: "cacp", version: "0.2.0", event_id: eventId ?? prefixedId("evt"), room_id: roomId, type, actor_id: actorId, created_at: createdAt ?? new Date().toISOString(), payload };
 }

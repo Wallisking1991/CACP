@@ -333,7 +333,11 @@ export async function buildServer(options: BuildServerOptions = {}) {
   const orbitStates = new Map<string, OrbitRoomState>();
   function getOrbitState(roomId: string): OrbitRoomState {
     if (!orbitStates.has(roomId)) {
-      orbitStates.set(roomId, new OrbitRoomState(roomId));
+      const state = new OrbitRoomState(roomId);
+      for (const note of store.getOrbitNotes(roomId)) {
+        state.addNote(note);
+      }
+      orbitStates.set(roomId, state);
     }
     return orbitStates.get(roomId)!;
   }
@@ -1438,7 +1442,11 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (HUMAN_ROLES.includes(participant.role)) {
       const orbit = getOrbitState(roomId);
       for (const synthetic of orbit.replayFor(participant)) {
-        socket.send(JSON.stringify(event(roomId, synthetic.type, synthetic.actor_id, synthetic.payload)));
+        const payload = synthetic.payload as Record<string, unknown>;
+        const noteId = typeof payload.note_id === "string" ? payload.note_id : undefined;
+        const createdAt = typeof payload.created_at === "string" ? payload.created_at : undefined;
+        const eventId = noteId ? `synth_${noteId}` : undefined;
+        socket.send(JSON.stringify(event(roomId, synthetic.type, synthetic.actor_id, payload, createdAt, eventId)));
       }
     }
     const unsubscribe = bus.subscribe(roomId, (envelope) => {
@@ -1874,6 +1882,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       text: body.text,
       created_at: now
     });
+    store.addOrbitNote({ room_id: roomId, ...note });
     publishRoleFiltered(event(roomId, "orbit.note.created", participant.id, {
       note_id: note.note_id,
       author_id: note.author_id,
@@ -1931,6 +1940,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const roomId = request.params.roomId;
     const now = new Date().toISOString();
     getOrbitState(roomId).reset();
+    store.clearOrbitNotes(roomId);
     publishRoleFiltered(event(roomId, "orbit.cleared", participant.id, {
       cleared_by: participant.id,
       cleared_at: now

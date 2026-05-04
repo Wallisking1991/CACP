@@ -83,15 +83,9 @@ export default function Workspace({
   createdPairing,
 }: WorkspaceProps) {
   const t = useT();
-  const [typingTick, setTypingTick] = useState(() => Date.now());
-  useEffect(() => {
-    const interval = window.setInterval(() => setTypingTick(Date.now()), 2000);
-    return () => window.clearInterval(interval);
-  }, []);
-
   const room = useMemo(
-    () => deriveRoomState(events, { now: new Date(typingTick).toISOString(), currentParticipantId: session.participant_id }),
-    [events, typingTick, session.participant_id]
+    () => deriveRoomState(events, { now: new Date().toISOString(), currentParticipantId: session.participant_id }),
+    [events, session.participant_id]
   );
   const permissions = roomPermissionsForRole(session.role);
   const isOwner = session.role === "owner";

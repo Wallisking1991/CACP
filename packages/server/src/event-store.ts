@@ -254,6 +254,16 @@ export class EventStore {
         reason TEXT,
         PRIMARY KEY(room_id, participant_id)
       );
+      CREATE TABLE IF NOT EXISTS orbit_notes (
+        room_id TEXT NOT NULL,
+        note_id TEXT NOT NULL,
+        author_id TEXT NOT NULL,
+        author_name TEXT NOT NULL,
+        text TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (room_id, note_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_orbit_notes_room ON orbit_notes(room_id);
     `);
     this.migrateInviteHistoryAccess();
     this.migrateJoinRequestHistoryAccess();
@@ -368,6 +378,24 @@ export class EventStore {
     this.db.prepare(`DELETE FROM agent_pairings WHERE room_id = ?`).run(roomId);
     this.db.prepare(`DELETE FROM join_requests WHERE room_id = ?`).run(roomId);
     this.db.prepare(`DELETE FROM participant_revocations WHERE room_id = ?`).run(roomId);
+    this.db.prepare(`DELETE FROM orbit_notes WHERE room_id = ?`).run(roomId);
+  }
+
+  addOrbitNote(note: { room_id: string; note_id: string; author_id: string; author_name: string; text: string; created_at: string }): void {
+    this.db.prepare(`
+      INSERT INTO orbit_notes (room_id, note_id, author_id, author_name, text, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(note.room_id, note.note_id, note.author_id, note.author_name, note.text, note.created_at);
+  }
+
+  getOrbitNotes(roomId: string): Array<{ note_id: string; author_id: string; author_name: string; text: string; created_at: string }> {
+    return this.db.prepare(`
+      SELECT note_id, author_id, author_name, text, created_at FROM orbit_notes WHERE room_id = ? ORDER BY created_at ASC
+    `).all(roomId) as Array<{ note_id: string; author_id: string; author_name: string; text: string; created_at: string }>;
+  }
+
+  clearOrbitNotes(roomId: string): void {
+    this.db.prepare(`DELETE FROM orbit_notes WHERE room_id = ?`).run(roomId);
   }
 
   createInvite(invite: NewInvite): StoredInvite {

@@ -128,6 +128,9 @@ echo "[remote] Build OK; stopping service for swap..."
 
 systemctl stop "$SERVICE" || true
 
+echo "[remote] Rebuilding database..."
+rm -f "$DB_PATH"
+
 if [ -d "$APP_DIR" ]; then
   rm -rf "$BACKUP_DIR"
   mv "$APP_DIR" "$BACKUP_DIR"
