@@ -3469,85 +3469,72 @@ textarea.input {
   border-radius: inherit;
 }
 
-.header-breathe-layer {
+/* Sound-wave base layers — persistent concentric rings */
+.header-wave-layer {
   position: absolute;
+  left: var(--wave-x, 50%);
+  top: var(--wave-y, 50%);
+  width: 120px;
+  height: 120px;
+  margin-left: -60px;
+  margin-top: -60px;
   border-radius: 50%;
-  filter: blur(24px);
-  transform-origin: center;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.32) 0%, rgba(168, 85, 247, 0.18) 35%, transparent 65%);
+  box-shadow: 0 0 60px rgba(99, 102, 241, 0.28);
+  opacity: 0;
   will-change: transform, opacity;
+  animation: header-wave-pulse 3.2s ease-out infinite;
+  pointer-events: none;
 }
 
-.header-breathe-layer--1 {
-  width: 160px;
-  height: 160px;
-  left: 18%;
-  top: 50%;
-  margin-top: -80px;
-  background: radial-gradient(circle, rgba(249, 115, 22, 0.14), transparent 70%);
-  animation: header-breathe-slow 8s ease-in-out infinite;
+.header-wave-layer--1 {
+  animation-delay: 0s;
 }
 
-.header-breathe-layer--2 {
-  width: 100px;
-  height: 100px;
-  left: 22%;
-  top: 50%;
-  margin-top: -50px;
-  background: radial-gradient(circle, rgba(249, 115, 22, 0.18), transparent 70%);
-  animation: header-breathe-fast 6s ease-in-out infinite;
+.header-wave-layer--2 {
+  animation-delay: 1.6s;
 }
 
-/* State-driven brightness changes */
-.workspace-header--studio.header--thinking .header-breathe-layer--1 {
-  opacity: 1.5;
+@keyframes header-wave-pulse {
+  0% {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  25% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
 }
 
-.workspace-header--studio.header--thinking .header-breathe-layer--2 {
-  opacity: 1.33;
-}
-
-.workspace-header--studio.header--streaming .header-breathe-layer--1 {
-  opacity: 2;
-}
-
-.workspace-header--studio.header--streaming .header-breathe-layer--2 {
-  opacity: 1.67;
-}
-
+/* Ripple bursts — bright accent on top of wave base */
 .header-ripple {
   position: absolute;
-  width: 60px;
-  height: 60px;
-  margin-left: -30px;
-  margin-top: -30px;
+  width: 80px;
+  height: 80px;
+  margin-left: -40px;
+  margin-top: -40px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(249, 115, 22, 0.28), rgba(249, 115, 22, 0.08) 40%, transparent 70%);
+  background: radial-gradient(circle, rgba(99, 102, 241, 1), rgba(168, 85, 247, 0.75) 40%, transparent 70%);
+  box-shadow: 0 0 55px rgba(99, 102, 241, 0.7);
   will-change: transform, opacity;
-  animation: header-ripple-expand 3.5s ease-out forwards;
+  animation: header-ripple-expand 2.5s ease-out forwards;
 }
 
 .header-ripple--streaming {
-  animation-duration: 2s;
-}
-
-@keyframes header-breathe-slow {
-  0%, 100% { transform: scale(0.9); opacity: 0.9; }
-  50% { transform: scale(1.05); opacity: 1; }
-}
-
-@keyframes header-breathe-fast {
-  0%, 100% { transform: scale(0.95); opacity: 0.9; }
-  50% { transform: scale(1.08); opacity: 1; }
+  animation-duration: 1.5s;
 }
 
 @keyframes header-ripple-expand {
-  0% { transform: scale(0.3); opacity: 0.25; }
-  100% { transform: scale(2.2); opacity: 0; }
+  0% { transform: scale(0.35); opacity: 0.9; }
+  100% { transform: scale(3.5); opacity: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .header-ripple,
-  .header-breathe-layer {
+  .header-wave-layer {
     animation: none !important;
     opacity: 0.04;
   }

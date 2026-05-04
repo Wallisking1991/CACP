@@ -139,10 +139,18 @@ function HeaderBackground({
     setRipples((prev) => prev.filter((r) => r.id !== id));
   }, []);
 
+  const waveStyle = emptyArea
+    ? ({ "--wave-x": `${emptyArea.x}px`, "--wave-y": `${emptyArea.y}px` } as React.CSSProperties)
+    : undefined;
+
   return (
-    <div className="header-background" aria-hidden="true">
-      <div className="header-breathe-layer header-breathe-layer--1" />
-      <div className="header-breathe-layer header-breathe-layer--2" />
+    <div className="header-background" aria-hidden="true" style={waveStyle}>
+      {state !== "idle" && (
+        <>
+          <div className="header-wave-layer header-wave-layer--1" />
+          <div className="header-wave-layer header-wave-layer--2" />
+        </>
+      )}
       {ripples.map((r) => (
         <div
           key={r.id}
