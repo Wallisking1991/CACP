@@ -40,6 +40,13 @@ describe("OrbitPromoteModal", () => {
     expect(screen.getAllByRole("checkbox")).toHaveLength(2);
   });
 
+  it("renders notes in descending chronological order (newest first)", () => {
+    renderModal(baseProps);
+    const items = screen.getAllByRole("listitem");
+    expect(items[0].textContent).toContain("Second note");
+    expect(items[1].textContent).toContain("First note");
+  });
+
   it("shows empty state when notes is empty", () => {
     renderModal({ ...baseProps, notes: [] });
     expect(screen.getByText(/No notes to promote/i)).toBeInTheDocument();
@@ -114,7 +121,7 @@ describe("OrbitPromoteModal", () => {
     const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
     expect(checkboxes.every((c) => c.checked)).toBe(true);
 
-    // User deselects the first note.
+    // User deselects the first visible note (note_2, the most recent, now at the top).
     fireEvent.click(checkboxes[0]);
     expect((screen.getAllByRole("checkbox")[0] as HTMLInputElement).checked).toBe(false);
     expect((screen.getAllByRole("checkbox")[1] as HTMLInputElement).checked).toBe(true);
@@ -132,8 +139,8 @@ describe("OrbitPromoteModal", () => {
     expect(refreshed[0].checked).toBe(false);
     expect(refreshed[1].checked).toBe(true);
 
-    // Promote should call with only the still-selected note.
+    // Promote should call with only the still-selected note (note_1, in original ascending order).
     fireEvent.click(screen.getByRole("button", { name: /^Promote$/i }));
-    expect(onPromote).toHaveBeenCalledWith(["note_2"]);
+    expect(onPromote).toHaveBeenCalledWith(["note_1"]);
   });
 });

@@ -2538,7 +2538,7 @@ textarea.input {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
   overflow-y: auto;
   scrollbar-color: var(--ink-4, #9ca3af) transparent;
   scrollbar-width: thin;
@@ -2559,7 +2559,7 @@ textarea.input {
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   background: var(--surface-warm);
-  padding: 12px;
+  padding: 10px 12px;
   transition: border-color 150ms ease, background 150ms ease, transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
   flex-shrink: 0;
 }
@@ -2570,19 +2570,6 @@ textarea.input {
 }
 
 .orbit-note--quoted { opacity: 0.72; }
-
-.orbit-note-quoted-badge {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  padding: 2px 6px;
-  border-radius: 999px;
-  background: var(--accent-soft, #dbeafe);
-  color: var(--accent, #2563eb);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
 
 .orbit-toggle-tab {
   position: fixed;
@@ -2713,21 +2700,87 @@ textarea.input {
 }
 
 .orbit-note--own {
-  background: linear-gradient(135deg, var(--surface) 0%, var(--surface-warm) 100%);
-  border-left: 3px solid var(--accent-border);
-  padding-left: 10px;
+  background: linear-gradient(135deg, var(--studio-agent), var(--studio-agent-2));
+  color: #fff7ec;
+  border-color: rgba(255, 210, 160, 0.22);
+  box-shadow: var(--studio-shadow-soft);
+}
+
+.orbit-note--own .orbit-note-meta,
+.orbit-note--own .orbit-note-author,
+.orbit-note--own .orbit-note-time,
+.orbit-note--own .orbit-note-text {
+  color: #fff7ec;
+}
+
+.orbit-note--own .orbit-note-quoted-mark {
+  background: rgba(255, 247, 236, 0.15);
+  color: #fff7ec;
 }
 
 .orbit-note-meta {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 8px;
   font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-weight: 500;
   color: var(--ink-4);
-  margin-bottom: 6px;
+  margin-bottom: 4px;
+}
+
+.orbit-note-author {
+  font-weight: 600;
+  color: var(--ink-3);
+}
+
+.orbit-note-meta-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.orbit-note-quoted-mark {
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--accent-soft, #dbeafe);
+  color: var(--accent, #2563eb);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.orbit-note-likes {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.orbit-like-btn-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-5);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), background 150ms ease;
+}
+
+.orbit-like-btn-inline:hover {
+  background: var(--surface-2);
+  transform: scale(1.15);
+}
+
+.orbit-like-btn-inline--active {
+  color: var(--accent);
 }
 
 .orbit-note-time {
@@ -2741,62 +2794,6 @@ textarea.input {
   color: var(--ink);
   margin: 0;
   white-space: pre-wrap;
-}
-
-.orbit-note-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 8px;
-  min-height: 24px;
-}
-
-.orbit-like-count {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--ink-4);
-}
-
-.orbit-like-count__num {
-  font-weight: 600;
-  color: var(--ink-3);
-}
-
-.orbit-like-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-button);
-  background: transparent;
-  color: var(--ink-4);
-  cursor: pointer;
-  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), background 150ms ease, border-color 150ms ease, color 150ms ease;
-  font-size: 14px;
-  line-height: 1;
-}
-
-.orbit-like-btn:hover:not(:disabled) {
-  background: var(--surface-warm);
-  border-color: var(--border-soft);
-  color: var(--ink-2);
-  transform: scale(1.12);
-}
-
-.orbit-like-btn:active:not(:disabled) {
-  transform: scale(0.94);
-}
-
-.orbit-like-btn--active {
-  background: var(--accent-soft);
-  border-color: var(--accent-border);
-  color: var(--accent);
 }
 
 /* Orbit Promote Modal */

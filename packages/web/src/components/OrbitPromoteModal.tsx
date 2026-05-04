@@ -36,6 +36,10 @@ export function OrbitPromoteModal({ open, notes, canPromote, onPromote, onClose 
 
   if (!open || typeof document === "undefined") return null;
 
+  const sortedNotes = [...notes].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+
   const toggleNote = (noteId: string) => {
     const next = new Set(selected);
     if (next.has(noteId)) {
@@ -99,7 +103,7 @@ export function OrbitPromoteModal({ open, notes, canPromote, onPromote, onClose 
             <p className="orbit-empty">{t("orbitPromote.empty")}</p>
           ) : (
             <ul className="orbit-promote-list" role="list">
-              {notes.map((note) => (
+              {sortedNotes.map((note) => (
                 <li key={note.note_id}>
                   <label className="orbit-promote-item">
                     <input

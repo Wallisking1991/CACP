@@ -41,6 +41,7 @@ export function OrbitLayer({
   const t = useT();
   const notesContainerRef = useRef<HTMLDivElement>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
+  const [hoveredNoteId, setHoveredNoteId] = useState<string | null>(null);
   const prevNotesLen = useRef(notes.length);
 
   useEffect(() => {
@@ -113,40 +114,47 @@ export function OrbitLayer({
         {notes.map((note) => {
           const ownNote = note.created_by === currentParticipantId;
           const showReactionControls = canReact && !ownNote;
+          const isHovered = hoveredNoteId === note.note_id;
+          const hasLikes = note.likes > 0;
+          const showLikeButton = showReactionControls && (hasLikes || isHovered || note.liked_by_me);
+          const showLikeCount = hasLikes;
           return (
-            <div key={note.note_id} className={["orbit-note", note.quoted && "orbit-note--quoted", ownNote && "orbit-note--own"].filter(Boolean).join(" ")}>
+            <div
+              key={note.note_id}
+              className={["orbit-note", note.quoted && "orbit-note--quoted", ownNote && "orbit-note--own"].filter(Boolean).join(" ")}
+              onMouseEnter={() => setHoveredNoteId(note.note_id)}
+              onMouseLeave={() => setHoveredNoteId(null)}
+            >
               <div className="orbit-note-meta">
-                <span>{actorNames.get(note.created_by) || note.created_by}</span>
-                <span className="orbit-note-time">{new Date(note.created_at).toLocaleTimeString()}</span>
-                {note.quoted && <span className="orbit-note-quoted-badge">{t("orbit.note.quoted")}</span>}
+                <span className="orbit-note-author">{actorNames.get(note.created_by) || note.created_by}</span>
+                <span className="orbit-note-meta-right">
+                  <span className="orbit-note-time">{new Date(note.created_at).toLocaleTimeString()}</span>
+                  {note.quoted && <span className="orbit-note-quoted-mark">{t("orbit.note.quoted")}</span>}
+                  {showLikeCount && <span className="orbit-note-likes">{note.likes}</span>}
+                  {showLikeButton && (note.liked_by_me ? (
+                    <button
+                      type="button"
+                      className="orbit-like-btn-inline orbit-like-btn-inline--active"
+                      onClick={() => onUnlike(note.note_id)}
+                      aria-label={t("orbit.unlike")}
+                      title={t("orbit.unlike")}
+                    >
+                      👍
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="orbit-like-btn-inline"
+                      onClick={() => onLike(note.note_id)}
+                      aria-label={t("orbit.like")}
+                      title={t("orbit.like")}
+                    >
+                      👍
+                    </button>
+                  ))}
+                </span>
               </div>
               <p className="orbit-note-text">{note.text}</p>
-              <div className="orbit-note-actions">
-                <span className="orbit-like-count">
-                  {note.likes > 0 && <span className="orbit-like-count__num">{note.likes}</span>}
-                </span>
-                {showReactionControls && (note.liked_by_me ? (
-                  <button
-                    type="button"
-                    className="orbit-like-btn orbit-like-btn--active"
-                    onClick={() => onUnlike(note.note_id)}
-                    aria-label={t("orbit.unlike")}
-                    title={t("orbit.unlike")}
-                  >
-                    <span className="orbit-like-icon">&#9829;</span>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="orbit-like-btn"
-                    onClick={() => onLike(note.note_id)}
-                    aria-label={t("orbit.like")}
-                    title={t("orbit.like")}
-                  >
-                    <span className="orbit-like-icon">&#9825;</span>
-                  </button>
-                ))}
-              </div>
             </div>
           );
         })}

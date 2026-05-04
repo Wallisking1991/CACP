@@ -43,7 +43,9 @@ describe("OrbitLayer", () => {
     ];
     renderOrbitLayer({ ...baseProps, notes, onLike });
 
-    expect(screen.getByText("2")).toBeInTheDocument();
+    expect(screen.getByText(/2/)).toBeInTheDocument();
+    const likesSpan = document.querySelector(".orbit-note-likes");
+    expect(likesSpan!.textContent).not.toContain("👍");
     fireEvent.click(screen.getByRole("button", { name: /Like/i }));
     expect(onLike).toHaveBeenCalledWith("note_1");
   });
@@ -79,19 +81,73 @@ describe("OrbitLayer", () => {
     renderOrbitLayer({ ...baseProps, notes, canReact: false });
 
     expect(screen.queryByRole("button", { name: /Like/i })).not.toBeInTheDocument();
-    expect(screen.getByText("2")).toBeInTheDocument();
+    expect(screen.getByText(/2/)).toBeInTheDocument();
   });
 
-  it("renders quoted badge and keeps like button interactive", () => {
-    const onLike = vi.fn();
+  it("renders quoted mark inside meta row instead of absolute badge", () => {
     renderOrbitLayer({
       ...baseProps,
       notes: [{ note_id: "note_1", text: "Quoted note", created_by: "user_2", created_at: "2026-05-01T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: true }],
-      onLike
     });
-    expect(screen.getByText("Quoted")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Like/i }));
+    const note = document.querySelector(".orbit-note");
+    const meta = note!.querySelector(".orbit-note-meta");
+    expect(meta).not.toBeNull();
+    expect(meta!.textContent).toContain("Quoted");
+    expect(note!.querySelector(".orbit-note-quoted-badge")).toBeNull();
+  });
+
+  it("renders like button inside meta row and removes separate actions row", () => {
+    const notes = [
+      { note_id: "note_1", text: "Note text", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 2, liked_by_me: false, quoted: false }
+    ];
+    renderOrbitLayer({ ...baseProps, notes });
+
+    const note = document.querySelector(".orbit-note");
+    const meta = note!.querySelector(".orbit-note-meta");
+    expect(meta).not.toBeNull();
+    expect(meta!.querySelector('[aria-label="Like"]')).not.toBeNull();
+    expect(note!.querySelector(".orbit-note-actions")).toBeNull();
+  });
+
+  it("hides like count and button when there are no likes", () => {
+    const notes = [
+      { note_id: "note_1", text: "No likes yet", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: false }
+    ];
+    renderOrbitLayer({ ...baseProps, notes });
+
+    const meta = document.querySelector(".orbit-note-meta");
+    expect(meta!.querySelector(".orbit-note-likes")).toBeNull();
+    expect(meta!.querySelector(".orbit-like-btn-inline")).toBeNull();
+  });
+
+  it("reveals like button on hover when note has no likes yet", () => {
+    const onLike = vi.fn();
+    const notes = [
+      { note_id: "note_1", text: "New note", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: false }
+    ];
+    renderOrbitLayer({ ...baseProps, notes, onLike });
+
+    // Default: no button visible
+    expect(screen.queryByRole("button", { name: /Like/i })).not.toBeInTheDocument();
+
+    // Hover reveals the button
+    const noteEl = document.querySelector(".orbit-note");
+    fireEvent.mouseEnter(noteEl!);
+    const btn = screen.getByRole("button", { name: /Like/i });
+    expect(btn.textContent).toContain("👍");
+
+    fireEvent.click(btn);
     expect(onLike).toHaveBeenCalledWith("note_1");
+  });
+
+  it("renders thumbs up icon instead of heart icon", () => {
+    const notes = [
+      { note_id: "note_1", text: "Note text", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 2, liked_by_me: false, quoted: false }
+    ];
+    renderOrbitLayer({ ...baseProps, notes });
+
+    const likeBtn = screen.getByRole("button", { name: /Like/i });
+    expect(likeBtn.textContent).toContain("👍");
   });
 
   it("renders the promote button in the header when canPromote is true", () => {
