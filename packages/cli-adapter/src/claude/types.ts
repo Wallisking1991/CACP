@@ -1,10 +1,30 @@
 import type {
-  ClaudeRuntimeMetrics,
-  ClaudeRuntimePhase,
+  CanUseTool as ClaudeSdkCanUseTool,
+  ElicitationRequest as ClaudeSdkElicitationRequest,
+  ElicitationResult as ClaudeSdkElicitationResult,
+  OnElicitation as ClaudeSdkOnElicitation,
+  PermissionMode as ClaudeSdkPermissionMode,
+  PermissionResult as ClaudeSdkPermissionResult,
+  SDKSessionInfo as ClaudeSdkSessionSummary,
+  SessionMessage as ClaudeSdkSessionMessage,
+  SettingSource as ClaudeSdkSettingSource,
+  ToolConfig as ClaudeSdkToolConfig
+} from "@anthropic-ai/claude-agent-sdk";
+import type {
+  AgentRunApprovalRequestBody,
+  AgentRunElicitationRequestBody,
+  AgentRunMetrics,
+  AgentRunNodeCompletedPayload,
+  AgentRunNodeDeltaPayload,
+  AgentRunNodeFailedPayload,
+  AgentRunNodeStartedPayload,
+  AgentRunNodeUpdatedPayload,
   ClaudeSessionImportMessagePayload,
   ClaudeSessionPreviewMessagePayload,
   ClaudeSessionSummary
 } from "@cacp/protocol";
+
+export type { ClaudeSdkSessionMessage, ClaudeSdkSessionSummary };
 
 export interface ClaudeSessionCatalogInput {
   workingDir: string;
@@ -26,81 +46,64 @@ export interface ClaudeImportResult {
   messages: ClaudeImportedMessage[];
 }
 
-export interface ClaudeRuntimeStatus {
-  phase: ClaudeRuntimePhase;
-  current: string;
-  recent: string[];
-  metrics: ClaudeRuntimeMetrics;
-  detail?: Record<string, unknown>;
-}
-
-export interface ClaudeRuntimeCallbacks {
-  onStatus(status: ClaudeRuntimeStatus): Promise<void>;
-  onDelta(chunk: string): Promise<void>;
-}
-
-export interface ClaudePersistentSession {
-  sessionId: string | undefined;
-  send(prompt: string): Promise<void>;
-  stream(): AsyncIterable<unknown>;
-  close(): Promise<void>;
-}
-
-export interface ClaudeSdkSessionMessage {
-  uuid?: string;
-  type?: string;
-  message?: unknown;
-}
-
-export interface ClaudeSdkSessionSummary {
-  sessionId?: string;
-  summary?: string;
-  lastModified?: number;
-  fileSize?: number;
-  cwd?: string;
-}
-
-export type ClaudeSdkPermissionMode = "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk" | "auto";
-export type ClaudeSdkSettingSource = "user" | "project" | "local";
-
-export interface ClaudeSdkSessionOptions {
-  workingDir: string;
-  sessionId?: string;
-  permissionMode: ClaudeSdkPermissionMode;
+export interface ClaudeQueryOptions {
+  cwd: string;
   model: string;
+  permissionMode?: ClaudeSdkPermissionMode;
   settingSources?: ClaudeSdkSettingSource[];
-  allowedTools?: string[];
-  disallowedTools?: string[];
-  allowDangerouslySkipPermissions?: boolean;
   includePartialMessages?: boolean;
+  includeHookEvents?: boolean;
+  forwardSubagentText?: boolean;
+  toolConfig?: ClaudeSdkToolConfig;
+  resume?: string;
+  sessionId?: string;
+  canUseTool?: ClaudeSdkCanUseTool;
+  onElicitation?: ClaudeSdkOnElicitation;
+  pathToClaudeCodeExecutable?: string;
 }
 
-export function toClaudeSdkSessionOptions(cacpLevel: string): Pick<ClaudeSdkSessionOptions, "permissionMode" | "allowedTools" | "disallowedTools" | "allowDangerouslySkipPermissions"> {
-  if (cacpLevel === "read_only") {
-    return {
-      permissionMode: "dontAsk",
-      allowedTools: ["Read", "Glob", "Grep", "LS"]
-    };
-  }
-  if (cacpLevel === "limited_write") {
-    return {
-      permissionMode: "dontAsk",
-      allowedTools: ["Read", "Glob", "Grep", "LS", "Edit", "MultiEdit", "Write"],
-      disallowedTools: ["Bash"]
-    };
-  }
-  if (cacpLevel === "full_access") {
-    return {
-      permissionMode: "bypassPermissions",
-      allowDangerouslySkipPermissions: true
-    };
-  }
-  return { permissionMode: "default" };
+export interface ClaudeQueryInput {
+  prompt: string;
+  options: ClaudeQueryOptions;
 }
+
+export type ClaudeQuery = AsyncIterable<unknown> & {
+  close(): void;
+};
 
 export interface ClaudeSdk {
-  createSession(input: ClaudeSdkSessionOptions): Promise<ClaudePersistentSession>;
-  resumeSession(input: ClaudeSdkSessionOptions): Promise<ClaudePersistentSession>;
+  query(input: ClaudeQueryInput): ClaudeQuery;
   listSessions(input: { dir: string }): Promise<ClaudeSdkSessionSummary[]>;
   getSessionMessages(sessionId: string, input: { dir: string; includeSystemMessages?: boolean }): Promise<ClaudeSdkSessionMessage[]>;
+}
+
+export type ClaudePermissionResult = ClaudeSdkPermissionResult;
+export type ClaudeElicitationRequest = ClaudeSdkElicitationRequest;
+export type ClaudeElicitationResult = ClaudeSdkElicitationResult;
+export type ClaudeRunMetrics = AgentRunMetrics;
+
+export interface ClaudeApprovalDecision {
+  decision: "allow" | "deny";
+  resolved_by: string;
+  resolved_at: string;
+  reason?: string;
+}
+
+export interface ClaudeElicitationDecision {
+  action: "accept" | "decline" | "cancel";
+  content?: Record<string, unknown>;
+  resolved_by: string;
+  resolved_at: string;
+  reason?: string;
+}
+
+export interface ClaudeRunTraceSink {
+  publishDelta(turnId: string, chunk: string): Promise<void>;
+  startNode(payload: AgentRunNodeStartedPayload): Promise<void>;
+  appendNodeDelta(payload: AgentRunNodeDeltaPayload): Promise<void>;
+  updateNode(payload: AgentRunNodeUpdatedPayload): Promise<void>;
+  completeNode(payload: AgentRunNodeCompletedPayload): Promise<void>;
+  failNode(payload: AgentRunNodeFailedPayload): Promise<void>;
+  requestApproval(nodeId: string, payload: AgentRunApprovalRequestBody): Promise<ClaudeApprovalDecision>;
+  requestElicitation(nodeId: string, payload: AgentRunElicitationRequestBody): Promise<ClaudeElicitationDecision>;
 }

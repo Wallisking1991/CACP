@@ -1,90 +1,51 @@
-import type {
-  ClaudePersistentSession,
-  ClaudeSdk,
-  ClaudeSdkSessionMessage,
-  ClaudeSdkSessionSummary
-} from "./types.js";
+import type { ClaudeQuery, ClaudeQueryInput, ClaudeSdk, ClaudeSdkSessionMessage, ClaudeSdkSessionSummary } from "./types.js";
 
-type UnknownSdkModule = Record<string, unknown>;
+type UnknownSdkModule = Record<string | symbol, unknown>;
 
 export interface ClaudeSdkBoundaryOptions {
   resolveClaudeCodeExecutablePath?: () => string | undefined;
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" ? value as Record<string, unknown> : {};
+function asRecord(value: unknown): Record<string | symbol, unknown> {
+  return value && typeof value === "object" ? value as Record<string | symbol, unknown> : {};
 }
 
-function wrapSession(rawSession: unknown): ClaudePersistentSession {
-  const session = asRecord(rawSession);
-  const send = session.send;
-  const stream = session.stream;
-  const close = session.close;
-  if (typeof send !== "function") {
-    throw new Error("Claude Code Agent SDK session object does not expose send");
+function wrapQuery(rawQuery: unknown): ClaudeQuery {
+  const query = asRecord(rawQuery);
+  const iterator = query[Symbol.asyncIterator];
+  const close = query.close;
+  if (typeof iterator !== "function") {
+    throw new Error("Claude Code Agent SDK query() did not return an async iterable query");
   }
-  if (typeof stream !== "function") {
-    throw new Error("Claude Code Agent SDK session object does not expose stream");
-  }
-  function readSessionId(): string | undefined {
-    try {
-      const id = session.sessionId ?? session.session_id;
-      return typeof id === "string" ? id : undefined;
-    } catch {
-      return undefined;
-    }
-  }
-
   return {
-    get sessionId(): string | undefined {
-      return readSessionId();
+    [Symbol.asyncIterator](): AsyncIterator<unknown> {
+      return iterator.call(rawQuery) as AsyncIterator<unknown>;
     },
-    async send(prompt: string): Promise<void> {
-      await send.call(rawSession, prompt);
-    },
-    stream(): AsyncIterable<unknown> {
-      return stream.call(rawSession) as AsyncIterable<unknown>;
-    },
-    async close(): Promise<void> {
-      if (typeof close === "function") await close.call(rawSession);
+    close(): void {
+      if (typeof close === "function") close.call(rawQuery);
     }
   };
 }
 
 export function createClaudeSdkFromModule(module: UnknownSdkModule, options: ClaudeSdkBoundaryOptions = {}): ClaudeSdk {
-  const createSession = module.unstable_v2_createSession;
-  const resumeSession = module.unstable_v2_resumeSession;
+  const query = module.query;
   const listSessions = module.listSessions;
   const getSessionMessages = module.getSessionMessages;
-  if (typeof createSession !== "function" || typeof resumeSession !== "function") {
-    throw new Error("Claude Code Agent SDK session APIs were not found. Install a Claude Code Agent SDK version that exposes v2 create/resume session APIs.");
+  if (typeof query !== "function") {
+    throw new Error("Claude Code Agent SDK query API was not found. Install a Claude Code Agent SDK version that exposes query().");
   }
-  const claudeCodeExecutablePath = options.resolveClaudeCodeExecutablePath?.() ?? "claude";
+
   return {
-    async createSession(input) {
-      return wrapSession(await createSession({
-        pathToClaudeCodeExecutable: claudeCodeExecutablePath,
-        cwd: input.workingDir,
-        permissionMode: input.permissionMode,
-        model: input.model,
-        ...(input.settingSources ? { settingSources: input.settingSources } : {}),
-        ...(input.includePartialMessages ? { includePartialMessages: true } : {}),
-        ...(input.allowedTools ? { allowedTools: input.allowedTools } : {}),
-        ...(input.disallowedTools ? { disallowedTools: input.disallowedTools } : {}),
-        ...(input.allowDangerouslySkipPermissions ? { allowDangerouslySkipPermissions: true } : {})
-      }));
-    },
-    async resumeSession(input) {
-      return wrapSession(await resumeSession(input.sessionId, {
-        pathToClaudeCodeExecutable: claudeCodeExecutablePath,
-        cwd: input.workingDir,
-        permissionMode: input.permissionMode,
-        model: input.model,
-        ...(input.settingSources ? { settingSources: input.settingSources } : {}),
-        ...(input.includePartialMessages ? { includePartialMessages: true } : {}),
-        ...(input.allowedTools ? { allowedTools: input.allowedTools } : {}),
-        ...(input.disallowedTools ? { disallowedTools: input.disallowedTools } : {}),
-        ...(input.allowDangerouslySkipPermissions ? { allowDangerouslySkipPermissions: true } : {})
+    query(input: ClaudeQueryInput): ClaudeQuery {
+      const claudeCodeExecutablePath = options.resolveClaudeCodeExecutablePath?.();
+      return wrapQuery(query({
+        prompt: input.prompt,
+        options: {
+          ...input.options,
+          ...(claudeCodeExecutablePath && !input.options.pathToClaudeCodeExecutable
+            ? { pathToClaudeCodeExecutable: claudeCodeExecutablePath }
+            : {})
+        }
       }));
     },
     async listSessions(input): Promise<ClaudeSdkSessionSummary[]> {

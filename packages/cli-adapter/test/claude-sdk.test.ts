@@ -1,109 +1,86 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createClaudeSdkFromModule } from "../src/claude/claude-sdk.js";
 
+function createQuery(messages: unknown[], onClose = vi.fn()) {
+  return {
+    async *[Symbol.asyncIterator]() {
+      for (const message of messages) yield message;
+    },
+    close: onClose
+  };
+}
+
 describe("Claude SDK boundary", () => {
-  it("normalizes v2 create and resume session functions behind local interfaces", async () => {
-    const sent: string[] = [];
-    const streamMessages: unknown[] = [{ type: "assistant", message: "fresh answer" }];
-    const createOptions: unknown[] = [];
-    const resumeOptions: unknown[] = [];
+  it("normalizes query() behind local interfaces and forwards source-true options", async () => {
+    const closed = vi.fn();
+    const queryCalls: Array<{ prompt: string; options: Record<string, unknown> }> = [];
     const module = {
-      unstable_v2_createSession: async (options: unknown) => {
-        createOptions.push(options);
-        return {
-        sessionId: "fresh_session",
-        send: async (prompt: string) => { sent.push(prompt); },
-        stream: async function* () { for (const msg of streamMessages) yield msg; },
-        close: async () => undefined
-        };
-      },
-      unstable_v2_resumeSession: async (sessionId: string, options: unknown) => {
-        resumeOptions.push(options);
-        return {
-        sessionId,
-        send: async (prompt: string) => { sent.push(prompt); },
-        stream: async function* () { yield { type: "assistant", message: "resumed answer" }; },
-        close: async () => undefined
-        };
+      query: ({ prompt, options }: { prompt: string; options: Record<string, unknown> }) => {
+        queryCalls.push({ prompt, options });
+        return createQuery([
+          { type: "system", subtype: "init", session_id: "session_1", uuid: "u1" }
+        ], closed);
       },
       listSessions: async () => [{ sessionId: "session_1", summary: "Session", lastModified: 1764355200000, fileSize: 100 }],
       getSessionMessages: async (_sessionId: string, _input: { dir: string }) => [{ uuid: "m1", type: "assistant", message: "hello" }]
-    };
-
-    const sdk = createClaudeSdkFromModule(module);
-    const fresh = await sdk.createSession({ workingDir: ".", permissionMode: "read_only", model: "claude-sonnet-4-20250514", includePartialMessages: true, settingSources: ["user", "project", "local"] });
-    const resumed = await sdk.resumeSession({ workingDir: ".", sessionId: "session_1", permissionMode: "read_only", model: "claude-sonnet-4-20250514", includePartialMessages: true, settingSources: ["user", "project", "local"] });
-
-    expect(fresh.sessionId).toBe("fresh_session");
-    expect(resumed.sessionId).toBe("session_1");
-    await fresh.send("hello");
-    const chunks: string[] = [];
-    for await (const msg of fresh.stream()) {
-      const record = msg as Record<string, unknown>;
-      if (record.type === "assistant") chunks.push(String(record.message));
-    }
-    expect(chunks).toEqual(["fresh answer"]);
-    expect(sent).toEqual(["hello"]);
-    expect(createOptions[0]).toMatchObject({ includePartialMessages: true, settingSources: ["user", "project", "local"] });
-    expect(resumeOptions[0]).toMatchObject({ includePartialMessages: true, settingSources: ["user", "project", "local"] });
-  });
-
-  it("throws a clear error when session APIs are missing", () => {
-    expect(() => createClaudeSdkFromModule({})).toThrow(/Claude Code Agent SDK session APIs were not found/);
-  });
-
-  it("passes an explicit Claude Code executable path so bundled sessions do not use SDK import.meta resolution", async () => {
-    const createOptions: unknown[] = [];
-    const resumeOptions: unknown[] = [];
-    const module = {
-      unstable_v2_createSession: async (options: unknown) => {
-        createOptions.push(options);
-        return {
-          sessionId: "fresh",
-          send: async () => undefined,
-          stream: async function* () {},
-          close: async () => undefined
-        };
-      },
-      unstable_v2_resumeSession: async (_sessionId: string, options: unknown) => {
-        resumeOptions.push(options);
-        return {
-          sessionId: "resumed",
-          send: async () => undefined,
-          stream: async function* () {},
-          close: async () => undefined
-        };
-      }
     };
 
     const sdk = createClaudeSdkFromModule(module, {
       resolveClaudeCodeExecutablePath: () => "C:\\Claude\\claude.exe"
     });
 
-    await sdk.createSession({ workingDir: ".", permissionMode: "dontAsk", model: "claude-sonnet-4-20250514" });
-    await sdk.resumeSession({ workingDir: ".", sessionId: "session_1", permissionMode: "dontAsk", model: "claude-sonnet-4-20250514" });
+    const query = sdk.query({
+      prompt: "hello",
+      options: {
+        cwd: ".",
+        model: "claude-sonnet-4-20250514",
+        permissionMode: "default",
+        settingSources: ["user", "project", "local"],
+        includePartialMessages: true,
+        includeHookEvents: true,
+        forwardSubagentText: true,
+        toolConfig: { askUserQuestion: { previewFormat: "html" } },
+        canUseTool: async () => ({ behavior: "allow" }),
+        onElicitation: async () => ({ action: "cancel" })
+      }
+    });
 
-    expect(createOptions[0]).toMatchObject({ pathToClaudeCodeExecutable: "C:\\Claude\\claude.exe" });
-    expect(resumeOptions[0]).toMatchObject({ pathToClaudeCodeExecutable: "C:\\Claude\\claude.exe" });
+    const messages: unknown[] = [];
+    for await (const message of query) messages.push(message);
+    query.close();
+
+    expect(queryCalls[0]).toMatchObject({
+      prompt: "hello",
+      options: {
+        cwd: ".",
+        model: "claude-sonnet-4-20250514",
+        permissionMode: "default",
+        settingSources: ["user", "project", "local"],
+        includePartialMessages: true,
+        includeHookEvents: true,
+        forwardSubagentText: true,
+        toolConfig: { askUserQuestion: { previewFormat: "html" } },
+        pathToClaudeCodeExecutable: "C:\\Claude\\claude.exe"
+      }
+    });
+    expect(messages).toHaveLength(1);
+    expect(closed).toHaveBeenCalledTimes(1);
   });
 
-  it("handles fresh session sessionId getter throwing", async () => {
+  it("keeps listSessions and getSessionMessages available for catalog and import flows", async () => {
     const module = {
-      unstable_v2_createSession: async () => ({
-        get sessionId() { throw new Error("No session ID on fresh session"); },
-        send: async () => undefined,
-        stream: async function* () { yield { type: "assistant", message: "hello" }; },
-        close: async () => undefined
-      }),
-      unstable_v2_resumeSession: async () => ({ sessionId: "resumed", send: async () => undefined, stream: async function* () {}, close: async () => undefined }),
-      listSessions: async () => [],
-      getSessionMessages: async () => []
+      query: () => createQuery([]),
+      listSessions: async () => [{ sessionId: "session_1", summary: "Session", lastModified: 1764355200000, fileSize: 100 }],
+      getSessionMessages: async (_sessionId: string, _input: { dir: string }) => [{ uuid: "m1", type: "assistant", message: "hello" }]
     };
 
     const sdk = createClaudeSdkFromModule(module);
-    const fresh = await sdk.createSession({ workingDir: ".", permissionMode: "read_only", model: "claude-sonnet-4-20250514" });
-    expect(fresh.sessionId).toBeUndefined();
-    const resumed = await sdk.resumeSession({ workingDir: ".", sessionId: "s1", permissionMode: "read_only", model: "claude-sonnet-4-20250514" });
-    expect(resumed.sessionId).toBe("resumed");
+
+    await expect(sdk.listSessions({ dir: "." })).resolves.toHaveLength(1);
+    await expect(sdk.getSessionMessages("session_1", { dir: ".", includeSystemMessages: true })).resolves.toHaveLength(1);
+  });
+
+  it("throws a clear error when the query API is missing", () => {
+    expect(() => createClaudeSdkFromModule({})).toThrow(/query API/i);
   });
 });

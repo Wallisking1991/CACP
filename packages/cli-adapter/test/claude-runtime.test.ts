@@ -1,49 +1,66 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ClaudeRuntime } from "../src/claude/runtime.js";
 
-describe("Claude persistent runtime", () => {
+function createQuery(messages: unknown[]) {
+  return {
+    async *[Symbol.asyncIterator]() {
+      for (const message of messages) yield message;
+    },
+    close: vi.fn()
+  };
+}
+
+function createSuccessResult(sessionId = "session_1", result = "answer") {
+  return {
+    type: "result",
+    subtype: "success",
+    duration_ms: 1000,
+    duration_api_ms: 800,
+    is_error: false,
+    num_turns: 1,
+    result,
+    stop_reason: "end_turn",
+    total_cost_usd: 0.001,
+    usage: { input_tokens: 10, output_tokens: 20 },
+    modelUsage: {},
+    permission_denials: [],
+    uuid: "result_1",
+    session_id: sessionId
+  };
+}
+
+function createRuntime(overrides: Record<string, unknown> = {}) {
+  return new ClaudeRuntime({
+    agentId: "agent_1",
+    workingDir: "D:\\Development\\2",
+    permissionLevel: "read_only",
+    model: "claude-sonnet-4-20250514",
+    publishDelta: async () => undefined,
+    startNode: async () => undefined,
+    appendNodeDelta: async () => undefined,
+    updateNode: async () => undefined,
+    completeNode: async () => undefined,
+    failNode: async () => undefined,
+    requestApproval: async () => ({ decision: "allow", resolved_by: "user_1", resolved_at: "2026-05-05T00:00:00.000Z" }),
+    requestElicitation: async () => ({ action: "cancel", resolved_by: "user_1", resolved_at: "2026-05-05T00:00:00.000Z" }),
+    ...overrides
+  });
+}
+
+describe("Claude runtime", () => {
   it("absorbs sdk load failure so the process does not crash from an unhandled rejection", async () => {
-    const runtime = new ClaudeRuntime({
-      sdk: Promise.reject(new Error("Claude SDK not installed")) as unknown as {
-        createSession: () => Promise<never>;
-        resumeSession: () => Promise<never>;
-      },
-      agentId: "agent_1",
-      workingDir: "D:\\Development\\2",
-      permissionMode: "read_only",
-      model: "claude-sonnet-4-20250514",
-      publishStatus: async () => undefined,
-      publishDelta: async () => undefined
+    const runtime = createRuntime({
+      sdk: Promise.reject(new Error("Claude SDK not installed")) as unknown as { query: () => never }
     });
 
     await expect(runtime.selectSession({ mode: "fresh" })).rejects.toThrow("Claude SDK not installed");
   });
 
-  it("requires the owner-selected Claude session before running a turn", async () => {
-    let createCalls = 0;
+  it("requires an owner-selected Claude session before running a turn", async () => {
     const sdk = {
-      createSession: async () => {
-        createCalls += 1;
-        return {
-          sessionId: "fresh",
-          send: async () => undefined,
-          stream: async function* () {
-            yield { type: "assistant", message: "unexpected" };
-          },
-          close: async () => undefined
-        };
-      },
-      resumeSession: async () => { throw new Error("unexpected"); }
+      query: () => createQuery([{ type: "assistant", message: "unexpected" }])
     };
-    const runtime = new ClaudeRuntime({
-      sdk,
-      agentId: "agent_1",
-      workingDir: "D:\\Development\\2",
-      permissionMode: "read_only",
-      model: "claude-sonnet-4-20250514",
-      publishStatus: async () => undefined,
-      publishDelta: async () => undefined
-    });
+    const runtime = createRuntime({ sdk });
 
     await expect(runtime.runTurn({
       turnId: "turn_1",
@@ -53,85 +70,79 @@ describe("Claude persistent runtime", () => {
       modeLabel: "normal",
       text: "hello"
     })).rejects.toThrow("claude_session_not_selected");
-    expect(createCalls).toBe(0);
   });
 
-  it("configures read-only Claude sessions with read tools instead of plan mode", async () => {
-    const createdOptions: unknown[] = [];
+  it("uses query() with source-true options for a fresh selection and captures the created session id", async () => {
+    const queryCalls: Array<{ prompt: string; options: Record<string, unknown> }> = [];
+    const deltas: string[] = [];
     const sdk = {
-      createSession: async (options: unknown) => {
-        createdOptions.push(options);
-        return {
-          sessionId: "fresh",
-          send: async () => undefined,
-          stream: async function* () {},
-          close: async () => undefined
-        };
-      },
-      resumeSession: async () => { throw new Error("unexpected"); }
+      query: ({ prompt, options }: { prompt: string; options: Record<string, unknown> }) => {
+        queryCalls.push({ prompt, options });
+        return createQuery([
+          { type: "system", subtype: "init", session_id: "session_1", uuid: "init_1" },
+          {
+            type: "assistant",
+            parent_tool_use_id: null,
+            uuid: "assistant_1",
+            session_id: "session_1",
+            message: { content: [{ type: "text", text: "answer" }] }
+          },
+          createSuccessResult("session_1", "answer")
+        ]);
+      }
     };
-    const runtime = new ClaudeRuntime({
+    const runtime = createRuntime({
       sdk,
-      agentId: "agent_1",
-      workingDir: "D:\\Development\\2",
-      permissionMode: "read_only",
-      model: "claude-sonnet-4-20250514",
-      publishStatus: async () => undefined,
-      publishDelta: async () => undefined
+      publishDelta: async (_turnId: string, chunk: string) => { deltas.push(chunk); }
     });
 
     await runtime.selectSession({ mode: "fresh" });
-
-    expect(createdOptions[0]).toMatchObject({
-      workingDir: "D:\\Development\\2",
-      includePartialMessages: true,
-      settingSources: ["user", "project", "local"],
-      permissionMode: "dontAsk",
-      allowedTools: ["Read", "Glob", "Grep", "LS"]
+    const result = await runtime.runTurn({
+      turnId: "turn_1",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "hello"
     });
+
+    expect(queryCalls[0]?.options).toMatchObject({
+      cwd: "D:\\Development\\2",
+      model: "claude-sonnet-4-20250514",
+      permissionMode: "default",
+      settingSources: ["user", "project", "local"],
+      includePartialMessages: true,
+      includeHookEvents: true,
+      forwardSubagentText: true,
+      toolConfig: { askUserQuestion: { previewFormat: "html" } }
+    });
+    expect(queryCalls[0]?.options).not.toHaveProperty("resume");
+    expect(result.sessionId).toBe("session_1");
+    expect(result.finalText).toBe("answer");
+    expect(deltas).toEqual(["answer"]);
   });
 
-  it("resumes one session and reuses it across multiple turns", async () => {
-    const prompts: string[] = [];
-    let createCalls = 0;
-    let resumeCalls = 0;
+  it("reuses the selected resume session across multiple turns", async () => {
+    const queryCalls: Array<{ prompt: string; options: Record<string, unknown> }> = [];
     const sdk = {
-      createSession: async () => {
-        createCalls += 1;
-        return {
-          sessionId: "fresh",
-          send: async (prompt: string) => { prompts.push(prompt); },
-          stream: async function* () {
-            yield { type: "assistant", message: "fresh answer" };
+      query: ({ prompt, options }: { prompt: string; options: Record<string, unknown> }) => {
+        queryCalls.push({ prompt, options });
+        return createQuery([
+          { type: "system", subtype: "init", session_id: "session_9", uuid: `init_${queryCalls.length}` },
+          {
+            type: "assistant",
+            parent_tool_use_id: null,
+            uuid: `assistant_${queryCalls.length}`,
+            session_id: "session_9",
+            message: { content: [{ type: "text", text: "resumed answer" }] }
           },
-          close: async () => undefined
-        };
-      },
-      resumeSession: async () => {
-        resumeCalls += 1;
-        return {
-          sessionId: "session_1",
-          send: async (prompt: string) => { prompts.push(prompt); },
-          stream: async function* () {
-            yield { type: "assistant", message: "resumed answer" };
-          },
-          close: async () => undefined
-        };
+          createSuccessResult("session_9", "resumed answer")
+        ]);
       }
     };
-    const statuses: string[] = [];
-    const deltas: string[] = [];
-    const runtime = new ClaudeRuntime({
-      sdk,
-      agentId: "agent_1",
-      workingDir: "D:\\Development\\2",
-      permissionMode: "read_only",
-      model: "claude-sonnet-4-20250514",
-      publishStatus: async (_turnId, status) => { statuses.push(status.phase); },
-      publishDelta: async (_turnId, chunk) => { deltas.push(chunk); }
-    });
+    const runtime = createRuntime({ sdk });
 
-    await runtime.selectSession({ mode: "resume", sessionId: "session_1" });
+    await runtime.selectSession({ mode: "resume", sessionId: "session_9" });
     const first = await runtime.runTurn({
       turnId: "turn_1",
       roomName: "Room",
@@ -149,115 +160,10 @@ describe("Claude persistent runtime", () => {
       text: "second"
     });
 
-    expect(createCalls).toBe(0);
-    expect(resumeCalls).toBe(1);
+    expect(queryCalls.map((call) => call.options.resume)).toEqual(["session_9", "session_9"]);
     expect(first.finalText).toBe("resumed answer");
     expect(second.finalText).toBe("resumed answer");
-    expect(prompts).toHaveLength(2);
-    expect(prompts[0]).toContain("Message: first");
-    expect(prompts[1]).toContain("Message: second");
-    expect(statuses).toContain("resuming_session");
-    expect(deltas).toEqual(["resumed answer", "resumed answer"]);
-  });
-
-  it("extracts text and tool activity from real Claude SDK assistant content blocks", async () => {
-    const prompts: string[] = [];
-    const sdk = {
-      createSession: async () => ({
-        sessionId: "session_1",
-        send: async (prompt: string) => { prompts.push(prompt); },
-        stream: async function* () {
-          yield {
-            type: "assistant",
-            uuid: "assistant_1",
-            session_id: "session_1",
-            message: {
-              id: "msg_1",
-              type: "message",
-              role: "assistant",
-              model: "claude-sonnet-4-20250514",
-              stop_reason: null,
-              stop_sequence: null,
-              usage: { input_tokens: 1, output_tokens: 1 },
-              content: [
-                { type: "text", text: "I will inspect it." },
-                { type: "tool_use", id: "toolu_1", name: "Read", input: { file_path: "README.md" } },
-                { type: "text", text: "Done." }
-              ]
-            }
-          };
-          yield { type: "system", subtype: "session_state_changed", state: "idle" };
-        },
-        close: async () => undefined
-      }),
-      resumeSession: async () => { throw new Error("unexpected"); }
-    };
-    const statuses: Array<{ phase: string; current: string }> = [];
-    const deltas: string[] = [];
-    const runtime = new ClaudeRuntime({
-      sdk,
-      agentId: "agent_1",
-      workingDir: "D:\\Development\\2",
-      permissionMode: "read_only",
-      model: "claude-sonnet-4-20250514",
-      publishStatus: async (_turnId, status) => { statuses.push({ phase: status.phase, current: status.current }); },
-      publishDelta: async (_turnId, chunk) => { deltas.push(chunk); }
-    });
-
-    await runtime.selectSession({ mode: "fresh" });
-    const result = await runtime.runTurn({
-      turnId: "turn_1",
-      roomName: "Room",
-      speakerName: "Owner",
-      speakerRole: "owner",
-      modeLabel: "normal",
-      text: "inspect"
-    });
-
-    expect(result.finalText).toBe("I will inspect it.Done.");
-    expect(deltas).toEqual(["I will inspect it.Done."]);
-    expect(result.metrics.files_read).toBe(1);
-    expect(statuses.some((status) => status.phase === "reading_files" && status.current.includes("README.md"))).toBe(true);
-    expect(prompts[0]).toContain("Safety/permission:");
-    expect(prompts[0]).toContain("Current permission mode: read_only");
-  });
-
-  it("breaks stream loop on system session_state_changed idle event", async () => {
-    const sdk = {
-      createSession: async () => ({
-        sessionId: "fresh",
-        send: async () => undefined,
-        stream: async function* () {
-          yield { type: "assistant", message: "partial" };
-          yield { type: "system", subtype: "session_state_changed", state: "idle" };
-          yield { type: "assistant", message: "should not appear" };
-        },
-        close: async () => undefined
-      }),
-      resumeSession: async () => { throw new Error("unexpected"); }
-    };
-    const deltas: string[] = [];
-    const runtime = new ClaudeRuntime({
-      sdk,
-      agentId: "agent_1",
-      workingDir: "D:\\Development\\2",
-      permissionMode: "read_only",
-      model: "claude-sonnet-4-20250514",
-      publishStatus: async () => undefined,
-      publishDelta: async (_turnId, chunk) => { deltas.push(chunk); }
-    });
-
-    await runtime.selectSession({ mode: "fresh" });
-    const result = await runtime.runTurn({
-      turnId: "turn_1",
-      roomName: "Room",
-      speakerName: "Owner",
-      speakerRole: "owner",
-      modeLabel: "normal",
-      text: "hello"
-    });
-
-    expect(result.finalText).toBe("partial");
-    expect(deltas).toEqual(["partial"]);
+    expect(queryCalls[0]?.prompt).toContain("Message: first");
+    expect(queryCalls[1]?.prompt).toContain("Message: second");
   });
 });

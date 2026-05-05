@@ -68,40 +68,21 @@ async function main() {
 
   const isClaudeCode = !config.llm && config.agent.capabilities.includes("claude-code");
   const isCodexCli = !config.llm && config.agent.capabilities.includes("codex-cli");
-  const turnStatusStartedAt = new Map<string, string>();
   const claudeRuntime = isClaudeCode ? new ClaudeRuntime({
     agentId: registered.agent_id,
     workingDir: config.agent.working_dir,
-    permissionMode: config.permission_level ?? "read_only",
+    permissionLevel: config.permission_level ?? "read_only",
     model: config.agent.model ?? "claude-sonnet-4-20250514",
     publishDelta: async (turnId, chunk) => {
       await roomClient.publishTurnDelta(turnId, chunk);
     },
-    publishStatus: async (turnId, status) => {
-      const now = new Date().toISOString();
-      const startedAt = turnStatusStartedAt.get(turnId) ?? now;
-      turnStatusStartedAt.set(turnId, startedAt);
-      await roomClient.publishRuntimeStatus("changed", {
-        agent_id: registered.agent_id,
-        turn_id: turnId,
-        status_id: `status_${turnId}`,
-        phase: status.phase,
-        current: status.current,
-        recent: status.recent,
-        metrics: status.metrics,
-        detail: status.detail,
-        started_at: startedAt,
-        updated_at: now
-      });
-    },
-    publishThinkingDelta: async (turnId, text, done) => {
-      await roomClient.publishThinkingDelta({
-        agent_id: registered.agent_id,
-        turn_id: turnId,
-        text,
-        done
-      });
-    }
+    startNode: async (payload) => { await roomClient.startRunNode(payload.run_id, payload); },
+    appendNodeDelta: async (payload) => { await roomClient.appendRunNodeDelta(payload.run_id, payload.node_id, payload); },
+    updateNode: async (payload) => { await roomClient.updateRunNode(payload.run_id, payload.node_id, payload); },
+    completeNode: async (payload) => { await roomClient.completeRunNode(payload.run_id, payload.node_id, payload); },
+    failNode: async (payload) => { await roomClient.failRunNode(payload.run_id, payload.node_id, payload); },
+    requestApproval: async (nodeId, payload) => { return await roomClient.requestRunApproval(payload.turn_id, nodeId, payload); },
+    requestElicitation: async (nodeId, payload) => { return await roomClient.requestRunElicitation(payload.turn_id, nodeId, payload); }
   }) : undefined;
 
   const codexRuntime = isCodexCli ? new CodexRuntime({
@@ -112,23 +93,11 @@ async function main() {
     publishDelta: async (turnId, chunk) => {
       await roomClient.publishTurnDelta(turnId, chunk);
     },
-    publishStatus: async (turnId, status) => {
-      const now = new Date().toISOString();
-      const startedAt = turnStatusStartedAt.get(turnId) ?? now;
-      turnStatusStartedAt.set(turnId, startedAt);
-      await roomClient.publishAgentRuntimeStatus("changed", {
-        agent_id: registered.agent_id,
-        provider: "codex-cli",
-        turn_id: turnId,
-        status_id: `status_${turnId}`,
-        phase: status.phase,
-        current: status.current,
-        recent: status.recent,
-        metrics: status.metrics,
-        started_at: startedAt,
-        updated_at: now
-      });
-    }
+    startNode: async (payload) => { await roomClient.startRunNode(payload.run_id, payload); },
+    appendNodeDelta: async (payload) => { await roomClient.appendRunNodeDelta(payload.run_id, payload.node_id, payload); },
+    updateNode: async (payload) => { await roomClient.updateRunNode(payload.run_id, payload.node_id, payload); },
+    completeNode: async (payload) => { await roomClient.completeRunNode(payload.run_id, payload.node_id, payload); },
+    failNode: async (payload) => { await roomClient.failRunNode(payload.run_id, payload.node_id, payload); }
   }) : undefined;
 
   const streamUrl = new URL(`/rooms/${config.room_id}/stream`, config.server_url);
@@ -137,6 +106,23 @@ async function main() {
 
   const ws = new WebSocket(streamUrl, { origin: config.server_url });
   const runningTasks = new Set<string>();
+
+  function nowIso(): string {
+    return new Date().toISOString();
+  }
+
+  function appendAgentFinal(turnId: string, text: string, source: "composer" | "orbit_promote"): void {
+    ledger.append({
+      entry_type: "agent_final",
+      actor_id: registered.agent_id,
+      actor_name: config.agent.name,
+      actor_role: "agent",
+      text,
+      source,
+      created_at: nowIso(),
+      turn_id: turnId
+    });
+  }
 
   async function handleMessage(raw: WebSocket.RawData): Promise<void> {
     try {
@@ -223,19 +209,11 @@ async function main() {
               agent_id: registered.agent_id,
               mode: "fresh",
               ...(sessionId ? { session_id: sessionId } : {}),
-              ready_at: new Date().toISOString()
+              ready_at: nowIso()
             });
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             console.error("Claude session selection failed:", message);
-            await roomClient.publishRuntimeStatus("failed", {
-              agent_id: registered.agent_id,
-              turn_id: "session_selection",
-              status_id: "status_session_selection",
-              error: message,
-              metrics: { files_read: 0, searches: 0, commands: 0 },
-              failed_at: new Date().toISOString()
-            });
           }
           return;
         }
@@ -271,14 +249,14 @@ async function main() {
               agent_id: registered.agent_id,
               session_id: payload.session_id,
               imported_message_count: importResult.messages.length,
-              completed_at: new Date().toISOString()
+              completed_at: nowIso()
             });
             importClosed = true;
             await roomClient.publishSessionReady({
               agent_id: registered.agent_id,
               mode: "resume",
               session_id: payload.session_id,
-              ready_at: new Date().toISOString()
+              ready_at: nowIso()
             });
           } catch (error) {
             if (importClosed) throw error;
@@ -287,7 +265,7 @@ async function main() {
               agent_id: registered.agent_id,
               session_id: payload.session_id,
               error: error instanceof Error ? error.message : String(error),
-              failed_at: new Date().toISOString()
+              failed_at: nowIso()
             });
             importClosed = true;
           }
@@ -345,20 +323,11 @@ async function main() {
               agent_id: registered.agent_id,
               provider: "codex-cli",
               mode: "fresh",
-              ready_at: new Date().toISOString()
+              ready_at: nowIso()
             });
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             console.error("Codex session selection failed:", message);
-            await roomClient.publishAgentRuntimeStatus("failed", {
-              agent_id: registered.agent_id,
-              provider: "codex-cli",
-              turn_id: "session_selection",
-              status_id: "status_session_selection",
-              error: message,
-              metrics: { files_read: 0, searches: 0, commands: 0 },
-              failed_at: new Date().toISOString()
-            });
           }
           return;
         }
@@ -396,7 +365,7 @@ async function main() {
               provider: "codex-cli",
               session_id: payload.session_id,
               imported_message_count: importResult.messages.length,
-              completed_at: new Date().toISOString()
+              completed_at: nowIso()
             });
             importClosed = true;
             await roomClient.publishAgentSessionReady({
@@ -404,7 +373,7 @@ async function main() {
               provider: "codex-cli",
               mode: "resume",
               session_id: payload.session_id,
-              ready_at: new Date().toISOString()
+              ready_at: nowIso()
             });
           } catch (error) {
             if (importClosed) throw error;
@@ -414,7 +383,7 @@ async function main() {
               provider: "codex-cli",
               session_id: payload.session_id,
               error: error instanceof Error ? error.message : String(error),
-              failed_at: new Date().toISOString()
+              failed_at: nowIso()
             });
             importClosed = true;
           }
@@ -435,7 +404,6 @@ async function main() {
         const turnText = payload.message_text ?? payload.context_prompt;
         if (!payload.turn_id || !turnText || payload.agent_id !== registered.agent_id || runningTasks.has(payload.turn_id)) return;
         runningTasks.add(payload.turn_id);
-        let finalText = "";
         const turnId = payload.turn_id;
         const ledgerSource = payload.source === "orbit_promote" ? "orbit_promote" : "composer";
         ledger.append({
@@ -448,6 +416,9 @@ async function main() {
           created_at: parsed.data.created_at,
           turn_id: turnId
         });
+        let runProvider: "claude-code" | "codex-cli" | undefined;
+        let turnCompleted = false;
+        let runStarted = false;
         try {
           if (config.llm) {
             await roomClient.startTurn(turnId);
@@ -456,24 +427,23 @@ async function main() {
               prompt: buildLlmPromptFromLedger({ entries: ledger.snapshotSince(0), currentInput: turnText }),
               systemPrompt: config.agent.system_prompt,
               onDelta: async (chunk) => {
-                finalText += chunk;
                 await roomClient.publishTurnDelta(turnId, chunk);
               }
             });
             await roomClient.completeTurn(turnId, result.finalText);
-            ledger.append({
-              entry_type: "agent_final",
-              actor_id: registered.agent_id,
-              actor_name: config.agent.name,
-              actor_role: "agent",
-              text: result.finalText,
-              source: ledgerSource,
-              created_at: new Date().toISOString(),
-              turn_id: turnId
-            });
+            turnCompleted = true;
+            appendAgentFinal(turnId, result.finalText, ledgerSource);
           } else if (claudeRuntime) {
-            const startedAt = Date.now();
+            runProvider = "claude-code";
             await roomClient.startTurn(turnId);
+            await roomClient.startRun(turnId, {
+              run_id: turnId,
+              turn_id: turnId,
+              agent_id: registered.agent_id,
+              provider: runProvider,
+              started_at: nowIso()
+            });
+            runStarted = true;
             const result = await claudeRuntime.runTurn({
               turnId,
               roomName: typeof payload.room_name === "string" ? payload.room_name : undefined,
@@ -482,28 +452,31 @@ async function main() {
               modeLabel: typeof payload.mode === "string" ? payload.mode : "normal",
               text: turnText
             });
-            await roomClient.publishRuntimeStatus("completed", {
-              agent_id: registered.agent_id,
+            const turnCompletion = await roomClient.completeTurn(turnId, result.finalText);
+            turnCompleted = true;
+            await roomClient.completeRun(turnId, {
+              run_id: turnId,
               turn_id: turnId,
-              status_id: `status_${turnId}`,
+              agent_id: registered.agent_id,
+              provider: runProvider,
+              message_id: turnCompletion.message_id,
               summary: statusSummary({ metrics: result.metrics }),
               metrics: result.metrics,
-              completed_at: new Date().toISOString()
+              ...(result.usage ? { usage: result.usage } : {}),
+              completed_at: nowIso()
             });
-            await roomClient.completeTurn(turnId, result.finalText);
-            ledger.append({
-              entry_type: "agent_final",
-              actor_id: registered.agent_id,
-              actor_name: config.agent.name,
-              actor_role: "agent",
-              text: result.finalText,
-              source: ledgerSource,
-              created_at: new Date().toISOString(),
-              turn_id: turnId
-            });
+            appendAgentFinal(turnId, result.finalText, ledgerSource);
           } else if (codexRuntime) {
-            const startedAt = Date.now();
+            runProvider = "codex-cli";
             await roomClient.startTurn(turnId);
+            await roomClient.startRun(turnId, {
+              run_id: turnId,
+              turn_id: turnId,
+              agent_id: registered.agent_id,
+              provider: runProvider,
+              started_at: nowIso()
+            });
+            runStarted = true;
             const result = await codexRuntime.runTurn({
               turnId,
               roomName: typeof payload.room_name === "string" ? payload.room_name : undefined,
@@ -512,61 +485,47 @@ async function main() {
               modeLabel: typeof payload.mode === "string" ? payload.mode : "normal",
               text: turnText
             });
-            await roomClient.publishAgentRuntimeStatus("completed", {
-              agent_id: registered.agent_id,
-              provider: "codex-cli",
+            const turnCompletion = await roomClient.completeTurn(turnId, result.finalText);
+            turnCompleted = true;
+            await roomClient.completeRun(turnId, {
+              run_id: turnId,
               turn_id: turnId,
-              status_id: `status_${turnId}`,
+              agent_id: registered.agent_id,
+              provider: runProvider,
+              message_id: turnCompletion.message_id,
               summary: statusSummary({ metrics: result.metrics }),
               metrics: result.metrics,
-              completed_at: new Date().toISOString()
+              ...(result.usage ? { usage: result.usage } : {}),
+              completed_at: nowIso()
             });
-            await roomClient.completeTurn(turnId, result.finalText);
-            ledger.append({
-              entry_type: "agent_final",
-              actor_id: registered.agent_id,
-              actor_name: config.agent.name,
-              actor_role: "agent",
-              text: result.finalText,
-              source: ledgerSource,
-              created_at: new Date().toISOString(),
-              turn_id: turnId
-            });
+            appendAgentFinal(turnId, result.finalText, ledgerSource);
           }
         } catch (error) {
           const rawMessage = error instanceof Error ? error.message : String(error);
           const displayError = config.llm ? sanitizeLlmError(rawMessage, config.llm.apiKey) : rawMessage;
           console.error("Adapter turn failed", displayError);
-          await reportTurnFailure({
-            displayError,
-            reportRuntimeFailure: async (safeError, failedAt) => {
-              if (claudeRuntime) {
-                await roomClient.publishRuntimeStatus("failed", {
-                  agent_id: registered.agent_id,
-                  turn_id: turnId,
-                  status_id: `status_${turnId}`,
-                  error: safeError,
-                  metrics: { files_read: 0, searches: 0, commands: 0 },
-                  failed_at: failedAt
-                });
-              }
-              if (codexRuntime) {
-                await roomClient.publishAgentRuntimeStatus("failed", {
-                  agent_id: registered.agent_id,
-                  provider: "codex-cli",
-                  turn_id: turnId,
-                  status_id: `status_${turnId}`,
-                  error: safeError,
-                  metrics: { files_read: 0, searches: 0, commands: 0 },
-                  failed_at: failedAt
-                });
-              }
-            },
-            failTurn: async (safeError) => { await roomClient.failTurn(turnId, safeError); },
-            log: (message, reportError) => console.error(message, reportError)
-          });
+          if (turnCompleted) {
+            console.error("Adapter failed after turn completion", displayError);
+          } else {
+            await reportTurnFailure({
+              displayError,
+              ...(runStarted && runProvider ? {
+                reportRunFailure: async (safeError, failedAt) => {
+                  await roomClient.failRun(turnId, {
+                    run_id: turnId,
+                    turn_id: turnId,
+                    agent_id: registered.agent_id,
+                    provider: runProvider!,
+                    error: safeError,
+                    failed_at: failedAt
+                  });
+                }
+              } : {}),
+              failTurn: async (safeError) => { await roomClient.failTurn(turnId, safeError); },
+              log: (message, reportError) => console.error(message, reportError)
+            });
+          }
         } finally {
-          turnStatusStartedAt.delete(turnId);
           runningTasks.delete(turnId);
         }
       }

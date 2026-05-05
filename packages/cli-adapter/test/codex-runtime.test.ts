@@ -6,18 +6,37 @@ async function* events(items: CodexThreadEvent[]) {
   for (const item of items) yield item;
 }
 
+function createRuntime(overrides: Record<string, unknown> = {}) {
+  const publishedDeltas: string[] = [];
+  const started: Array<Record<string, unknown>> = [];
+  const nodeDeltas: Array<Record<string, unknown>> = [];
+  const updated: Array<Record<string, unknown>> = [];
+  const completed: Array<Record<string, unknown>> = [];
+  const failed: Array<Record<string, unknown>> = [];
+
+  const runtime = new CodexRuntime({
+    agentId: "agent_1",
+    workingDir: "D:\\Development\\2",
+    permissionLevel: "read_only",
+    publishDelta: async (_turnId: string, chunk: string) => { publishedDeltas.push(chunk); },
+    startNode: async (payload: Record<string, unknown>) => { started.push(payload); },
+    appendNodeDelta: async (payload: Record<string, unknown>) => { nodeDeltas.push(payload); },
+    updateNode: async (payload: Record<string, unknown>) => { updated.push(payload); },
+    completeNode: async (payload: Record<string, unknown>) => { completed.push(payload); },
+    failNode: async (payload: Record<string, unknown>) => { failed.push(payload); },
+    ...overrides
+  });
+
+  return { runtime, publishedDeltas, started, nodeDeltas, updated, completed, failed };
+}
+
 describe("Codex runtime", () => {
   it("requires explicit session selection before running a turn", async () => {
-    const runtime = new CodexRuntime({
+    const { runtime } = createRuntime({
       sdk: {
         startThread: () => { throw new Error("unexpected"); },
         resumeThread: () => { throw new Error("unexpected"); }
-      },
-      agentId: "agent_1",
-      workingDir: "D:\\Development\\2",
-      permissionLevel: "read_only",
-      publishStatus: async () => undefined,
-      publishDelta: async () => undefined
+      }
     });
 
     await expect(runtime.runTurn({
@@ -31,27 +50,20 @@ describe("Codex runtime", () => {
   });
 
   it("absorbs sdk load failure so the process does not crash from an unhandled rejection", async () => {
-    const runtime = new CodexRuntime({
+    const { runtime } = createRuntime({
       sdk: Promise.reject(new Error("Codex SDK not installed")) as unknown as {
         startThread: () => never;
         resumeThread: () => never;
-      },
-      agentId: "agent_1",
-      workingDir: "D:\\Development\\2",
-      permissionLevel: "read_only",
-      publishStatus: async () => undefined,
-      publishDelta: async () => undefined
+      }
     });
 
     await expect(runtime.selectSession({ mode: "fresh" })).rejects.toThrow("Codex SDK not installed");
   });
 
-  it("maps command execution events and final text", async () => {
-    const deltas: string[] = [];
-    const statuses: Array<{ phase: string; current: string }> = [];
-    const runtime = new CodexRuntime({
+  it("maps command execution, web search, and agent message updates into run-trace nodes", async () => {
+    const { runtime, publishedDeltas, started, nodeDeltas, completed } = createRuntime({
       sdk: {
-        startThread: (options) => ({
+        startThread: (options: Record<string, unknown>) => ({
           id: null,
           runStreamed: async (prompt: string) => {
             expect(prompt).toContain("Message: list files");
@@ -60,67 +72,21 @@ describe("Codex runtime", () => {
               events: events([
                 { type: "thread.started", thread_id: "thread_123" },
                 { type: "turn.started" },
+                { type: "item.started", item: { id: "reason_1", type: "reasoning" } },
                 { type: "item.started", item: { id: "cmd_1", type: "command_execution", command: "Get-ChildItem", aggregated_output: "", status: "in_progress" } },
                 { type: "item.completed", item: { id: "cmd_1", type: "command_execution", command: "Get-ChildItem", aggregated_output: "file.txt", exit_code: 0, status: "completed" } },
-                { type: "item.completed", item: { id: "msg_1", type: "agent_message", text: "Done." } },
+                { type: "item.started", item: { id: "search_1", type: "web_search", status: "in_progress" } },
+                { type: "item.completed", item: { id: "search_1", type: "web_search", status: "completed" } },
+                { type: "item.updated", item: { id: "msg_1", type: "agent_message", text: "Hel" } },
+                { type: "item.updated", item: { id: "msg_1", type: "agent_message", text: "Hello" } },
+                { type: "item.completed", item: { id: "msg_1", type: "agent_message", text: "Hello" } },
                 { type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1, reasoning_output_tokens: 0 } }
               ])
             };
           }
         }),
         resumeThread: () => { throw new Error("unexpected"); }
-      },
-      agentId: "agent_1",
-      workingDir: "D:\\Development\\2",
-      permissionLevel: "read_only",
-      publishStatus: async (_turnId, status) => { statuses.push({ phase: status.phase, current: status.current }); },
-      publishDelta: async (_turnId, chunk) => { deltas.push(chunk); }
-    });
-
-    await runtime.selectSession({ mode: "fresh" });
-    const result = await runtime.runTurn({
-      turnId: "turn_1",
-      roomName: "Room",
-      speakerName: "Owner",
-      speakerRole: "owner",
-      modeLabel: "normal",
-      text: "list files"
-    });
-
-    expect(result.finalText).toBe("Done.");
-    expect(result.sessionId).toBe("thread_123");
-    expect(result.metrics.commands).toBe(1);
-    expect(deltas).toEqual(["Done."]);
-    expect(statuses.some((status) => status.phase === "running_command" && status.current.includes("Get-ChildItem"))).toBe(true);
-  });
-
-  it("streams agent message updates and reports command completion", async () => {
-    const deltas: string[] = [];
-    const statuses: Array<{ phase: string; current: string }> = [];
-    const runtime = new CodexRuntime({
-      sdk: {
-        startThread: () => ({
-          id: null,
-          runStreamed: async () => ({
-            events: events([
-              { type: "thread.started", thread_id: "thread_123" },
-              { type: "turn.started" },
-              { type: "item.started", item: { id: "cmd_1", type: "command_execution", command: "Get-ChildItem", aggregated_output: "", status: "in_progress" } },
-              { type: "item.completed", item: { id: "cmd_1", type: "command_execution", command: "Get-ChildItem", aggregated_output: "file.txt", exit_code: 0, status: "completed" } },
-              { type: "item.updated", item: { id: "msg_1", type: "agent_message", text: "Hel" } },
-              { type: "item.updated", item: { id: "msg_1", type: "agent_message", text: "Hello" } },
-              { type: "item.completed", item: { id: "msg_1", type: "agent_message", text: "Hello" } },
-              { type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1, reasoning_output_tokens: 0 } }
-            ])
-          })
-        }),
-        resumeThread: () => { throw new Error("unexpected"); }
-      },
-      agentId: "agent_1",
-      workingDir: "D:\\Development\\2",
-      permissionLevel: "read_only",
-      publishStatus: async (_turnId, status) => { statuses.push({ phase: status.phase, current: status.current }); },
-      publishDelta: async (_turnId, chunk) => { deltas.push(chunk); }
+      }
     });
 
     await runtime.selectSession({ mode: "fresh" });
@@ -134,13 +100,18 @@ describe("Codex runtime", () => {
     });
 
     expect(result.finalText).toBe("Hello");
-    expect(deltas).toEqual(["Hel", "lo"]);
-    expect(statuses.some((status) => status.phase === "running_command" && status.current === "Command completed with exit code 0")).toBe(true);
+    expect(result.sessionId).toBe("thread_123");
+    expect(result.metrics.commands).toBe(1);
+    expect(result.metrics.searches).toBe(1);
+    expect(started.some((node) => node.node_id === "cmd_1" && node.kind === "tool" && String(node.title).includes("Get-ChildItem"))).toBe(true);
+    expect(started.some((node) => node.node_id === "search_1" && node.kind === "tool")).toBe(true);
+    expect(nodeDeltas.some((delta) => delta.node_id === "cmd_1" && delta.chunk === "file.txt")).toBe(true);
+    expect(completed.some((node) => node.node_id === "cmd_1" && (node.detail as Record<string, unknown> | undefined)?.exit_code === 0)).toBe(true);
+    expect(publishedDeltas).toEqual(["Hel", "lo"]);
   });
 
   it("fails the turn when the Codex stream ends before turn.completed", async () => {
-    const statuses: Array<{ phase: string; current: string }> = [];
-    const runtime = new CodexRuntime({
+    const { runtime, failed } = createRuntime({
       sdk: {
         startThread: () => ({
           id: null,
@@ -148,17 +119,13 @@ describe("Codex runtime", () => {
             events: events([
               { type: "thread.started", thread_id: "thread_123" },
               { type: "turn.started" },
+              { type: "item.started", item: { id: "cmd_1", type: "command_execution", command: "Get-ChildItem", aggregated_output: "", status: "in_progress" } },
               { type: "item.completed", item: { id: "msg_1", type: "agent_message", text: "Partial answer" } }
             ])
           })
         }),
         resumeThread: () => { throw new Error("unexpected"); }
-      },
-      agentId: "agent_1",
-      workingDir: "D:\\Development\\2",
-      permissionLevel: "read_only",
-      publishStatus: async (_turnId, status) => { statuses.push({ phase: status.phase, current: status.current }); },
-      publishDelta: async () => undefined
+      }
     });
 
     await runtime.selectSession({ mode: "fresh" });
@@ -171,7 +138,7 @@ describe("Codex runtime", () => {
       modeLabel: "normal",
       text: "list files"
     })).rejects.toThrow("codex_turn_incomplete");
-    expect(statuses.at(-1)).toEqual({ phase: "failed", current: "codex_turn_incomplete" });
+    expect(failed.some((node) => node.error === "codex_turn_incomplete")).toBe(true);
   });
 
   it("aborts the active Codex turn when the runtime closes", async () => {
@@ -184,7 +151,7 @@ describe("Codex runtime", () => {
       });
     }
 
-    const runtime = new CodexRuntime({
+    const { runtime } = createRuntime({
       sdk: {
         startThread: () => ({
           id: null,
@@ -194,12 +161,7 @@ describe("Codex runtime", () => {
           }
         }),
         resumeThread: () => { throw new Error("unexpected"); }
-      },
-      agentId: "agent_1",
-      workingDir: "D:\\Development\\2",
-      permissionLevel: "read_only",
-      publishStatus: async () => undefined,
-      publishDelta: async () => undefined
+      }
     });
 
     await runtime.selectSession({ mode: "fresh" });

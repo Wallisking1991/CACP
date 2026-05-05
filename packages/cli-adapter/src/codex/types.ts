@@ -1,3 +1,12 @@
+import type {
+  AgentRunMetrics,
+  AgentRunNodeCompletedPayload,
+  AgentRunNodeDeltaPayload,
+  AgentRunNodeFailedPayload,
+  AgentRunNodeStartedPayload,
+  AgentRunNodeUpdatedPayload
+} from "@cacp/protocol";
+
 export interface CodexSdk {
   startThread(options: CodexThreadOptions): CodexThread;
   resumeThread(id: string, options: CodexThreadOptions): CodexThread;
@@ -53,24 +62,25 @@ export interface CodexTurnInput {
 export interface CodexTurnResult {
   finalText: string;
   sessionId?: string;
-  metrics: { files_read: number; searches: number; commands: number };
+  metrics: AgentRunMetrics;
+  usage?: Record<string, unknown>;
 }
 
-export interface CodexRuntimeStatus {
-  phase: string;
-  current: string;
-  recent: string[];
-  metrics: { files_read: number; searches: number; commands: number };
+export interface CodexRunTraceSink {
+  publishDelta(turnId: string, chunk: string): Promise<void>;
+  startNode(payload: AgentRunNodeStartedPayload): Promise<void>;
+  appendNodeDelta(payload: AgentRunNodeDeltaPayload): Promise<void>;
+  updateNode(payload: AgentRunNodeUpdatedPayload): Promise<void>;
+  completeNode(payload: AgentRunNodeCompletedPayload): Promise<void>;
+  failNode(payload: AgentRunNodeFailedPayload): Promise<void>;
 }
 
-export interface CodexRuntimeInput {
-  sdk?: CodexSdk;
+export interface CodexRuntimeInput extends CodexRunTraceSink {
+  sdk?: CodexSdk | Promise<CodexSdk>;
   agentId: string;
   workingDir: string;
   permissionLevel: string;
   model?: string;
-  publishStatus: (turnId: string, status: CodexRuntimeStatus) => Promise<void>;
-  publishDelta: (turnId: string, chunk: string) => Promise<void>;
 }
 
 export function toCodexThreadOptions(input: { workingDir: string; permissionLevel: string; model?: string }): CodexThreadOptions {

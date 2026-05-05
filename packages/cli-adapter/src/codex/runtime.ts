@@ -1,4 +1,5 @@
-import type { AgentRuntimeMetrics, AgentRuntimePhase } from "@cacp/protocol";
+import type { AgentRunMetrics } from "@cacp/protocol";
+import { RunTraceRecorder } from "../run-trace.js";
 import { loadCodexSdk } from "./codex-sdk.js";
 import type { CodexRuntimeInput, CodexSdk, CodexThread, CodexThreadItem, CodexTurnInput, CodexTurnResult } from "./types.js";
 import { toCodexThreadOptions } from "./types.js";
@@ -13,12 +14,6 @@ function itemIdentity(item: CodexThreadItem, fallbackPrefix: string): string {
   if (typeof item.id === "string" && item.id) return item.id;
   if (typeof item.command === "string" && item.command) return `${fallbackPrefix}:${item.command}`;
   return `${fallbackPrefix}:unknown`;
-}
-
-function commandCompletionStatus(item: CodexThreadItem): string {
-  return typeof item.exit_code === "number"
-    ? `Command completed with exit code ${item.exit_code}`
-    : "Command completed";
 }
 
 function promptForTurn(input: CodexTurnInput, permissionLevel: string): string {
@@ -37,38 +32,50 @@ function promptForTurn(input: CodexTurnInput, permissionLevel: string): string {
   ].join("\n");
 }
 
+function asUsageRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" ? value as Record<string, unknown> : undefined;
+}
+
+function toolTitle(item: CodexThreadItem): string {
+  if (item.type === "command_execution" && typeof item.command === "string" && item.command) {
+    return `Run command: ${item.command}`;
+  }
+  if (item.type === "web_search" || item.type === "web_search_call") {
+    return "Web search";
+  }
+  if (item.type === "mcp_tool_call") {
+    const toolName = typeof item.tool_name === "string" ? item.tool_name : typeof item.name === "string" ? item.name : "MCP tool";
+    return `Use ${toolName}`;
+  }
+  return "Codex step";
+}
+
+function nodeKindForItem(item: CodexThreadItem): "tool" | "reasoning_summary" | "status" {
+  if (item.type === "command_execution" || item.type === "web_search" || item.type === "web_search_call" || item.type === "mcp_tool_call") {
+    return "tool";
+  }
+  if (item.type === "reasoning") return "reasoning_summary";
+  return "status";
+}
+
 export class CodexRuntime {
-  private sdk: CodexRuntimeInput["sdk"] | undefined;
   private sdkPromise: Promise<CodexSdk | undefined>;
   private sdkLoadError: Error | undefined;
-  private agentId: string;
-  private workingDir: string;
-  private permissionLevel: string;
-  private model?: string;
-  private publishStatus: CodexRuntimeInput["publishStatus"];
-  private publishDelta: CodexRuntimeInput["publishDelta"];
   private thread: CodexThread | undefined;
   private sessionId: string | undefined;
   private activeAbortController: AbortController | undefined;
 
-  constructor(input: CodexRuntimeInput) {
-    this.sdk = input.sdk;
+  constructor(private readonly input: CodexRuntimeInput) {
     this.sdkPromise = Promise.resolve(input.sdk ?? loadCodexSdk()).catch((error) => {
       this.sdkLoadError = error instanceof Error ? error : new Error(String(error));
       return undefined;
     });
-    this.agentId = input.agentId;
-    this.workingDir = input.workingDir;
-    this.permissionLevel = input.permissionLevel;
-    this.model = input.model;
-    this.publishStatus = input.publishStatus;
-    this.publishDelta = input.publishDelta;
   }
 
   async selectSession(selection: { mode: "fresh" } | { mode: "resume"; sessionId: string }): Promise<void> {
     const sdk = await this.sdkPromise;
     if (!sdk) throw this.sdkLoadError ?? new Error("Codex SDK is not available");
-    const options = toCodexThreadOptions({ workingDir: this.workingDir, permissionLevel: this.permissionLevel, model: this.model });
+    const options = toCodexThreadOptions({ workingDir: this.input.workingDir, permissionLevel: this.input.permissionLevel, model: this.input.model });
     if (selection.mode === "fresh") {
       this.thread = sdk.startThread(options);
       this.sessionId = this.thread.id ?? undefined;
@@ -83,115 +90,156 @@ export class CodexRuntime {
       throw new Error("codex_session_not_selected");
     }
 
-    const metrics: AgentRuntimeMetrics = { files_read: 0, searches: 0, commands: 0 };
-    const recent: string[] = [];
-    let phase: AgentRuntimePhase = "thinking";
-    let current = "Thinking...";
+    const metrics: AgentRunMetrics = { files_read: 0, searches: 0, commands: 0 };
+    const countedCommands = new Set<string>();
+    const countedSearches = new Set<string>();
+    const outputByNodeId = new Map<string, string>();
+    const recorder = new RunTraceRecorder({
+      turnId: input.turnId,
+      agentId: this.input.agentId,
+      provider: "codex-cli"
+    }, {
+      startNode: this.input.startNode,
+      appendNodeDelta: this.input.appendNodeDelta,
+      updateNode: this.input.updateNode,
+      completeNode: this.input.completeNode,
+      failNode: this.input.failNode
+    });
+
     let finalText = "";
     let previousText = "";
     let sessionId = this.sessionId;
-    const countedCommands = new Set<string>();
-    const countedSearches = new Set<string>();
+    let usage: Record<string, unknown> | undefined;
 
-    function pushRecent(text: string) {
-      recent.push(text);
-      if (recent.length > 10) recent.shift();
-    }
+    const failOpenNodes = async (error: string) => {
+      const openNodeIds = recorder.openNodeIds();
+      if (openNodeIds.length === 0) {
+        const nodeId = "codex_error";
+        await recorder.startNode({
+          nodeId,
+          kind: "status",
+          status: "running",
+          title: "Codex run failed"
+        });
+        await recorder.failNode({ nodeId, error });
+        return;
+      }
+      for (const nodeId of openNodeIds) {
+        await recorder.failNode({ nodeId, error });
+      }
+    };
 
-    const publish = async (turnId: string, statusPhase: AgentRuntimePhase, statusCurrent: string) => {
-      await this.publishStatus(turnId, {
-        phase: statusPhase,
-        current: statusCurrent,
-        recent: [...recent],
-        metrics: { ...metrics }
+    const closeOpenNodes = async () => {
+      for (const nodeId of recorder.openNodeIds()) {
+        await recorder.completeNode({ nodeId, summary: recorder.currentTitle(nodeId) ?? "Completed" });
+      }
+    };
+
+    const ensureNodeStarted = async (item: CodexThreadItem, status: "pending" | "waiting_input" | "running" | "streaming" = "running") => {
+      const nodeId = itemIdentity(item, "item");
+      await recorder.startNode({
+        nodeId,
+        kind: nodeKindForItem(item),
+        status,
+        title: toolTitle(item)
       });
+      return nodeId;
     };
 
-    const countCommand = (item: CodexThreadItem) => {
-      const id = itemIdentity(item, "command");
-      if (countedCommands.has(id)) return;
-      countedCommands.add(id);
-      metrics.commands++;
+    const countItemMetric = (item: CodexThreadItem) => {
+      if (item.type === "command_execution") {
+        const id = itemIdentity(item, "command");
+        if (countedCommands.has(id)) return;
+        countedCommands.add(id);
+        metrics.commands += 1;
+      } else if (item.type === "web_search" || item.type === "web_search_call") {
+        const id = itemIdentity(item, "search");
+        if (countedSearches.has(id)) return;
+        countedSearches.add(id);
+        metrics.searches += 1;
+      }
     };
 
-    const countSearch = (item: CodexThreadItem) => {
-      const id = itemIdentity(item, "search");
-      if (countedSearches.has(id)) return;
-      countedSearches.add(id);
-      metrics.searches++;
+    const syncCommandOutput = async (nodeId: string, nextOutput: string) => {
+      const previousOutput = outputByNodeId.get(nodeId) ?? "";
+      const delta = computeTextDelta(previousOutput, nextOutput);
+      outputByNodeId.set(nodeId, nextOutput);
+      if (delta) {
+        await recorder.appendNodeDelta({ nodeId, deltaType: "stdout", chunk: delta });
+      }
     };
 
     const handleItem = async (item: CodexThreadItem, stage: "started" | "updated" | "completed") => {
       if (item.type === "agent_message" && typeof item.text === "string") {
-        const text = item.text;
-        const delta = computeTextDelta(previousText, text);
+        const delta = computeTextDelta(previousText, item.text);
+        finalText = item.text;
+        previousText = item.text;
         if (delta) {
-          await this.publishDelta(input.turnId, delta);
+          await this.input.publishDelta(input.turnId, delta);
         }
-        finalText = text;
-        previousText = text;
-        if (stage !== "completed") {
-          phase = "generating_answer";
-          current = "Codex is generating an answer";
-          await publish(input.turnId, phase, current);
+        return;
+      }
+
+      if (item.type === "reasoning") {
+        const nodeId = await ensureNodeStarted(item, "running");
+        if (stage === "completed") {
+          await recorder.completeNode({ nodeId, summary: "Reasoning complete" });
         }
         return;
       }
 
       if (item.type === "command_execution") {
-        countCommand(item);
-        phase = "running_command";
-        current = stage === "completed"
-          ? commandCompletionStatus(item)
-          : `Codex running command: ${item.command ?? ""}`;
-        pushRecent(current);
-        await publish(input.turnId, phase, current);
+        countItemMetric(item);
+        const nodeId = await ensureNodeStarted(item, stage === "completed" ? "running" : "streaming");
+        const aggregatedOutput = typeof item.aggregated_output === "string" ? item.aggregated_output : "";
+        if (aggregatedOutput) {
+          await syncCommandOutput(nodeId, aggregatedOutput);
+        }
+        if (stage === "completed") {
+          await recorder.completeNode({
+            nodeId,
+            detail: {
+              ...(typeof item.exit_code === "number" ? { exit_code: item.exit_code } : {}),
+              ...(typeof item.status === "string" ? { status: item.status } : {})
+            },
+            summary: typeof item.exit_code === "number"
+              ? `Command completed with exit code ${item.exit_code}`
+              : "Command completed"
+          });
+        } else {
+          await recorder.updateNode({
+            nodeId,
+            status: "streaming",
+            detail: {
+              ...(typeof item.status === "string" ? { status: item.status } : {})
+            }
+          });
+        }
         return;
       }
 
       if (item.type === "web_search" || item.type === "web_search_call") {
-        countSearch(item);
-        phase = "searching";
-        current = stage === "completed" ? "Web search completed" : "Codex searching the web";
-        pushRecent(current);
-        await publish(input.turnId, phase, current);
+        countItemMetric(item);
+        const nodeId = await ensureNodeStarted(item);
+        if (stage === "completed") {
+          await recorder.completeNode({ nodeId, summary: "Web search completed" });
+        }
         return;
       }
 
-      if (item.type === "file_change") {
-        phase = "reading_files";
-        current = stage === "completed" ? "File change recorded" : "Codex inspecting files";
-        pushRecent(current);
-        await publish(input.turnId, phase, current);
+      if (item.type === "mcp_tool_call" || item.type === "todo_list" || item.type === "file_change") {
+        const nodeId = await ensureNodeStarted(item);
+        if (stage === "completed") {
+          await recorder.completeNode({ nodeId, summary: recorder.currentTitle(nodeId) ?? "Completed" });
+        }
         return;
-      }
-
-      if (item.type === "mcp_tool_call") {
-        phase = "thinking";
-        current = stage === "completed" ? "MCP tool completed" : "Codex using an MCP tool";
-        pushRecent(current);
-        await publish(input.turnId, phase, current);
-        return;
-      }
-
-      if (item.type === "todo_list") {
-        phase = "thinking";
-        current = "Codex updated its task list";
-        pushRecent(current);
-        await publish(input.turnId, phase, current);
-        return;
-      }
-
-      if (item.type === "reasoning") {
-        phase = "thinking";
-        current = "Codex is thinking";
-        await publish(input.turnId, phase, current);
       }
     };
 
-    const prompt = promptForTurn(input, this.permissionLevel);
+    const prompt = promptForTurn(input, this.input.permissionLevel);
     const abortController = new AbortController();
     this.activeAbortController = abortController;
+
     try {
       const { events } = await this.thread.runStreamed(prompt, { signal: abortController.signal });
 
@@ -203,9 +251,6 @@ export class CodexRuntime {
             break;
           }
           case "turn.started": {
-            phase = "thinking";
-            current = "Thinking...";
-            await publish(input.turnId, phase, current);
             break;
           }
           case "item.started": {
@@ -221,37 +266,30 @@ export class CodexRuntime {
             break;
           }
           case "turn.completed": {
-            phase = "completed";
-            current = finalText || "Completed";
-            await publish(input.turnId, phase, current);
-            return { finalText, sessionId, metrics };
+            usage = asUsageRecord(event.usage);
+            await closeOpenNodes();
+            return { finalText, sessionId, metrics, ...(usage ? { usage } : {}) };
           }
           case "turn.failed": {
-            phase = "failed";
-            current = event.error?.message ?? "Turn failed";
-            pushRecent(current);
-            await publish(input.turnId, phase, current);
-            throw new Error(current);
+            const error = event.error?.message ?? "Turn failed";
+            await failOpenNodes(error);
+            throw new Error(error);
           }
           case "error": {
-            phase = "failed";
-            current = event.message ?? "Unknown error";
-            pushRecent(current);
-            await publish(input.turnId, phase, current);
-            throw new Error(current);
+            const error = event.message ?? "Unknown error";
+            await failOpenNodes(error);
+            throw new Error(error);
           }
         }
       }
 
       if (abortController.signal.aborted) {
-        return { finalText, sessionId, metrics };
+        await closeOpenNodes();
+        return { finalText, sessionId, metrics, ...(usage ? { usage } : {}) };
       }
 
-      phase = "failed";
-      current = "codex_turn_incomplete";
-      pushRecent(current);
-      await publish(input.turnId, phase, current);
-      throw new Error(current);
+      await failOpenNodes("codex_turn_incomplete");
+      throw new Error("codex_turn_incomplete");
     } finally {
       if (this.activeAbortController === abortController) {
         this.activeAbortController = undefined;

@@ -15,10 +15,12 @@ describe("connector index source", () => {
     expect(indexSource).not.toContain("transcript.handleEvent");
   });
 
-  it("creates a room client for posting Claude events to the server REST API", () => {
+  it("creates a room client for posting room, session, and run-trace events to the server REST API", () => {
     expect(indexSource).toContain("new RoomClient({");
     expect(indexSource).toContain("roomClient.publishCatalog");
     expect(indexSource).toContain("roomClient.startTurn");
+    expect(indexSource).toContain("roomClient.startRun");
+    expect(indexSource).toContain("roomClient.completeRun");
   });
 
   it("routes agent turns through the LLM runner when llm config exists", () => {
@@ -46,9 +48,12 @@ describe("connector index source", () => {
     expect(indexSource).toContain('roomName: typeof payload.room_name === "string" ? payload.room_name');
   });
 
-  it("keeps one stable Claude runtime status start time per turn", () => {
-    expect(indexSource).toContain("turnStatusStartedAt");
-    expect(indexSource).toContain("started_at: startedAt");
+  it("publishes provider-neutral run-trace lifecycle around Claude and Codex turns", () => {
+    expect(indexSource).toContain("roomClient.startRun");
+    expect(indexSource).toContain("roomClient.completeRun");
+    expect(indexSource).toContain("roomClient.failRun");
+    expect(indexSource).toContain("roomClient.requestRunApproval");
+    expect(indexSource).toContain("roomClient.requestRunElicitation");
   });
 
   it("can report Claude resume import failures before transcript messages are built", () => {
@@ -109,8 +114,15 @@ describe("connector index source", () => {
     expect(indexSource).toContain("roomClient.publishAgentSessionReady");
   });
 
-  it("routes Codex turns through generic runtime status endpoints", () => {
-    expect(indexSource).toContain("roomClient.publishAgentRuntimeStatus");
+  it("routes Codex turns through generic run-trace endpoints instead of flat runtime status routes", () => {
+    expect(indexSource).toContain("roomClient.startRun");
+    expect(indexSource).not.toContain("roomClient.publishAgentRuntimeStatus");
+  });
+
+  it("does not call the retired flat runtime status or thinking-delta publication APIs", () => {
+    expect(indexSource).not.toContain("publishRuntimeStatus");
+    expect(indexSource).not.toContain("publishAgentRuntimeStatus");
+    expect(indexSource).not.toContain("publishThinkingDelta");
   });
 
   it("reports Claude session readiness only after the SDK session is selected", () => {
@@ -123,5 +135,4 @@ describe("connector index source", () => {
     expect(selectIndex).toBeLessThan(completeIndex);
     expect(completeIndex).toBeLessThan(readyIndex);
   });
-
 });
