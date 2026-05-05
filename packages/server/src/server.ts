@@ -152,7 +152,15 @@ export interface LocalAgentLaunchResult { pid?: number }
 
 export type LocalAgentLauncher = (input: LocalAgentLaunchInput) => Promise<LocalAgentLaunchResult> | LocalAgentLaunchResult;
 
-export interface BuildServerOptions { dbPath?: string; localAgentLauncher?: LocalAgentLauncher; repoRoot?: string; config?: ServerConfig; removalGraceMs?: number }
+export interface BuildServerOptions {
+  dbPath?: string;
+  localAgentLauncher?: LocalAgentLauncher;
+  repoRoot?: string;
+  config?: ServerConfig;
+  removalGraceMs?: number;
+  approvalTimeoutMs?: number;
+  elicitationTimeoutMs?: number;
+}
 type ProposalTerminalStatus = "approved" | "rejected" | "expired";
 type ProposalState = { policy: Policy; votes: VoteRecord[]; terminal_status?: ProposalTerminalStatus };
 type TaskTerminalStatus = "completed" | "failed" | "cancelled";
@@ -167,6 +175,7 @@ type PendingApprovalEntry = {
   nodeId: string;
   agentId: string;
   provider: string;
+  requestKey: string;
   resolve: (decision: PendingApprovalDecision) => void;
   promise: Promise<PendingApprovalDecision>;
   timeout: ReturnType<typeof setTimeout>;
@@ -178,6 +187,7 @@ type PendingElicitationEntry = {
   nodeId: string;
   agentId: string;
   provider: string;
+  requestKey: string;
   resolve: (decision: PendingElicitationDecision) => void;
   promise: Promise<PendingElicitationDecision>;
   timeout: ReturnType<typeof setTimeout>;
@@ -187,6 +197,8 @@ type RunNodeState = {
   node_id: string;
   kind?: string;
   parent_node_id?: string;
+  title?: string;
+  detail?: Record<string, unknown>;
   source_refs?: Record<string, unknown>;
   terminal: boolean;
 };
@@ -433,6 +445,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
   const pendingApprovals = new Map<string, PendingApprovalEntry>();
   const pendingElicitations = new Map<string, PendingElicitationEntry>();
   const REMOVAL_GRACE_MS = options.removalGraceMs ?? 10000;
+  const APPROVAL_TIMEOUT_MS = options.approvalTimeoutMs ?? 5 * 60 * 1000;
+  const ELICITATION_TIMEOUT_MS = options.elicitationTimeoutMs ?? 10 * 60 * 1000;
   let isClosing = false;
 
   function socketKey(roomId: string, participantId: string): string {
@@ -603,6 +617,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
           node_id: nodeId,
           kind: typeof storedEvent.payload.kind === "string" ? storedEvent.payload.kind : undefined,
           parent_node_id: typeof storedEvent.payload.parent_node_id === "string" ? storedEvent.payload.parent_node_id : undefined,
+          title: typeof storedEvent.payload.title === "string" ? storedEvent.payload.title : undefined,
+          detail: typeof storedEvent.payload.detail === "object" && storedEvent.payload.detail !== null
+            ? storedEvent.payload.detail as Record<string, unknown>
+            : undefined,
           source_refs: typeof storedEvent.payload.source_refs === "object" && storedEvent.payload.source_refs !== null
             ? storedEvent.payload.source_refs as Record<string, unknown>
             : undefined,
@@ -630,7 +648,60 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return undefined;
   }
 
-  function createPendingApprovalEntry(roomId: string, runId: string, nodeId: string, agentId: string, provider: string): PendingApprovalEntry {
+  function stableJson(value: unknown): string {
+    if (value === null || typeof value !== "object") return JSON.stringify(value);
+    if (Array.isArray(value)) return `[${value.map((entry) => stableJson(entry)).join(",")}]`;
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`);
+    return `{${entries.join(",")}}`;
+  }
+
+  function buildApprovalRequestShape(body: z.infer<typeof AgentRunApprovalRequestSchema>): Record<string, unknown> {
+    return {
+      parent_node_id: body.tool_node_id,
+      title: body.title ?? `Approval required: ${body.tool_name}`,
+      detail: {
+        tool_name: body.tool_name,
+        display_name: body.display_name,
+        description: body.description,
+        decision_reason: body.decision_reason,
+        blocked_path: body.blocked_path,
+        input: body.input,
+        requested_at: body.requested_at
+      },
+      ...(body.tool_use_id ? {
+        source_refs: {
+          tool_use_id: body.tool_use_id
+        }
+      } : {})
+    };
+  }
+
+  function buildElicitationRequestShape(body: z.infer<typeof AgentRunElicitationRequestSchema>, nodeId: string): Record<string, unknown> {
+    return {
+      title: body.title ?? body.display_name ?? "User input required",
+      detail: {
+        display_name: body.display_name,
+        description: body.description,
+        message: body.message,
+        mode: body.mode,
+        url: body.url,
+        requested_schema: body.requested_schema,
+        requested_at: body.requested_at
+      },
+      source_refs: {
+        elicitation_id: nodeId
+      }
+    };
+  }
+
+  function buildRunNodeRequestKey(shape: Record<string, unknown>): string {
+    return stableJson(shape);
+  }
+
+  function createPendingApprovalEntry(roomId: string, runId: string, nodeId: string, agentId: string, provider: string, requestKey: string): PendingApprovalEntry {
     let resolveDecision: ((decision: PendingApprovalDecision) => void) | undefined;
     const promise = new Promise<PendingApprovalDecision>((resolve) => {
       resolveDecision = resolve;
@@ -641,6 +712,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       nodeId,
       agentId,
       provider,
+      requestKey,
       resolve: resolveDecision!,
       promise,
       timeout: undefined as unknown as ReturnType<typeof setTimeout>,
@@ -648,7 +720,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     };
   }
 
-  function createPendingElicitationEntry(roomId: string, runId: string, nodeId: string, agentId: string, provider: string): PendingElicitationEntry {
+  function createPendingElicitationEntry(roomId: string, runId: string, nodeId: string, agentId: string, provider: string, requestKey: string): PendingElicitationEntry {
     let resolveDecision: ((decision: PendingElicitationDecision) => void) | undefined;
     const promise = new Promise<PendingElicitationDecision>((resolve) => {
       resolveDecision = resolve;
@@ -659,6 +731,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       nodeId,
       agentId,
       provider,
+      requestKey,
       resolve: resolveDecision!,
       promise,
       timeout: undefined as unknown as ReturnType<typeof setTimeout>,
@@ -668,13 +741,21 @@ export async function buildServer(options: BuildServerOptions = {}) {
 
   function isMatchingApprovalNode(state: RunNodeState, body: z.infer<typeof AgentRunApprovalRequestSchema>): boolean {
     if (state.kind !== "approval") return false;
-    if (state.parent_node_id !== body.tool_node_id) return false;
-    const toolUseId = typeof state.source_refs?.tool_use_id === "string" ? state.source_refs.tool_use_id : undefined;
-    return toolUseId === body.tool_use_id;
+    return buildRunNodeRequestKey({
+      parent_node_id: state.parent_node_id,
+      title: state.title,
+      detail: state.detail,
+      ...(state.source_refs ? { source_refs: state.source_refs } : {})
+    }) === buildRunNodeRequestKey(buildApprovalRequestShape(body));
   }
 
-  function isMatchingElicitationNode(state: RunNodeState): boolean {
-    return state.kind === "elicitation";
+  function isMatchingElicitationNode(state: RunNodeState, body: z.infer<typeof AgentRunElicitationRequestSchema>, nodeId: string): boolean {
+    if (state.kind !== "elicitation") return false;
+    return buildRunNodeRequestKey({
+      title: state.title,
+      detail: state.detail,
+      ...(state.source_refs ? { source_refs: state.source_refs } : {})
+    }) === buildRunNodeRequestKey(buildElicitationRequestShape(body, nodeId));
   }
 
   function resolvePendingApproval(key: string, decision: PendingApprovalDecision): boolean {
@@ -2906,12 +2987,14 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const provider = providerForAgent(request.params.roomId, body.agent_id);
     if (!provider) return deny(reply, "missing_local_agent_capability", 403);
     const key = pendingInteractionKey(request.params.roomId, request.params.runId, request.params.nodeId);
+    const approvalRequestKey = buildRunNodeRequestKey(buildApprovalRequestShape(body));
     const existingNode = findRunNodeState(request.params.roomId, request.params.runId, request.params.nodeId);
     if (existingNode && !isMatchingApprovalNode(existingNode, body)) {
       return deny(reply, "node_id_conflict", 409);
     }
     const existing = pendingApprovals.get(key);
     if (existing) {
+      if (existing.requestKey !== approvalRequestKey) return deny(reply, "node_id_conflict", 409);
       const decision = await existing.promise;
       return reply.code(201).send(decision);
     }
@@ -2929,7 +3012,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       });
     }
 
-    const pending = createPendingApprovalEntry(request.params.roomId, request.params.runId, request.params.nodeId, body.agent_id, provider);
+    const pending = createPendingApprovalEntry(request.params.roomId, request.params.runId, request.params.nodeId, body.agent_id, provider, approvalRequestKey);
     pending.timeout = setTimeout(() => {
       resolvePendingApproval(key, {
         decision: "deny",
@@ -2937,34 +3020,23 @@ export async function buildServer(options: BuildServerOptions = {}) {
         resolved_at: new Date().toISOString(),
         reason: "approval_timeout"
       });
-    }, 5 * 60 * 1000);
+    }, APPROVAL_TIMEOUT_MS);
     pendingApprovals.set(key, pending);
 
     if (!existingNode) {
+      const approvalShape = buildApprovalRequestShape(body);
       appendAndPublish(event(request.params.roomId, "agent.run.node.started", participant.id, {
         run_id: request.params.runId,
         turn_id: body.turn_id,
         agent_id: body.agent_id,
         provider,
         node_id: request.params.nodeId,
-        parent_node_id: body.tool_node_id,
+        parent_node_id: approvalShape.parent_node_id as string,
         kind: "approval",
         status: "waiting_input",
-        title: body.title ?? `Approval required: ${body.tool_name}`,
-        detail: {
-          tool_name: body.tool_name,
-          display_name: body.display_name,
-          description: body.description,
-          decision_reason: body.decision_reason,
-          blocked_path: body.blocked_path,
-          input: body.input,
-          requested_at: body.requested_at
-        },
-        ...(body.tool_use_id ? {
-          source_refs: {
-            tool_use_id: body.tool_use_id
-          }
-        } : {}),
+        title: approvalShape.title as string,
+        detail: approvalShape.detail as Record<string, unknown>,
+        ...("source_refs" in approvalShape ? { source_refs: approvalShape.source_refs as Record<string, unknown> } : {}),
         started_at: body.requested_at,
         updated_at: body.requested_at
       }));
@@ -3002,12 +3074,14 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const provider = providerForAgent(request.params.roomId, body.agent_id);
     if (!provider) return deny(reply, "missing_local_agent_capability", 403);
     const key = pendingInteractionKey(request.params.roomId, request.params.runId, request.params.nodeId);
+    const elicitationRequestKey = buildRunNodeRequestKey(buildElicitationRequestShape(body, request.params.nodeId));
     const existingNode = findRunNodeState(request.params.roomId, request.params.runId, request.params.nodeId);
-    if (existingNode && !isMatchingElicitationNode(existingNode)) {
+    if (existingNode && !isMatchingElicitationNode(existingNode, body, request.params.nodeId)) {
       return deny(reply, "node_id_conflict", 409);
     }
     const existing = pendingElicitations.get(key);
     if (existing) {
+      if (existing.requestKey !== elicitationRequestKey) return deny(reply, "node_id_conflict", 409);
       const decision = await existing.promise;
       return reply.code(201).send(decision);
     }
@@ -3026,7 +3100,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       });
     }
 
-    const pending = createPendingElicitationEntry(request.params.roomId, request.params.runId, request.params.nodeId, body.agent_id, provider);
+    const pending = createPendingElicitationEntry(request.params.roomId, request.params.runId, request.params.nodeId, body.agent_id, provider, elicitationRequestKey);
     pending.timeout = setTimeout(() => {
       resolvePendingElicitation(key, {
         action: "cancel",
@@ -3034,10 +3108,11 @@ export async function buildServer(options: BuildServerOptions = {}) {
         resolved_at: new Date().toISOString(),
         reason: "elicitation_timeout"
       });
-    }, 10 * 60 * 1000);
+    }, ELICITATION_TIMEOUT_MS);
     pendingElicitations.set(key, pending);
 
     if (!existingNode) {
+      const elicitationShape = buildElicitationRequestShape(body, request.params.nodeId);
       appendAndPublish(event(request.params.roomId, "agent.run.node.started", participant.id, {
         run_id: request.params.runId,
         turn_id: body.turn_id,
@@ -3046,19 +3121,9 @@ export async function buildServer(options: BuildServerOptions = {}) {
         node_id: request.params.nodeId,
         kind: "elicitation",
         status: "waiting_input",
-        title: body.title ?? body.display_name ?? "User input required",
-        detail: {
-          display_name: body.display_name,
-          description: body.description,
-          message: body.message,
-          mode: body.mode,
-          url: body.url,
-          requested_schema: body.requested_schema,
-          requested_at: body.requested_at
-        },
-        source_refs: {
-          elicitation_id: request.params.nodeId
-        },
+        title: elicitationShape.title as string,
+        detail: elicitationShape.detail as Record<string, unknown>,
+        source_refs: elicitationShape.source_refs as Record<string, unknown>,
         started_at: body.requested_at,
         updated_at: body.requested_at
       }));

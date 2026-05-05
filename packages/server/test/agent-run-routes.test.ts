@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { buildServer } from "../src/server.js";
 
-async function createRoomAndAgent() {
-  const app = await buildServer({ dbPath: ":memory:" });
+async function createRoomAndAgent(options?: Parameters<typeof buildServer>[0]) {
+  const app = await buildServer({ dbPath: ":memory:", ...options });
   const room = (await app.inject({ method: "POST", url: "/rooms", payload: { name: "Run Trace Room", display_name: "Owner" } })).json();
   const ownerAuth = { authorization: `Bearer ${room.owner_token}` };
   const agent = (await app.inject({
@@ -159,6 +159,72 @@ describe("agent run routes", () => {
     await app.close();
   });
 
+  it("rejects approval retries when the same node id changes the original request payload", async () => {
+    const { app, room, ownerAuth, agent } = await createRoomAndAgent();
+    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
+    const turnId = events.find((event: { type: string }) => event.type === "agent.turn.requested").payload.turn_id;
+
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/nodes/start`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: {
+        run_id: turnId,
+        turn_id: turnId,
+        agent_id: agent.agent_id,
+        provider: "claude-code",
+        node_id: "toolu_1",
+        kind: "tool",
+        status: "running",
+        title: "Bash npm install",
+        started_at: "2026-05-05T00:00:02.000Z",
+        updated_at: "2026-05-05T00:00:02.000Z"
+      }
+    });
+
+    const approvalPayload = {
+      agent_id: agent.agent_id,
+      turn_id: turnId,
+      tool_node_id: "toolu_1",
+      tool_use_id: "toolu_1",
+      tool_name: "Bash",
+      title: "Claude wants to run Bash",
+      description: "Execute npm install",
+      requested_at: "2026-05-05T00:00:03.000Z"
+    };
+
+    const approvalPromise = app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/approvals/approval_1/request`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: approvalPayload
+    });
+    void approvalPromise.catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const conflict = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/approvals/approval_1/request`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: {
+        ...approvalPayload,
+        description: "Execute pnpm install"
+      }
+    });
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict.json()).toMatchObject({ error: "node_id_conflict" });
+
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/approvals/approval_1/resolve`,
+      headers: ownerAuth,
+      payload: { decision: "allow" }
+    });
+    expect((await approvalPromise).json()).toMatchObject({ decision: "allow" });
+
+    await app.close();
+  });
+
   it("rejects conflicting interaction node ids instead of aliasing them", async () => {
     const { app, room, ownerAuth, agent } = await createRoomAndAgent();
     const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
@@ -215,6 +281,55 @@ describe("agent run routes", () => {
     });
     expect(elicitationConflict.statusCode).toBe(409);
     expect(elicitationConflict.json()).toMatchObject({ error: "node_id_conflict" });
+
+    await app.close();
+  });
+
+  it("rejects elicitation retries when the same node id changes the original request payload", async () => {
+    const { app, room, ownerAuth, agent } = await createRoomAndAgent();
+    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
+    const turnId = events.find((event: { type: string }) => event.type === "agent.turn.requested").payload.turn_id;
+
+    const elicitationPayload = {
+      agent_id: agent.agent_id,
+      turn_id: turnId,
+      title: "Authentication required",
+      description: "Open the auth page and confirm",
+      message: "Open the auth URL and continue",
+      mode: "url",
+      url: "https://example.com/auth",
+      requested_schema: { type: "object", properties: { confirmed: { type: "boolean" } } },
+      requested_at: "2026-05-05T00:00:03.000Z"
+    };
+
+    const elicitationPromise = app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/elicitations/elicit_1/request`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: elicitationPayload
+    });
+    void elicitationPromise.catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const conflict = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/elicitations/elicit_1/request`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: {
+        ...elicitationPayload,
+        message: "Open the updated auth URL and continue"
+      }
+    });
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict.json()).toMatchObject({ error: "node_id_conflict" });
+
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/elicitations/elicit_1/resolve`,
+      headers: ownerAuth,
+      payload: { action: "accept", content: { confirmed: true } }
+    });
+    expect((await elicitationPromise).json()).toMatchObject({ action: "accept" });
 
     await app.close();
   });
@@ -283,6 +398,100 @@ describe("agent run routes", () => {
     });
     expect(elicitationCompletedEvent?.payload).not.toHaveProperty("status");
     expect(elicitationCompletedEvent?.payload).not.toHaveProperty("updated_at");
+
+    await app.close();
+  });
+
+  it("times out approval requests with approval_timeout", async () => {
+    const { app, room, ownerAuth, agent } = await createRoomAndAgent({ approvalTimeoutMs: 25 });
+    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
+    const turnId = events.find((event: { type: string }) => event.type === "agent.turn.requested").payload.turn_id;
+
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/nodes/start`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: {
+        run_id: turnId,
+        turn_id: turnId,
+        agent_id: agent.agent_id,
+        provider: "claude-code",
+        node_id: "toolu_1",
+        kind: "tool",
+        status: "running",
+        title: "Bash npm install",
+        started_at: "2026-05-05T00:00:02.000Z",
+        updated_at: "2026-05-05T00:00:02.000Z"
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/approvals/approval_timeout/request`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: {
+        agent_id: agent.agent_id,
+        turn_id: turnId,
+        tool_node_id: "toolu_1",
+        tool_use_id: "toolu_1",
+        tool_name: "Bash",
+        requested_at: "2026-05-05T00:00:03.000Z"
+      }
+    });
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toMatchObject({ decision: "deny", reason: "approval_timeout", resolved_by: "system" });
+
+    const publishedEvents = (await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/events`,
+      headers: ownerAuth
+    })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
+    const completed = publishedEvents.find((event) => event.type === "agent.run.node.completed" && event.payload.node_id === "approval_timeout");
+    expect(completed?.payload).toMatchObject({
+      detail: expect.objectContaining({
+        decision: "deny",
+        reason: "approval_timeout",
+        resolved_by: "system"
+      })
+    });
+
+    await app.close();
+  });
+
+  it("times out elicitation requests with elicitation_timeout", async () => {
+    const { app, room, ownerAuth, agent } = await createRoomAndAgent({ elicitationTimeoutMs: 25 });
+    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
+    const turnId = events.find((event: { type: string }) => event.type === "agent.turn.requested").payload.turn_id;
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/elicitations/elicit_timeout/request`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: {
+        agent_id: agent.agent_id,
+        turn_id: turnId,
+        message: "Open the auth URL and continue",
+        mode: "url",
+        url: "https://example.com/auth",
+        requested_at: "2026-05-05T00:00:03.000Z"
+      }
+    });
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toMatchObject({ action: "cancel", reason: "elicitation_timeout", resolved_by: "system" });
+
+    const publishedEvents = (await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/events`,
+      headers: ownerAuth
+    })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
+    const completed = publishedEvents.find((event) => event.type === "agent.run.node.completed" && event.payload.node_id === "elicit_timeout");
+    expect(completed?.payload).toMatchObject({
+      detail: expect.objectContaining({
+        action: "cancel",
+        reason: "elicitation_timeout",
+        resolved_by: "system"
+      })
+    });
 
     await app.close();
   });
