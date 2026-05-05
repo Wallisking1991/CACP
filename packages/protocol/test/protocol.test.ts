@@ -320,13 +320,19 @@ describe("CACP event schema", () => {
       kind: "tool",
       status: "running",
       title: "Read README.md",
+      role: "assistant",
+      content_format: "markdown",
+      text: "Reading README.md",
       started_at: "2026-05-05T00:00:01.000Z",
       updated_at: "2026-05-05T00:00:01.000Z"
     })).toMatchObject({
       node_id: "toolu_1",
       parent_node_id: "parent_1",
       kind: "tool",
-      status: "running"
+      status: "running",
+      role: "assistant",
+      content_format: "markdown",
+      text: "Reading README.md"
     });
 
     expect(AgentRunApprovalRequestBodySchema.parse({
@@ -366,18 +372,39 @@ describe("CACP event schema", () => {
       node_id: "toolu_1",
       kind: "tool",
       status: "completed",
+      title: "Read README.md",
       started_at: "2026-05-05T00:00:01.000Z",
       updated_at: "2026-05-05T00:00:01.000Z"
     })).toThrow();
 
-    expect(() => AgentRunNodeUpdatedPayloadSchema.parse({
+    expect(AgentRunNodeUpdatedPayloadSchema.parse({
       run_id: "turn_1",
       turn_id: "turn_1",
       agent_id: "agent_1",
       provider: "claude-code",
       node_id: "toolu_1",
       status: "failed",
+      role: "system",
+      content_format: "text",
+      text: "Tool failed",
       updated_at: "2026-05-05T00:00:02.000Z"
+    })).toMatchObject({
+      status: "failed",
+      role: "system",
+      content_format: "text",
+      text: "Tool failed"
+    });
+
+    expect(() => AgentRunNodeStartedPayloadSchema.parse({
+      run_id: "turn_1",
+      turn_id: "turn_1",
+      agent_id: "agent_1",
+      provider: "claude-code",
+      node_id: "toolu_1",
+      kind: "tool",
+      status: "running",
+      started_at: "2026-05-05T00:00:01.000Z",
+      updated_at: "2026-05-05T00:00:01.000Z"
     })).toThrow();
 
     expect(() => AgentRunSourceRefsSchema.parse({})).toThrow();
@@ -494,10 +521,12 @@ describe("CACP event schema", () => {
       turn_id: "turn_1",
       agent_id: "agent_1",
       provider: "codex-cli",
+      message_id: "msg_1",
       summary: "Completed turn",
       metrics: { files_read: 0, searches: 0, commands: 1 },
+      usage: { input_tokens: 12, output_tokens: 7 },
       completed_at: "2026-05-01T01:17:02.000Z"
-    })).toMatchObject({ provider: "codex-cli", metrics: { commands: 1 } });
+    })).toMatchObject({ provider: "codex-cli", message_id: "msg_1", metrics: { commands: 1 }, usage: { input_tokens: 12, output_tokens: 7 } });
 
     expect(AgentRunFailedPayloadSchema.parse({
       run_id: "turn_1",
@@ -505,9 +534,9 @@ describe("CACP event schema", () => {
       agent_id: "agent_1",
       provider: "codex-cli",
       error: "Command failed",
-      metrics: { files_read: 0, searches: 0, commands: 1 },
+      partial_message_id: "msg_partial_1",
       failed_at: "2026-05-01T01:17:02.000Z"
-    })).toMatchObject({ provider: "codex-cli", error: "Command failed" });
+    })).toMatchObject({ provider: "codex-cli", error: "Command failed", partial_message_id: "msg_partial_1" });
 
     expect(AgentRunNodeDeltaPayloadSchema.parse({
       run_id: "turn_1",
@@ -544,9 +573,12 @@ describe("CACP event schema", () => {
       agent_id: "agent_1",
       provider: "codex-cli",
       node_id: "node_1",
-      status: "streaming",
+      status: "completed",
+      role: "assistant",
+      content_format: "html",
+      text: "<p>Done</p>",
       updated_at: "2026-05-01T01:17:01.000Z"
-    })).toMatchObject({ node_id: "node_1", status: "streaming" });
+    })).toMatchObject({ node_id: "node_1", status: "completed", role: "assistant", content_format: "html", text: "<p>Done</p>" });
 
     expect(AgentRunNodeCompletedPayloadSchema.parse({
       run_id: "turn_1",

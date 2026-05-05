@@ -23,6 +23,30 @@ async function createRoomAndAgent(options?: Parameters<typeof buildServer>[0]) {
   return { app, room, ownerAuth, agent };
 }
 
+async function joinApprovedMember(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerToken: string, displayName: string) {
+  const invite = (await app.inject({
+    method: "POST",
+    url: `/rooms/${roomId}/invites`,
+    headers: { authorization: `Bearer ${ownerToken}` },
+    payload: { role: "member" }
+  })).json() as { invite_token: string };
+  const pending = (await app.inject({
+    method: "POST",
+    url: `/rooms/${roomId}/join-requests`,
+    payload: { invite_token: invite.invite_token, display_name: displayName }
+  })).json() as { request_id: string; request_token: string };
+  await app.inject({
+    method: "POST",
+    url: `/rooms/${roomId}/join-requests/${pending.request_id}/approve`,
+    headers: { authorization: `Bearer ${ownerToken}` },
+    payload: {}
+  });
+  return (await app.inject({
+    method: "GET",
+    url: `/rooms/${roomId}/join-requests/${pending.request_id}?request_token=${encodeURIComponent(pending.request_token)}`
+  })).json() as { participant_id: string; participant_token: string };
+}
+
 describe("agent run routes", () => {
   it("accepts run lifecycle and node publication for the active turn owner", async () => {
     const { app, room, ownerAuth, agent } = await createRoomAndAgent();
@@ -155,6 +179,76 @@ describe("agent run routes", () => {
     });
     expect(approvalCompletedEvent?.payload).not.toHaveProperty("status");
     expect(approvalCompletedEvent?.payload).not.toHaveProperty("updated_at");
+
+    await app.close();
+  });
+
+  it("lets only owner or admin resolve a pending approval", async () => {
+    const { app, room, ownerAuth, agent } = await createRoomAndAgent();
+    const member = await joinApprovedMember(app, room.room_id, room.owner_token, "Member");
+    const admin = await joinApprovedMember(app, room.room_id, room.owner_token, "Admin");
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/participants/${admin.participant_id}/role`,
+      headers: ownerAuth,
+      payload: { role: "admin" }
+    });
+
+    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
+    const turnId = events.find((event: { type: string }) => event.type === "agent.turn.requested").payload.turn_id;
+
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/nodes/start`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: {
+        run_id: turnId,
+        turn_id: turnId,
+        agent_id: agent.agent_id,
+        provider: "claude-code",
+        node_id: "toolu_admin",
+        kind: "tool",
+        status: "running",
+        title: "Bash npm install",
+        started_at: "2026-05-05T00:00:02.000Z",
+        updated_at: "2026-05-05T00:00:02.000Z"
+      }
+    });
+
+    const approvalPromise = app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/approvals/approval_admin/request`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: {
+        agent_id: agent.agent_id,
+        turn_id: turnId,
+        tool_node_id: "toolu_admin",
+        tool_use_id: "toolu_admin",
+        tool_name: "Bash",
+        title: "Claude wants to run Bash",
+        requested_at: "2026-05-05T00:00:03.000Z"
+      }
+    });
+    void approvalPromise.catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const memberResolve = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/approvals/approval_admin/resolve`,
+      headers: { authorization: `Bearer ${member.participant_token}` },
+      payload: { decision: "deny" }
+    });
+    expect(memberResolve.statusCode).toBe(403);
+    expect(memberResolve.json()).toMatchObject({ error: "forbidden" });
+
+    const adminResolve = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/approvals/approval_admin/resolve`,
+      headers: { authorization: `Bearer ${admin.participant_token}` },
+      payload: { decision: "allow" }
+    });
+    expect(adminResolve.statusCode).toBe(201);
+    expect((await approvalPromise).json()).toMatchObject({ decision: "allow" });
 
     await app.close();
   });

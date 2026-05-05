@@ -496,6 +496,85 @@ describe("Claude session room routes", () => {
     await app.close();
   });
 
+  it("enforces Claude agent-run ownership and active-turn validation", async () => {
+    const { app, room } = await createRoomAndOwner();
+    const agent = await registerAgent(app, room.room_id, room.owner_token);
+    const other = await registerAgent(app, room.room_id, room.owner_token);
+    await selectAgent(app, room.room_id, room.owner_token, agent.agent_id);
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/claude/session-selection`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: { agent_id: agent.agent_id, mode: "fresh" }
+    });
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/claude/session-ready`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: { agent_id: agent.agent_id, mode: "fresh", session_id: "session_1", ready_at: "2026-04-29T00:00:00.000Z" }
+    });
+
+    const noTurn = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/turn_missing/start`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: { run_id: "turn_missing", turn_id: "turn_missing", agent_id: agent.agent_id, provider: "claude-code", started_at: "2026-04-29T00:00:01.000Z" }
+    });
+    expect(noTurn.statusCode).toBe(403);
+    expect(noTurn.json()).toMatchObject({ error: "no_active_turn" });
+
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/messages`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: { text: "Run now" }
+    });
+    const events = (await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/events`,
+      headers: { authorization: `Bearer ${room.owner_token}` }
+    })).json().events as Array<{ type: string; payload: { turn_id?: string } }>;
+    const turnId = events.find((event) => event.type === "agent.turn.requested")?.payload.turn_id;
+    expect(turnId).toBeTruthy();
+
+    const ownerStart = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/start`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: { run_id: turnId, turn_id: turnId, agent_id: agent.agent_id, provider: "claude-code", started_at: "2026-04-29T00:00:02.000Z" }
+    });
+    expect(ownerStart.statusCode).toBe(403);
+    expect(ownerStart.json()).toMatchObject({ error: "forbidden" });
+
+    const otherStart = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/start`,
+      headers: { authorization: `Bearer ${other.agent_token}` },
+      payload: { run_id: turnId, turn_id: turnId, agent_id: other.agent_id, provider: "claude-code", started_at: "2026-04-29T00:00:02.000Z" }
+    });
+    expect(otherStart.statusCode).toBe(403);
+    expect(otherStart.json()).toMatchObject({ error: "no_active_turn" });
+
+    const wrongTurn = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/start`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: { run_id: turnId, turn_id: "turn_other", agent_id: agent.agent_id, provider: "claude-code", started_at: "2026-04-29T00:00:02.000Z" }
+    });
+    expect(wrongTurn.statusCode).toBe(400);
+    expect(wrongTurn.json()).toMatchObject({ error: "run_turn_mismatch" });
+
+    const ok = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/start`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: { run_id: turnId, turn_id: turnId, agent_id: agent.agent_id, provider: "claude-code", started_at: "2026-04-29T00:00:02.000Z" }
+    });
+    expect(ok.statusCode).toBe(201);
+
+    await app.close();
+  });
+
   it("hides Claude import messages from members with denied history access and observers", async () => {
     const { app, room } = await createRoomAndOwner();
     const agent = await registerAgent(app, room.room_id, room.owner_token);

@@ -282,14 +282,16 @@ export const AgentRunStartedPayloadSchema = AgentRunBasePayloadSchema.extend({
 });
 
 export const AgentRunCompletedPayloadSchema = AgentRunBasePayloadSchema.extend({
+  message_id: z.string().min(1),
   summary: z.string().min(1).max(500),
   metrics: AgentRunMetricsSchema,
+  usage: z.record(z.string(), z.unknown()).optional(),
   completed_at: z.string().datetime()
 });
 
 export const AgentRunFailedPayloadSchema = AgentRunBasePayloadSchema.extend({
   error: z.string().min(1).max(2000),
-  metrics: AgentRunMetricsSchema,
+  partial_message_id: z.string().min(1).optional(),
   failed_at: z.string().datetime()
 });
 
@@ -297,7 +299,10 @@ export const AgentRunNodeStartedPayloadSchema = AgentRunNodeBasePayloadSchema.ex
   parent_node_id: z.string().min(1).optional(),
   kind: AgentRunNodeKindSchema,
   status: AgentRunNodeActiveStatusSchema,
-  title: z.string().min(1).max(500).optional(),
+  title: z.string().min(1).max(500),
+  role: z.enum(["user", "assistant", "system"]).optional(),
+  content_format: z.enum(["text", "markdown", "html"]).optional(),
+  text: z.string().optional(),
   detail: z.record(z.string(), z.unknown()).optional(),
   source_refs: AgentRunSourceRefsSchema.optional(),
   started_at: z.string().datetime(),
@@ -311,8 +316,11 @@ export const AgentRunNodeDeltaPayloadSchema = AgentRunNodeBasePayloadSchema.exte
 });
 
 export const AgentRunNodeUpdatedPayloadSchema = AgentRunNodeBasePayloadSchema.extend({
-  status: AgentRunNodeActiveStatusSchema.optional(),
+  status: AgentRunNodeStatusSchema.optional(),
   title: z.string().min(1).max(500).optional(),
+  role: z.enum(["user", "assistant", "system"]).optional(),
+  content_format: z.enum(["text", "markdown", "html"]).optional(),
+  text: z.string().optional(),
   detail: z.record(z.string(), z.unknown()).optional(),
   source_refs: AgentRunSourceRefsSchema.optional(),
   updated_at: z.string().datetime()
