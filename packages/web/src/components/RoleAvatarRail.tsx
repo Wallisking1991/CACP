@@ -53,6 +53,7 @@ export function RoleAvatarRail({ avatars, maxVisible = 10, isOwner, currentParti
           key={avatar.id}
           className="role-avatar-stack"
           data-avatar-id={avatar.id}
+          data-agent-active={avatar.status === "working" || avatar.status === "typing" ? "true" : undefined}
           title={avatarLabel(avatar)}
           onClick={onClickAgentAvatar}
           style={{ cursor: onClickAgentAvatar ? "pointer" : undefined }}

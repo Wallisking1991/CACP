@@ -3528,9 +3528,86 @@ textarea.input {
   100% { transform: scale(3.5); opacity: 0; }
 }
 
+/* Fullscreen agent-centered ripple overlay */
+.agent-ripple-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.agent-wave-group {
+  position: absolute;
+  transform: translate(-50%, -50%);
+}
+
+.agent-wave-layer {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 120px;
+  height: 120px;
+  margin-left: -60px;
+  margin-top: -60px;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--agent-color) 32%, transparent) 0%, color-mix(in srgb, var(--agent-color) 18%, transparent) 35%, transparent 65%);
+  box-shadow: 0 0 60px color-mix(in srgb, var(--agent-color) 28%, transparent);
+  opacity: 0;
+  will-change: transform, opacity;
+  animation: agent-wave-pulse 3.2s ease-out infinite;
+  pointer-events: none;
+}
+
+.agent-wave-layer--1 {
+  animation-delay: 0s;
+}
+
+.agent-wave-layer--2 {
+  animation-delay: 1.6s;
+}
+
+@keyframes agent-wave-pulse {
+  0% {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  25% {
+    opacity: 0.35;
+  }
+  100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
+.agent-ripple {
+  position: absolute;
+  width: 80px;
+  height: 80px;
+  margin-left: -40px;
+  margin-top: -40px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--agent-color), color-mix(in srgb, var(--agent-color) 75%, transparent) 40%, transparent 70%);
+  box-shadow: 0 0 55px color-mix(in srgb, var(--agent-color) 70%, transparent);
+  will-change: transform, opacity;
+  animation: agent-ripple-expand 2.5s ease-out forwards;
+}
+
+.agent-ripple--streaming {
+  animation-duration: 1.5s;
+}
+
+@keyframes agent-ripple-expand {
+  0% { transform: scale(0.35); opacity: 0.4; }
+  100% { transform: scale(3.5); opacity: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .header-ripple,
-  .header-wave-layer {
+  .header-wave-layer,
+  .agent-ripple,
+  .agent-wave-layer {
     animation: none !important;
     opacity: 0.04;
   }

@@ -22,6 +22,7 @@ import { OrbitLayer } from "./OrbitLayer.js";
 import { OrbitPromoteModal } from "./OrbitPromoteModal.js";
 import { OrbitToggleTab } from "./OrbitToggleTab.js";
 import { OrbitClearConfirmDialog } from "./OrbitClearConfirmDialog.js";
+import AgentRippleOverlay from "./AgentRippleOverlay.js";
 
 export interface WorkspaceProps {
   session: RoomSession;
@@ -384,6 +385,7 @@ export default function Workspace({
     <div className="workspace-shell" ref={shellRef}>
       <div className="workspace-orb workspace-orb--primary" aria-hidden="true" />
       <div className="workspace-orb workspace-orb--secondary" aria-hidden="true" />
+      <AgentRippleOverlay avatarStatuses={room.avatarStatuses} turnInFlight={turnInFlight} />
       <div className={`workspace-grid${panelOpen ? " workspace-grid--with-orbit" : ""}`}>
         <div className="chat-panel">
           <Header

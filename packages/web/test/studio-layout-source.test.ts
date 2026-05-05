@@ -49,4 +49,17 @@ describe("studio room CSS source", () => {
     expect(css).toMatch(/radial-gradient\(circle at 22% 18%/);
     expect(css).toMatch(/var\(--bg\)/);
   });
+
+  it("defines fullscreen agent ripple overlay with fixed positioning", () => {
+    expect(css).toMatch(/\.agent-ripple-overlay\s*\{[^}]*position:\s*fixed/s);
+    expect(css).toMatch(/\.agent-ripple-overlay\s*\{[^}]*inset:\s*0/s);
+    expect(css).toMatch(/\.agent-ripple-overlay\s*\{[^}]*z-index:/s);
+    expect(css).toMatch(/\.agent-ripple-overlay\s*\{[^}]*pointer-events:\s*none/s);
+  });
+
+  it("defines agent wave layers and ripples using CSS variable for color", () => {
+    expect(css).toContain(".agent-wave-layer");
+    expect(css).toContain(".agent-ripple");
+    expect(css).toMatch(/var\(--agent-color\)/);
+  });
 });
