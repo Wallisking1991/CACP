@@ -342,7 +342,7 @@ export const AgentRunApprovalRequestBodySchema = z.object({
   agent_id: z.string().min(1),
   turn_id: z.string().min(1),
   tool_node_id: z.string().min(1),
-  tool_use_id: z.string().min(1).optional(),
+  tool_use_id: z.string().min(1),
   tool_name: z.string().min(1),
   title: z.string().min(1).max(500).optional(),
   display_name: z.string().min(1).max(200).optional(),
@@ -375,13 +375,6 @@ export const AgentRunElicitationRequestBodySchema = z.object({
       code: z.ZodIssueCode.custom,
       message: "URL mode requires url",
       path: ["url"]
-    });
-  }
-  if (value.mode === "form" && !value.requested_schema) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Form mode requires requested_schema",
-      path: ["requested_schema"]
     });
   }
 });

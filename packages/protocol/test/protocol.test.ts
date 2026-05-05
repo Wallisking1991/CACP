@@ -354,6 +354,14 @@ describe("CACP event schema", () => {
       decision_reason: "Needs write access"
     });
 
+    expect(() => AgentRunApprovalRequestBodySchema.parse({
+      agent_id: "agent_1",
+      turn_id: "turn_1",
+      tool_node_id: "toolu_1",
+      tool_name: "Bash",
+      requested_at: "2026-05-05T00:00:02.000Z"
+    })).toThrow();
+
     expect(AgentRunElicitationResolveBodySchema.parse({
       action: "accept",
       content: { token: "abc" }
@@ -458,13 +466,6 @@ describe("CACP event schema", () => {
       turn_id: "turn_1",
       message: "Open the link and confirm once complete.",
       mode: "url",
-      requested_at: "2026-05-05T00:00:03.000Z"
-    })).toThrow();
-    expect(() => AgentRunElicitationRequestBodySchema.parse({
-      agent_id: "agent_1",
-      turn_id: "turn_1",
-      message: "Provide a token",
-      mode: "form",
       requested_at: "2026-05-05T00:00:03.000Z"
     })).toThrow();
   });
@@ -610,6 +611,14 @@ describe("CACP event schema", () => {
     expect(AgentRunApprovalResolveBodySchema.parse({
       decision: "deny"
     })).toEqual({ decision: "deny" });
+
+    expect(AgentRunElicitationRequestBodySchema.parse({
+      agent_id: "agent_1",
+      turn_id: "turn_1",
+      message: "Provide OAuth confirmation",
+      mode: "form",
+      requested_at: "2026-05-01T01:17:02.000Z"
+    })).toMatchObject({ message: "Provide OAuth confirmation", mode: "form" });
 
     expect(AgentRunElicitationRequestBodySchema.parse({
       agent_id: "agent_1",
