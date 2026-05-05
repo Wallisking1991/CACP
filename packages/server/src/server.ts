@@ -34,6 +34,7 @@ import {
 } from "@cacp/protocol";
 import {
   ClaudeRuntimeStatusBodySchema,
+  ClaudeThinkingDeltaBodySchema,
   ClaudeSessionCatalogBodySchema,
   ClaudeSessionImportCompleteBodySchema,
   ClaudeSessionImportFailBodySchema,
@@ -2406,6 +2407,17 @@ export async function buildServer(options: BuildServerOptions = {}) {
         ? "claude.runtime.status_completed"
         : "claude.runtime.status_failed";
     appendAndPublish(event(request.params.roomId, eventType, participant.id, payload));
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/claude/thinking-delta", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const payload = ClaudeThinkingDeltaBodySchema.parse(request.body);
+    if (!assertAgentOwnsPayload(participant, payload.agent_id)) return deny(reply, "forbidden", 403);
+    const runtimeValidation = validateClaudeRuntime(request.params.roomId, payload.agent_id, payload.turn_id);
+    if (!runtimeValidation.ok) return deny(reply, runtimeValidation.error, runtimeValidation.status);
+    appendAndPublish(event(request.params.roomId, "claude.output.thinking_delta", participant.id, payload));
     return reply.code(201).send({ ok: true });
   });
 

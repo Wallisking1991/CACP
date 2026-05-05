@@ -96,6 +96,10 @@ export class RoomClient {
     return this.postJson(`/rooms/${this.input.roomId}/claude/runtime-status`, { kind, payload });
   }
 
+  publishThinkingDelta(payload: { agent_id: string; turn_id: string; text: string; done: boolean }): Promise<{ ok: true }> {
+    return this.postJson(`/rooms/${this.input.roomId}/claude/thinking-delta`, payload);
+  }
+
   publishAgentRuntimeStatus(kind: "changed" | "completed" | "failed", payload: unknown): Promise<{ ok: true }> {
     return this.postJson(`/rooms/${this.input.roomId}/agent-runtime/status`, { kind, payload });
   }
@@ -161,13 +165,12 @@ export class RoomClient {
   }
 }
 
-export function statusSummary(input: { elapsedMs: number; metrics: ClaudeRuntimeMetrics }): string {
-  const seconds = Math.max(1, Math.round(input.elapsedMs / 1000));
-  const parts = [`Completed in ${seconds}s`];
+export function statusSummary(input: { metrics: ClaudeRuntimeMetrics }): string {
+  const parts: string[] = [];
   if (input.metrics.files_read) parts.push(`read ${input.metrics.files_read} files`);
   if (input.metrics.searches) parts.push(`searched ${input.metrics.searches} times`);
   if (input.metrics.commands) parts.push(`ran ${input.metrics.commands} commands`);
-  return parts.join(" · ");
+  return parts.join(" · ") || "Completed";
 }
 
 export function runtimePhaseFromToolName(toolName: string): ClaudeRuntimePhase {

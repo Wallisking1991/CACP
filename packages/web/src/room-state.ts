@@ -43,6 +43,9 @@ export interface StreamingTurnView {
   current?: string;
   metrics?: ClaudeRuntimeMetrics;
   started_at?: string;
+  detail?: Record<string, unknown>;
+  thinkingText?: string;
+  thinkingDone?: boolean;
 }
 export interface JoinRequestView {
   request_id: string;
@@ -910,9 +913,10 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
       const current = typeof event.payload.current === "string" ? event.payload.current : undefined;
       const metrics = event.payload.metrics as ClaudeRuntimeMetrics | undefined;
       const startedAt = typeof event.payload.started_at === "string" ? event.payload.started_at : undefined;
+      const detail = event.payload.detail as Record<string, unknown> | undefined;
       turnStatusById.set(turnId, { ...turnStatusById.get(turnId), phase, current, metrics, started_at: startedAt });
       const streaming = streamingTurns.get(turnId);
-      if (streaming) streamingTurns.set(turnId, { ...streaming, phase, current, metrics, started_at: startedAt ?? streaming.started_at });
+      if (streaming) streamingTurns.set(turnId, { ...streaming, phase, current, metrics, started_at: startedAt ?? streaming.started_at, detail });
     }
     if (event.type === "claude.runtime.status_completed" && typeof event.payload.status_id === "string") {
       const existing = claudeRuntimeStatuses.get(event.payload.status_id);
@@ -1039,6 +1043,16 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     if (event.type === "agent.output.delta" && typeof event.payload.turn_id === "string" && typeof event.payload.agent_id === "string" && typeof event.payload.chunk === "string") {
       const current = streamingTurns.get(event.payload.turn_id) ?? { turn_id: event.payload.turn_id, agent_id: event.payload.agent_id, text: "" };
       streamingTurns.set(event.payload.turn_id, { ...current, text: current.text + event.payload.chunk });
+    }
+    if (event.type === "claude.output.thinking_delta" && typeof event.payload.turn_id === "string") {
+      const turnId = event.payload.turn_id;
+      const text = typeof event.payload.text === "string" ? event.payload.text : "";
+      const done = !!event.payload.done;
+      const current = streamingTurns.get(turnId);
+      if (current) {
+        const prevText = current.thinkingText ?? "";
+        streamingTurns.set(turnId, { ...current, thinkingText: prevText + text, thinkingDone: done });
+      }
     }
     if (event.type === "agent.turn.completed" && typeof event.payload.turn_id === "string") {
       const turnId = event.payload.turn_id;

@@ -1,0 +1,6 @@
+'dev:server' is not recognized as an internal or external command,
+operable program or batch file.
+undefined
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command "dev:server" not found
+
+Did you mean "pnpm tsserver"?

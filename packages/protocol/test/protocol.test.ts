@@ -7,7 +7,9 @@ import {
   ClaudeSessionSelectedPayloadSchema,
   ClaudeSessionReadyPayloadSchema,
   ClaudeSessionImportMessagePayloadSchema,
+  ClaudeRuntimePhaseSchema,
   ClaudeRuntimeStatusChangedPayloadSchema,
+  ClaudeRuntimeThinkingDeltaPayloadSchema,
   AgentSessionCatalogUpdatedPayloadSchema,
   AgentSessionImportMessagePayloadSchema,
   AgentRuntimeStatusChangedPayloadSchema,
@@ -242,6 +244,61 @@ describe("CACP event schema", () => {
       updated_at: "2026-04-29T00:00:01.000Z"
     };
     expect(ClaudeRuntimeStatusChangedPayloadSchema.parse(payload)).toEqual(payload);
+  });
+
+  it("accepts all 17 Claude runtime phases", () => {
+    const phases = [
+      "connecting", "resuming_session", "importing_session",
+      "requesting_api", "retrying_api", "compacting_context", "recalling_memory",
+      "thinking", "reading_files", "searching", "running_command",
+      "running_subagent", "executing_hook",
+      "waiting_for_approval", "generating_answer",
+      "completed", "failed"
+    ] as const;
+    for (const phase of phases) {
+      expect(ClaudeRuntimePhaseSchema.parse(phase)).toBe(phase);
+    }
+  });
+
+  it("accepts Claude runtime status with optional detail", () => {
+    const payload = {
+      agent_id: "agent_1",
+      turn_id: "turn_1",
+      status_id: "status_turn_1",
+      phase: "retrying_api" as const,
+      current: "API request failed, retrying in 2s (2/3)",
+      recent: ["API request failed, retrying in 2s (2/3)"],
+      metrics: { files_read: 0, searches: 0, commands: 0 },
+      detail: { attempt: 2, max_retries: 3, retry_delay_ms: 2000, error_status: 529 },
+      started_at: "2026-04-29T00:00:00.000Z",
+      updated_at: "2026-04-29T00:00:01.000Z"
+    };
+    const parsed = ClaudeRuntimeStatusChangedPayloadSchema.parse(payload);
+    expect(parsed.detail).toEqual(payload.detail);
+  });
+
+  it("accepts claude.output.thinking_delta event type", () => {
+    expect(CacpEventSchema.parse({
+      protocol: "cacp",
+      version: "0.2.0",
+      event_id: "evt_1",
+      room_id: "room_1",
+      type: "claude.output.thinking_delta",
+      actor_id: "agent_1",
+      created_at: "2026-04-29T00:00:00.000Z",
+      payload: { agent_id: "agent_1", turn_id: "turn_1", text: "Let me analyze", done: false }
+    }).type).toBe("claude.output.thinking_delta");
+  });
+
+  it("accepts Claude thinking delta payloads", () => {
+    const payload = {
+      agent_id: "agent_1",
+      turn_id: "turn_1",
+      text: "Let me analyze the structure",
+      done: false
+    };
+    expect(ClaudeRuntimeThinkingDeltaPayloadSchema.parse(payload)).toEqual(payload);
+    expect(ClaudeRuntimeThinkingDeltaPayloadSchema.parse({ agent_id: "agent_1", turn_id: "turn_1", text: "", done: true })).toEqual({ agent_id: "agent_1", turn_id: "turn_1", text: "", done: true });
   });
 
   it("accepts Codex CLI as a local command agent type", () => {

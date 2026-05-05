@@ -29,10 +29,19 @@ function roleLabel(kind: string, t: ReturnType<typeof useT>): string {
 }
 
 const phaseDisplayNames: Record<string, string> = {
+  connecting: "Connecting",
+  resuming_session: "Resuming session",
+  importing_session: "Importing session",
+  requesting_api: "Requesting API",
+  retrying_api: "Retrying API",
+  compacting_context: "Compacting context",
+  recalling_memory: "Recalling memory",
   thinking: "Thinking",
   reading_files: "Reading files",
   searching: "Searching",
   running_command: "Running command",
+  running_subagent: "Running subagent",
+  executing_hook: "Executing hook",
   waiting_for_approval: "Waiting for approval",
   generating_answer: "Generating answer",
   completed: "Completed",
@@ -49,6 +58,27 @@ function formatStatusLine(phase: string | undefined, current: string | undefined
     if (metrics.commands) parts.push(`执行 ${metrics.commands} 个命令`);
   }
   return parts.join(" · ");
+}
+
+function formatSummary(detail: Record<string, unknown> | undefined, t: ReturnType<typeof useT>): string {
+  if (!detail) return "";
+  const parts: string[] = [];
+  const usage = detail.usage as Record<string, number> | undefined;
+  const inputTokens = usage?.input_tokens ?? 0;
+  const outputTokens = usage?.output_tokens ?? 0;
+  const totalTokens = inputTokens + outputTokens;
+  if (totalTokens > 0) parts.push(`${totalTokens.toLocaleString()} ${t("agent.summary.tokens")}`);
+  const numTurns = typeof detail.num_turns === "number" ? detail.num_turns : 0;
+  if (numTurns > 0) parts.push(`${numTurns} ${t("agent.summary.turns")}`);
+  const durationMs = typeof detail.duration_ms === "number" ? detail.duration_ms : 0;
+  if (durationMs > 0) parts.push(`${Math.round(durationMs / 1000)}s`);
+  const cost = typeof detail.total_cost_usd === "number" ? detail.total_cost_usd : 0;
+  if (cost > 0) parts.push(`$${cost.toFixed(4)}`);
+  return parts.join(" · ");
+}
+
+function isToolPhase(phase: string | undefined): boolean {
+  return phase === "reading_files" || phase === "searching" || phase === "running_command";
 }
 
 
@@ -162,6 +192,12 @@ export default function Thread({
             {msg.turnFailed && msg.turnError && (
               <div className="message-body">{msg.turnError}</div>
             )}
+            {msg.kind === "agent" && (msg.agentPhase || msg.agentSummary || msg.agentMetrics) && (
+              <div className="turn-summary-footer">
+                {msg.agentPhase ? `${msg.agentPhase}${msg.agentElapsed ? ` · ${msg.agentElapsed}` : ""}` : ""}
+                {msg.agentSummary && msg.agentSummary.toLowerCase() !== msg.agentPhase?.toLowerCase() ? ` · ${msg.agentSummary}` : ""}
+              </div>
+            )}
           </article>
         );
       })}
@@ -169,6 +205,8 @@ export default function Thread({
       {streamingTurns.map((turn) => {
         const agentName = actorNames.get(turn.agent_id) ?? turn.agent_id;
         const statusLine = formatStatusLine(turn.phase, turn.current, turn.metrics);
+        const elapsedSeconds = typeof turn.detail?.elapsed_time_seconds === "number" ? turn.detail.elapsed_time_seconds : 0;
+        const memoryCount = typeof turn.detail?.memory_count === "number" ? turn.detail.memory_count : 0;
         return (
           <article key={turn.turn_id} className="message message-ai-card streaming-bubble">
             <div className="message-meta">
@@ -176,7 +214,39 @@ export default function Thread({
               <span>{t("message.ai")}</span>
             </div>
             <div className="streaming-status">{statusLine || t("agent.status.streaming")}</div>
+
+            {turn.thinkingText !== undefined && (
+              <details className="thinking-accordion">
+                <summary className="thinking-accordion__summary">
+                  <span className={`thinking-accordion__pulse${turn.thinkingDone ? "" : " thinking-accordion__pulse--active"}`} />
+                  <span>{t("agent.thinking.collapsed")}</span>
+                </summary>
+                <div className="thinking-accordion__content">{turn.thinkingText}</div>
+              </details>
+            )}
+
+            {isToolPhase(turn.phase) && (
+              <div className="tool-progress-bar">
+                <div className="tool-progress-bar__track">
+                  <div className="tool-progress-bar__fill" style={{ width: "100%" }} />
+                </div>
+                {elapsedSeconds > 0 && (
+                  <span className="tool-progress-bar__elapsed">{t("agent.tool.elapsed")} {elapsedSeconds}s</span>
+                )}
+              </div>
+            )}
+
+            {turn.phase === "recalling_memory" && memoryCount > 0 && (
+              <div className="memory-recall-pill">
+                {t("agent.memory.recalled")} · {memoryCount}
+              </div>
+            )}
+
             {turn.text && <div className="message-body">{turn.text}</div>}
+
+            {turn.phase === "completed" && turn.detail && (
+              <div className="turn-summary-footer">{formatSummary(turn.detail, t)}</div>
+            )}
           </article>
         );
       })}

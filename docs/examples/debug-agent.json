@@ -1,0 +1,16 @@
+{
+  "server_url": "http://127.0.0.1:3737",
+  "room_id": "room_5hUKsAoXCuvzayVO93b8Hw",
+  "token": "cacp_lVCMOV3amFhnDuxpB2ZuzgQ-H9IAOcgp0vSJMgdgOws",
+  "registered_agent": {
+    "agent_id": "agent_tbfkQz05IRc-gPMcLRhpnA",
+    "agent_token": "cacp_NCv-jTM-IEoGQ88yaim7L6LUXtMIWF-651tbTum-cC8"
+  },
+  "agent": {
+    "name": "Claude Code Agent",
+    "command": "claude",
+    "args": [],
+    "working_dir": "D:\\Development\\2",
+    "capabilities": ["claude-code", "claude.persistent_session", "repo.read"]
+  }
+}

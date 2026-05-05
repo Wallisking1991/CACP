@@ -1,0 +1,17 @@
+{
+  "server_url": "http://127.0.0.1:3737",
+  "room_id": "room_oMxjCod4TTSOSYQZD9njgg",
+  "registered_agent": {
+    "agent_id": "agent_VHvcwnphJzYaQ5B7hBzuMw",
+    "agent_token": "cacp_dBdqq3DHPfgLNtPvfGdpT6GGfwu44Jtj6DcxNMsoS5A"
+  },
+  "agent": {
+    "name": "Claude Code",
+    "command": "claude",
+    "args": [],
+    "working_dir": "D:\\Development\\2",
+    "capabilities": ["claude-code"],
+    "model": "claude-sonnet-4-20250514"
+  },
+  "permission_level": "read_only"
+}

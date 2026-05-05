@@ -64,6 +64,7 @@ export const EventTypeSchema = z.enum([
   "claude.session_import.message",
   "claude.session_import.completed",
   "claude.session_import.failed",
+  "claude.output.thinking_delta",
   "claude.runtime.status_changed",
   "claude.runtime.status_completed",
   "claude.runtime.status_failed",
@@ -235,10 +236,16 @@ export const ClaudeRuntimePhaseSchema = z.enum([
   "connecting",
   "resuming_session",
   "importing_session",
+  "requesting_api",
+  "retrying_api",
+  "compacting_context",
+  "recalling_memory",
   "thinking",
   "reading_files",
   "searching",
   "running_command",
+  "running_subagent",
+  "executing_hook",
   "waiting_for_approval",
   "generating_answer",
   "completed",
@@ -259,8 +266,16 @@ export const ClaudeRuntimeStatusChangedPayloadSchema = z.object({
   current: z.string().min(1).max(500),
   recent: z.array(z.string().min(1).max(500)).max(10),
   metrics: ClaudeRuntimeMetricsSchema,
+  detail: z.record(z.string(), z.unknown()).optional(),
   started_at: z.string().datetime(),
   updated_at: z.string().datetime()
+});
+
+export const ClaudeRuntimeThinkingDeltaPayloadSchema = z.object({
+  agent_id: z.string().min(1),
+  turn_id: z.string().min(1),
+  text: z.string(),
+  done: z.boolean().default(false)
 });
 
 export const ClaudeRuntimeStatusCompletedPayloadSchema = z.object({
@@ -406,6 +421,7 @@ export type ClaudeRuntimeMetrics = z.infer<typeof ClaudeRuntimeMetricsSchema>;
 export type ClaudeRuntimeStatusChangedPayload = z.infer<typeof ClaudeRuntimeStatusChangedPayloadSchema>;
 export type ClaudeRuntimeStatusCompletedPayload = z.infer<typeof ClaudeRuntimeStatusCompletedPayloadSchema>;
 export type ClaudeRuntimeStatusFailedPayload = z.infer<typeof ClaudeRuntimeStatusFailedPayloadSchema>;
+export type ClaudeRuntimeThinkingDeltaPayload = z.infer<typeof ClaudeRuntimeThinkingDeltaPayloadSchema>;
 export type LocalAgentProvider = z.infer<typeof LocalAgentProviderSchema>;
 export type AgentSessionSummary = z.infer<typeof AgentSessionSummarySchema>;
 export type AgentSessionCatalogUpdatedPayload = z.infer<typeof AgentSessionCatalogUpdatedPayloadSchema>;

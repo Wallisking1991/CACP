@@ -1,0 +1,6 @@
+'dev:web' is not recognized as an internal or external command,
+operable program or batch file.
+undefined
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command "dev:web" not found
+
+Did you mean "pnpm dev"?

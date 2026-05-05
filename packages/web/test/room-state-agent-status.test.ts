@@ -131,6 +131,54 @@ describe("room state agent status in message cards", () => {
     });
   });
 
+  it("accumulates thinking delta text on streaming turns", () => {
+    const state = deriveRoomState([
+      event("agent.turn.started", { turn_id: "turn_1", agent_id: "agent_1" }, 1, "agent_1"),
+      event("claude.output.thinking_delta", { agent_id: "agent_1", turn_id: "turn_1", text: "", done: false }, 2, "agent_1"),
+      event("claude.output.thinking_delta", { agent_id: "agent_1", turn_id: "turn_1", text: "Let me analyze", done: false }, 3, "agent_1"),
+      event("claude.output.thinking_delta", { agent_id: "agent_1", turn_id: "turn_1", text: " the structure", done: false }, 4, "agent_1"),
+      event("claude.output.thinking_delta", { agent_id: "agent_1", turn_id: "turn_1", text: "", done: true }, 5, "agent_1")
+    ]);
+
+    expect(state.streamingTurns).toHaveLength(1);
+    expect(state.streamingTurns[0]).toMatchObject({
+      turn_id: "turn_1",
+      thinkingText: "Let me analyze the structure",
+      thinkingDone: true
+    });
+  });
+
+  it("passes detail field from runtime status to streaming turns", () => {
+    const state = deriveRoomState([
+      event("agent.turn.started", { turn_id: "turn_1", agent_id: "agent_1" }, 1, "agent_1"),
+      event("claude.runtime.status_changed", {
+        agent_id: "agent_1", turn_id: "turn_1", status_id: "status_1",
+        phase: "retrying_api", current: "Retrying API",
+        recent: ["Retrying API"],
+        metrics: { files_read: 0, searches: 0, commands: 0 },
+        detail: { attempt: 2, max_retries: 3, retry_delay_ms: 2000 },
+        started_at: "2026-04-25T00:00:01.000Z", updated_at: "2026-04-25T00:00:03.000Z"
+      }, 2, "agent_1")
+    ]);
+
+    expect(state.streamingTurns[0]).toMatchObject({
+      phase: "retrying_api",
+      detail: { attempt: 2, max_retries: 3, retry_delay_ms: 2000 }
+    });
+  });
+
+  it("clears thinking state when turn completes", () => {
+    const state = deriveRoomState([
+      event("agent.turn.started", { turn_id: "turn_1", agent_id: "agent_1" }, 1, "agent_1"),
+      event("claude.output.thinking_delta", { agent_id: "agent_1", turn_id: "turn_1", text: "Analyzing", done: false }, 2, "agent_1"),
+      event("agent.output.delta", { turn_id: "turn_1", agent_id: "agent_1", chunk: "Done" }, 3, "agent_1"),
+      event("agent.turn.completed", { turn_id: "turn_1", agent_id: "agent_1", message_id: "msg_1" }, 4, "agent_1"),
+      event("message.created", { message_id: "msg_1", text: "Done", kind: "agent" }, 5, "agent_1")
+    ]);
+
+    expect(state.streamingTurns).toEqual([]);
+  });
+
   it("attaches final status from agent.runtime.status_completed (Codex provider)", () => {
     const state = deriveRoomState([
       event("agent.turn.started", { turn_id: "turn_1", agent_id: "agent_1" }, 1, "agent_1"),

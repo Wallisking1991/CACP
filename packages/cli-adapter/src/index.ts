@@ -89,8 +89,17 @@ async function main() {
         current: status.current,
         recent: status.recent,
         metrics: status.metrics,
+        detail: status.detail,
         started_at: startedAt,
         updated_at: now
+      });
+    },
+    publishThinkingDelta: async (turnId, text, done) => {
+      await roomClient.publishThinkingDelta({
+        agent_id: registered.agent_id,
+        turn_id: turnId,
+        text,
+        done
       });
     }
   }) : undefined;
@@ -477,7 +486,7 @@ async function main() {
               agent_id: registered.agent_id,
               turn_id: turnId,
               status_id: `status_${turnId}`,
-              summary: statusSummary({ elapsedMs: Date.now() - startedAt, metrics: result.metrics }),
+              summary: statusSummary({ metrics: result.metrics }),
               metrics: result.metrics,
               completed_at: new Date().toISOString()
             });
@@ -508,7 +517,7 @@ async function main() {
               provider: "codex-cli",
               turn_id: turnId,
               status_id: `status_${turnId}`,
-              summary: statusSummary({ elapsedMs: Date.now() - startedAt, metrics: result.metrics }),
+              summary: statusSummary({ metrics: result.metrics }),
               metrics: result.metrics,
               completed_at: new Date().toISOString()
             });
@@ -581,16 +590,23 @@ async function main() {
       agentSessionLabel: isCodexCli ? "Codex CLI session" : isClaudeCode ? "Claude Code persistent session" : "Local agent runtime"
     });
     console.log(`Connected adapter stream for room ${config.room_id}`);
+    console.log("DEBUG: WebSocket is open, about to publish catalog");
     if (isClaudeCode) {
+      console.log("DEBUG: Starting listClaudeSessions");
       void listClaudeSessions({ workingDir: config.agent.working_dir })
-        .then((catalog) => roomClient.publishCatalog({
-          agent_id: registered.agent_id,
-          working_dir: catalog.workingDir,
-          sessions: catalog.sessions
-        }))
+        .then((catalog) => {
+          console.log("DEBUG: Got catalog, publishing...");
+          return roomClient.publishCatalog({
+            agent_id: registered.agent_id,
+            working_dir: catalog.workingDir,
+            sessions: catalog.sessions
+          });
+        })
+        .then(() => console.log("DEBUG: Catalog published successfully"))
         .catch((error) => {
           console.error("Failed to publish Claude session catalog", error instanceof Error ? error.message : String(error));
         });
+      console.log("DEBUG: listClaudeSessions called (async)");
     }
     if (isCodexCli) {
       void listCodexSessions({ workingDir: config.agent.working_dir })
@@ -607,7 +623,7 @@ async function main() {
   });
   ws.on("close", (code, reason) => {
     const reasonText = reason.toString();
-    console.log(`Adapter stream closed${reasonText ? `: ${reasonText}` : ""}`);
+    console.log(`Adapter stream closed${reasonText ? `: ${reasonText}` : ""} (code: ${code})`);
     if (code === 4001 || reasonText === "participant_removed" || reasonText === "disconnected" || reasonText === "owner_disconnected") {
       console.log("This local Agent session was removed from the room.");
     }
@@ -621,6 +637,29 @@ async function main() {
     setTimeout(() => process.exit(0), 25).unref();
   });
   ws.on("error", (error) => console.error(error));
+  console.log("DEBUG: main() is returning, WebSocket handlers set up");
+  // Keep event loop alive
+  const keepAlive = setInterval(() => {}, 10000);
+  ws.on("close", () => clearInterval(keepAlive));
 }
 
+process.on("beforeExit", (code) => {
+  console.error("DIAGNOSTIC: beforeExit fired, exit code:", code);
+  console.error("DIAGNOSTIC: active handles count:", (process as any)._getActiveHandles?.().length ?? "N/A");
+  console.error("DIAGNOSTIC: active requests count:", (process as any)._getActiveRequests?.().length ?? "N/A");
+});
+process.on("exit", (code) => {
+  console.error("DIAGNOSTIC: exit fired, code:", code);
+});
+process.on("uncaughtException", (err) => {
+  console.error("DIAGNOSTIC: uncaughtException:", err);
+});
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("DIAGNOSTIC: unhandledRejection:", reason);
+});
+process.on("SIGTERM", () => console.error("DIAGNOSTIC: SIGTERM received"));
+process.on("SIGINT", () => console.error("DIAGNOSTIC: SIGINT received"));
+
+console.log("DEBUG: About to call main()");
 void main().catch((error) => handleFatalError(error));
+console.log("DEBUG: main() called (async)");

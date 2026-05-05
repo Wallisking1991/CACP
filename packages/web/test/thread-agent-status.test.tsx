@@ -76,4 +76,68 @@ describe("Thread agent status", () => {
     expect(card).toHaveClass("message--failed");
     expect(screen.getByText(/command exited with code 1/i)).toBeInTheDocument();
   });
+
+  it("renders thinking accordion when thinking text is present", () => {
+    renderThread({
+      streamingTurns: [{
+        turn_id: "turn_1",
+        agent_id: "agent_1",
+        text: "Here is the answer",
+        thinkingText: "Let me analyze the structure",
+        thinkingDone: false
+      }]
+    });
+
+    const bubble = screen.getByText("Here is the answer").closest("article");
+    expect(bubble?.querySelector(".thinking-accordion")).toBeInTheDocument();
+    expect(bubble?.querySelector(".thinking-accordion__content")).toHaveTextContent("Let me analyze the structure");
+  });
+
+  it("renders tool progress bar for reading_files phase", () => {
+    renderThread({
+      streamingTurns: [{
+        turn_id: "turn_1",
+        agent_id: "agent_1",
+        text: "",
+        phase: "reading_files",
+        current: "Read src/App.tsx",
+        detail: { elapsed_time_seconds: 3 }
+      }]
+    });
+
+    const bubble = document.querySelector(".streaming-bubble");
+    expect(bubble?.querySelector(".tool-progress-bar")).toBeInTheDocument();
+  });
+
+  it("renders memory recall pill for recalling_memory phase", () => {
+    renderThread({
+      streamingTurns: [{
+        turn_id: "turn_1",
+        agent_id: "agent_1",
+        text: "",
+        phase: "recalling_memory",
+        current: "Recalling 3 memories",
+        detail: { memory_count: 3 }
+      }]
+    });
+
+    const bubble = screen.getByText(/Recalling 3 memories/i).closest("article");
+    expect(bubble?.querySelector(".memory-recall-pill")).toBeInTheDocument();
+  });
+
+  it("renders turn summary footer for completed phase", () => {
+    renderThread({
+      streamingTurns: [{
+        turn_id: "turn_1",
+        agent_id: "agent_1",
+        text: "Final answer",
+        phase: "completed",
+        current: "Claude Code completed in 12s",
+        detail: { duration_ms: 12000, total_cost_usd: 0.0042, num_turns: 3, usage: { input_tokens: 1200, output_tokens: 800 } }
+      }]
+    });
+
+    const bubble = screen.getByText("Final answer").closest("article");
+    expect(bubble?.querySelector(".turn-summary-footer")).toBeInTheDocument();
+  });
 });

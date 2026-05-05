@@ -3,6 +3,7 @@ import {
   ClaudeRuntimeStatusChangedPayloadSchema,
   ClaudeRuntimeStatusCompletedPayloadSchema,
   ClaudeRuntimeStatusFailedPayloadSchema,
+  ClaudeRuntimeThinkingDeltaPayloadSchema,
   ClaudeSessionCatalogUpdatedPayloadSchema,
   ClaudeSessionImportCompletedPayloadSchema,
   ClaudeSessionImportFailedPayloadSchema,
@@ -50,6 +51,8 @@ export const ClaudeRuntimeStatusBodySchema = {
   completed: ClaudeRuntimeStatusCompletedPayloadSchema,
   failed: ClaudeRuntimeStatusFailedPayloadSchema
 } as const;
+
+export const ClaudeThinkingDeltaBodySchema = ClaudeRuntimeThinkingDeltaPayloadSchema;
 
 export function participantIsAgent(participant: Participant): boolean {
   return participant.role === "agent" && participant.type === "agent";

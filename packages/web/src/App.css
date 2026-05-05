@@ -1317,6 +1317,111 @@ textarea.input {
   color: var(--accent);
 }
 
+.thinking-accordion {
+  margin: 8px 0;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+}
+
+.thinking-accordion__summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-3);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.thinking-accordion__summary::-webkit-details-marker {
+  display: none;
+}
+
+.thinking-accordion__pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-4);
+  flex-shrink: 0;
+}
+
+.thinking-accordion__pulse--active {
+  background: var(--accent);
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+.thinking-accordion__content {
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--ink-3);
+  background: var(--surface-warm);
+  border-top: 1px solid var(--border-soft);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tool-progress-bar {
+  margin: 8px 0;
+}
+
+.tool-progress-bar__track {
+  height: 3px;
+  background: var(--border-soft);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.tool-progress-bar__fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  animation: tool-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes tool-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+.tool-progress-bar__elapsed {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--ink-4);
+}
+
+.memory-recall-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 999px;
+}
+
+.turn-summary-footer {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 11px;
+  color: var(--ink-4);
+}
+
 /* Composer */
 .composer {
   position: relative;

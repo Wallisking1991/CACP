@@ -31,6 +31,7 @@ export interface ClaudeRuntimeStatus {
   current: string;
   recent: string[];
   metrics: ClaudeRuntimeMetrics;
+  detail?: Record<string, unknown>;
 }
 
 export interface ClaudeRuntimeCallbacks {
