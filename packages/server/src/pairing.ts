@@ -20,7 +20,7 @@ export interface AgentPairingProfile {
   system_prompt?: string;
 }
 
-export function buildAgentProfile(input: { agentType: AgentType; permissionLevel: PermissionLevel; workingDir?: string; hookUrl?: string }): AgentPairingProfile {
+export function buildAgentProfile(input: { agentType: AgentType; permissionLevel: PermissionLevel; workingDir?: string }): AgentPairingProfile {
   const workingDir = input.workingDir || ".";
   if (input.agentType === "llm-api") {
     return { name: "LLM API Agent", command: "", args: [], working_dir: workingDir, capabilities: ["llm.api", "chat.stream"], system_prompt: llmApiSystemPrompt() };
@@ -59,11 +59,11 @@ export function buildAgentProfile(input: { agentType: AgentType; permissionLevel
       input.permissionLevel,
       ...(input.permissionLevel === "read_only" ? ["repo.read"] : ["manual_flow_control"])
     ],
-    system_prompt: claudeSystemPrompt(input.permissionLevel, input.hookUrl)
+    system_prompt: claudeSystemPrompt(input.permissionLevel)
   };
 }
 
-function claudeSystemPrompt(permissionLevel: PermissionLevel, _hookUrl?: string): string {
+function claudeSystemPrompt(permissionLevel: PermissionLevel): string {
   const approval = permissionLevel === "read_only"
     ? "当前权限为只读：不要修改文件，不要执行写入、删除、安装依赖或其他会改变环境的操作。"
     : permissionLevel === "limited_write"

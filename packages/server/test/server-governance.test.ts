@@ -94,24 +94,6 @@ describe("CACP server pairing and room governance", () => {
     await app.close();
   });
 
-  it("logs action approval requests without creating structured decisions", async () => {
-    const { app, room, ownerAuth } = await createRoom();
-    const agent = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/register`, headers: ownerAuth, payload: { name: "Claude", capabilities: [] } });
-    const agentToken = agent.json().agent_token;
-
-    const approval = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-action-approvals?token=${encodeURIComponent(agentToken)}&wait_ms=2000`, payload: { tool_name: "Write", description: "Allow Write?" } });
-    expect(approval.statusCode).toBe(201);
-    expect(approval.json()).toMatchObject({ status: "rejected", result: "reject", reason: "manual_flow_control_required" });
-    expect(approval.json().decision_id).toBeUndefined();
-
-    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
-    expect(events.map((event) => event.type)).toEqual(expect.arrayContaining(["agent.action_approval_requested", "agent.action_approval_resolved"]));
-    expect(events.some((event) => event.type.startsWith("decision."))).toBe(false);
-    expect(events.find((event) => event.type === "agent.action_approval_resolved")?.payload).toMatchObject({ action_id: approval.json().action_id, result: "reject", reason: "manual_flow_control_required" });
-
-    await app.close();
-  });
-
   it("uses an explicit adapter server URL when creating a pairing behind the web dev proxy", async () => {
     const { app, room, ownerAuth } = await createRoom();
 

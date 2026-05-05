@@ -1,9 +1,5 @@
 import { z } from "zod";
 import {
-  ClaudeRuntimeStatusChangedPayloadSchema,
-  ClaudeRuntimeStatusCompletedPayloadSchema,
-  ClaudeRuntimeStatusFailedPayloadSchema,
-  ClaudeRuntimeThinkingDeltaPayloadSchema,
   ClaudeSessionCatalogUpdatedPayloadSchema,
   ClaudeSessionImportCompletedPayloadSchema,
   ClaudeSessionImportFailedPayloadSchema,
@@ -45,14 +41,6 @@ export const ClaudeSessionImportStartBodySchema = ClaudeSessionImportStartedPayl
 export const ClaudeSessionImportMessagesBodySchema = ClaudeSessionImportMessagePayloadSchema.array().min(1).max(50);
 export const ClaudeSessionImportCompleteBodySchema = ClaudeSessionImportCompletedPayloadSchema;
 export const ClaudeSessionImportFailBodySchema = ClaudeSessionImportFailedPayloadSchema;
-
-export const ClaudeRuntimeStatusBodySchema = {
-  changed: ClaudeRuntimeStatusChangedPayloadSchema,
-  completed: ClaudeRuntimeStatusCompletedPayloadSchema,
-  failed: ClaudeRuntimeStatusFailedPayloadSchema
-} as const;
-
-export const ClaudeThinkingDeltaBodySchema = ClaudeRuntimeThinkingDeltaPayloadSchema;
 
 export function participantIsAgent(participant: Participant): boolean {
   return participant.role === "agent" && participant.type === "agent";

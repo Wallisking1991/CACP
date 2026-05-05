@@ -207,7 +207,7 @@ describe("generic local agent session routes", () => {
     await app.close();
   });
 
-  it("supports generic Codex preview, import, and runtime status routes", async () => {
+  it("supports generic Codex preview, import, and run trace routes", async () => {
     const { app, room } = await createRoomAndOwner();
     const agent = await registerLocalAgent(app, room.room_id, room.owner_token, "codex-cli");
     await selectAgent(app, room.room_id, room.owner_token, agent.agent_id);
@@ -345,27 +345,38 @@ describe("generic local agent session routes", () => {
     const turnId = events.find((event) => event.type === "agent.turn.requested")?.payload.turn_id;
     expect(turnId).toBeTruthy();
 
-    const runtimeStatus = await app.inject({
+    const runStart = await app.inject({
       method: "POST",
-      url: `/rooms/${room.room_id}/agent-runtime/status`,
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/start`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
       payload: {
-        kind: "changed",
-        payload: {
-          agent_id: agent.agent_id,
-          provider: "codex-cli",
-          turn_id: turnId,
-          status_id: `status_${turnId}`,
-          phase: "running_command",
-          current: "Codex running command: Get-ChildItem",
-          recent: ["Codex running command: Get-ChildItem"],
-          metrics: { files_read: 0, searches: 0, commands: 1 },
-          started_at: "2026-05-01T01:15:07.000Z",
-          updated_at: "2026-05-01T01:15:08.000Z"
-        }
+        run_id: turnId,
+        turn_id: turnId,
+        agent_id: agent.agent_id,
+        provider: "codex-cli",
+        started_at: "2026-05-01T01:15:07.000Z"
       }
     });
-    expect(runtimeStatus.statusCode).toBe(201);
+    expect(runStart.statusCode).toBe(201);
+
+    const nodeStart = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/nodes/start`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: {
+        run_id: turnId,
+        turn_id: turnId,
+        agent_id: agent.agent_id,
+        provider: "codex-cli",
+        node_id: "cmd_1",
+        kind: "tool",
+        status: "running",
+        title: "Codex running command: Get-ChildItem",
+        started_at: "2026-05-01T01:15:07.000Z",
+        updated_at: "2026-05-01T01:15:08.000Z"
+      }
+    });
+    expect(nodeStart.statusCode).toBe(201);
 
     await app.close();
   });

@@ -17,9 +17,18 @@ import { OrbitRoomState } from "./orbit-state.js";
 import { FixedWindowRateLimiter } from "./rate-limit.js";
 import { AgentTypeValues, PermissionLevelValues, buildAgentProfile, isLlmAgentType, type AgentType, type PermissionLevel } from "./pairing.js";
 import {
-  AgentRuntimeStatusChangedPayloadSchema,
-  AgentRuntimeStatusCompletedPayloadSchema,
-  AgentRuntimeStatusFailedPayloadSchema,
+  AgentRunApprovalRequestBodySchema,
+  AgentRunApprovalResolveBodySchema,
+  AgentRunCompletedPayloadSchema,
+  AgentRunElicitationRequestBodySchema,
+  AgentRunElicitationResolveBodySchema,
+  AgentRunFailedPayloadSchema,
+  AgentRunNodeCompletedPayloadSchema,
+  AgentRunNodeDeltaPayloadSchema,
+  AgentRunNodeFailedPayloadSchema,
+  AgentRunNodeStartedPayloadSchema,
+  AgentRunNodeUpdatedPayloadSchema,
+  AgentRunStartedPayloadSchema,
   AgentSessionCatalogUpdatedPayloadSchema,
   AgentSessionImportCompletedPayloadSchema,
   AgentSessionImportFailedPayloadSchema,
@@ -33,8 +42,6 @@ import {
   AgentSessionSelectedPayloadSchema
 } from "@cacp/protocol";
 import {
-  ClaudeRuntimeStatusBodySchema,
-  ClaudeThinkingDeltaBodySchema,
   ClaudeSessionCatalogBodySchema,
   ClaudeSessionImportCompleteBodySchema,
   ClaudeSessionImportFailBodySchema,
@@ -79,8 +86,6 @@ const JoinRequestStatusQuerySchema = z.object({ request_token: z.string().min(1)
 const JoinRequestListQuerySchema = z.object({ status: z.enum(["pending", "approved", "rejected", "expired"]).optional() });
 const JoinDecisionSchema = z.object({ reason: z.string().max(300).optional() });
 const UpdateRoleSchema = z.object({ role: z.enum(["admin", "member", "observer"]) });
-const AgentActionApprovalSchema = z.object({ tool_name: z.string().min(1).max(100), tool_input: z.unknown().optional(), description: z.string().max(500).optional() });
-const AgentActionApprovalQuerySchema = z.object({ token: z.string().optional(), wait_ms: z.coerce.number().int().min(0).max(5 * 60 * 1000).default(0) });
 const SelectAgentSchema = z.object({ agent_id: z.string().min(1) });
 const TaskCreateSchema = z.object({ target_agent_id: z.string().min(1), prompt: z.string().min(1).max(4000), mode: z.literal("oneshot").default("oneshot"), requires_approval: z.boolean().default(false) });
 const TaskOutputSchema = z.object({ stream: z.enum(["stdout", "stderr"]), chunk: z.string().max(10000) });
@@ -119,11 +124,18 @@ const AgentSessionImportStartBodySchema = AgentSessionImportStartedPayloadSchema
 const AgentSessionImportMessagesBodySchema = z.array(AgentSessionImportMessagePayloadSchema).min(1).max(50);
 const AgentSessionImportCompleteBodySchema = AgentSessionImportCompletedPayloadSchema;
 const AgentSessionImportFailBodySchema = AgentSessionImportFailedPayloadSchema;
-const AgentRuntimeStatusBodySchema = {
-  changed: AgentRuntimeStatusChangedPayloadSchema,
-  completed: AgentRuntimeStatusCompletedPayloadSchema,
-  failed: AgentRuntimeStatusFailedPayloadSchema
-} as const;
+const AgentRunStartBodySchema = AgentRunStartedPayloadSchema;
+const AgentRunCompleteBodySchema = AgentRunCompletedPayloadSchema;
+const AgentRunFailBodySchema = AgentRunFailedPayloadSchema;
+const AgentRunNodeStartBodySchema = AgentRunNodeStartedPayloadSchema;
+const AgentRunNodeDeltaBodySchema = AgentRunNodeDeltaPayloadSchema;
+const AgentRunNodeUpdateBodySchema = AgentRunNodeUpdatedPayloadSchema;
+const AgentRunNodeCompleteBodySchema = AgentRunNodeCompletedPayloadSchema;
+const AgentRunNodeFailBodySchema = AgentRunNodeFailedPayloadSchema;
+const AgentRunApprovalRequestSchema = AgentRunApprovalRequestBodySchema;
+const AgentRunApprovalResolveSchema = AgentRunApprovalResolveBodySchema;
+const AgentRunElicitationRequestSchema = AgentRunElicitationRequestBodySchema;
+const AgentRunElicitationResolveSchema = AgentRunElicitationResolveBodySchema;
 
 export interface LocalAgentLaunchInput {
   launchId: string;
@@ -147,6 +159,35 @@ type TaskTerminalStatus = "completed" | "failed" | "cancelled";
 type TaskState = { target_agent_id: string; started: boolean; terminal_status?: TaskTerminalStatus };
 type TurnTerminalStatus = "completed" | "failed";
 type TurnState = { agent_id: string; started: boolean; terminal_status?: TurnTerminalStatus };
+type PendingApprovalDecision = { decision: "allow" | "deny"; resolved_by: string; resolved_at: string; reason?: string };
+type PendingElicitationDecision = { action: "accept" | "decline" | "cancel"; content?: Record<string, unknown>; resolved_by: string; resolved_at: string; reason?: string };
+type PendingApprovalEntry = {
+  roomId: string;
+  runId: string;
+  nodeId: string;
+  agentId: string;
+  provider: string;
+  resolve: (decision: PendingApprovalDecision) => void;
+  promise: Promise<PendingApprovalDecision>;
+  timeout: ReturnType<typeof setTimeout>;
+  resolved: boolean;
+};
+type PendingElicitationEntry = {
+  roomId: string;
+  runId: string;
+  nodeId: string;
+  agentId: string;
+  provider: string;
+  resolve: (decision: PendingElicitationDecision) => void;
+  promise: Promise<PendingElicitationDecision>;
+  timeout: ReturnType<typeof setTimeout>;
+  resolved: boolean;
+};
+type RunNodeState = {
+  node_id: string;
+  kind?: string;
+  terminal: boolean;
+};
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -387,6 +428,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
   const socketCounts = new Map<string, number>();
   const participantSockets = new Map<string, Set<{ close: (code?: number, reason?: string) => void }>>();
   const pendingOffline = new Map<string, ReturnType<typeof setTimeout>>();
+  const pendingApprovals = new Map<string, PendingApprovalEntry>();
+  const pendingElicitations = new Map<string, PendingElicitationEntry>();
   const REMOVAL_GRACE_MS = options.removalGraceMs ?? 10000;
   let isClosing = false;
 
@@ -454,6 +497,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
         return events;
       });
       publishEvents(storedEvents);
+      closePendingInteractionsForRoom(roomId, "run_closed");
       closeRoomSockets(roomId, 4001, "owner_disconnected");
       aliveRooms.delete(roomId);
       store.deleteRoom(roomId);
@@ -488,6 +532,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
     clearInterval(joinRequestCleanupTimer);
     for (const timer of pendingOffline.values()) clearTimeout(timer);
     pendingOffline.clear();
+    for (const entry of pendingApprovals.values()) clearTimeout(entry.timeout);
+    pendingApprovals.clear();
+    for (const entry of pendingElicitations.values()) clearTimeout(entry.timeout);
+    pendingElicitations.clear();
     store.close();
   });
 
@@ -517,6 +565,183 @@ export async function buildServer(options: BuildServerOptions = {}) {
 
   function publishTargeted(event: CacpEvent, participantIds: string[]): void {
     bus.publish({ event, delivery: targetedDelivery(participantIds) });
+  }
+
+  function pendingInteractionKey(roomId: string, runId: string, nodeId: string): string {
+    return `${roomId}:${runId}:${nodeId}`;
+  }
+
+  function validateRunMatchesTurn(runId: string, turnId: string): { ok: true } | { ok: false; error: string; status: number } {
+    if (runId !== turnId) return { ok: false, error: "run_turn_mismatch", status: 400 };
+    return { ok: true };
+  }
+
+  function validateOpenAgentRun(roomId: string, runId: string, turnId: string, agentId: string, participant: Participant): { ok: true } | { ok: false; error: string; status: number } {
+    if (participant.role !== "agent" || participant.type !== "agent") return { ok: false, error: "forbidden", status: 403 };
+    if (participant.id !== agentId) return { ok: false, error: "forbidden", status: 403 };
+    const runValidation = validateRunMatchesTurn(runId, turnId);
+    if (!runValidation.ok) return runValidation;
+    const events = store.listEvents(roomId);
+    const openTurn = findAnyOpenTurn(events);
+    if (!openTurn || openTurn.agent_id !== agentId) return { ok: false, error: "no_active_turn", status: 403 };
+    if (openTurn.turn_id !== runId) return { ok: false, error: "turn_not_found", status: 403 };
+    return { ok: true };
+  }
+
+  function providerForAgent(roomId: string, agentId: string): string | undefined {
+    return providerForCapabilities(findAgentCapabilities(store.listEvents(roomId), agentId));
+  }
+
+  function findRunNodeState(roomId: string, runId: string, nodeId: string): RunNodeState | undefined {
+    let state: RunNodeState | undefined;
+    for (const storedEvent of store.listEvents(roomId)) {
+      if (storedEvent.payload.run_id !== runId || storedEvent.payload.node_id !== nodeId) continue;
+      if (storedEvent.type === "agent.run.node.started") {
+        state = { node_id: nodeId, kind: typeof storedEvent.payload.kind === "string" ? storedEvent.payload.kind : undefined, terminal: false };
+        continue;
+      }
+      if (!state) continue;
+      if (storedEvent.type === "agent.run.node.completed" || storedEvent.type === "agent.run.node.failed") {
+        state.terminal = true;
+      }
+    }
+    return state;
+  }
+
+  function findTerminalRunNodePayload(roomId: string, runId: string, nodeId: string): Record<string, unknown> | undefined {
+    const events = store.listEvents(roomId);
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const storedEvent = events[index];
+      if (storedEvent.payload.run_id !== runId || storedEvent.payload.node_id !== nodeId) continue;
+      if (storedEvent.type === "agent.run.node.completed" || storedEvent.type === "agent.run.node.failed") {
+        return storedEvent.payload;
+      }
+    }
+    return undefined;
+  }
+
+  function createPendingApprovalEntry(roomId: string, runId: string, nodeId: string, agentId: string, provider: string): PendingApprovalEntry {
+    let resolveDecision: ((decision: PendingApprovalDecision) => void) | undefined;
+    const promise = new Promise<PendingApprovalDecision>((resolve) => {
+      resolveDecision = resolve;
+    });
+    return {
+      roomId,
+      runId,
+      nodeId,
+      agentId,
+      provider,
+      resolve: resolveDecision!,
+      promise,
+      timeout: undefined as unknown as ReturnType<typeof setTimeout>,
+      resolved: false
+    };
+  }
+
+  function createPendingElicitationEntry(roomId: string, runId: string, nodeId: string, agentId: string, provider: string): PendingElicitationEntry {
+    let resolveDecision: ((decision: PendingElicitationDecision) => void) | undefined;
+    const promise = new Promise<PendingElicitationDecision>((resolve) => {
+      resolveDecision = resolve;
+    });
+    return {
+      roomId,
+      runId,
+      nodeId,
+      agentId,
+      provider,
+      resolve: resolveDecision!,
+      promise,
+      timeout: undefined as unknown as ReturnType<typeof setTimeout>,
+      resolved: false
+    };
+  }
+
+  function resolvePendingApproval(key: string, decision: PendingApprovalDecision): boolean {
+    const entry = pendingApprovals.get(key);
+    if (!entry || entry.resolved) return false;
+    entry.resolved = true;
+    clearTimeout(entry.timeout);
+    pendingApprovals.delete(key);
+    appendAndPublish(event(entry.roomId, "agent.run.node.completed", decision.resolved_by, {
+      run_id: entry.runId,
+      turn_id: entry.runId,
+      agent_id: entry.agentId,
+      provider: entry.provider,
+      node_id: entry.nodeId,
+      status: "completed",
+      summary: decision.decision === "allow" ? "Approved" : "Denied",
+      detail: {
+        decision: decision.decision,
+        resolved_by: decision.resolved_by,
+        resolved_at: decision.resolved_at,
+        ...(decision.reason ? { reason: decision.reason } : {})
+      },
+      updated_at: decision.resolved_at,
+      completed_at: decision.resolved_at
+    }));
+    entry.resolve(decision);
+    return true;
+  }
+
+  function resolvePendingElicitation(key: string, decision: PendingElicitationDecision): boolean {
+    const entry = pendingElicitations.get(key);
+    if (!entry || entry.resolved) return false;
+    entry.resolved = true;
+    clearTimeout(entry.timeout);
+    pendingElicitations.delete(key);
+    appendAndPublish(event(entry.roomId, "agent.run.node.completed", decision.resolved_by, {
+      run_id: entry.runId,
+      turn_id: entry.runId,
+      agent_id: entry.agentId,
+      provider: entry.provider,
+      node_id: entry.nodeId,
+      status: "completed",
+      summary: decision.action === "accept" ? "Accepted" : decision.action === "decline" ? "Declined" : "Cancelled",
+      detail: {
+        action: decision.action,
+        resolved_by: decision.resolved_by,
+        resolved_at: decision.resolved_at,
+        ...(decision.content ? { content: decision.content } : {}),
+        ...(decision.reason ? { reason: decision.reason } : {})
+      },
+      updated_at: decision.resolved_at,
+      completed_at: decision.resolved_at
+    }));
+    entry.resolve(decision);
+    return true;
+  }
+
+  function closePendingInteractionsForRun(roomId: string, runId: string, reason: "run_closed"): void {
+    const closedAt = new Date().toISOString();
+    for (const [key, entry] of [...pendingApprovals.entries()]) {
+      if (entry.roomId !== roomId || entry.runId !== runId) continue;
+      resolvePendingApproval(key, {
+        decision: "deny",
+        resolved_by: "system",
+        resolved_at: closedAt,
+        reason
+      });
+    }
+    for (const [key, entry] of [...pendingElicitations.entries()]) {
+      if (entry.roomId !== roomId || entry.runId !== runId) continue;
+      resolvePendingElicitation(key, {
+        action: "cancel",
+        resolved_by: "system",
+        resolved_at: closedAt,
+        reason
+      });
+    }
+  }
+
+  function closePendingInteractionsForRoom(roomId: string, reason: "run_closed"): void {
+    const runIds = new Set<string>();
+    for (const entry of pendingApprovals.values()) {
+      if (entry.roomId === roomId) runIds.add(entry.runId);
+    }
+    for (const entry of pendingElicitations.values()) {
+      if (entry.roomId === roomId) runIds.add(entry.runId);
+    }
+    for (const runId of runIds) closePendingInteractionsForRun(roomId, runId, reason);
   }
 
   function canViewEvent(event: CacpEvent, participant: StoredParticipant): boolean {
@@ -1699,6 +1924,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     // sees the room as gone (next /me would 410), and any leaked socket
     // is bounded by process lifetime.
     aliveRooms.delete(request.params.roomId);
+    closePendingInteractionsForRoom(request.params.roomId, "run_closed");
     try {
       closeRoomSockets(request.params.roomId, 4001, "owner_left_room");
     } catch (err) {
@@ -2169,16 +2395,13 @@ export async function buildServer(options: BuildServerOptions = {}) {
       const roomId = pairing.room_id;
       const agents = store.getParticipants(roomId).filter((p) => p.role === "agent");
       if (agents.length >= config.maxAgentsPerRoom) return { ok: false as const, error: "max_agents_reached", status: 409 };
-      const serverUrl = request.query.server_url ?? config.publicOrigin ?? `${request.protocol}://${request.headers.host}`;
-      const hookUrl = `${serverUrl}/rooms/${roomId}/agent-action-approvals?token=${encodeURIComponent(agentToken)}`;
       const agentType = pairing.agent_type as AgentType;
       const permissionLevel = pairing.permission_level as PermissionLevel;
       const workingDir = body.working_dir ?? (pairing.working_dir || ".");
       const profile = buildAgentProfile({
         agentType,
         permissionLevel,
-        workingDir,
-        hookUrl
+        workingDir
       });
       store.claimAgentPairing(pairing.pairing_id, new Date().toISOString(), agentId);
       const added = store.addParticipant({ room_id: roomId, id: agentId, token: agentToken, display_name: body.adapter_name ?? profile.name, type: "agent", role: "agent", main_thread_history_access: "allowed" });
@@ -2197,11 +2420,11 @@ export async function buildServer(options: BuildServerOptions = {}) {
       if (shouldSelectAgent) {
         events.push(store.appendEvent(event(roomId, "room.agent_selected", pairing.created_by, { agent_id: agentId })));
       }
-      return { ok: true as const, roomId, agentType, permissionLevel, profile, hookUrl, events };
+      return { ok: true as const, roomId, agentType, permissionLevel, profile, events };
     });
     if (!claimResult.ok) return deny(reply, claimResult.error, claimResult.status);
     publishEvents(claimResult.events);
-    return reply.code(201).send({ room_id: claimResult.roomId, agent_id: agentId, agent_token: agentToken, agent: claimResult.profile, agent_type: claimResult.agentType, permission_level: claimResult.permissionLevel, hook_url: claimResult.hookUrl });
+    return reply.code(201).send({ room_id: claimResult.roomId, agent_id: agentId, agent_token: agentToken, agent: claimResult.profile, agent_type: claimResult.agentType, permission_level: claimResult.permissionLevel });
   });
 
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/agents/select", async (request, reply) => {
@@ -2385,42 +2608,6 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return reply.code(201).send({ ok: true });
   });
 
-  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/claude/runtime-status", async (request, reply) => {
-    const participant = requireParticipant(store, request.params.roomId, request);
-    if (!participant) return deny(reply, "invalid_token");
-    const raw = request.body as { kind?: unknown; payload?: unknown };
-    if (raw.kind !== "changed" && raw.kind !== "completed" && raw.kind !== "failed") return deny(reply, "invalid_status_kind", 400);
-    const payload = ClaudeRuntimeStatusBodySchema[raw.kind].parse(raw.payload);
-    if (!assertAgentOwnsPayload(participant, payload.agent_id)) return deny(reply, "forbidden", 403);
-    if (raw.kind === "changed") {
-      const runtimeValidation = validateClaudeRuntime(request.params.roomId, payload.agent_id, payload.turn_id);
-      if (!runtimeValidation.ok) return deny(reply, runtimeValidation.error, runtimeValidation.status);
-    } else {
-      const agentValidation = validateClaudeAgent(request.params.roomId, payload.agent_id);
-      if (!agentValidation.ok) return deny(reply, agentValidation.error, agentValidation.status);
-      const turnValid = validateTurnBelongsToAgent(store.listEvents(request.params.roomId), payload.turn_id, payload.agent_id);
-      if (!turnValid) return deny(reply, "turn_not_found", 403);
-    }
-    const eventType = raw.kind === "changed"
-      ? "claude.runtime.status_changed"
-      : raw.kind === "completed"
-        ? "claude.runtime.status_completed"
-        : "claude.runtime.status_failed";
-    appendAndPublish(event(request.params.roomId, eventType, participant.id, payload));
-    return reply.code(201).send({ ok: true });
-  });
-
-  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/claude/thinking-delta", async (request, reply) => {
-    const participant = requireParticipant(store, request.params.roomId, request);
-    if (!participant) return deny(reply, "invalid_token");
-    const payload = ClaudeThinkingDeltaBodySchema.parse(request.body);
-    if (!assertAgentOwnsPayload(participant, payload.agent_id)) return deny(reply, "forbidden", 403);
-    const runtimeValidation = validateClaudeRuntime(request.params.roomId, payload.agent_id, payload.turn_id);
-    if (!runtimeValidation.ok) return deny(reply, runtimeValidation.error, runtimeValidation.status);
-    appendAndPublish(event(request.params.roomId, "claude.output.thinking_delta", participant.id, payload));
-    return reply.code(201).send({ ok: true });
-  });
-
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/agent-sessions/catalog", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
@@ -2593,53 +2780,276 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return reply.code(201).send({ ok: true });
   });
 
-  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/agent-runtime/status", async (request, reply) => {
+  app.post<{ Params: { roomId: string; runId: string } }>("/rooms/:roomId/agent-runs/:runId/start", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    const raw = request.body as { kind?: unknown; payload?: unknown };
-    if (raw.kind !== "changed" && raw.kind !== "completed" && raw.kind !== "failed") return deny(reply, "invalid_status_kind", 400);
-    const payload = AgentRuntimeStatusBodySchema[raw.kind].parse(raw.payload);
-    if (!assertAgentOwnsPayload(participant, payload.agent_id)) return deny(reply, "forbidden", 403);
-    const validation = validateLocalAgentRuntime(request.params.roomId, payload.agent_id, payload.provider, payload.turn_id);
+    const body = AgentRunStartBodySchema.parse(request.body);
+    if (body.run_id !== request.params.runId) return deny(reply, "run_id_mismatch", 400);
+    const validation = validateOpenAgentRun(request.params.roomId, request.params.runId, body.turn_id, body.agent_id, participant);
     if (!validation.ok) return deny(reply, validation.error, validation.status);
-    const eventType = raw.kind === "changed"
-      ? "agent.runtime.status_changed"
-      : raw.kind === "completed"
-        ? "agent.runtime.status_completed"
-        : "agent.runtime.status_failed";
-    appendAndPublish(event(request.params.roomId, eventType, participant.id, payload));
+    appendAndPublish(event(request.params.roomId, "agent.run.started", participant.id, body));
     return reply.code(201).send({ ok: true });
   });
 
-  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/agent-action-approvals", async (request, reply) => {
-    const query = AgentActionApprovalQuerySchema.parse(request.query);
-    const participant = query.token ? store.getParticipantByToken(request.params.roomId, query.token) : requireParticipant(store, request.params.roomId, request);
+  app.post<{ Params: { roomId: string; runId: string } }>("/rooms/:roomId/agent-runs/:runId/complete", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
-    if (participant.role !== "agent" || participant.type !== "agent") return deny(reply, "forbidden", 403);
-    const body = AgentActionApprovalSchema.parse(request.body);
-    const actionId = prefixedId("action");
-    const storedEvents = store.transaction(() => [
-      store.appendEvent(event(request.params.roomId, "agent.action_approval_requested", participant.id, {
-        action_id: actionId,
-        agent_id: participant.id,
+    const body = AgentRunCompleteBodySchema.parse(request.body);
+    if (body.run_id !== request.params.runId) return deny(reply, "run_id_mismatch", 400);
+    const validation = validateOpenAgentRun(request.params.roomId, request.params.runId, body.turn_id, body.agent_id, participant);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    appendAndPublish(event(request.params.roomId, "agent.run.completed", participant.id, body));
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string; runId: string } }>("/rooms/:roomId/agent-runs/:runId/fail", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const body = AgentRunFailBodySchema.parse(request.body);
+    if (body.run_id !== request.params.runId) return deny(reply, "run_id_mismatch", 400);
+    const validation = validateOpenAgentRun(request.params.roomId, request.params.runId, body.turn_id, body.agent_id, participant);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    appendAndPublish(event(request.params.roomId, "agent.run.failed", participant.id, body));
+    closePendingInteractionsForRun(request.params.roomId, request.params.runId, "run_closed");
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string; runId: string } }>("/rooms/:roomId/agent-runs/:runId/nodes/start", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const body = AgentRunNodeStartBodySchema.parse(request.body);
+    if (body.run_id !== request.params.runId) return deny(reply, "run_id_mismatch", 400);
+    const validation = validateOpenAgentRun(request.params.roomId, request.params.runId, body.turn_id, body.agent_id, participant);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    appendAndPublish(event(request.params.roomId, "agent.run.node.started", participant.id, body));
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string; runId: string; nodeId: string } }>("/rooms/:roomId/agent-runs/:runId/nodes/:nodeId/delta", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const body = AgentRunNodeDeltaBodySchema.parse(request.body);
+    if (body.run_id !== request.params.runId) return deny(reply, "run_id_mismatch", 400);
+    if (body.node_id !== request.params.nodeId) return deny(reply, "node_id_mismatch", 400);
+    const validation = validateOpenAgentRun(request.params.roomId, request.params.runId, body.turn_id, body.agent_id, participant);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    if (!findRunNodeState(request.params.roomId, request.params.runId, request.params.nodeId)) return deny(reply, "node_not_found", 404);
+    appendAndPublish(event(request.params.roomId, "agent.run.node.delta", participant.id, body));
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string; runId: string; nodeId: string } }>("/rooms/:roomId/agent-runs/:runId/nodes/:nodeId/update", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const body = AgentRunNodeUpdateBodySchema.parse(request.body);
+    if (body.run_id !== request.params.runId) return deny(reply, "run_id_mismatch", 400);
+    if (body.node_id !== request.params.nodeId) return deny(reply, "node_id_mismatch", 400);
+    const validation = validateOpenAgentRun(request.params.roomId, request.params.runId, body.turn_id, body.agent_id, participant);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    if (!findRunNodeState(request.params.roomId, request.params.runId, request.params.nodeId)) return deny(reply, "node_not_found", 404);
+    appendAndPublish(event(request.params.roomId, "agent.run.node.updated", participant.id, body));
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string; runId: string; nodeId: string } }>("/rooms/:roomId/agent-runs/:runId/nodes/:nodeId/complete", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const body = AgentRunNodeCompleteBodySchema.parse(request.body);
+    if (body.run_id !== request.params.runId) return deny(reply, "run_id_mismatch", 400);
+    if (body.node_id !== request.params.nodeId) return deny(reply, "node_id_mismatch", 400);
+    const validation = validateOpenAgentRun(request.params.roomId, request.params.runId, body.turn_id, body.agent_id, participant);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    if (!findRunNodeState(request.params.roomId, request.params.runId, request.params.nodeId)) return deny(reply, "node_not_found", 404);
+    appendAndPublish(event(request.params.roomId, "agent.run.node.completed", participant.id, body));
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string; runId: string; nodeId: string } }>("/rooms/:roomId/agent-runs/:runId/nodes/:nodeId/fail", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const body = AgentRunNodeFailBodySchema.parse(request.body);
+    if (body.run_id !== request.params.runId) return deny(reply, "run_id_mismatch", 400);
+    if (body.node_id !== request.params.nodeId) return deny(reply, "node_id_mismatch", 400);
+    const validation = validateOpenAgentRun(request.params.roomId, request.params.runId, body.turn_id, body.agent_id, participant);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    if (!findRunNodeState(request.params.roomId, request.params.runId, request.params.nodeId)) return deny(reply, "node_not_found", 404);
+    appendAndPublish(event(request.params.roomId, "agent.run.node.failed", participant.id, body));
+    return reply.code(201).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string; runId: string; nodeId: string } }>("/rooms/:roomId/agent-runs/:runId/approvals/:nodeId/request", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const body = AgentRunApprovalRequestSchema.parse(request.body);
+    const validation = validateOpenAgentRun(request.params.roomId, request.params.runId, body.turn_id, body.agent_id, participant);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+    const toolNode = findRunNodeState(request.params.roomId, request.params.runId, body.tool_node_id);
+    if (!toolNode || toolNode.kind !== "tool") return deny(reply, "invalid_tool_node", 400);
+
+    const provider = providerForAgent(request.params.roomId, body.agent_id);
+    if (!provider) return deny(reply, "missing_local_agent_capability", 403);
+    const key = pendingInteractionKey(request.params.roomId, request.params.runId, request.params.nodeId);
+    const existing = pendingApprovals.get(key);
+    if (existing) {
+      const decision = await existing.promise;
+      return reply.code(201).send(decision);
+    }
+
+    const terminalPayload = findTerminalRunNodePayload(request.params.roomId, request.params.runId, request.params.nodeId);
+    if (terminalPayload) {
+      const detail = typeof terminalPayload.detail === "object" && terminalPayload.detail !== null ? terminalPayload.detail as Record<string, unknown> : {};
+      return reply.code(201).send({
+        decision: detail.decision,
+        resolved_by: detail.resolved_by,
+        resolved_at: detail.resolved_at,
+        reason: detail.reason
+      });
+    }
+
+    const pending = createPendingApprovalEntry(request.params.roomId, request.params.runId, request.params.nodeId, body.agent_id, provider);
+    pending.timeout = setTimeout(() => {
+      resolvePendingApproval(key, {
+        decision: "deny",
+        resolved_by: "system",
+        resolved_at: new Date().toISOString(),
+        reason: "approval_timeout"
+      });
+    }, 5 * 60 * 1000);
+    pendingApprovals.set(key, pending);
+
+    appendAndPublish(event(request.params.roomId, "agent.run.node.started", participant.id, {
+      run_id: request.params.runId,
+      turn_id: body.turn_id,
+      agent_id: body.agent_id,
+      provider,
+      node_id: request.params.nodeId,
+      kind: "approval",
+      status: "waiting_input",
+      title: body.title ?? `Approval required: ${body.tool_name}`,
+      detail: {
         tool_name: body.tool_name,
-        tool_input: body.tool_input,
-        description: body.description
-      })),
-      store.appendEvent(event(request.params.roomId, "agent.action_approval_resolved", participant.id, {
-        action_id: actionId,
-        result: "reject",
-        reason: "manual_flow_control_required"
-      }))
-    ]);
-    publishEvents(storedEvents);
-    return reply.code(201).send({
-      action_id: actionId,
-      status: "rejected",
-      result: "reject",
-      raw_result: "reject",
-      reason: "manual_flow_control_required"
-    });
+        display_name: body.display_name,
+        description: body.description,
+        decision_reason: body.decision_reason,
+        blocked_path: body.blocked_path,
+        input: body.input,
+        requested_at: body.requested_at
+      },
+      source_refs: {
+        parent_tool_use_id: body.tool_node_id,
+        ...(body.tool_use_id ? { tool_use_id: body.tool_use_id } : {})
+      },
+      started_at: body.requested_at,
+      updated_at: body.requested_at
+    }));
+
+    const decision = await pending.promise;
+    return reply.code(201).send(decision);
+  });
+
+  app.post<{ Params: { roomId: string; runId: string; nodeId: string } }>("/rooms/:roomId/agent-runs/:runId/approvals/:nodeId/resolve", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    if (!hasHumanRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
+    const body = AgentRunApprovalResolveSchema.parse(request.body);
+    const key = pendingInteractionKey(request.params.roomId, request.params.runId, request.params.nodeId);
+    const resolvedAt = new Date().toISOString();
+    if (!resolvePendingApproval(key, {
+      decision: body.decision,
+      resolved_by: participant.id,
+      resolved_at: resolvedAt,
+      reason: body.reason
+    })) {
+      return deny(reply, "interaction_closed", 409);
+    }
+    return reply.code(201).send({ ok: true, decision: body.decision, resolved_at: resolvedAt });
+  });
+
+  app.post<{ Params: { roomId: string; runId: string; nodeId: string } }>("/rooms/:roomId/agent-runs/:runId/elicitations/:nodeId/request", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    const body = AgentRunElicitationRequestSchema.parse(request.body);
+    const validation = validateOpenAgentRun(request.params.roomId, request.params.runId, body.turn_id, body.agent_id, participant);
+    if (!validation.ok) return deny(reply, validation.error, validation.status);
+
+    const provider = providerForAgent(request.params.roomId, body.agent_id);
+    if (!provider) return deny(reply, "missing_local_agent_capability", 403);
+    const key = pendingInteractionKey(request.params.roomId, request.params.runId, request.params.nodeId);
+    const existing = pendingElicitations.get(key);
+    if (existing) {
+      const decision = await existing.promise;
+      return reply.code(201).send(decision);
+    }
+
+    const terminalPayload = findTerminalRunNodePayload(request.params.roomId, request.params.runId, request.params.nodeId);
+    if (terminalPayload) {
+      const detail = typeof terminalPayload.detail === "object" && terminalPayload.detail !== null ? terminalPayload.detail as Record<string, unknown> : {};
+      return reply.code(201).send({
+        action: detail.action,
+        content: detail.content,
+        resolved_by: detail.resolved_by,
+        resolved_at: detail.resolved_at,
+        reason: detail.reason
+      });
+    }
+
+    const pending = createPendingElicitationEntry(request.params.roomId, request.params.runId, request.params.nodeId, body.agent_id, provider);
+    pending.timeout = setTimeout(() => {
+      resolvePendingElicitation(key, {
+        action: "cancel",
+        resolved_by: "system",
+        resolved_at: new Date().toISOString(),
+        reason: "elicitation_timeout"
+      });
+    }, 10 * 60 * 1000);
+    pendingElicitations.set(key, pending);
+
+    appendAndPublish(event(request.params.roomId, "agent.run.node.started", participant.id, {
+      run_id: request.params.runId,
+      turn_id: body.turn_id,
+      agent_id: body.agent_id,
+      provider,
+      node_id: request.params.nodeId,
+      kind: "elicitation",
+      status: "waiting_input",
+      title: body.title ?? body.display_name ?? "User input required",
+      detail: {
+        display_name: body.display_name,
+        description: body.description,
+        message: body.message,
+        mode: body.mode,
+        url: body.url,
+        requested_schema: body.requested_schema,
+        requested_at: body.requested_at
+      },
+      source_refs: {
+        elicitation_id: request.params.nodeId
+      },
+      started_at: body.requested_at,
+      updated_at: body.requested_at
+    }));
+
+    const decision = await pending.promise;
+    return reply.code(201).send(decision);
+  });
+
+  app.post<{ Params: { roomId: string; runId: string; nodeId: string } }>("/rooms/:roomId/agent-runs/:runId/elicitations/:nodeId/resolve", async (request, reply) => {
+    const participant = requireParticipant(store, request.params.roomId, request);
+    if (!participant) return deny(reply, "invalid_token");
+    if (!hasHumanRole(participant, ["owner", "admin"])) return deny(reply, "forbidden", 403);
+    const body = AgentRunElicitationResolveSchema.parse(request.body);
+    const key = pendingInteractionKey(request.params.roomId, request.params.runId, request.params.nodeId);
+    const resolvedAt = new Date().toISOString();
+    if (!resolvePendingElicitation(key, {
+      action: body.action,
+      resolved_by: participant.id,
+      resolved_at: resolvedAt,
+      reason: undefined,
+      ...("content" in body ? { content: body.content } : {})
+    })) {
+      return deny(reply, "interaction_closed", 409);
+    }
+    return reply.code(201).send({ ok: true, action: body.action, resolved_at: resolvedAt });
   });
 
   app.post<{ Params: { roomId: string; turnId: string } }>("/rooms/:roomId/agent-turns/:turnId/start", async (request, reply) => {
