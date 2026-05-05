@@ -47,22 +47,232 @@ async function joinApprovedMember(app: Awaited<ReturnType<typeof buildServer>>, 
   })).json() as { participant_id: string; participant_token: string };
 }
 
+async function currentTurnId(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerAuth: { authorization: string }) {
+  const events = (await app.inject({ method: "GET", url: `/rooms/${roomId}/events`, headers: ownerAuth })).json().events;
+  return events.find((event: { type: string }) => event.type === "agent.turn.requested").payload.turn_id as string;
+}
+
+async function startRun(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, agentToken: string, agentId: string, turnId: string, overrides: Record<string, unknown> = {}) {
+  return app.inject({
+    method: "POST",
+    url: `/rooms/${roomId}/agent-runs/${turnId}/start`,
+    headers: { authorization: `Bearer ${agentToken}` },
+    payload: {
+      run_id: turnId,
+      turn_id: turnId,
+      agent_id: agentId,
+      provider: "claude-code",
+      started_at: "2026-05-05T00:00:01.000Z",
+      ...overrides
+    }
+  });
+}
+
+async function startNode(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, agentToken: string, agentId: string, turnId: string, nodeId: string, overrides: Record<string, unknown> = {}) {
+  return app.inject({
+    method: "POST",
+    url: `/rooms/${roomId}/agent-runs/${turnId}/nodes/start`,
+    headers: { authorization: `Bearer ${agentToken}` },
+    payload: {
+      run_id: turnId,
+      turn_id: turnId,
+      agent_id: agentId,
+      provider: "claude-code",
+      node_id: nodeId,
+      kind: "tool",
+      status: "running",
+      title: `Tool ${nodeId}`,
+      started_at: "2026-05-05T00:00:02.000Z",
+      updated_at: "2026-05-05T00:00:02.000Z",
+      ...overrides
+    }
+  });
+}
+
 describe("agent run routes", () => {
   it("accepts run lifecycle and node publication for the active turn owner", async () => {
     const { app, room, ownerAuth, agent } = await createRoomAndAgent();
-    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
-    const turnId = events.find((event: { type: string }) => event.type === "agent.turn.requested").payload.turn_id;
+    const turnId = await currentTurnId(app, room.room_id, ownerAuth);
 
-    expect((await app.inject({
-      method: "POST",
-      url: `/rooms/${room.room_id}/agent-runs/${turnId}/start`,
-      headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: { run_id: turnId, turn_id: turnId, agent_id: agent.agent_id, provider: "claude-code", started_at: "2026-05-05T00:00:01.000Z" }
+    expect((await startRun(app, room.room_id, agent.agent_token, agent.agent_id, turnId)).statusCode).toBe(201);
+
+    expect((await startNode(app, room.room_id, agent.agent_token, agent.agent_id, turnId, "toolu_1", {
+      title: "Read README.md"
     })).statusCode).toBe(201);
 
-    expect((await app.inject({
+    await app.close();
+  });
+
+  it("replays identical run starts and rejects conflicting ones", async () => {
+    const { app, room, ownerAuth, agent } = await createRoomAndAgent();
+    const turnId = await currentTurnId(app, room.room_id, ownerAuth);
+
+    const first = await startRun(app, room.room_id, agent.agent_token, agent.agent_id, turnId);
+    const replay = await startRun(app, room.room_id, agent.agent_token, agent.agent_id, turnId);
+    const conflict = await startRun(app, room.room_id, agent.agent_token, agent.agent_id, turnId, {
+      started_at: "2026-05-05T00:00:09.000Z"
+    });
+
+    expect(first.statusCode).toBe(201);
+    expect(replay.statusCode).toBe(201);
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict.json()).toMatchObject({ error: "run_id_conflict" });
+
+    await app.close();
+  });
+
+  it("replays identical node starts and rejects conflicting ones", async () => {
+    const { app, room, ownerAuth, agent } = await createRoomAndAgent();
+    const turnId = await currentTurnId(app, room.room_id, ownerAuth);
+
+    await startRun(app, room.room_id, agent.agent_token, agent.agent_id, turnId);
+
+    const first = await startNode(app, room.room_id, agent.agent_token, agent.agent_id, turnId, "toolu_1");
+    const replay = await startNode(app, room.room_id, agent.agent_token, agent.agent_id, turnId, "toolu_1");
+    const conflict = await startNode(app, room.room_id, agent.agent_token, agent.agent_id, turnId, "toolu_1", {
+      title: "Updated Tool"
+    });
+
+    expect(first.statusCode).toBe(201);
+    expect(replay.statusCode).toBe(201);
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict.json()).toMatchObject({ error: "node_id_conflict" });
+
+    await app.close();
+  });
+
+  it("rejects further run and node mutations after the run completes", async () => {
+    const { app, room, ownerAuth, agent } = await createRoomAndAgent();
+    const turnId = await currentTurnId(app, room.room_id, ownerAuth);
+
+    await startRun(app, room.room_id, agent.agent_token, agent.agent_id, turnId);
+    await startNode(app, room.room_id, agent.agent_token, agent.agent_id, turnId, "toolu_1");
+
+    const completed = await app.inject({
       method: "POST",
-      url: `/rooms/${room.room_id}/agent-runs/${turnId}/nodes/start`,
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/complete`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: {
+        run_id: turnId,
+        turn_id: turnId,
+        agent_id: agent.agent_id,
+        provider: "claude-code",
+        message_id: "msg_1",
+        summary: "Run complete",
+        metrics: { files_read: 0, searches: 0, commands: 0 },
+        completed_at: "2026-05-05T00:00:04.000Z"
+      }
+    });
+    expect(completed.statusCode).toBe(201);
+
+    const responses = await Promise.all([
+      startRun(app, room.room_id, agent.agent_token, agent.agent_id, turnId),
+      app.inject({
+        method: "POST",
+        url: `/rooms/${room.room_id}/agent-runs/${turnId}/complete`,
+        headers: { authorization: `Bearer ${agent.agent_token}` },
+        payload: {
+          run_id: turnId,
+          turn_id: turnId,
+          agent_id: agent.agent_id,
+          provider: "claude-code",
+          message_id: "msg_2",
+          summary: "Run complete again",
+          metrics: { files_read: 0, searches: 0, commands: 0 },
+          completed_at: "2026-05-05T00:00:05.000Z"
+        }
+      }),
+      app.inject({
+        method: "POST",
+        url: `/rooms/${room.room_id}/agent-runs/${turnId}/fail`,
+        headers: { authorization: `Bearer ${agent.agent_token}` },
+        payload: {
+          run_id: turnId,
+          turn_id: turnId,
+          agent_id: agent.agent_id,
+          provider: "claude-code",
+          error: "run_failed",
+          failed_at: "2026-05-05T00:00:05.000Z"
+        }
+      }),
+      startNode(app, room.room_id, agent.agent_token, agent.agent_id, turnId, "toolu_2"),
+      app.inject({
+        method: "POST",
+        url: `/rooms/${room.room_id}/agent-runs/${turnId}/nodes/toolu_1/delta`,
+        headers: { authorization: `Bearer ${agent.agent_token}` },
+        payload: {
+          run_id: turnId,
+          turn_id: turnId,
+          agent_id: agent.agent_id,
+          provider: "claude-code",
+          node_id: "toolu_1",
+          delta_type: "text",
+          chunk: "hello",
+          updated_at: "2026-05-05T00:00:05.000Z"
+        }
+      }),
+      app.inject({
+        method: "POST",
+        url: `/rooms/${room.room_id}/agent-runs/${turnId}/nodes/toolu_1/update`,
+        headers: { authorization: `Bearer ${agent.agent_token}` },
+        payload: {
+          run_id: turnId,
+          turn_id: turnId,
+          agent_id: agent.agent_id,
+          provider: "claude-code",
+          node_id: "toolu_1",
+          status: "running",
+          updated_at: "2026-05-05T00:00:05.000Z"
+        }
+      }),
+      app.inject({
+        method: "POST",
+        url: `/rooms/${room.room_id}/agent-runs/${turnId}/nodes/toolu_1/complete`,
+        headers: { authorization: `Bearer ${agent.agent_token}` },
+        payload: {
+          run_id: turnId,
+          turn_id: turnId,
+          agent_id: agent.agent_id,
+          provider: "claude-code",
+          node_id: "toolu_1",
+          summary: "done",
+          completed_at: "2026-05-05T00:00:05.000Z"
+        }
+      }),
+      app.inject({
+        method: "POST",
+        url: `/rooms/${room.room_id}/agent-runs/${turnId}/nodes/toolu_1/fail`,
+        headers: { authorization: `Bearer ${agent.agent_token}` },
+        payload: {
+          run_id: turnId,
+          turn_id: turnId,
+          agent_id: agent.agent_id,
+          provider: "claude-code",
+          node_id: "toolu_1",
+          error: "node_failed",
+          failed_at: "2026-05-05T00:00:05.000Z"
+        }
+      })
+    ]);
+
+    for (const response of responses) {
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toMatchObject({ error: "run_closed" });
+    }
+
+    await app.close();
+  });
+
+  it("rejects further node mutations after the node completes", async () => {
+    const { app, room, ownerAuth, agent } = await createRoomAndAgent();
+    const turnId = await currentTurnId(app, room.room_id, ownerAuth);
+
+    await startRun(app, room.room_id, agent.agent_token, agent.agent_id, turnId);
+    await startNode(app, room.room_id, agent.agent_token, agent.agent_id, turnId, "toolu_1");
+
+    const completed = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/nodes/toolu_1/complete`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
       payload: {
         run_id: turnId,
@@ -70,13 +280,76 @@ describe("agent run routes", () => {
         agent_id: agent.agent_id,
         provider: "claude-code",
         node_id: "toolu_1",
-        kind: "tool",
-        status: "running",
-        title: "Read README.md",
-        started_at: "2026-05-05T00:00:02.000Z",
-        updated_at: "2026-05-05T00:00:02.000Z"
+        summary: "done",
+        completed_at: "2026-05-05T00:00:04.000Z"
       }
-    })).statusCode).toBe(201);
+    });
+    expect(completed.statusCode).toBe(201);
+
+    const responses = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: `/rooms/${room.room_id}/agent-runs/${turnId}/nodes/toolu_1/delta`,
+        headers: { authorization: `Bearer ${agent.agent_token}` },
+        payload: {
+          run_id: turnId,
+          turn_id: turnId,
+          agent_id: agent.agent_id,
+          provider: "claude-code",
+          node_id: "toolu_1",
+          delta_type: "text",
+          chunk: "hello",
+          updated_at: "2026-05-05T00:00:05.000Z"
+        }
+      }),
+      app.inject({
+        method: "POST",
+        url: `/rooms/${room.room_id}/agent-runs/${turnId}/nodes/toolu_1/update`,
+        headers: { authorization: `Bearer ${agent.agent_token}` },
+        payload: {
+          run_id: turnId,
+          turn_id: turnId,
+          agent_id: agent.agent_id,
+          provider: "claude-code",
+          node_id: "toolu_1",
+          status: "running",
+          updated_at: "2026-05-05T00:00:05.000Z"
+        }
+      }),
+      app.inject({
+        method: "POST",
+        url: `/rooms/${room.room_id}/agent-runs/${turnId}/nodes/toolu_1/complete`,
+        headers: { authorization: `Bearer ${agent.agent_token}` },
+        payload: {
+          run_id: turnId,
+          turn_id: turnId,
+          agent_id: agent.agent_id,
+          provider: "claude-code",
+          node_id: "toolu_1",
+          summary: "done again",
+          completed_at: "2026-05-05T00:00:05.000Z"
+        }
+      }),
+      app.inject({
+        method: "POST",
+        url: `/rooms/${room.room_id}/agent-runs/${turnId}/nodes/toolu_1/fail`,
+        headers: { authorization: `Bearer ${agent.agent_token}` },
+        payload: {
+          run_id: turnId,
+          turn_id: turnId,
+          agent_id: agent.agent_id,
+          provider: "claude-code",
+          node_id: "toolu_1",
+          error: "node_failed",
+          failed_at: "2026-05-05T00:00:05.000Z"
+        }
+      })
+    ]);
+
+    for (const response of responses) {
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toMatchObject({ error: "node_closed" });
+    }
 
     await app.close();
   });
@@ -492,6 +765,58 @@ describe("agent run routes", () => {
     });
     expect(elicitationCompletedEvent?.payload).not.toHaveProperty("status");
     expect(elicitationCompletedEvent?.payload).not.toHaveProperty("updated_at");
+
+    await app.close();
+  });
+
+  it("auto-closes pending interactions when the run completes", async () => {
+    const { app, room, ownerAuth, agent } = await createRoomAndAgent();
+    const turnId = await currentTurnId(app, room.room_id, ownerAuth);
+
+    const elicitationPayload = {
+      agent_id: agent.agent_id,
+      turn_id: turnId,
+      message: "Open the auth URL and continue",
+      mode: "url",
+      url: "https://example.com/auth",
+      requested_at: "2026-05-05T00:00:03.000Z"
+    };
+
+    const elicitationPromise = app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/elicitations/elicit_1/request`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: elicitationPayload
+    });
+    void elicitationPromise.catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/complete`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: {
+        run_id: turnId,
+        turn_id: turnId,
+        agent_id: agent.agent_id,
+        provider: "claude-code",
+        message_id: "msg_1",
+        summary: "Run complete",
+        metrics: { files_read: 0, searches: 0, commands: 0 },
+        completed_at: "2026-05-05T00:00:04.000Z"
+      }
+    });
+
+    expect((await elicitationPromise).json()).toMatchObject({ action: "cancel", reason: "run_closed" });
+
+    const replayed = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/elicitations/elicit_1/request`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: elicitationPayload
+    });
+    expect(replayed.statusCode).toBe(201);
+    expect(replayed.json()).toMatchObject({ action: "cancel", reason: "run_closed" });
 
     await app.close();
   });

@@ -165,6 +165,8 @@ type ProposalTerminalStatus = "approved" | "rejected" | "expired";
 type ProposalState = { policy: Policy; votes: VoteRecord[]; terminal_status?: ProposalTerminalStatus };
 type TaskTerminalStatus = "completed" | "failed" | "cancelled";
 type TaskState = { target_agent_id: string; started: boolean; terminal_status?: TaskTerminalStatus };
+type RunTerminalStatus = "completed" | "failed";
+type RunState = { started_payload?: Record<string, unknown>; terminal_status?: RunTerminalStatus };
 type TurnTerminalStatus = "completed" | "failed";
 type TurnState = { agent_id: string; started: boolean; terminal_status?: TurnTerminalStatus };
 type PendingApprovalDecision = { decision: "allow" | "deny"; resolved_by: string; resolved_at: string; reason?: string };
@@ -200,6 +202,7 @@ type RunNodeState = {
   title?: string;
   detail?: Record<string, unknown>;
   source_refs?: Record<string, unknown>;
+  started_payload?: Record<string, unknown>;
   terminal: boolean;
 };
 
@@ -608,6 +611,34 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return providerForCapabilities(findAgentCapabilities(store.listEvents(roomId), agentId));
   }
 
+  function findRunState(roomId: string, runId: string): RunState | undefined {
+    let run: RunState | undefined;
+    for (const storedEvent of store.listEvents(roomId)) {
+      if (storedEvent.payload.run_id !== runId) continue;
+      if (storedEvent.type === "agent.run.started") {
+        run = {
+          ...run,
+          started_payload: storedEvent.payload as Record<string, unknown>
+        };
+        continue;
+      }
+      if (storedEvent.type === "agent.run.completed") {
+        run = {
+          ...run,
+          terminal_status: "completed"
+        };
+        continue;
+      }
+      if (storedEvent.type === "agent.run.failed") {
+        run = {
+          ...run,
+          terminal_status: "failed"
+        };
+      }
+    }
+    return run;
+  }
+
   function findRunNodeState(roomId: string, runId: string, nodeId: string): RunNodeState | undefined {
     let state: RunNodeState | undefined;
     for (const storedEvent of store.listEvents(roomId)) {
@@ -624,6 +655,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
           source_refs: typeof storedEvent.payload.source_refs === "object" && storedEvent.payload.source_refs !== null
             ? storedEvent.payload.source_refs as Record<string, unknown>
             : undefined,
+          started_payload: storedEvent.payload as Record<string, unknown>,
           terminal: false
         };
         continue;
@@ -699,6 +731,22 @@ export async function buildServer(options: BuildServerOptions = {}) {
 
   function buildRunNodeRequestKey(shape: Record<string, unknown>): string {
     return stableJson(shape);
+  }
+
+  function hasMatchingPayload(existing: Record<string, unknown> | undefined, next: Record<string, unknown>): boolean {
+    if (!existing) return false;
+    return stableJson(existing) === stableJson(next);
+  }
+
+  function validateRunIsOpen(roomId: string, runId: string): { ok: true; runState: RunState | undefined } | { ok: false; error: string; status: number } {
+    const runState = findRunState(roomId, runId);
+    if (runState?.terminal_status) return { ok: false, error: "run_closed", status: 409 };
+    return { ok: true, runState };
+  }
+
+  function validateNodeIsOpen(nodeState: RunNodeState): { ok: true } | { ok: false; error: string; status: number } {
+    if (nodeState.terminal) return { ok: false, error: "node_closed", status: 409 };
+    return { ok: true };
   }
 
   function createPendingApprovalEntry(roomId: string, runId: string, nodeId: string, agentId: string, provider: string, requestKey: string): PendingApprovalEntry {
@@ -2885,6 +2933,12 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (body.run_id !== request.params.runId) return deny(reply, "run_id_mismatch", 400);
     const validation = validateOpenAgentRun(request.params.roomId, request.params.runId, body.turn_id, body.agent_id, participant);
     if (!validation.ok) return deny(reply, validation.error, validation.status);
+    const runValidation = validateRunIsOpen(request.params.roomId, request.params.runId);
+    if (!runValidation.ok) return deny(reply, runValidation.error, runValidation.status);
+    if (runValidation.runState?.started_payload) {
+      if (!hasMatchingPayload(runValidation.runState.started_payload, body)) return deny(reply, "run_id_conflict", 409);
+      return reply.code(201).send({ ok: true });
+    }
     appendAndPublish(event(request.params.roomId, "agent.run.started", participant.id, body));
     return reply.code(201).send({ ok: true });
   });
@@ -2896,7 +2950,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (body.run_id !== request.params.runId) return deny(reply, "run_id_mismatch", 400);
     const validation = validateOpenAgentRun(request.params.roomId, request.params.runId, body.turn_id, body.agent_id, participant);
     if (!validation.ok) return deny(reply, validation.error, validation.status);
+    const runValidation = validateRunIsOpen(request.params.roomId, request.params.runId);
+    if (!runValidation.ok) return deny(reply, runValidation.error, runValidation.status);
     appendAndPublish(event(request.params.roomId, "agent.run.completed", participant.id, body));
+    closePendingInteractionsForRun(request.params.roomId, request.params.runId, "run_closed");
     return reply.code(201).send({ ok: true });
   });
 
@@ -2907,6 +2964,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (body.run_id !== request.params.runId) return deny(reply, "run_id_mismatch", 400);
     const validation = validateOpenAgentRun(request.params.roomId, request.params.runId, body.turn_id, body.agent_id, participant);
     if (!validation.ok) return deny(reply, validation.error, validation.status);
+    const runValidation = validateRunIsOpen(request.params.roomId, request.params.runId);
+    if (!runValidation.ok) return deny(reply, runValidation.error, runValidation.status);
     appendAndPublish(event(request.params.roomId, "agent.run.failed", participant.id, body));
     closePendingInteractionsForRun(request.params.roomId, request.params.runId, "run_closed");
     return reply.code(201).send({ ok: true });
@@ -2919,6 +2978,15 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (body.run_id !== request.params.runId) return deny(reply, "run_id_mismatch", 400);
     const validation = validateOpenAgentRun(request.params.roomId, request.params.runId, body.turn_id, body.agent_id, participant);
     if (!validation.ok) return deny(reply, validation.error, validation.status);
+    const runValidation = validateRunIsOpen(request.params.roomId, request.params.runId);
+    if (!runValidation.ok) return deny(reply, runValidation.error, runValidation.status);
+    const existingNode = findRunNodeState(request.params.roomId, request.params.runId, body.node_id);
+    if (existingNode) {
+      const nodeValidation = validateNodeIsOpen(existingNode);
+      if (!nodeValidation.ok) return deny(reply, nodeValidation.error, nodeValidation.status);
+      if (!hasMatchingPayload(existingNode.started_payload, body)) return deny(reply, "node_id_conflict", 409);
+      return reply.code(201).send({ ok: true });
+    }
     appendAndPublish(event(request.params.roomId, "agent.run.node.started", participant.id, body));
     return reply.code(201).send({ ok: true });
   });
@@ -2931,7 +2999,12 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (body.node_id !== request.params.nodeId) return deny(reply, "node_id_mismatch", 400);
     const validation = validateOpenAgentRun(request.params.roomId, request.params.runId, body.turn_id, body.agent_id, participant);
     if (!validation.ok) return deny(reply, validation.error, validation.status);
-    if (!findRunNodeState(request.params.roomId, request.params.runId, request.params.nodeId)) return deny(reply, "node_not_found", 404);
+    const runValidation = validateRunIsOpen(request.params.roomId, request.params.runId);
+    if (!runValidation.ok) return deny(reply, runValidation.error, runValidation.status);
+    const nodeState = findRunNodeState(request.params.roomId, request.params.runId, request.params.nodeId);
+    if (!nodeState) return deny(reply, "node_not_found", 404);
+    const nodeValidation = validateNodeIsOpen(nodeState);
+    if (!nodeValidation.ok) return deny(reply, nodeValidation.error, nodeValidation.status);
     appendAndPublish(event(request.params.roomId, "agent.run.node.delta", participant.id, body));
     return reply.code(201).send({ ok: true });
   });
@@ -2944,7 +3017,12 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (body.node_id !== request.params.nodeId) return deny(reply, "node_id_mismatch", 400);
     const validation = validateOpenAgentRun(request.params.roomId, request.params.runId, body.turn_id, body.agent_id, participant);
     if (!validation.ok) return deny(reply, validation.error, validation.status);
-    if (!findRunNodeState(request.params.roomId, request.params.runId, request.params.nodeId)) return deny(reply, "node_not_found", 404);
+    const runValidation = validateRunIsOpen(request.params.roomId, request.params.runId);
+    if (!runValidation.ok) return deny(reply, runValidation.error, runValidation.status);
+    const nodeState = findRunNodeState(request.params.roomId, request.params.runId, request.params.nodeId);
+    if (!nodeState) return deny(reply, "node_not_found", 404);
+    const nodeValidation = validateNodeIsOpen(nodeState);
+    if (!nodeValidation.ok) return deny(reply, nodeValidation.error, nodeValidation.status);
     appendAndPublish(event(request.params.roomId, "agent.run.node.updated", participant.id, body));
     return reply.code(201).send({ ok: true });
   });
@@ -2957,7 +3035,12 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (body.node_id !== request.params.nodeId) return deny(reply, "node_id_mismatch", 400);
     const validation = validateOpenAgentRun(request.params.roomId, request.params.runId, body.turn_id, body.agent_id, participant);
     if (!validation.ok) return deny(reply, validation.error, validation.status);
-    if (!findRunNodeState(request.params.roomId, request.params.runId, request.params.nodeId)) return deny(reply, "node_not_found", 404);
+    const runValidation = validateRunIsOpen(request.params.roomId, request.params.runId);
+    if (!runValidation.ok) return deny(reply, runValidation.error, runValidation.status);
+    const nodeState = findRunNodeState(request.params.roomId, request.params.runId, request.params.nodeId);
+    if (!nodeState) return deny(reply, "node_not_found", 404);
+    const nodeValidation = validateNodeIsOpen(nodeState);
+    if (!nodeValidation.ok) return deny(reply, nodeValidation.error, nodeValidation.status);
     appendAndPublish(event(request.params.roomId, "agent.run.node.completed", participant.id, body));
     return reply.code(201).send({ ok: true });
   });
@@ -2970,7 +3053,12 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (body.node_id !== request.params.nodeId) return deny(reply, "node_id_mismatch", 400);
     const validation = validateOpenAgentRun(request.params.roomId, request.params.runId, body.turn_id, body.agent_id, participant);
     if (!validation.ok) return deny(reply, validation.error, validation.status);
-    if (!findRunNodeState(request.params.roomId, request.params.runId, request.params.nodeId)) return deny(reply, "node_not_found", 404);
+    const runValidation = validateRunIsOpen(request.params.roomId, request.params.runId);
+    if (!runValidation.ok) return deny(reply, runValidation.error, runValidation.status);
+    const nodeState = findRunNodeState(request.params.roomId, request.params.runId, request.params.nodeId);
+    if (!nodeState) return deny(reply, "node_not_found", 404);
+    const nodeValidation = validateNodeIsOpen(nodeState);
+    if (!nodeValidation.ok) return deny(reply, nodeValidation.error, nodeValidation.status);
     appendAndPublish(event(request.params.roomId, "agent.run.node.failed", participant.id, body));
     return reply.code(201).send({ ok: true });
   });
@@ -3011,6 +3099,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
         reason: detail.reason
       });
     }
+    const runValidation = validateRunIsOpen(request.params.roomId, request.params.runId);
+    if (!runValidation.ok) return deny(reply, runValidation.error, runValidation.status);
 
     const pending = createPendingApprovalEntry(request.params.roomId, request.params.runId, request.params.nodeId, body.agent_id, provider, approvalRequestKey);
     pending.timeout = setTimeout(() => {
@@ -3099,6 +3189,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
         reason: detail.reason
       });
     }
+    const runValidation = validateRunIsOpen(request.params.roomId, request.params.runId);
+    if (!runValidation.ok) return deny(reply, runValidation.error, runValidation.status);
 
     const pending = createPendingElicitationEntry(request.params.roomId, request.params.runId, request.params.nodeId, body.agent_id, provider, elicitationRequestKey);
     pending.timeout = setTimeout(() => {
