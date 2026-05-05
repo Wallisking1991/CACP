@@ -11,7 +11,7 @@ export function protocolSafeErrorMessage(message: string, maxLength = ProtocolEr
 
 export interface ReportTurnFailureInput {
   displayError: string;
-  reportRuntimeFailure?: (error: string, failedAt: string) => Promise<void>;
+  reportRunFailure?: (error: string, failedAt: string) => Promise<void>;
   failTurn: (error: string) => Promise<void>;
   now?: () => string;
   log?: (message: string, error: unknown) => void;
@@ -22,11 +22,11 @@ export async function reportTurnFailure(input: ReportTurnFailureInput): Promise<
   const failedAt = input.now?.() ?? new Date().toISOString();
   const log = input.log ?? (() => undefined);
 
-  if (input.reportRuntimeFailure) {
+  if (input.reportRunFailure) {
     try {
-      await input.reportRuntimeFailure(safeError, failedAt);
+      await input.reportRunFailure(safeError, failedAt);
     } catch (error) {
-      log("Adapter failed to report runtime failure status", error);
+      log("Adapter failed to report run failure", error);
     }
   }
 

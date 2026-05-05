@@ -1,7 +1,15 @@
 import type {
-  AgentRuntimeStatusChangedPayload,
-  AgentRuntimeStatusCompletedPayload,
-  AgentRuntimeStatusFailedPayload,
+  AgentRunApprovalRequestBody,
+  AgentRunCompletedPayload,
+  AgentRunElicitationRequestBody,
+  AgentRunFailedPayload,
+  AgentRunMetrics,
+  AgentRunNodeCompletedPayload,
+  AgentRunNodeDeltaPayload,
+  AgentRunNodeFailedPayload,
+  AgentRunNodeStartedPayload,
+  AgentRunNodeUpdatedPayload,
+  AgentRunStartedPayload,
   AgentSessionCatalogUpdatedPayload,
   AgentSessionImportCompletedPayload,
   AgentSessionImportFailedPayload,
@@ -11,13 +19,6 @@ import type {
   AgentSessionPreviewFailedPayload,
   AgentSessionPreviewMessagePayload,
   AgentSessionReadyPayload,
-  ConnectorLedgerEntry,
-  ConnectorSnapshotCompletedPayload,
-  ConnectorSnapshotEntryPayload,
-  ConnectorSnapshotFailedPayload,
-  ConnectorSnapshotStartedPayload,
-  ClaudeRuntimeMetrics,
-  ClaudeRuntimePhase,
   ClaudeSessionCatalogUpdatedPayload as ClaudeCatalogPayload,
   ClaudeSessionImportCompletedPayload as ClaudeImportCompletedPayload,
   ClaudeSessionImportFailedPayload as ClaudeImportFailedPayload,
@@ -26,7 +27,11 @@ import type {
   ClaudeSessionPreviewCompletedPayload as ClaudePreviewCompletedPayload,
   ClaudeSessionPreviewFailedPayload as ClaudePreviewFailedPayload,
   ClaudeSessionPreviewMessagePayload as ClaudePreviewMessagePayload,
-  ClaudeSessionReadyPayload as ClaudeReadyPayload
+  ClaudeSessionReadyPayload as ClaudeReadyPayload,
+  ConnectorLedgerEntry,
+  ConnectorSnapshotCompletedPayload,
+  ConnectorSnapshotFailedPayload,
+  ConnectorSnapshotStartedPayload
 } from "@cacp/protocol";
 
 export interface RoomClientInput {
@@ -34,6 +39,8 @@ export interface RoomClientInput {
   roomId: string;
   agentToken: string;
 }
+
+export type RuntimePhase = "reading_files" | "searching" | "running_command" | "thinking";
 
 export class RoomClient {
   constructor(private readonly input: RoomClientInput) {}
@@ -92,18 +99,6 @@ export class RoomClient {
     return this.postJson(`/rooms/${this.input.roomId}/claude/session-previews/${previewId}/fail`, payload);
   }
 
-  publishRuntimeStatus(kind: "changed" | "completed" | "failed", payload: unknown): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/claude/runtime-status`, { kind, payload });
-  }
-
-  publishThinkingDelta(payload: { agent_id: string; turn_id: string; text: string; done: boolean }): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/claude/thinking-delta`, payload);
-  }
-
-  publishAgentRuntimeStatus(kind: "changed" | "completed" | "failed", payload: unknown): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/agent-runtime/status`, { kind, payload });
-  }
-
   startAgentImport(payload: AgentSessionImportStartedPayload): Promise<{ ok: true }> {
     return this.postJson(`/rooms/${this.input.roomId}/agent-sessions/imports/start`, payload);
   }
@@ -130,6 +125,54 @@ export class RoomClient {
 
   failAgentPreview(previewId: string, payload: AgentSessionPreviewFailedPayload): Promise<{ ok: true }> {
     return this.postJson(`/rooms/${this.input.roomId}/agent-sessions/previews/${previewId}/fail`, payload);
+  }
+
+  startRun(runId: string, payload: AgentRunStartedPayload): Promise<{ ok: true }> {
+    return this.postJson(`/rooms/${this.input.roomId}/agent-runs/${runId}/start`, payload);
+  }
+
+  completeRun(runId: string, payload: AgentRunCompletedPayload): Promise<{ ok: true }> {
+    return this.postJson(`/rooms/${this.input.roomId}/agent-runs/${runId}/complete`, payload);
+  }
+
+  failRun(runId: string, payload: AgentRunFailedPayload): Promise<{ ok: true }> {
+    return this.postJson(`/rooms/${this.input.roomId}/agent-runs/${runId}/fail`, payload);
+  }
+
+  startRunNode(runId: string, payload: AgentRunNodeStartedPayload): Promise<{ ok: true }> {
+    return this.postJson(`/rooms/${this.input.roomId}/agent-runs/${runId}/nodes/start`, payload);
+  }
+
+  appendRunNodeDelta(runId: string, nodeId: string, payload: AgentRunNodeDeltaPayload): Promise<{ ok: true }> {
+    return this.postJson(`/rooms/${this.input.roomId}/agent-runs/${runId}/nodes/${nodeId}/delta`, payload);
+  }
+
+  updateRunNode(runId: string, nodeId: string, payload: AgentRunNodeUpdatedPayload): Promise<{ ok: true }> {
+    return this.postJson(`/rooms/${this.input.roomId}/agent-runs/${runId}/nodes/${nodeId}/update`, payload);
+  }
+
+  completeRunNode(runId: string, nodeId: string, payload: AgentRunNodeCompletedPayload): Promise<{ ok: true }> {
+    return this.postJson(`/rooms/${this.input.roomId}/agent-runs/${runId}/nodes/${nodeId}/complete`, payload);
+  }
+
+  failRunNode(runId: string, nodeId: string, payload: AgentRunNodeFailedPayload): Promise<{ ok: true }> {
+    return this.postJson(`/rooms/${this.input.roomId}/agent-runs/${runId}/nodes/${nodeId}/fail`, payload);
+  }
+
+  requestRunApproval(
+    runId: string,
+    nodeId: string,
+    payload: AgentRunApprovalRequestBody
+  ): Promise<{ decision: "allow" | "deny"; resolved_by: string; resolved_at: string; reason?: string }> {
+    return this.postJson(`/rooms/${this.input.roomId}/agent-runs/${runId}/approvals/${nodeId}/request`, payload);
+  }
+
+  requestRunElicitation(
+    runId: string,
+    nodeId: string,
+    payload: AgentRunElicitationRequestBody
+  ): Promise<{ action: "accept" | "decline" | "cancel"; content?: Record<string, unknown>; resolved_by: string; resolved_at: string; reason?: string }> {
+    return this.postJson(`/rooms/${this.input.roomId}/agent-runs/${runId}/elicitations/${nodeId}/request`, payload);
   }
 
   startTurn(turnId: string): Promise<{ ok: true }> {
@@ -165,7 +208,7 @@ export class RoomClient {
   }
 }
 
-export function statusSummary(input: { metrics: ClaudeRuntimeMetrics }): string {
+export function statusSummary(input: { metrics: AgentRunMetrics }): string {
   const parts: string[] = [];
   if (input.metrics.files_read) parts.push(`read ${input.metrics.files_read} files`);
   if (input.metrics.searches) parts.push(`searched ${input.metrics.searches} times`);
@@ -173,7 +216,7 @@ export function statusSummary(input: { metrics: ClaudeRuntimeMetrics }): string 
   return parts.join(" · ") || "Completed";
 }
 
-export function runtimePhaseFromToolName(toolName: string): ClaudeRuntimePhase {
+export function runtimePhaseFromToolName(toolName: string): RuntimePhase {
   if (toolName === "Read" || toolName === "LS") return "reading_files";
   if (toolName === "Grep" || toolName === "Glob") return "searching";
   if (toolName === "Bash") return "running_command";

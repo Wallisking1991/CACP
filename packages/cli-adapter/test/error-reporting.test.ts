@@ -9,8 +9,29 @@ describe("adapter error reporting", () => {
     expect(safe).toMatch(/\[truncated]$/);
   });
 
-  it("still reports agent.turn.failed when runtime-status reporting rejects", async () => {
-    const reportRuntimeFailure = vi.fn(async () => {
+  it("reports run failure before failing the turn", async () => {
+    const steps: string[] = [];
+    const reportRunFailure = vi.fn(async () => {
+      steps.push("run");
+    });
+    const failTurn = vi.fn(async () => {
+      steps.push("turn");
+    });
+
+    await reportTurnFailure({
+      displayError: "Codex failed",
+      reportRunFailure,
+      failTurn,
+      now: () => "2026-05-01T00:00:00.000Z"
+    });
+
+    expect(reportRunFailure).toHaveBeenCalledWith("Codex failed", "2026-05-01T00:00:00.000Z");
+    expect(failTurn).toHaveBeenCalledWith("Codex failed");
+    expect(steps).toEqual(["run", "turn"]);
+  });
+
+  it("still reports agent.turn.failed when run-failure reporting rejects", async () => {
+    const reportRunFailure = vi.fn(async () => {
       throw new Error("400 Bad Request");
     });
     const failTurn = vi.fn(async () => undefined);
@@ -18,14 +39,14 @@ describe("adapter error reporting", () => {
 
     await reportTurnFailure({
       displayError: "Codex failed",
-      reportRuntimeFailure,
+      reportRunFailure,
       failTurn,
       now: () => "2026-05-01T00:00:00.000Z",
       log
     });
 
-    expect(reportRuntimeFailure).toHaveBeenCalledWith("Codex failed", "2026-05-01T00:00:00.000Z");
+    expect(reportRunFailure).toHaveBeenCalledWith("Codex failed", "2026-05-01T00:00:00.000Z");
     expect(failTurn).toHaveBeenCalledWith("Codex failed");
-    expect(log).toHaveBeenCalledWith("Adapter failed to report runtime failure status", expect.any(Error));
+    expect(log).toHaveBeenCalledWith("Adapter failed to report run failure", expect.any(Error));
   });
 });
