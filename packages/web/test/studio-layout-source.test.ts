@@ -42,4 +42,11 @@ describe("studio room CSS source", () => {
     expect(css).toMatch(/\.workspace-shell\s*\{[^}]*width:\s*calc\(/s);
     expect(css).toMatch(/\.workspace-shell\s*\{[^}]*margin:\s*0\s+auto/s);
   });
+
+  it("workspace-shell background has no grid lines, keeps glow and base color", () => {
+    expect(css).not.toMatch(/\.workspace-shell::before\s*\{[^}]*linear-gradient\([^)]*rgba\(194,\s*65,\s*12,\s*0\.18\)/s);
+    expect(css).not.toMatch(/\.workspace-shell::before\s*\{[^}]*background-size:/s);
+    expect(css).toMatch(/radial-gradient\(circle at 22% 18%/);
+    expect(css).toMatch(/var\(--bg\)/);
+  });
 });

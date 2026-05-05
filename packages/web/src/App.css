@@ -724,12 +724,9 @@ textarea.input {
   inset: 0;
   z-index: 0;
   background:
-    linear-gradient(rgba(194, 65, 12, 0.18) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(194, 65, 12, 0.18) 1px, transparent 1px),
     radial-gradient(circle at 22% 18%, rgba(249, 115, 22, 0.50), transparent 44%),
     radial-gradient(circle at 88% 78%, rgba(124, 45, 18, 0.34), transparent 46%),
     var(--bg);
-  background-size: 42px 42px, 42px 42px, auto, auto, auto;
 }
 
 .workspace-shell::after {
