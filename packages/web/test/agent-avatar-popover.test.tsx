@@ -18,7 +18,6 @@ describe("AgentAvatarPopover", () => {
           activeAgentId="agent_1"
           canManageRoom={true}
           claudeSessionPreviews={[]}
-          claudeRuntimeStatuses={[]}
           serverUrl="http://localhost:3737"
           roomSessionToken="token"
           roomSessionParticipantId="user_1"
@@ -39,7 +38,6 @@ describe("AgentAvatarPopover", () => {
           canManageRoom={true}
           onSelectAgent={onSelectAgent}
           claudeSessionPreviews={[]}
-          claudeRuntimeStatuses={[]}
           serverUrl="http://localhost:3737"
           roomSessionToken="token"
           roomSessionParticipantId="user_1"
@@ -62,7 +60,6 @@ describe("AgentAvatarPopover", () => {
           activeAgentId="agent_1"
           canManageRoom={true}
           claudeSessionPreviews={[]}
-          claudeRuntimeStatuses={[]}
           serverUrl="http://localhost:3737"
           roomSessionToken="token"
           roomSessionParticipantId="user_1"
@@ -71,26 +68,5 @@ describe("AgentAvatarPopover", () => {
     );
 
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
-  });
-
-  it("renders ClaudeStatusCard when runtime statuses exist", () => {
-    render(
-      <LangProvider>
-        <AgentAvatarPopover
-          agents={agents}
-          activeAgentId="agent_1"
-          canManageRoom={true}
-          claudeSessionPreviews={[]}
-          claudeRuntimeStatuses={[
-            { status_id: "s1", agent_id: "agent_1", phase: "thinking", elapsed_ms: 1000, metrics: [], recent: [] }
-          ]}
-          serverUrl="http://localhost:3737"
-          roomSessionToken="token"
-          roomSessionParticipantId="user_1"
-        />
-      </LangProvider>
-    );
-
-    expect(screen.getByText("Thinking")).toBeInTheDocument();
   });
 });

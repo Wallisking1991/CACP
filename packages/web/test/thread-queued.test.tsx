@@ -11,7 +11,6 @@ function renderThread(messages: MessageView[]) {
       messages={messages}
       streamingTurns={[]}
       actorNames={new Map()}
-      showSlowStreamingNotice={false}
     />
   );
 }

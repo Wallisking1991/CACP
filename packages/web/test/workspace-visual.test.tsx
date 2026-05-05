@@ -100,7 +100,6 @@ describe("Workspace visual atmosphere", () => {
         ]}
         streamingTurns={[]}
         actorNames={new Map([["p1", "Alice"], ["p2", "Bob"]])}
-        showSlowStreamingNotice={false}
       />
     );
 

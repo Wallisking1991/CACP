@@ -7,7 +7,6 @@ export interface ThreadProps {
   messages: MessageView[];
   streamingTurns: StreamingTurnView[];
   actorNames: Map<string, string>;
-  showSlowStreamingNotice: boolean;
   claudeImports?: ClaudeImportView[];
   agentImports?: AgentImportView[];
 }
@@ -29,12 +28,35 @@ function roleLabel(kind: string, t: ReturnType<typeof useT>): string {
   }
 }
 
+const phaseDisplayNames: Record<string, string> = {
+  thinking: "Thinking",
+  reading_files: "Reading files",
+  searching: "Searching",
+  running_command: "Running command",
+  waiting_for_approval: "Waiting for approval",
+  generating_answer: "Generating answer",
+  completed: "Completed",
+  failed: "Failed"
+};
+
+function formatStatusLine(phase: string | undefined, current: string | undefined, metrics: { files_read?: number; searches?: number; commands?: number } | undefined): string {
+  const parts: string[] = [];
+  if (phase) parts.push(phaseDisplayNames[phase] ?? phase);
+  if (current) parts.push(current);
+  if (metrics) {
+    if (metrics.files_read) parts.push(`已读 ${metrics.files_read} 个文件`);
+    if (metrics.searches) parts.push(`搜索 ${metrics.searches} 次`);
+    if (metrics.commands) parts.push(`执行 ${metrics.commands} 个命令`);
+  }
+  return parts.join(" · ");
+}
+
+
 export default function Thread({
   currentParticipantId,
   messages,
   streamingTurns,
   actorNames,
-  showSlowStreamingNotice,
   claudeImports,
   agentImports,
 }: ThreadProps) {
@@ -74,7 +96,7 @@ export default function Thread({
         }
 
         if (msg.kind === "agent_import_banner") {
-          const importView = agentImports?.find((imp) => imp.import_id === msg.agentImportId);
+          const importView = agentImports?.find((imp) => imp.agentImportId === msg.agentImportId);
           const provider = importView?.provider === "codex-cli" ? "Codex CLI" : importView?.provider === "claude-code" ? "Claude Code" : "Local agent";
           const bannerText = importView?.status === "failed"
             ? t("agent.import.banner.failed", { provider, title: importView.title, error: importView.error ?? "" })
@@ -106,7 +128,7 @@ export default function Thread({
         }
 
         if (msg.kind.startsWith("agent_import_")) {
-          const importView = agentImports?.find((imp) => imp.import_id === msg.agentImportId);
+          const importView = agentImports?.find((imp) => imp.agentImportId === msg.agentImportId);
           const provider = importView?.provider === "codex-cli" ? "Codex CLI" : importView?.provider === "claude-code" ? "Claude Code" : "Local agent";
           const label = msg.kind === "agent_import_user"
             ? t("agent.import.user", { provider })
@@ -125,34 +147,35 @@ export default function Thread({
         }
 
         const actorName = actorNames.get(msg.actor_id) ?? msg.actor_id;
+        const baseClass = messageClass(msg.kind, msg.actor_id, currentParticipantId);
+        const failedClass = msg.turnFailed ? " message--failed" : "";
         return (
           <article
             key={msg.message_id ?? `${msg.actor_id}-${msg.created_at}`}
-            className={messageClass(msg.kind, msg.actor_id, currentParticipantId)}
+            className={`${baseClass}${failedClass}`}
           >
             <div className="message-meta">
               <span>{actorName}</span>
               <span>{roleLabel(msg.kind, t)}</span>
             </div>
             <div className="message-body">{msg.text}</div>
+            {msg.turnFailed && msg.turnError && (
+              <div className="message-body">{msg.turnError}</div>
+            )}
           </article>
         );
       })}
 
       {streamingTurns.map((turn) => {
         const agentName = actorNames.get(turn.agent_id) ?? turn.agent_id;
+        const statusLine = formatStatusLine(turn.phase, turn.current, turn.metrics);
         return (
           <article key={turn.turn_id} className="message message-ai-card streaming-bubble">
             <div className="message-meta">
               <span>{agentName}</span>
               <span>{t("message.ai")}</span>
             </div>
-            <div className="streaming-status">{t("agent.status.streaming")}</div>
-            {showSlowStreamingNotice && (
-              <div className="message-body" style={{ marginTop: 4, color: "var(--ink-3)", fontSize: 13 }}>
-                {t("agent.slowStreamingNotice")}
-              </div>
-            )}
+            <div className="streaming-status">{statusLine || t("agent.status.streaming")}</div>
             {turn.text && <div className="message-body">{turn.text}</div>}
           </article>
         );

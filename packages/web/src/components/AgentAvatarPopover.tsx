@@ -1,9 +1,7 @@
-import type { AgentView, ClaudeSessionCatalogView, ClaudeSessionSelectionView, ClaudeSessionPreviewView, ClaudeRuntimeStatusView, AgentSessionCatalogView, AgentSessionSelectionView, AgentSessionPreviewView, AgentRuntimeStatusView } from "../room-state.js";
+import type { AgentView, ClaudeSessionCatalogView, ClaudeSessionSelectionView, ClaudeSessionPreviewView, AgentSessionCatalogView, AgentSessionSelectionView, AgentSessionPreviewView } from "../room-state.js";
 import { useT } from "../i18n/useT.js";
 import { ClaudeSessionPicker } from "./ClaudeSessionPicker.js";
-import { ClaudeStatusCard } from "./ClaudeStatusCard.js";
 import { AgentSessionPicker } from "./AgentSessionPicker.js";
-import { AgentStatusCard } from "./AgentStatusCard.js";
 
 export interface AgentAvatarPopoverProps {
   agents: AgentView[];
@@ -13,11 +11,9 @@ export interface AgentAvatarPopoverProps {
   claudeSessionCatalog?: ClaudeSessionCatalogView;
   claudeSessionSelection?: ClaudeSessionSelectionView;
   claudeSessionPreviews: ClaudeSessionPreviewView[];
-  claudeRuntimeStatuses: ClaudeRuntimeStatusView[];
   agentSessionCatalog?: AgentSessionCatalogView;
   agentSessionSelection?: AgentSessionSelectionView;
   agentSessionPreviews?: AgentSessionPreviewView[];
-  agentRuntimeStatuses?: AgentRuntimeStatusView[];
   serverUrl: string;
   roomSessionToken: string;
   roomSessionParticipantId: string;
@@ -37,11 +33,9 @@ export function AgentAvatarPopover({
   claudeSessionCatalog,
   claudeSessionSelection,
   claudeSessionPreviews,
-  claudeRuntimeStatuses,
   agentSessionCatalog,
   agentSessionSelection,
   agentSessionPreviews,
-  agentRuntimeStatuses,
   onRequestClaudeSessionPreview,
   onSelectClaudeSession,
   onRequestAgentSessionPreview,
@@ -109,12 +103,6 @@ export function AgentAvatarPopover({
           onReselectChange={onReselectChange}
         />
       )}
-      {agentRuntimeStatuses?.map((status) => (
-        <AgentStatusCard key={status.status_id} status={status} />
-      ))}
-      {claudeRuntimeStatuses.map((status) => (
-        <ClaudeStatusCard key={status.status_id} status={status} />
-      ))}
     </div>
   );
 }

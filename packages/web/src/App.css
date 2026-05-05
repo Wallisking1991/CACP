@@ -2420,6 +2420,11 @@ textarea.input {
   color: var(--ink-4);
 }
 
+.message--failed {
+  border: 2px solid #e74c3c;
+  background: linear-gradient(135deg, #c0392b, #e74c3c);
+}
+
 .composer-confirm-clear {
   margin-top: 4px;
   border: 1px solid var(--accent-border);

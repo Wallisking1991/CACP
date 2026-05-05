@@ -29,8 +29,8 @@ importers:
 
   packages/cli-adapter:
     dependencies:
-      '@anthropic-ai/claude-agent-sdk':
-        specifier: ^0.2.123
+      '':
+        specifier: ^0.2.123@anthropic-ai/claude-agent-sdk
         version: 0.2.123(zod@3.25.76)
       '@cacp/protocol':
         specifier: workspace:*

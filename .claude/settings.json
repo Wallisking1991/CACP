@@ -5,7 +5,7 @@
     "hooks": {
     "PostToolUse": [{
       "matcher": "Edit|Write",
-      "hooks": [{"type": "command", "command": "pnpm tsc --noEmit && pnpm prettier --write $CLAUDE_FILE_PATHS"}]
+      "hooks": [{"type": "command", "command": "pnpm -w typecheck --filter ...[HEAD]"}]
     }]
   }
 }

@@ -28,8 +28,22 @@ export interface MessageView {
   agentProvider?: string;
   agentSourceKind?: string;
   agentImportSequence?: number;
+  agentPhase?: string;
+  agentSummary?: string;
+  agentMetrics?: ClaudeRuntimeMetrics;
+  agentElapsed?: string;
+  turnFailed?: boolean;
+  turnError?: string;
 }
-export interface StreamingTurnView { turn_id: string; agent_id: string; text: string }
+export interface StreamingTurnView {
+  turn_id: string;
+  agent_id: string;
+  text: string;
+  phase?: string;
+  current?: string;
+  metrics?: ClaudeRuntimeMetrics;
+  started_at?: string;
+}
 export interface JoinRequestView {
   request_id: string;
   display_name: string;
@@ -249,6 +263,20 @@ function failedTurnMessage(event: CacpEvent, streamedText: string | undefined): 
   };
 }
 
+function formatElapsedSeconds(startedAt: string, endedAt: string): string {
+  const started = Date.parse(startedAt);
+  const ended = Date.parse(endedAt);
+  if (!Number.isFinite(started) || !Number.isFinite(ended)) return "";
+  const elapsedSeconds = Math.max(0, Math.round((ended - started) / 1000));
+  if (elapsedSeconds < 60) return `${elapsedSeconds}s`;
+  const minutes = Math.floor(elapsedSeconds / 60);
+  const remainingSeconds = elapsedSeconds % 60;
+  if (minutes < 60) return remainingSeconds ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+}
+
 function orderImportedMessages(messages: MessageView[]): MessageView[] {
   const importMessages = new Map<string, MessageView[]>();
   for (const message of messages) {
@@ -377,6 +405,23 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
   const mainInputQueue = new Map<string, MainInputQueueItemView>();
   const mainInputStatusByMessageId = new Map<string, string>();
   let connectorSyncCursor: ConnectorSyncCursor | undefined;
+
+  // Track per-turn runtime status for display in message cards.
+  interface TurnRuntimeStatus {
+    phase?: string;
+    current?: string;
+    metrics?: ClaudeRuntimeMetrics;
+    started_at?: string;
+    finalPhase?: string;
+    finalSummary?: string;
+    finalMetrics?: ClaudeRuntimeMetrics;
+    completedAt?: string;
+    failed?: boolean;
+    error?: string;
+  }
+  const turnStatusById = new Map<string, TurnRuntimeStatus>();
+  const turnMessageStatus = new Map<string, Pick<MessageView, "agentPhase" | "agentSummary" | "agentMetrics" | "agentElapsed" | "turnFailed" | "turnError">>();
+
   const nowMs = Date.parse(options.now ?? new Date().toISOString());
   const typingTtlMs = options.typingTtlMs ?? 5000;
 
@@ -860,54 +905,131 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     }
     if (event.type === "claude.runtime.status_changed" && typeof event.payload.turn_id === "string" && typeof event.payload.status_id === "string") {
       claudeRuntimeStatuses.set(event.payload.status_id, event.payload as unknown as ClaudeRuntimeStatusView);
+      const turnId = event.payload.turn_id;
+      const phase = typeof event.payload.phase === "string" ? event.payload.phase : undefined;
+      const current = typeof event.payload.current === "string" ? event.payload.current : undefined;
+      const metrics = event.payload.metrics as ClaudeRuntimeMetrics | undefined;
+      const startedAt = typeof event.payload.started_at === "string" ? event.payload.started_at : undefined;
+      turnStatusById.set(turnId, { ...turnStatusById.get(turnId), phase, current, metrics, started_at: startedAt });
+      const streaming = streamingTurns.get(turnId);
+      if (streaming) streamingTurns.set(turnId, { ...streaming, phase, current, metrics, started_at: startedAt ?? streaming.started_at });
     }
     if (event.type === "claude.runtime.status_completed" && typeof event.payload.status_id === "string") {
       const existing = claudeRuntimeStatuses.get(event.payload.status_id);
-      if (existing) claudeRuntimeStatuses.set(event.payload.status_id, {
-        ...existing,
-        phase: "completed",
-        summary: typeof event.payload.summary === "string" ? event.payload.summary : "Claude Code completed",
-        completed_at: typeof event.payload.completed_at === "string" ? event.payload.completed_at : event.created_at
-      });
+      const completedAt = typeof event.payload.completed_at === "string" ? event.payload.completed_at : event.created_at;
+      const turnId = existing?.turn_id ?? (typeof event.payload.turn_id === "string" ? event.payload.turn_id : undefined);
+      const metrics = existing?.metrics ?? (event.payload.metrics as ClaudeRuntimeMetrics | undefined);
+      if (existing) {
+        claudeRuntimeStatuses.set(event.payload.status_id, {
+          ...existing,
+          phase: "completed",
+          summary: typeof event.payload.summary === "string" ? event.payload.summary : "Claude Code completed",
+          completed_at: completedAt
+        });
+      }
+      if (turnId) {
+        turnStatusById.set(turnId, {
+          ...turnStatusById.get(turnId),
+          finalPhase: "Completed",
+          finalSummary: typeof event.payload.summary === "string" ? event.payload.summary : "Claude Code completed",
+          finalMetrics: metrics,
+          completedAt
+        });
+      }
     }
     if (event.type === "claude.runtime.status_failed" && typeof event.payload.status_id === "string") {
       const existing = claudeRuntimeStatuses.get(event.payload.status_id);
-      if (existing) claudeRuntimeStatuses.set(event.payload.status_id, {
-        ...existing,
-        phase: "failed",
-        error: typeof event.payload.error === "string" ? event.payload.error : "Claude Code failed",
-        failed_at: typeof event.payload.failed_at === "string" ? event.payload.failed_at : event.created_at
-      });
+      const failedAt = typeof event.payload.failed_at === "string" ? event.payload.failed_at : event.created_at;
+      const turnId = existing?.turn_id ?? (typeof event.payload.turn_id === "string" ? event.payload.turn_id : undefined);
+      if (existing) {
+        claudeRuntimeStatuses.set(event.payload.status_id, {
+          ...existing,
+          phase: "failed",
+          error: typeof event.payload.error === "string" ? event.payload.error : "Claude Code failed",
+          failed_at: failedAt
+        });
+      }
+      if (turnId) {
+        turnStatusById.set(turnId, {
+          ...turnStatusById.get(turnId),
+          failed: true,
+          error: typeof event.payload.error === "string" ? event.payload.error : "Claude Code failed"
+        });
+      }
     }
     if (event.type === "agent.runtime.status_changed" && typeof event.payload.turn_id === "string" && typeof event.payload.status_id === "string") {
       agentRuntimeStatuses.set(event.payload.status_id, event.payload as unknown as AgentRuntimeStatusView);
+      const turnId = event.payload.turn_id;
+      const phase = typeof event.payload.phase === "string" ? event.payload.phase : undefined;
+      const current = typeof event.payload.current === "string" ? event.payload.current : undefined;
+      const metrics = event.payload.metrics as ClaudeRuntimeMetrics | undefined;
+      const startedAt = typeof event.payload.started_at === "string" ? event.payload.started_at : undefined;
+      turnStatusById.set(turnId, { ...turnStatusById.get(turnId), phase, current, metrics, started_at: startedAt });
+      const streaming = streamingTurns.get(turnId);
+      if (streaming) streamingTurns.set(turnId, { ...streaming, phase, current, metrics, started_at: startedAt ?? streaming.started_at });
     }
     if (event.type === "agent.runtime.status_completed" && typeof event.payload.status_id === "string") {
       const existing = agentRuntimeStatuses.get(event.payload.status_id);
-      if (existing) agentRuntimeStatuses.set(event.payload.status_id, {
-        ...existing,
-        phase: "completed",
-        summary: typeof event.payload.summary === "string" ? event.payload.summary : "Completed",
-        completed_at: typeof event.payload.completed_at === "string" ? event.payload.completed_at : event.created_at
-      });
+      const completedAt = typeof event.payload.completed_at === "string" ? event.payload.completed_at : event.created_at;
+      const turnId = existing?.turn_id ?? (typeof event.payload.turn_id === "string" ? event.payload.turn_id : undefined);
+      const metrics = existing?.metrics ?? (event.payload.metrics as ClaudeRuntimeMetrics | undefined);
+      if (existing) {
+        agentRuntimeStatuses.set(event.payload.status_id, {
+          ...existing,
+          phase: "completed",
+          summary: typeof event.payload.summary === "string" ? event.payload.summary : "Completed",
+          completed_at: completedAt
+        });
+      }
+      if (turnId) {
+        turnStatusById.set(turnId, {
+          ...turnStatusById.get(turnId),
+          finalPhase: "Completed",
+          finalSummary: typeof event.payload.summary === "string" ? event.payload.summary : "Completed",
+          finalMetrics: metrics,
+          completedAt
+        });
+      }
     }
     if (event.type === "agent.runtime.status_failed" && typeof event.payload.status_id === "string") {
       const existing = agentRuntimeStatuses.get(event.payload.status_id);
-      if (existing) agentRuntimeStatuses.set(event.payload.status_id, {
-        ...existing,
-        phase: "failed",
-        error: typeof event.payload.error === "string" ? event.payload.error : "Failed",
-        failed_at: typeof event.payload.failed_at === "string" ? event.payload.failed_at : event.created_at
-      });
+      const failedAt = typeof event.payload.failed_at === "string" ? event.payload.failed_at : event.created_at;
+      const turnId = existing?.turn_id ?? (typeof event.payload.turn_id === "string" ? event.payload.turn_id : undefined);
+      if (existing) {
+        agentRuntimeStatuses.set(event.payload.status_id, {
+          ...existing,
+          phase: "failed",
+          error: typeof event.payload.error === "string" ? event.payload.error : "Failed",
+          failed_at: failedAt
+        });
+      }
+      if (turnId) {
+        turnStatusById.set(turnId, {
+          ...turnStatusById.get(turnId),
+          failed: true,
+          error: typeof event.payload.error === "string" ? event.payload.error : "Failed"
+        });
+      }
     }
     if (event.type === "message.created" && typeof event.payload.text === "string") {
+      const messageId = typeof event.payload.message_id === "string" ? event.payload.message_id : undefined;
       const message: MessageView = {
-        message_id: typeof event.payload.message_id === "string" ? event.payload.message_id : undefined,
+        message_id: messageId,
         actor_id: event.actor_id,
         text: event.payload.text,
         kind: typeof event.payload.kind === "string" ? event.payload.kind : "human",
         created_at: event.created_at
       };
+      const status = messageId ? turnMessageStatus.get(messageId) : undefined;
+      if (status) {
+        message.agentPhase = status.agentPhase;
+        message.agentSummary = status.agentSummary;
+        message.agentMetrics = status.agentMetrics;
+        message.agentElapsed = status.agentElapsed;
+        message.turnFailed = status.turnFailed;
+        message.turnError = status.turnError;
+        turnMessageStatus.delete(messageId);
+      }
       messages.push(message);
     }
     if (event.type === "message.created" && typeof event.payload.text === "string") {
@@ -918,11 +1040,39 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
       const current = streamingTurns.get(event.payload.turn_id) ?? { turn_id: event.payload.turn_id, agent_id: event.payload.agent_id, text: "" };
       streamingTurns.set(event.payload.turn_id, { ...current, text: current.text + event.payload.chunk });
     }
-    if (event.type === "agent.turn.completed" && typeof event.payload.turn_id === "string") streamingTurns.delete(event.payload.turn_id);
+    if (event.type === "agent.turn.completed" && typeof event.payload.turn_id === "string") {
+      const turnId = event.payload.turn_id;
+      const status = turnStatusById.get(turnId);
+      const messageId = typeof event.payload.message_id === "string" ? event.payload.message_id : undefined;
+      if (messageId && status) {
+        const elapsed = status.started_at && status.completedAt
+          ? formatElapsedSeconds(status.started_at, status.completedAt)
+          : undefined;
+        turnMessageStatus.set(messageId, {
+          agentPhase: status.finalPhase ?? "Completed",
+          agentSummary: status.finalSummary,
+          agentMetrics: status.finalMetrics,
+          agentElapsed: elapsed,
+          turnFailed: false
+        });
+      }
+      streamingTurns.delete(turnId);
+    }
     if (event.type === "agent.turn.failed" && typeof event.payload.turn_id === "string") {
-      const failedMessage = failedTurnMessage(event, streamingTurns.get(event.payload.turn_id)?.text);
-      if (failedMessage) messages.push(failedMessage);
-      streamingTurns.delete(event.payload.turn_id);
+      const turnId = event.payload.turn_id;
+      const streaming = streamingTurns.get(turnId);
+      const status = turnStatusById.get(turnId);
+      const error = typeof event.payload.error === "string" ? event.payload.error : "unknown error";
+      messages.push({
+        message_id: `failed-${turnId}`,
+        actor_id: typeof event.payload.agent_id === "string" ? event.payload.agent_id : event.actor_id,
+        text: streaming?.text ?? "",
+        kind: "agent",
+        created_at: event.created_at,
+        turnFailed: true,
+        turnError: error
+      });
+      streamingTurns.delete(turnId);
     }
   }
 

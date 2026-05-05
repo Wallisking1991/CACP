@@ -117,7 +117,6 @@ export default function Workspace({
   const lastRoomIdRef = useRef(session.room_id);
   const railRef = useRef<HTMLDivElement>(null);
 
-  const [showSlowStreamingNotice, setShowSlowStreamingNotice] = useState(false);
   const [agentPopoverOpen, setAgentPopoverOpen] = useState(false);
   const [peoplePopoverOpen, setPeoplePopoverOpen] = useState(false);
   const [wantsReselect, setWantsReselect] = useState(false);
@@ -142,16 +141,6 @@ export default function Workspace({
     () => room.streamingTurns.map((t) => t.turn_id).join("|"),
     [room.streamingTurns]
   );
-
-  useEffect(() => {
-    if (!streamingKey) {
-      setShowSlowStreamingNotice(false);
-      return;
-    }
-    setShowSlowStreamingNotice(false);
-    const timeout = window.setTimeout(() => setShowSlowStreamingNotice(true), 8000);
-    return () => window.clearTimeout(timeout);
-  }, [streamingKey]);
 
   useEffect(() => {
     if (events.length === 0) return;
@@ -437,7 +426,6 @@ export default function Workspace({
             messages={room.messages}
             streamingTurns={room.streamingTurns}
             actorNames={actorNames}
-            showSlowStreamingNotice={showSlowStreamingNotice}
             claudeImports={room.claudeImports}
             agentImports={room.agentImports}
           />
@@ -511,11 +499,9 @@ export default function Workspace({
           claudeSessionCatalog={room.claudeSessionCatalog}
           claudeSessionSelection={room.claudeSessionSelection}
           claudeSessionPreviews={room.claudeSessionPreviews}
-          claudeRuntimeStatuses={room.claudeRuntimeStatuses}
           agentSessionCatalog={room.agentSessionCatalog}
           agentSessionSelection={room.agentSessionSelection}
           agentSessionPreviews={room.agentSessionPreviews}
-          agentRuntimeStatuses={room.agentRuntimeStatuses}
           serverUrl={serverUrl}
           roomSessionToken={session.token}
           roomSessionParticipantId={session.participant_id}

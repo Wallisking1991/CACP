@@ -44,7 +44,7 @@ describe("room state", () => {
     expect(state.streamingTurns).toEqual([]);
   });
 
-  it("keeps a visible system message when an agent turn fails after streaming output", () => {
+  it("merges failed turn into agent message card with error flag", () => {
     const state = deriveRoomState([
       event("agent.turn.started", { turn_id: "turn_1", agent_id: "agent_1" }, 1, "agent_1"),
       event("agent.output.delta", { turn_id: "turn_1", agent_id: "agent_1", chunk: "error: invalid permission mode\n" }, 2, "agent_1"),
@@ -56,9 +56,11 @@ describe("room state", () => {
       {
         message_id: "failed-turn_1",
         actor_id: "agent_1",
-        kind: "system",
-        text: "Agent turn failed (exit code 1): command exited with code 1\n\nOutput before failure:\nerror: invalid permission mode",
-        created_at: "2026-04-25T00:00:03.000Z"
+        kind: "agent",
+        text: "error: invalid permission mode\n",
+        created_at: "2026-04-25T00:00:03.000Z",
+        turnFailed: true,
+        turnError: "command exited with code 1"
       }
     ]);
   });
