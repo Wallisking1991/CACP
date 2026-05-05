@@ -121,6 +121,55 @@ describe("agent run routes", () => {
     await app.close();
   });
 
+  it("rejects provider mismatches on run publication routes", async () => {
+    const { app, room, ownerAuth, agent } = await createRoomAndAgent();
+    const turnId = await currentTurnId(app, room.room_id, ownerAuth);
+
+    const mismatchedStart = await startRun(app, room.room_id, agent.agent_token, agent.agent_id, turnId, {
+      provider: "codex-cli"
+    });
+    expect(mismatchedStart.statusCode).toBe(403);
+    expect(mismatchedStart.json()).toMatchObject({ error: "provider_mismatch" });
+
+    await startRun(app, room.room_id, agent.agent_token, agent.agent_id, turnId);
+
+    const complete = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/complete`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: {
+        run_id: turnId,
+        turn_id: turnId,
+        agent_id: agent.agent_id,
+        provider: "codex-cli",
+        message_id: "msg_1",
+        summary: "Run complete",
+        metrics: { files_read: 0, searches: 0, commands: 0 },
+        completed_at: "2026-05-05T00:00:04.000Z"
+      }
+    });
+    expect(complete.statusCode).toBe(403);
+    expect(complete.json()).toMatchObject({ error: "provider_mismatch" });
+
+    const fail = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/fail`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: {
+        run_id: turnId,
+        turn_id: turnId,
+        agent_id: agent.agent_id,
+        provider: "codex-cli",
+        error: "run_failed",
+        failed_at: "2026-05-05T00:00:04.000Z"
+      }
+    });
+    expect(fail.statusCode).toBe(403);
+    expect(fail.json()).toMatchObject({ error: "provider_mismatch" });
+
+    await app.close();
+  });
+
   it("replays identical node starts and rejects conflicting ones", async () => {
     const { app, room, ownerAuth, agent } = await createRoomAndAgent();
     const turnId = await currentTurnId(app, room.room_id, ownerAuth);
@@ -137,6 +186,88 @@ describe("agent run routes", () => {
     expect(replay.statusCode).toBe(201);
     expect(conflict.statusCode).toBe(409);
     expect(conflict.json()).toMatchObject({ error: "node_id_conflict" });
+
+    await app.close();
+  });
+
+  it("rejects provider mismatches on node publication routes", async () => {
+    const { app, room, ownerAuth, agent } = await createRoomAndAgent();
+    const turnId = await currentTurnId(app, room.room_id, ownerAuth);
+
+    await startRun(app, room.room_id, agent.agent_token, agent.agent_id, turnId);
+
+    const mismatchedStart = await startNode(app, room.room_id, agent.agent_token, agent.agent_id, turnId, "toolu_1", {
+      provider: "codex-cli"
+    });
+    expect(mismatchedStart.statusCode).toBe(403);
+    expect(mismatchedStart.json()).toMatchObject({ error: "provider_mismatch" });
+
+    await startNode(app, room.room_id, agent.agent_token, agent.agent_id, turnId, "toolu_1");
+
+    const responses = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: `/rooms/${room.room_id}/agent-runs/${turnId}/nodes/toolu_1/delta`,
+        headers: { authorization: `Bearer ${agent.agent_token}` },
+        payload: {
+          run_id: turnId,
+          turn_id: turnId,
+          agent_id: agent.agent_id,
+          provider: "codex-cli",
+          node_id: "toolu_1",
+          delta_type: "text",
+          chunk: "hello",
+          updated_at: "2026-05-05T00:00:05.000Z"
+        }
+      }),
+      app.inject({
+        method: "POST",
+        url: `/rooms/${room.room_id}/agent-runs/${turnId}/nodes/toolu_1/update`,
+        headers: { authorization: `Bearer ${agent.agent_token}` },
+        payload: {
+          run_id: turnId,
+          turn_id: turnId,
+          agent_id: agent.agent_id,
+          provider: "codex-cli",
+          node_id: "toolu_1",
+          status: "running",
+          updated_at: "2026-05-05T00:00:05.000Z"
+        }
+      }),
+      app.inject({
+        method: "POST",
+        url: `/rooms/${room.room_id}/agent-runs/${turnId}/nodes/toolu_1/complete`,
+        headers: { authorization: `Bearer ${agent.agent_token}` },
+        payload: {
+          run_id: turnId,
+          turn_id: turnId,
+          agent_id: agent.agent_id,
+          provider: "codex-cli",
+          node_id: "toolu_1",
+          summary: "done",
+          completed_at: "2026-05-05T00:00:05.000Z"
+        }
+      }),
+      app.inject({
+        method: "POST",
+        url: `/rooms/${room.room_id}/agent-runs/${turnId}/nodes/toolu_1/fail`,
+        headers: { authorization: `Bearer ${agent.agent_token}` },
+        payload: {
+          run_id: turnId,
+          turn_id: turnId,
+          agent_id: agent.agent_id,
+          provider: "codex-cli",
+          node_id: "toolu_1",
+          error: "node_failed",
+          failed_at: "2026-05-05T00:00:05.000Z"
+        }
+      })
+    ]);
+
+    for (const response of responses) {
+      expect(response.statusCode).toBe(403);
+      expect(response.json()).toMatchObject({ error: "provider_mismatch" });
+    }
 
     await app.close();
   });
@@ -817,6 +948,91 @@ describe("agent run routes", () => {
     });
     expect(replayed.statusCode).toBe(201);
     expect(replayed.json()).toMatchObject({ action: "cancel", reason: "run_closed" });
+
+    await app.close();
+  });
+
+  it("auto-closes pending interactions when the legacy turn completes", async () => {
+    const { app, room, ownerAuth, agent } = await createRoomAndAgent();
+    const turnId = await currentTurnId(app, room.room_id, ownerAuth);
+
+    const elicitationPayload = {
+      agent_id: agent.agent_id,
+      turn_id: turnId,
+      message: "Open the auth URL and continue",
+      mode: "url",
+      url: "https://example.com/auth",
+      requested_at: "2026-05-05T00:00:03.000Z"
+    };
+
+    const elicitationPromise = app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/elicitations/elicit_legacy_complete/request`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: elicitationPayload
+    });
+    void elicitationPromise.catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-turns/${turnId}/start`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: {}
+    });
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-turns/${turnId}/complete`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: {
+        final_text: "Done",
+        exit_code: 0
+      }
+    });
+
+    expect((await elicitationPromise).json()).toMatchObject({ action: "cancel", reason: "run_closed" });
+
+    await app.close();
+  });
+
+  it("auto-closes pending interactions when the legacy turn fails", async () => {
+    const { app, room, ownerAuth, agent } = await createRoomAndAgent();
+    const turnId = await currentTurnId(app, room.room_id, ownerAuth);
+
+    await startNode(app, room.room_id, agent.agent_token, agent.agent_id, turnId, "toolu_1");
+
+    const approvalPromise = app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/approvals/approval_legacy_fail/request`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: {
+        agent_id: agent.agent_id,
+        turn_id: turnId,
+        tool_node_id: "toolu_1",
+        tool_use_id: "toolu_1",
+        tool_name: "Bash",
+        requested_at: "2026-05-05T00:00:03.000Z"
+      }
+    });
+    void approvalPromise.catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-turns/${turnId}/start`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: {}
+    });
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-turns/${turnId}/fail`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: {
+        error: "turn_failed"
+      }
+    });
+
+    expect((await approvalPromise).json()).toMatchObject({ decision: "deny", reason: "run_closed" });
 
     await app.close();
   });
