@@ -57,7 +57,7 @@ describe("agent run routes", () => {
     await app.close();
   });
 
-  it("lets only owner or admin resolve a pending approval", async () => {
+  it("reuses pending approval requests, nests the approval under the tool node, and replays the stored decision", async () => {
     const { app, room, ownerAuth, agent } = await createRoomAndAgent();
     const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
     const turnId = events.find((event: { type: string }) => event.type === "agent.turn.requested").payload.turn_id;
@@ -80,10 +80,115 @@ describe("agent run routes", () => {
       }
     });
 
-  const approvalPromise = app.inject({
-    method: "POST",
-    url: `/rooms/${room.room_id}/agent-runs/${turnId}/approvals/approval_1/request`,
-    headers: { authorization: `Bearer ${agent.agent_token}` },
+    const approvalPayload = {
+      agent_id: agent.agent_id,
+      turn_id: turnId,
+      tool_node_id: "toolu_1",
+      tool_use_id: "toolu_1",
+      tool_name: "Bash",
+      title: "Claude wants to run Bash",
+      requested_at: "2026-05-05T00:00:03.000Z"
+    };
+
+    const approvalPromise = app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/approvals/approval_1/request`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: approvalPayload
+    });
+    const duplicateApprovalPromise = app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/approvals/approval_1/request`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: approvalPayload
+    });
+    void approvalPromise.catch(() => undefined);
+    void duplicateApprovalPromise.catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const resolved = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/approvals/approval_1/resolve`,
+      headers: ownerAuth,
+      payload: {
+        decision: "allow"
+      }
+    });
+
+    expect(resolved.statusCode).toBe(201);
+    expect((await approvalPromise).json()).toMatchObject({ decision: "allow" });
+    expect((await duplicateApprovalPromise).json()).toMatchObject({ decision: "allow" });
+
+    const replayed = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/approvals/approval_1/request`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: approvalPayload
+    });
+    expect(replayed.statusCode).toBe(201);
+    expect(replayed.json()).toMatchObject({ decision: "allow" });
+
+    const publishedEvents = (await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/events`,
+      headers: ownerAuth
+    })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
+    const approvalStartedEvents = publishedEvents.filter((event) => event.type === "agent.run.node.started" && event.payload.node_id === "approval_1");
+    expect(approvalStartedEvents).toHaveLength(1);
+    expect(approvalStartedEvents[0]?.payload).toMatchObject({
+      node_id: "approval_1",
+      kind: "approval",
+      parent_node_id: "toolu_1",
+      source_refs: {
+        tool_use_id: "toolu_1"
+      }
+    });
+    expect(approvalStartedEvents[0]?.payload).not.toHaveProperty("source_refs.parent_tool_use_id");
+
+    const approvalCompletedEvent = publishedEvents.find((event) => event.type === "agent.run.node.completed" && event.payload.node_id === "approval_1");
+    expect(approvalCompletedEvent?.payload).toMatchObject({
+      node_id: "approval_1",
+      summary: "Approved",
+      detail: expect.objectContaining({
+        decision: "allow"
+      })
+    });
+    expect(approvalCompletedEvent?.payload).not.toHaveProperty("status");
+    expect(approvalCompletedEvent?.payload).not.toHaveProperty("updated_at");
+
+    await app.close();
+  });
+
+  it("rejects conflicting interaction node ids instead of aliasing them", async () => {
+    const { app, room, ownerAuth, agent } = await createRoomAndAgent();
+    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
+    const turnId = events.find((event: { type: string }) => event.type === "agent.turn.requested").payload.turn_id;
+
+    for (const node_id of ["toolu_1", "approval_1", "elicit_1"]) {
+      const response = await app.inject({
+        method: "POST",
+        url: `/rooms/${room.room_id}/agent-runs/${turnId}/nodes/start`,
+        headers: { authorization: `Bearer ${agent.agent_token}` },
+        payload: {
+          run_id: turnId,
+          turn_id: turnId,
+          agent_id: agent.agent_id,
+          provider: "claude-code",
+          node_id,
+          kind: "tool",
+          status: "running",
+          title: `Tool ${node_id}`,
+          started_at: "2026-05-05T00:00:02.000Z",
+          updated_at: "2026-05-05T00:00:02.000Z"
+        }
+      });
+      expect(response.statusCode).toBe(201);
+    }
+
+    const approvalConflict = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/approvals/approval_1/request`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
       payload: {
         agent_id: agent.agent_id,
         turn_id: turnId,
@@ -91,21 +196,26 @@ describe("agent run routes", () => {
         tool_use_id: "toolu_1",
         tool_name: "Bash",
         title: "Claude wants to run Bash",
-      requested_at: "2026-05-05T00:00:03.000Z"
-    }
-  });
-  void approvalPromise.catch(() => undefined);
-  await new Promise((resolve) => setTimeout(resolve, 0));
-
-  const resolved = await app.inject({
-    method: "POST",
-    url: `/rooms/${room.room_id}/agent-runs/${turnId}/approvals/approval_1/resolve`,
-      headers: ownerAuth,
-      payload: { decision: "allow" }
+        requested_at: "2026-05-05T00:00:03.000Z"
+      }
     });
+    expect(approvalConflict.statusCode).toBe(409);
+    expect(approvalConflict.json()).toMatchObject({ error: "node_id_conflict" });
 
-    expect(resolved.statusCode).toBe(201);
-    expect((await approvalPromise).json()).toMatchObject({ decision: "allow" });
+    const elicitationConflict = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/elicitations/elicit_1/request`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: {
+        agent_id: agent.agent_id,
+        turn_id: turnId,
+        message: "Need more input",
+        requested_at: "2026-05-05T00:00:03.000Z"
+      }
+    });
+    expect(elicitationConflict.statusCode).toBe(409);
+    expect(elicitationConflict.json()).toMatchObject({ error: "node_id_conflict" });
+
     await app.close();
   });
 
@@ -114,25 +224,27 @@ describe("agent run routes", () => {
     const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
     const turnId = events.find((event: { type: string }) => event.type === "agent.turn.requested").payload.turn_id;
 
-  const elicitationPromise = app.inject({
-    method: "POST",
-    url: `/rooms/${room.room_id}/agent-runs/${turnId}/elicitations/elicit_1/request`,
-    headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: {
-        agent_id: agent.agent_id,
-        turn_id: turnId,
-        message: "Open the auth URL and continue",
-        mode: "url",
-        url: "https://example.com/auth",
+    const elicitationPayload = {
+      agent_id: agent.agent_id,
+      turn_id: turnId,
+      message: "Open the auth URL and continue",
+      mode: "url",
+      url: "https://example.com/auth",
       requested_at: "2026-05-05T00:00:03.000Z"
-    }
-  });
-  void elicitationPromise.catch(() => undefined);
-  await new Promise((resolve) => setTimeout(resolve, 0));
+    };
 
-  await app.inject({
-    method: "POST",
-    url: `/rooms/${room.room_id}/agent-runs/${turnId}/fail`,
+    const elicitationPromise = app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/elicitations/elicit_1/request`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: elicitationPayload
+    });
+    void elicitationPromise.catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/fail`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
       payload: {
         run_id: turnId,
@@ -146,6 +258,32 @@ describe("agent run routes", () => {
     });
 
     expect((await elicitationPromise).json()).toMatchObject({ action: "cancel", reason: "run_closed" });
+
+    const replayed = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/elicitations/elicit_1/request`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: elicitationPayload
+    });
+    expect(replayed.statusCode).toBe(201);
+    expect(replayed.json()).toMatchObject({ action: "cancel", reason: "run_closed" });
+
+    const publishedEvents = (await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/events`,
+      headers: ownerAuth
+    })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
+    const elicitationCompletedEvent = publishedEvents.find((event) => event.type === "agent.run.node.completed" && event.payload.node_id === "elicit_1");
+    expect(elicitationCompletedEvent?.payload).toMatchObject({
+      node_id: "elicit_1",
+      detail: expect.objectContaining({
+        action: "cancel",
+        reason: "run_closed"
+      })
+    });
+    expect(elicitationCompletedEvent?.payload).not.toHaveProperty("status");
+    expect(elicitationCompletedEvent?.payload).not.toHaveProperty("updated_at");
+
     await app.close();
   });
 });

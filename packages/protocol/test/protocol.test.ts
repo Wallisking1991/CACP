@@ -316,6 +316,7 @@ describe("CACP event schema", () => {
       agent_id: "agent_1",
       provider: "claude-code",
       node_id: "toolu_1",
+      parent_node_id: "parent_1",
       kind: "tool",
       status: "running",
       title: "Read README.md",
@@ -323,6 +324,7 @@ describe("CACP event schema", () => {
       updated_at: "2026-05-05T00:00:01.000Z"
     })).toMatchObject({
       node_id: "toolu_1",
+      parent_node_id: "parent_1",
       kind: "tool",
       status: "running"
     });
@@ -513,15 +515,28 @@ describe("CACP event schema", () => {
       agent_id: "agent_1",
       provider: "codex-cli",
       node_id: "node_1",
-      delta: "Reading files"
+      delta_type: "stdout",
+      chunk: "Reading files",
+      updated_at: "2026-05-01T01:17:01.000Z"
     })).toEqual({
       run_id: "turn_1",
       turn_id: "turn_1",
       agent_id: "agent_1",
       provider: "codex-cli",
       node_id: "node_1",
-      delta: "Reading files"
+      delta_type: "stdout",
+      chunk: "Reading files",
+      updated_at: "2026-05-01T01:17:01.000Z"
     });
+
+    expect(() => AgentRunNodeDeltaPayloadSchema.parse({
+      run_id: "turn_1",
+      turn_id: "turn_1",
+      agent_id: "agent_1",
+      provider: "codex-cli",
+      node_id: "node_1",
+      delta: "Reading files"
+    })).toThrow();
 
     expect(AgentRunNodeUpdatedPayloadSchema.parse({
       run_id: "turn_1",
@@ -539,10 +554,9 @@ describe("CACP event schema", () => {
       agent_id: "agent_1",
       provider: "codex-cli",
       node_id: "node_1",
-      status: "completed",
-      updated_at: "2026-05-01T01:17:02.000Z",
+      detail: { exit_code: 0 },
       completed_at: "2026-05-01T01:17:02.000Z"
-    })).toMatchObject({ status: "completed" });
+    })).toMatchObject({ detail: { exit_code: 0 } });
 
     expect(AgentRunNodeFailedPayloadSchema.parse({
       run_id: "turn_1",
@@ -550,11 +564,10 @@ describe("CACP event schema", () => {
       agent_id: "agent_1",
       provider: "codex-cli",
       node_id: "node_1",
-      status: "failed",
       error: "Node failed",
-      updated_at: "2026-05-01T01:17:02.000Z",
+      detail: { exit_code: 1 },
       failed_at: "2026-05-01T01:17:02.000Z"
-    })).toMatchObject({ status: "failed", error: "Node failed" });
+    })).toMatchObject({ error: "Node failed", detail: { exit_code: 1 } });
 
     expect(AgentRunMetricsSchema.parse({ files_read: 1 })).toEqual({
       files_read: 1,

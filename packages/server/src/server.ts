@@ -186,6 +186,8 @@ type PendingElicitationEntry = {
 type RunNodeState = {
   node_id: string;
   kind?: string;
+  parent_node_id?: string;
+  source_refs?: Record<string, unknown>;
   terminal: boolean;
 };
 
@@ -597,7 +599,15 @@ export async function buildServer(options: BuildServerOptions = {}) {
     for (const storedEvent of store.listEvents(roomId)) {
       if (storedEvent.payload.run_id !== runId || storedEvent.payload.node_id !== nodeId) continue;
       if (storedEvent.type === "agent.run.node.started") {
-        state = { node_id: nodeId, kind: typeof storedEvent.payload.kind === "string" ? storedEvent.payload.kind : undefined, terminal: false };
+        state = {
+          node_id: nodeId,
+          kind: typeof storedEvent.payload.kind === "string" ? storedEvent.payload.kind : undefined,
+          parent_node_id: typeof storedEvent.payload.parent_node_id === "string" ? storedEvent.payload.parent_node_id : undefined,
+          source_refs: typeof storedEvent.payload.source_refs === "object" && storedEvent.payload.source_refs !== null
+            ? storedEvent.payload.source_refs as Record<string, unknown>
+            : undefined,
+          terminal: false
+        };
         continue;
       }
       if (!state) continue;
@@ -656,6 +666,17 @@ export async function buildServer(options: BuildServerOptions = {}) {
     };
   }
 
+  function isMatchingApprovalNode(state: RunNodeState, body: z.infer<typeof AgentRunApprovalRequestSchema>): boolean {
+    if (state.kind !== "approval") return false;
+    if (state.parent_node_id !== body.tool_node_id) return false;
+    const toolUseId = typeof state.source_refs?.tool_use_id === "string" ? state.source_refs.tool_use_id : undefined;
+    return toolUseId === body.tool_use_id;
+  }
+
+  function isMatchingElicitationNode(state: RunNodeState): boolean {
+    return state.kind === "elicitation";
+  }
+
   function resolvePendingApproval(key: string, decision: PendingApprovalDecision): boolean {
     const entry = pendingApprovals.get(key);
     if (!entry || entry.resolved) return false;
@@ -668,7 +689,6 @@ export async function buildServer(options: BuildServerOptions = {}) {
       agent_id: entry.agentId,
       provider: entry.provider,
       node_id: entry.nodeId,
-      status: "completed",
       summary: decision.decision === "allow" ? "Approved" : "Denied",
       detail: {
         decision: decision.decision,
@@ -676,7 +696,6 @@ export async function buildServer(options: BuildServerOptions = {}) {
         resolved_at: decision.resolved_at,
         ...(decision.reason ? { reason: decision.reason } : {})
       },
-      updated_at: decision.resolved_at,
       completed_at: decision.resolved_at
     }));
     entry.resolve(decision);
@@ -695,7 +714,6 @@ export async function buildServer(options: BuildServerOptions = {}) {
       agent_id: entry.agentId,
       provider: entry.provider,
       node_id: entry.nodeId,
-      status: "completed",
       summary: decision.action === "accept" ? "Accepted" : decision.action === "decline" ? "Declined" : "Cancelled",
       detail: {
         action: decision.action,
@@ -704,7 +722,6 @@ export async function buildServer(options: BuildServerOptions = {}) {
         ...(decision.content ? { content: decision.content } : {}),
         ...(decision.reason ? { reason: decision.reason } : {})
       },
-      updated_at: decision.resolved_at,
       completed_at: decision.resolved_at
     }));
     entry.resolve(decision);
@@ -2889,13 +2906,19 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const provider = providerForAgent(request.params.roomId, body.agent_id);
     if (!provider) return deny(reply, "missing_local_agent_capability", 403);
     const key = pendingInteractionKey(request.params.roomId, request.params.runId, request.params.nodeId);
+    const existingNode = findRunNodeState(request.params.roomId, request.params.runId, request.params.nodeId);
+    if (existingNode && !isMatchingApprovalNode(existingNode, body)) {
+      return deny(reply, "node_id_conflict", 409);
+    }
     const existing = pendingApprovals.get(key);
     if (existing) {
       const decision = await existing.promise;
       return reply.code(201).send(decision);
     }
 
-    const terminalPayload = findTerminalRunNodePayload(request.params.roomId, request.params.runId, request.params.nodeId);
+    const terminalPayload = existingNode?.terminal
+      ? findTerminalRunNodePayload(request.params.roomId, request.params.runId, request.params.nodeId)
+      : undefined;
     if (terminalPayload) {
       const detail = typeof terminalPayload.detail === "object" && terminalPayload.detail !== null ? terminalPayload.detail as Record<string, unknown> : {};
       return reply.code(201).send({
@@ -2917,31 +2940,35 @@ export async function buildServer(options: BuildServerOptions = {}) {
     }, 5 * 60 * 1000);
     pendingApprovals.set(key, pending);
 
-    appendAndPublish(event(request.params.roomId, "agent.run.node.started", participant.id, {
-      run_id: request.params.runId,
-      turn_id: body.turn_id,
-      agent_id: body.agent_id,
-      provider,
-      node_id: request.params.nodeId,
-      kind: "approval",
-      status: "waiting_input",
-      title: body.title ?? `Approval required: ${body.tool_name}`,
-      detail: {
-        tool_name: body.tool_name,
-        display_name: body.display_name,
-        description: body.description,
-        decision_reason: body.decision_reason,
-        blocked_path: body.blocked_path,
-        input: body.input,
-        requested_at: body.requested_at
-      },
-      source_refs: {
-        parent_tool_use_id: body.tool_node_id,
-        ...(body.tool_use_id ? { tool_use_id: body.tool_use_id } : {})
-      },
-      started_at: body.requested_at,
-      updated_at: body.requested_at
-    }));
+    if (!existingNode) {
+      appendAndPublish(event(request.params.roomId, "agent.run.node.started", participant.id, {
+        run_id: request.params.runId,
+        turn_id: body.turn_id,
+        agent_id: body.agent_id,
+        provider,
+        node_id: request.params.nodeId,
+        parent_node_id: body.tool_node_id,
+        kind: "approval",
+        status: "waiting_input",
+        title: body.title ?? `Approval required: ${body.tool_name}`,
+        detail: {
+          tool_name: body.tool_name,
+          display_name: body.display_name,
+          description: body.description,
+          decision_reason: body.decision_reason,
+          blocked_path: body.blocked_path,
+          input: body.input,
+          requested_at: body.requested_at
+        },
+        ...(body.tool_use_id ? {
+          source_refs: {
+            tool_use_id: body.tool_use_id
+          }
+        } : {}),
+        started_at: body.requested_at,
+        updated_at: body.requested_at
+      }));
+    }
 
     const decision = await pending.promise;
     return reply.code(201).send(decision);
@@ -2975,13 +3002,19 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const provider = providerForAgent(request.params.roomId, body.agent_id);
     if (!provider) return deny(reply, "missing_local_agent_capability", 403);
     const key = pendingInteractionKey(request.params.roomId, request.params.runId, request.params.nodeId);
+    const existingNode = findRunNodeState(request.params.roomId, request.params.runId, request.params.nodeId);
+    if (existingNode && !isMatchingElicitationNode(existingNode)) {
+      return deny(reply, "node_id_conflict", 409);
+    }
     const existing = pendingElicitations.get(key);
     if (existing) {
       const decision = await existing.promise;
       return reply.code(201).send(decision);
     }
 
-    const terminalPayload = findTerminalRunNodePayload(request.params.roomId, request.params.runId, request.params.nodeId);
+    const terminalPayload = existingNode?.terminal
+      ? findTerminalRunNodePayload(request.params.roomId, request.params.runId, request.params.nodeId)
+      : undefined;
     if (terminalPayload) {
       const detail = typeof terminalPayload.detail === "object" && terminalPayload.detail !== null ? terminalPayload.detail as Record<string, unknown> : {};
       return reply.code(201).send({
@@ -3004,30 +3037,32 @@ export async function buildServer(options: BuildServerOptions = {}) {
     }, 10 * 60 * 1000);
     pendingElicitations.set(key, pending);
 
-    appendAndPublish(event(request.params.roomId, "agent.run.node.started", participant.id, {
-      run_id: request.params.runId,
-      turn_id: body.turn_id,
-      agent_id: body.agent_id,
-      provider,
-      node_id: request.params.nodeId,
-      kind: "elicitation",
-      status: "waiting_input",
-      title: body.title ?? body.display_name ?? "User input required",
-      detail: {
-        display_name: body.display_name,
-        description: body.description,
-        message: body.message,
-        mode: body.mode,
-        url: body.url,
-        requested_schema: body.requested_schema,
-        requested_at: body.requested_at
-      },
-      source_refs: {
-        elicitation_id: request.params.nodeId
-      },
-      started_at: body.requested_at,
-      updated_at: body.requested_at
-    }));
+    if (!existingNode) {
+      appendAndPublish(event(request.params.roomId, "agent.run.node.started", participant.id, {
+        run_id: request.params.runId,
+        turn_id: body.turn_id,
+        agent_id: body.agent_id,
+        provider,
+        node_id: request.params.nodeId,
+        kind: "elicitation",
+        status: "waiting_input",
+        title: body.title ?? body.display_name ?? "User input required",
+        detail: {
+          display_name: body.display_name,
+          description: body.description,
+          message: body.message,
+          mode: body.mode,
+          url: body.url,
+          requested_schema: body.requested_schema,
+          requested_at: body.requested_at
+        },
+        source_refs: {
+          elicitation_id: request.params.nodeId
+        },
+        started_at: body.requested_at,
+        updated_at: body.requested_at
+      }));
+    }
 
     const decision = await pending.promise;
     return reply.code(201).send(decision);
