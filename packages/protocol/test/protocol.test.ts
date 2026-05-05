@@ -1,18 +1,30 @@
 import { describe, expect, it } from "vitest";
 import {
   AgentTypeSchema,
+  AgentRunApprovalRequestBodySchema,
+  AgentRunApprovalResolveBodySchema,
+  AgentRunCompletedPayloadSchema,
+  AgentRunElicitationRequestBodySchema,
+  AgentRunElicitationResolveBodySchema,
+  AgentRunFailedPayloadSchema,
+  AgentRunMetricsSchema,
+  AgentRunNodeCompletedPayloadSchema,
+  AgentRunNodeDeltaPayloadSchema,
+  AgentRunNodeFailedPayloadSchema,
+  AgentRunNodeKindSchema,
+  AgentRunSourceRefsSchema,
+  AgentRunNodeStartedPayloadSchema,
+  AgentRunNodeStatusSchema,
+  AgentRunNodeUpdatedPayloadSchema,
+  AgentRunStartedPayloadSchema,
   CacpEventSchema,
   ClaudeSessionCatalogUpdatedPayloadSchema,
   ClaudeSessionImportStartedPayloadSchema,
-  ClaudeSessionSelectedPayloadSchema,
-  ClaudeSessionReadyPayloadSchema,
   ClaudeSessionImportMessagePayloadSchema,
-  ClaudeRuntimePhaseSchema,
-  ClaudeRuntimeStatusChangedPayloadSchema,
-  ClaudeRuntimeThinkingDeltaPayloadSchema,
+  ClaudeSessionReadyPayloadSchema,
+  ClaudeSessionSelectedPayloadSchema,
   AgentSessionCatalogUpdatedPayloadSchema,
   AgentSessionImportMessagePayloadSchema,
-  AgentRuntimeStatusChangedPayloadSchema,
   ParticipantPresenceChangedPayloadSchema,
   ParticipantTypingStartedPayloadSchema,
   ParticipantTypingStoppedPayloadSchema,
@@ -67,8 +79,6 @@ describe("CACP event schema", () => {
       "room.agent_selected",
       "agent.pairing_created",
       "agent.status_changed",
-      "agent.action_approval_requested",
-      "agent.action_approval_resolved",
       "agent.turn.requested",
       "agent.turn.followup_queued",
       "agent.turn.started",
@@ -231,74 +241,203 @@ describe("CACP event schema", () => {
     expect(() => ClaudeSessionImportStartedPayloadSchema.parse(payload)).toThrow();
   });
 
-  it("accepts rolling Claude runtime status payloads", () => {
-    const payload = {
-      agent_id: "agent_1",
-      turn_id: "turn_1",
-      status_id: "status_turn_1",
-      phase: "reading_files",
-      current: "Reading packages/server/src/pairing.ts",
-      recent: ["Started turn", "Reading packages/server/src/pairing.ts"],
-      metrics: { files_read: 1, searches: 0, commands: 0 },
-      started_at: "2026-04-29T00:00:00.000Z",
-      updated_at: "2026-04-29T00:00:01.000Z"
-    };
-    expect(ClaudeRuntimeStatusChangedPayloadSchema.parse(payload)).toEqual(payload);
-  });
+  it("accepts run-trace event types and rejects retired runtime event types", () => {
+    for (const type of [
+      "agent.run.started",
+      "agent.run.completed",
+      "agent.run.failed",
+      "agent.run.node.started",
+      "agent.run.node.delta",
+      "agent.run.node.updated",
+      "agent.run.node.completed",
+      "agent.run.node.failed"
+    ] as const) {
+      expect(CacpEventSchema.parse({
+        protocol: "cacp",
+        version: "0.2.0",
+        event_id: `evt_${type}`,
+        room_id: "room_1",
+        type,
+        actor_id: "agent_1",
+        created_at: "2026-05-05T00:00:00.000Z",
+        payload: {}
+      }).type).toBe(type);
+    }
 
-  it("accepts all 17 Claude runtime phases", () => {
-    const phases = [
-      "connecting", "resuming_session", "importing_session",
-      "requesting_api", "retrying_api", "compacting_context", "recalling_memory",
-      "thinking", "reading_files", "searching", "running_command",
-      "running_subagent", "executing_hook",
-      "waiting_for_approval", "generating_answer",
-      "completed", "failed"
-    ] as const;
-    for (const phase of phases) {
-      expect(ClaudeRuntimePhaseSchema.parse(phase)).toBe(phase);
+    for (const type of [
+      "claude.output.thinking_delta",
+      "claude.runtime.status_changed",
+      "claude.runtime.status_completed",
+      "claude.runtime.status_failed",
+      "agent.runtime.status_changed",
+      "agent.runtime.status_completed",
+      "agent.runtime.status_failed",
+      "agent.action_approval_requested",
+      "agent.action_approval_resolved"
+    ]) {
+      expect(() => CacpEventSchema.parse({
+        protocol: "cacp",
+        version: "0.2.0",
+        event_id: `evt_${type}`,
+        room_id: "room_1",
+        type,
+        actor_id: "agent_1",
+        created_at: "2026-05-05T00:00:00.000Z",
+        payload: {}
+      })).toThrow();
     }
   });
 
-  it("accepts Claude runtime status with optional detail", () => {
-    const payload = {
-      agent_id: "agent_1",
-      turn_id: "turn_1",
-      status_id: "status_turn_1",
-      phase: "retrying_api" as const,
-      current: "API request failed, retrying in 2s (2/3)",
-      recent: ["API request failed, retrying in 2s (2/3)"],
-      metrics: { files_read: 0, searches: 0, commands: 0 },
-      detail: { attempt: 2, max_retries: 3, retry_delay_ms: 2000, error_status: 529 },
-      started_at: "2026-04-29T00:00:00.000Z",
-      updated_at: "2026-04-29T00:00:01.000Z"
-    };
-    const parsed = ClaudeRuntimeStatusChangedPayloadSchema.parse(payload);
-    expect(parsed.detail).toEqual(payload.detail);
+  it("accepts run node kinds and statuses", () => {
+    expect(AgentRunNodeKindSchema.parse("reasoning_summary")).toBe("reasoning_summary");
+    expect(AgentRunNodeKindSchema.parse("approval")).toBe("approval");
+    expect(AgentRunNodeStatusSchema.parse("waiting_input")).toBe("waiting_input");
+    expect(AgentRunNodeStatusSchema.parse("completed")).toBe("completed");
   });
 
-  it("accepts claude.output.thinking_delta event type", () => {
-    expect(CacpEventSchema.parse({
-      protocol: "cacp",
-      version: "0.2.0",
-      event_id: "evt_1",
-      room_id: "room_1",
-      type: "claude.output.thinking_delta",
-      actor_id: "agent_1",
-      created_at: "2026-04-29T00:00:00.000Z",
-      payload: { agent_id: "agent_1", turn_id: "turn_1", text: "Let me analyze", done: false }
-    }).type).toBe("claude.output.thinking_delta");
-  });
+  it("accepts run lifecycle and interaction payloads", () => {
+    expect(AgentRunStartedPayloadSchema.parse({
+      run_id: "turn_1",
+      turn_id: "turn_1",
+      agent_id: "agent_1",
+      provider: "claude-code",
+      started_at: "2026-05-05T00:00:00.000Z"
+    })).toEqual({
+      run_id: "turn_1",
+      turn_id: "turn_1",
+      agent_id: "agent_1",
+      provider: "claude-code",
+      started_at: "2026-05-05T00:00:00.000Z"
+    });
 
-  it("accepts Claude thinking delta payloads", () => {
-    const payload = {
+    expect(AgentRunNodeStartedPayloadSchema.parse({
+      run_id: "turn_1",
+      turn_id: "turn_1",
+      agent_id: "agent_1",
+      provider: "claude-code",
+      node_id: "toolu_1",
+      kind: "tool",
+      status: "running",
+      title: "Read README.md",
+      started_at: "2026-05-05T00:00:01.000Z",
+      updated_at: "2026-05-05T00:00:01.000Z"
+    })).toMatchObject({
+      node_id: "toolu_1",
+      kind: "tool",
+      status: "running"
+    });
+
+    expect(AgentRunApprovalRequestBodySchema.parse({
       agent_id: "agent_1",
       turn_id: "turn_1",
-      text: "Let me analyze the structure",
-      done: false
-    };
-    expect(ClaudeRuntimeThinkingDeltaPayloadSchema.parse(payload)).toEqual(payload);
-    expect(ClaudeRuntimeThinkingDeltaPayloadSchema.parse({ agent_id: "agent_1", turn_id: "turn_1", text: "", done: true })).toEqual({ agent_id: "agent_1", turn_id: "turn_1", text: "", done: true });
+      tool_node_id: "toolu_1",
+      tool_use_id: "toolu_1",
+      tool_name: "Bash",
+      title: "Run Bash",
+      display_name: "Bash",
+      description: "Execute a workspace command",
+      decision_reason: "Needs write access",
+      blocked_path: "D:\\Development\\2",
+      input: { command: "Get-ChildItem" },
+      requested_at: "2026-05-05T00:00:02.000Z"
+    })).toMatchObject({
+      tool_node_id: "toolu_1",
+      tool_name: "Bash",
+      decision_reason: "Needs write access"
+    });
+
+    expect(AgentRunElicitationResolveBodySchema.parse({
+      action: "accept",
+      content: { token: "abc" }
+    })).toEqual({
+      action: "accept",
+      content: { token: "abc" }
+    });
+  });
+
+  it("enforces run node lifecycle and interaction invariants", () => {
+    expect(() => AgentRunNodeStartedPayloadSchema.parse({
+      run_id: "turn_1",
+      turn_id: "turn_1",
+      agent_id: "agent_1",
+      provider: "claude-code",
+      node_id: "toolu_1",
+      kind: "tool",
+      status: "completed",
+      started_at: "2026-05-05T00:00:01.000Z",
+      updated_at: "2026-05-05T00:00:01.000Z"
+    })).toThrow();
+
+    expect(() => AgentRunNodeUpdatedPayloadSchema.parse({
+      run_id: "turn_1",
+      turn_id: "turn_1",
+      agent_id: "agent_1",
+      provider: "claude-code",
+      node_id: "toolu_1",
+      status: "failed",
+      updated_at: "2026-05-05T00:00:02.000Z"
+    })).toThrow();
+
+    expect(() => AgentRunSourceRefsSchema.parse({})).toThrow();
+    expect(AgentRunSourceRefsSchema.parse({
+      tool_use_id: "toolu_1",
+      parent_tool_use_id: null
+    })).toEqual({
+      tool_use_id: "toolu_1",
+      parent_tool_use_id: null
+    });
+    expect(() => AgentRunSourceRefsSchema.parse({
+      parent_tool_use_id: null
+    })).toThrow();
+
+    expect(AgentRunApprovalResolveBodySchema.parse({
+      decision: "allow"
+    })).toEqual({ decision: "allow" });
+    expect(() => AgentRunApprovalResolveBodySchema.parse({
+      decision: "allow",
+      action: "approve"
+    })).toThrow();
+
+    expect(AgentRunElicitationRequestBodySchema.parse({
+      agent_id: "agent_1",
+      turn_id: "turn_1",
+      title: "Authenticate MCP",
+      display_name: "GitHub",
+      description: "Sign in to continue",
+      message: "Open the link and confirm once complete.",
+      mode: "url",
+      url: "https://example.com/oauth/start",
+      requested_schema: { type: "object" },
+      requested_at: "2026-05-05T00:00:03.000Z"
+    })).toMatchObject({
+      message: "Open the link and confirm once complete.",
+      mode: "url"
+    });
+
+    expect(AgentRunElicitationResolveBodySchema.parse({
+      action: "accept"
+    })).toEqual({ action: "accept" });
+    expect(AgentRunElicitationResolveBodySchema.parse({
+      action: "cancel"
+    })).toEqual({ action: "cancel" });
+    expect(() => AgentRunElicitationResolveBodySchema.parse({
+      action: "decline",
+      content: { token: "abc" }
+    })).toThrow();
+    expect(() => AgentRunElicitationRequestBodySchema.parse({
+      agent_id: "agent_1",
+      turn_id: "turn_1",
+      message: "Open the link and confirm once complete.",
+      mode: "url",
+      requested_at: "2026-05-05T00:00:03.000Z"
+    })).toThrow();
+    expect(() => AgentRunElicitationRequestBodySchema.parse({
+      agent_id: "agent_1",
+      turn_id: "turn_1",
+      message: "Provide a token",
+      mode: "form",
+      requested_at: "2026-05-05T00:00:03.000Z"
+    })).toThrow();
   });
 
   it("accepts Codex CLI as a local command agent type", () => {
@@ -336,7 +475,7 @@ describe("CACP event schema", () => {
     }).type).toBe("agent.session_catalog.updated");
   });
 
-  it("accepts provider-neutral local agent import and runtime payloads", () => {
+  it("accepts provider-neutral local agent import payloads and run-trace schemas", () => {
     expect(AgentSessionImportMessagePayloadSchema.parse({
       import_id: "import_1",
       agent_id: "agent_1",
@@ -348,18 +487,93 @@ describe("CACP event schema", () => {
       text: "Visible Codex answer"
     })).toMatchObject({ provider: "codex-cli", author_role: "assistant" });
 
-    expect(AgentRuntimeStatusChangedPayloadSchema.parse({
+    expect(AgentRunCompletedPayloadSchema.parse({
+      run_id: "turn_1",
+      turn_id: "turn_1",
       agent_id: "agent_1",
       provider: "codex-cli",
-      turn_id: "turn_1",
-      status_id: "status_turn_1",
-      phase: "running_command",
-      current: "Codex running command: Get-ChildItem -Force",
-      recent: ["Codex running command: Get-ChildItem -Force"],
+      summary: "Completed turn",
       metrics: { files_read: 0, searches: 0, commands: 1 },
-      started_at: "2026-05-01T01:17:00.000Z",
-      updated_at: "2026-05-01T01:17:02.000Z"
-    })).toMatchObject({ provider: "codex-cli", phase: "running_command" });
+      completed_at: "2026-05-01T01:17:02.000Z"
+    })).toMatchObject({ provider: "codex-cli", metrics: { commands: 1 } });
+
+    expect(AgentRunFailedPayloadSchema.parse({
+      run_id: "turn_1",
+      turn_id: "turn_1",
+      agent_id: "agent_1",
+      provider: "codex-cli",
+      error: "Command failed",
+      metrics: { files_read: 0, searches: 0, commands: 1 },
+      failed_at: "2026-05-01T01:17:02.000Z"
+    })).toMatchObject({ provider: "codex-cli", error: "Command failed" });
+
+    expect(AgentRunNodeDeltaPayloadSchema.parse({
+      run_id: "turn_1",
+      turn_id: "turn_1",
+      agent_id: "agent_1",
+      provider: "codex-cli",
+      node_id: "node_1",
+      delta: "Reading files"
+    })).toEqual({
+      run_id: "turn_1",
+      turn_id: "turn_1",
+      agent_id: "agent_1",
+      provider: "codex-cli",
+      node_id: "node_1",
+      delta: "Reading files"
+    });
+
+    expect(AgentRunNodeUpdatedPayloadSchema.parse({
+      run_id: "turn_1",
+      turn_id: "turn_1",
+      agent_id: "agent_1",
+      provider: "codex-cli",
+      node_id: "node_1",
+      status: "streaming",
+      updated_at: "2026-05-01T01:17:01.000Z"
+    })).toMatchObject({ node_id: "node_1", status: "streaming" });
+
+    expect(AgentRunNodeCompletedPayloadSchema.parse({
+      run_id: "turn_1",
+      turn_id: "turn_1",
+      agent_id: "agent_1",
+      provider: "codex-cli",
+      node_id: "node_1",
+      status: "completed",
+      updated_at: "2026-05-01T01:17:02.000Z",
+      completed_at: "2026-05-01T01:17:02.000Z"
+    })).toMatchObject({ status: "completed" });
+
+    expect(AgentRunNodeFailedPayloadSchema.parse({
+      run_id: "turn_1",
+      turn_id: "turn_1",
+      agent_id: "agent_1",
+      provider: "codex-cli",
+      node_id: "node_1",
+      status: "failed",
+      error: "Node failed",
+      updated_at: "2026-05-01T01:17:02.000Z",
+      failed_at: "2026-05-01T01:17:02.000Z"
+    })).toMatchObject({ status: "failed", error: "Node failed" });
+
+    expect(AgentRunMetricsSchema.parse({ files_read: 1 })).toEqual({
+      files_read: 1,
+      searches: 0,
+      commands: 0
+    });
+
+    expect(AgentRunApprovalResolveBodySchema.parse({
+      decision: "deny"
+    })).toEqual({ decision: "deny" });
+
+    expect(AgentRunElicitationRequestBodySchema.parse({
+      agent_id: "agent_1",
+      turn_id: "turn_1",
+      message: "Provide OAuth confirmation",
+      mode: "form",
+      requested_schema: { type: "object", properties: { token: { type: "string" } } },
+      requested_at: "2026-05-01T01:17:02.000Z"
+    })).toMatchObject({ message: "Provide OAuth confirmation", mode: "form" });
   });
 
   it("accepts participant presence and typing activity events", () => {
