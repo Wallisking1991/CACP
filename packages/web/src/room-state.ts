@@ -1,4 +1,8 @@
 import type {
+  AgentRunMetrics,
+  AgentRunNodeKind,
+  AgentRunNodeStatus,
+  AgentRunSourceRefs,
   AgentSessionPreviewMessagePayload,
   AgentSessionReadyPayload,
   AgentSessionSummary,
@@ -193,6 +197,52 @@ export interface AgentRuntimeStatusView {
   error?: string;
 }
 
+export type AgentRunStatusView = "running" | "completed" | "failed";
+
+export interface AgentRunNodeView {
+  run_id: string;
+  turn_id: string;
+  agent_id: string;
+  provider: string;
+  node_id: string;
+  parent_node_id?: string;
+  kind: AgentRunNodeKind;
+  status: AgentRunNodeStatus;
+  title: string;
+  role?: "user" | "assistant" | "system";
+  content_format?: "text" | "markdown" | "html";
+  text?: string;
+  text_chunks: string[];
+  stdout_chunks: string[];
+  stderr_chunks: string[];
+  detail?: Record<string, unknown>;
+  source_refs?: AgentRunSourceRefs;
+  summary?: string;
+  error?: string;
+  started_at: string;
+  updated_at?: string;
+  completed_at?: string;
+  failed_at?: string;
+}
+
+export interface AgentRunView {
+  run_id: string;
+  turn_id: string;
+  agent_id: string;
+  provider: string;
+  status: AgentRunStatusView;
+  nodes: AgentRunNodeView[];
+  message_id?: string;
+  summary?: string;
+  metrics?: AgentRunMetrics;
+  usage?: Record<string, unknown>;
+  error?: string;
+  partial_message_id?: string;
+  started_at: string;
+  completed_at?: string;
+  failed_at?: string;
+}
+
 export type ParticipantPresenceView = "online" | "idle" | "offline";
 export type AvatarStatusKind = "working" | "typing" | "online" | "idle" | "offline";
 export type AvatarStatusGroup = "humans" | "agents";
@@ -244,6 +294,7 @@ export interface RoomViewState {
   agentSessionPreviews: AgentSessionPreviewView[];
   agentImports: AgentImportView[];
   agentRuntimeStatuses: AgentRuntimeStatusView[];
+  agentRuns: AgentRunView[];
   participantActivity: Map<string, ParticipantActivityView>;
   avatarStatuses: AvatarStatusView[];
   latestSenderId?: string;
@@ -370,6 +421,23 @@ function typingIsFresh(typingAt: string | undefined, nowMs: number, ttlMs: numbe
   return nowMs - started <= ttlMs;
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function stringField(payload: Record<string, unknown>, key: string): string | undefined {
+  const value = payload[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function agentRunSortKey(run: AgentRunView): string {
+  return run.started_at || run.completed_at || run.failed_at || "";
+}
+
+function agentRunNodeSortKey(node: AgentRunNodeView): string {
+  return node.started_at || node.updated_at || node.completed_at || node.failed_at || "";
+}
+
 function avatarPriority(status: AvatarStatusKind): number {
   switch (status) {
     case "working": return 0;
@@ -402,6 +470,7 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
   const agentSessionPreviews = new Map<string, AgentSessionPreviewView>();
   const agentImports = new Map<string, AgentImportView>();
   const agentRuntimeStatuses = new Map<string, AgentRuntimeStatusView>();
+  const agentRuns = new Map<string, AgentRunView>();
   const participantActivity = new Map<string, ParticipantActivityView>();
   let latestSenderId: string | undefined;
   const orbitNotes = new Map<string, OrbitNoteView>();
@@ -424,6 +493,30 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
   }
   const turnStatusById = new Map<string, TurnRuntimeStatus>();
   const turnMessageStatus = new Map<string, Pick<MessageView, "agentPhase" | "agentSummary" | "agentMetrics" | "agentElapsed" | "turnFailed" | "turnError">>();
+
+  function ensureAgentRun(payload: Record<string, unknown>, startedAt: string): AgentRunView | undefined {
+    const runId = stringField(payload, "run_id");
+    const turnId = stringField(payload, "turn_id");
+    const agentId = stringField(payload, "agent_id");
+    const provider = stringField(payload, "provider");
+    if (!runId || !turnId || !agentId || !provider) return undefined;
+    const existing = agentRuns.get(runId);
+    const run: AgentRunView = existing ?? {
+      run_id: runId,
+      turn_id: turnId,
+      agent_id: agentId,
+      provider,
+      status: "running",
+      started_at: startedAt,
+      nodes: []
+    };
+    if (!existing) agentRuns.set(runId, run);
+    return run;
+  }
+
+  function findRunNode(run: AgentRunView, nodeId: string): AgentRunNodeView | undefined {
+    return run.nodes.find((node) => node.node_id === nodeId);
+  }
 
   const nowMs = Date.parse(options.now ?? new Date().toISOString());
   const typingTtlMs = options.typingTtlMs ?? 5000;
@@ -1015,6 +1108,134 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
         });
       }
     }
+    if (event.type === "agent.run.started") {
+      const payload = event.payload as Record<string, unknown>;
+      const startedAt = stringField(payload, "started_at") ?? event.created_at;
+      const run = ensureAgentRun(payload, startedAt);
+      if (run) {
+        run.status = "running";
+        run.started_at = startedAt;
+      }
+    }
+    if (event.type === "agent.run.completed") {
+      const payload = event.payload as Record<string, unknown>;
+      const run = ensureAgentRun(payload, event.created_at);
+      if (run) {
+        run.status = "completed";
+        run.message_id = stringField(payload, "message_id");
+        run.summary = stringField(payload, "summary") ?? run.summary;
+        run.metrics = asRecord(payload.metrics) as AgentRunMetrics | undefined ?? run.metrics;
+        run.usage = asRecord(payload.usage) ?? run.usage;
+        run.completed_at = stringField(payload, "completed_at") ?? event.created_at;
+      }
+    }
+    if (event.type === "agent.run.failed") {
+      const payload = event.payload as Record<string, unknown>;
+      const run = ensureAgentRun(payload, event.created_at);
+      if (run) {
+        run.status = "failed";
+        run.error = stringField(payload, "error") ?? run.error ?? "Run failed";
+        run.partial_message_id = stringField(payload, "partial_message_id") ?? run.partial_message_id;
+        run.failed_at = stringField(payload, "failed_at") ?? event.created_at;
+      }
+    }
+    if (event.type === "agent.run.node.started") {
+      const payload = event.payload as Record<string, unknown>;
+      const run = ensureAgentRun(payload, event.created_at);
+      const nodeId = stringField(payload, "node_id");
+      const kind = stringField(payload, "kind");
+      const status = stringField(payload, "status");
+      const title = stringField(payload, "title");
+      if (run && nodeId && kind && status && title) {
+        const existing = findRunNode(run, nodeId);
+        const node: AgentRunNodeView = {
+          run_id: run.run_id,
+          turn_id: run.turn_id,
+          agent_id: run.agent_id,
+          provider: run.provider,
+          node_id: nodeId,
+          parent_node_id: stringField(payload, "parent_node_id") ?? existing?.parent_node_id,
+          kind: kind as AgentRunNodeKind,
+          status: status as AgentRunNodeStatus,
+          title,
+          role: payload.role === "user" || payload.role === "assistant" || payload.role === "system" ? payload.role : existing?.role,
+          content_format: payload.content_format === "text" || payload.content_format === "markdown" || payload.content_format === "html" ? payload.content_format : existing?.content_format,
+          text: stringField(payload, "text") ?? existing?.text,
+          text_chunks: existing?.text_chunks ?? [],
+          stdout_chunks: existing?.stdout_chunks ?? [],
+          stderr_chunks: existing?.stderr_chunks ?? [],
+          detail: asRecord(payload.detail) ?? existing?.detail,
+          source_refs: asRecord(payload.source_refs) as AgentRunSourceRefs | undefined ?? existing?.source_refs,
+          summary: existing?.summary,
+          error: existing?.error,
+          started_at: stringField(payload, "started_at") ?? existing?.started_at ?? event.created_at,
+          updated_at: stringField(payload, "updated_at") ?? existing?.updated_at,
+          completed_at: existing?.completed_at,
+          failed_at: existing?.failed_at
+        };
+        const index = run.nodes.findIndex((entry) => entry.node_id === nodeId);
+        if (index >= 0) run.nodes[index] = node;
+        else run.nodes.push(node);
+      }
+    }
+    if (event.type === "agent.run.node.delta") {
+      const payload = event.payload as Record<string, unknown>;
+      const runId = stringField(payload, "run_id");
+      const nodeId = stringField(payload, "node_id");
+      const deltaType = stringField(payload, "delta_type");
+      const chunk = stringField(payload, "chunk");
+      const run = runId ? agentRuns.get(runId) : undefined;
+      const node = run && nodeId ? findRunNode(run, nodeId) : undefined;
+      if (node && chunk !== undefined) {
+        if (deltaType === "stdout") node.stdout_chunks = [...node.stdout_chunks, chunk];
+        else if (deltaType === "stderr") node.stderr_chunks = [...node.stderr_chunks, chunk];
+        else node.text_chunks = [...node.text_chunks, chunk];
+        node.updated_at = stringField(payload, "updated_at") ?? event.created_at;
+      }
+    }
+    if (event.type === "agent.run.node.updated") {
+      const payload = event.payload as Record<string, unknown>;
+      const runId = stringField(payload, "run_id");
+      const nodeId = stringField(payload, "node_id");
+      const run = runId ? agentRuns.get(runId) : undefined;
+      const node = run && nodeId ? findRunNode(run, nodeId) : undefined;
+      if (node) {
+        node.status = stringField(payload, "status") as AgentRunNodeStatus | undefined ?? node.status;
+        node.title = stringField(payload, "title") ?? node.title;
+        node.text = stringField(payload, "text") ?? node.text;
+        node.detail = asRecord(payload.detail) ?? node.detail;
+        node.source_refs = asRecord(payload.source_refs) as AgentRunSourceRefs | undefined ?? node.source_refs;
+        node.updated_at = stringField(payload, "updated_at") ?? event.created_at;
+      }
+    }
+    if (event.type === "agent.run.node.completed") {
+      const payload = event.payload as Record<string, unknown>;
+      const runId = stringField(payload, "run_id");
+      const nodeId = stringField(payload, "node_id");
+      const run = runId ? agentRuns.get(runId) : undefined;
+      const node = run && nodeId ? findRunNode(run, nodeId) : undefined;
+      if (node) {
+        node.status = "completed";
+        node.summary = stringField(payload, "summary") ?? node.summary;
+        node.detail = asRecord(payload.detail) ?? node.detail;
+        node.completed_at = stringField(payload, "completed_at") ?? event.created_at;
+        node.updated_at = node.completed_at;
+      }
+    }
+    if (event.type === "agent.run.node.failed") {
+      const payload = event.payload as Record<string, unknown>;
+      const runId = stringField(payload, "run_id");
+      const nodeId = stringField(payload, "node_id");
+      const run = runId ? agentRuns.get(runId) : undefined;
+      const node = run && nodeId ? findRunNode(run, nodeId) : undefined;
+      if (node) {
+        node.status = "failed";
+        node.error = stringField(payload, "error") ?? node.error ?? "Node failed";
+        node.detail = asRecord(payload.detail) ?? node.detail;
+        node.failed_at = stringField(payload, "failed_at") ?? event.created_at;
+        node.updated_at = node.failed_at;
+      }
+    }
     if (event.type === "message.created" && typeof event.payload.text === "string") {
       const messageId = typeof event.payload.message_id === "string" ? event.payload.message_id : undefined;
       const message: MessageView = {
@@ -1125,12 +1346,23 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     }
   }
 
+  const agentRunsForView = [...agentRuns.values()]
+    .map((run): AgentRunView => ({
+      ...run,
+      nodes: [...run.nodes].sort((a, b) => agentRunNodeSortKey(a).localeCompare(agentRunNodeSortKey(b)))
+    }))
+    .sort((a, b) => agentRunSortKey(a).localeCompare(agentRunSortKey(b)));
+
   const workingAgentIds = new Set<string>([...streamingTurns.values()].map((turn) => turn.agent_id));
   for (const status of claudeRuntimeStatuses.values()) {
     if (status.phase !== "completed" && status.phase !== "failed") workingAgentIds.add(status.agent_id);
   }
   for (const status of agentRuntimeStatuses.values()) {
     if (status.phase !== "completed" && status.phase !== "failed") workingAgentIds.add(status.agent_id);
+  }
+  for (const run of agentRunsForView) {
+    if (run.status !== "completed" && run.status !== "failed") workingAgentIds.add(run.agent_id);
+    if (run.nodes.some((node) => node.status === "waiting_input")) workingAgentIds.add(run.agent_id);
   }
 
   const avatarStatuses: AvatarStatusView[] = [
@@ -1202,6 +1434,7 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     agentRuntimeStatuses: [...agentRuntimeStatuses.values()]
       .sort((a, b) => (b.updated_at ?? b.started_at ?? "").localeCompare(a.updated_at ?? a.started_at ?? ""))
       .slice(0, 1),
+    agentRuns: agentRunsForView,
     participantActivity,
     avatarStatuses,
     latestSenderId,

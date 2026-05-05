@@ -1317,6 +1317,130 @@ textarea.input {
   color: var(--accent);
 }
 
+.agent-run-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.agent-run-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.agent-run-card__status {
+  color: #fff7ec;
+}
+
+.agent-run-card__metrics,
+.agent-run-card__summary,
+.agent-run-card__error {
+  color: rgba(255, 247, 236, 0.82);
+  font-size: 12px;
+}
+
+.agent-run-card__error,
+.agent-run-node__error {
+  color: #ffe1da;
+}
+
+.agent-run-card__details {
+  border: 1px solid rgba(255, 247, 236, 0.18);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: rgba(255, 247, 236, 0.08);
+}
+
+.agent-run-card__details > summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255, 247, 236, 0.86);
+}
+
+.agent-run-node-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-run-node {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  border: 1px solid rgba(255, 247, 236, 0.16);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: rgba(255, 247, 236, 0.08);
+}
+
+.agent-run-node--waiting {
+  border-color: rgba(255, 216, 120, 0.45);
+  background: rgba(255, 216, 120, 0.12);
+}
+
+.agent-run-node__main {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  gap: 8px;
+  align-items: center;
+}
+
+.agent-run-node__kind,
+.agent-run-node__status {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: rgba(255, 247, 236, 0.66);
+}
+
+.agent-run-node__title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff7ec;
+}
+
+.agent-run-node__text,
+.agent-run-node__summary {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  color: rgba(255, 247, 236, 0.82);
+}
+
+.agent-run-interaction {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 3px;
+}
+
+.agent-run-interaction button {
+  border: 1px solid rgba(255, 247, 236, 0.24);
+  border-radius: 8px;
+  padding: 5px 10px;
+  background: rgba(255, 247, 236, 0.12);
+  color: #fff7ec;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.agent-run-interaction button:hover {
+  background: rgba(255, 247, 236, 0.18);
+}
+
 .thinking-accordion {
   margin: 8px 0;
   border-radius: 8px;

@@ -1,14 +1,18 @@
 import { useEffect, useRef } from "react";
 import { useT } from "../i18n/useT.js";
-import type { AgentImportView, ClaudeImportView, MessageView, StreamingTurnView } from "../room-state.js";
+import type { AgentImportView, AgentRunView, ClaudeImportView, MessageView, StreamingTurnView } from "../room-state.js";
+import { AgentRunCard } from "./AgentRunCard.js";
 
 export interface ThreadProps {
   currentParticipantId: string;
   messages: MessageView[];
   streamingTurns: StreamingTurnView[];
+  agentRuns?: AgentRunView[];
   actorNames: Map<string, string>;
   claudeImports?: ClaudeImportView[];
   agentImports?: AgentImportView[];
+  onResolveApproval?: (runId: string, nodeId: string, decision: "allow" | "deny", reason?: string) => void;
+  onResolveElicitation?: (runId: string, nodeId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => void;
 }
 
 function messageClass(kind: string, actorId: string, currentParticipantId: string): string {
@@ -86,9 +90,12 @@ export default function Thread({
   currentParticipantId,
   messages,
   streamingTurns,
+  agentRuns = [],
   actorNames,
   claudeImports,
   agentImports,
+  onResolveApproval,
+  onResolveElicitation,
 }: ThreadProps) {
   const t = useT();
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -97,9 +104,9 @@ export default function Thread({
     if (typeof bottomRef.current?.scrollIntoView === "function") {
       bottomRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages.length, streamingTurns.length, streamingTurns.map((t) => t.text).join("|")]);
+  }, [messages.length, streamingTurns.length, streamingTurns.map((t) => t.text).join("|"), agentRuns.length, agentRuns.map((run) => `${run.run_id}:${run.status}:${run.nodes.map((node) => `${node.node_id}:${node.status}:${node.text_chunks.join("")}`).join(",")}`).join("|")]);
 
-  const isEmpty = messages.length === 0 && streamingTurns.length === 0;
+  const isEmpty = messages.length === 0 && streamingTurns.length === 0 && agentRuns.length === 0;
 
   return (
     <div className="thread">
@@ -201,6 +208,16 @@ export default function Thread({
           </article>
         );
       })}
+
+      {agentRuns.map((run) => (
+        <AgentRunCard
+          key={run.run_id}
+          run={run}
+          agentName={actorNames.get(run.agent_id) ?? run.agent_id}
+          onResolveApproval={onResolveApproval}
+          onResolveElicitation={onResolveElicitation}
+        />
+      ))}
 
       {streamingTurns.map((turn) => {
         const agentName = actorNames.get(turn.agent_id) ?? turn.agent_id;

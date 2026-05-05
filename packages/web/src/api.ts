@@ -238,6 +238,54 @@ export async function requestAgentSessionPreview(input: {
   return await response.json() as { ok: true; preview_id: string };
 }
 
+export async function resolveAgentRunApproval(input: {
+  serverUrl: string;
+  roomId: string;
+  token: string;
+  runId: string;
+  nodeId: string;
+  decision: "allow" | "deny";
+  reason?: string;
+}): Promise<{ ok: true; decision: "allow" | "deny" }> {
+  const response = await fetch(`${input.serverUrl.replace(/\/$/, "")}/rooms/${input.roomId}/agent-runs/${input.runId}/approvals/${input.nodeId}/resolve`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${input.token}`
+    },
+    body: JSON.stringify({
+      decision: input.decision,
+      ...(input.reason ? { reason: input.reason } : {})
+    })
+  });
+  if (!response.ok) throw new Error(`${response.status} ${response.statusText}: ${await response.text()}`);
+  return await response.json() as { ok: true; decision: "allow" | "deny" };
+}
+
+export async function resolveAgentRunElicitation(input: {
+  serverUrl: string;
+  roomId: string;
+  token: string;
+  runId: string;
+  nodeId: string;
+  action: "accept" | "decline" | "cancel";
+  content?: Record<string, unknown>;
+}): Promise<{ ok: true; action: "accept" | "decline" | "cancel" }> {
+  const response = await fetch(`${input.serverUrl.replace(/\/$/, "")}/rooms/${input.roomId}/agent-runs/${input.runId}/elicitations/${input.nodeId}/resolve`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${input.token}`
+    },
+    body: JSON.stringify({
+      action: input.action,
+      ...(input.action === "accept" && input.content ? { content: input.content } : {})
+    })
+  });
+  if (!response.ok) throw new Error(`${response.status} ${response.statusText}: ${await response.text()}`);
+  return await response.json() as { ok: true; action: "accept" | "decline" | "cancel" };
+}
+
 export function pairingServerUrlFor(origin: string): string {
   const url = new URL(origin);
   if ((url.hostname === "127.0.0.1" || url.hostname === "localhost") && (url.port === "5173" || url.port === "3000")) {

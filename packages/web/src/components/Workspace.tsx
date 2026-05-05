@@ -6,7 +6,7 @@ import { startTyping, stopTyping, updatePresence, createAgentPairing } from "../
 import { roomPermissionsForRole } from "../role-permissions.js";
 import { deriveRoomState, humanParticipants, isTurnInFlight } from "../room-state.js";
 import type { AgentSessionReadyView, AgentSessionSelectionView, ClaudeSessionReadyView, ClaudeSessionSelectionView } from "../room-state.js";
-import { requestClaudeSessionPreview, selectClaudeSession, requestAgentSessionPreview, selectAgentSession, sendOrbitNote, likeOrbitNote, unlikeOrbitNote, promoteOrbitNotes, sendMainInput, clearOrbit } from "../api.js";
+import { requestClaudeSessionPreview, selectClaudeSession, requestAgentSessionPreview, selectAgentSession, sendOrbitNote, likeOrbitNote, unlikeOrbitNote, promoteOrbitNotes, sendMainInput, clearOrbit, resolveAgentRunApproval, resolveAgentRunElicitation } from "../api.js";
 import { createTypingActivityController, type TypingActivityController } from "../activity-client.js";
 import { createRoomSoundController, shouldPlayCueForMessage } from "../room-sound.js";
 import { useT } from "../i18n/useT.js";
@@ -425,9 +425,16 @@ export default function Workspace({
             currentParticipantId={session.participant_id}
             messages={room.messages}
             streamingTurns={room.streamingTurns}
+            agentRuns={room.agentRuns}
             actorNames={actorNames}
             claudeImports={room.claudeImports}
             agentImports={room.agentImports}
+            onResolveApproval={(runId, nodeId, decision, reason) => {
+              void resolveAgentRunApproval({ serverUrl, roomId: session.room_id, token: session.token, runId, nodeId, decision, reason }).catch(() => {});
+            }}
+            onResolveElicitation={(runId, nodeId, action, content) => {
+              void resolveAgentRunElicitation({ serverUrl, roomId: session.room_id, token: session.token, runId, nodeId, action, content }).catch(() => {});
+            }}
           />
 
           <MainComposer
