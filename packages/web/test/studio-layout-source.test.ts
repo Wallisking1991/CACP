@@ -30,10 +30,16 @@ describe("studio room CSS source", () => {
 
   it("defines an in-grid Orbit side panel layout instead of an overlay sibling", () => {
     expect(css).toMatch(
-      /\.workspace-grid--with-orbit\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(280px,\s*360px\)/s
+      /\.workspace-grid--with-orbit\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(320px,\s*clamp\(360px,\s*20vw,\s*480px\)/s
     );
     expect(css).toMatch(
       /@media\s*\(max-width:\s*767px\)[\s\S]*\.workspace-grid--with-orbit\s*\{[\s\S]*grid-template-columns:\s*1fr/s
     );
+  });
+
+  it("workspace-shell has no max-width to use full screen on large monitors", () => {
+    expect(css).not.toMatch(/\.workspace-shell\s*\{[^}]*max-width:/s);
+    expect(css).toMatch(/\.workspace-shell\s*\{[^}]*width:\s*calc\(/s);
+    expect(css).toMatch(/\.workspace-shell\s*\{[^}]*margin:\s*0\s+auto/s);
   });
 });

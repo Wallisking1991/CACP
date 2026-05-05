@@ -708,7 +708,6 @@ textarea.input {
 .workspace-shell {
   position: relative;
   z-index: 1;
-  max-width: 1600px;
   width: calc(100% - 28px);
   height: 100dvh;
   display: flex;
@@ -1182,7 +1181,7 @@ textarea.input {
 }
 
 .workspace-grid--with-orbit {
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  grid-template-columns: minmax(0, 1fr) minmax(320px, clamp(360px, 20vw, 480px));
 }
 
 .chat-panel {
