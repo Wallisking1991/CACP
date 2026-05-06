@@ -1,3 +1,9 @@
+# Superseded design note
+
+2026-05-06 update: the live Agent workflow UX direction is superseded by `docs/prds/agent-workflow-live-visibility-v2.md` where it conflicts with this document. The v2 decision is to display SDK-provided thinking deltas while a run is active, show the work process expanded during execution, and auto-collapse the work process after completion.
+
+---
+
 # Claude Runtime UX Refactor PRD
 
 ## 背景
