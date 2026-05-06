@@ -32,6 +32,16 @@ interface RunTraceNodeState {
   terminal: boolean;
 }
 
+const ProtocolShortTextLimit = 500;
+const ProtocolErrorTextLimit = 2000;
+const NodeDeltaChunkLimit = 8192;
+
+function limitProtocolText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  if (maxLength <= 1) return value.slice(0, maxLength);
+  return `${value.slice(0, maxLength - 1)}…`;
+}
+
 export class RunTraceRecorder {
   private readonly nodes = new Map<string, RunTraceNodeState>();
 
@@ -75,6 +85,7 @@ export class RunTraceRecorder {
     if (this.nodes.has(input.nodeId)) return;
 
     const timestamp = this.now();
+    const title = limitProtocolText(input.title, ProtocolShortTextLimit);
     await this.sink.startNode({
       run_id: this.context.turnId,
       turn_id: this.context.turnId,
@@ -84,7 +95,7 @@ export class RunTraceRecorder {
       ...(input.parentNodeId ? { parent_node_id: input.parentNodeId } : {}),
       kind: input.kind,
       status: input.status ?? "running",
-      title: input.title,
+      title,
       ...(input.role ? { role: input.role } : {}),
       ...(input.contentFormat ? { content_format: input.contentFormat } : {}),
       ...(input.text ? { text: input.text } : {}),
@@ -97,7 +108,7 @@ export class RunTraceRecorder {
     this.nodes.set(input.nodeId, {
       nodeId: input.nodeId,
       kind: input.kind,
-      title: input.title,
+      title,
       status: input.status ?? "running",
       terminal: false
     });
@@ -110,16 +121,19 @@ export class RunTraceRecorder {
   }): Promise<void> {
     if (!input.chunk || !this.nodes.has(input.nodeId) || this.isTerminal(input.nodeId)) return;
 
-    await this.sink.appendNodeDelta({
-      run_id: this.context.turnId,
-      turn_id: this.context.turnId,
-      agent_id: this.context.agentId,
-      provider: this.context.provider,
-      node_id: input.nodeId,
-      delta_type: input.deltaType,
-      chunk: input.chunk,
-      updated_at: this.now()
-    });
+    for (let offset = 0; offset < input.chunk.length; offset += NodeDeltaChunkLimit) {
+      const chunk = input.chunk.slice(offset, offset + NodeDeltaChunkLimit);
+      await this.sink.appendNodeDelta({
+        run_id: this.context.turnId,
+        turn_id: this.context.turnId,
+        agent_id: this.context.agentId,
+        provider: this.context.provider,
+        node_id: input.nodeId,
+        delta_type: input.deltaType,
+        chunk,
+        updated_at: this.now()
+      });
+    }
   }
 
   async updateNode(input: {
@@ -131,6 +145,7 @@ export class RunTraceRecorder {
   }): Promise<void> {
     const existing = this.nodes.get(input.nodeId);
     if (!existing || existing.terminal) return;
+    const title = input.title ? limitProtocolText(input.title, ProtocolShortTextLimit) : undefined;
 
     await this.sink.updateNode({
       run_id: this.context.turnId,
@@ -139,7 +154,7 @@ export class RunTraceRecorder {
       provider: this.context.provider,
       node_id: input.nodeId,
       ...(input.status ? { status: input.status } : {}),
-      ...(input.title ? { title: input.title } : {}),
+      ...(title ? { title } : {}),
       ...(input.detail ? { detail: input.detail } : {}),
       ...(input.sourceRefs ? { source_refs: input.sourceRefs } : {}),
       updated_at: this.now()
@@ -148,7 +163,7 @@ export class RunTraceRecorder {
     this.nodes.set(input.nodeId, {
       ...existing,
       ...(input.status ? { status: input.status } : {}),
-      ...(input.title ? { title: input.title } : {})
+      ...(title ? { title } : {})
     });
   }
 
@@ -166,7 +181,7 @@ export class RunTraceRecorder {
       agent_id: this.context.agentId,
       provider: this.context.provider,
       node_id: input.nodeId,
-      ...(input.summary ? { summary: input.summary } : {}),
+      ...(input.summary ? { summary: limitProtocolText(input.summary, ProtocolShortTextLimit) } : {}),
       ...(input.detail ? { detail: input.detail } : {}),
       completed_at: this.now()
     });
@@ -192,7 +207,7 @@ export class RunTraceRecorder {
       agent_id: this.context.agentId,
       provider: this.context.provider,
       node_id: input.nodeId,
-      error: input.error,
+      error: limitProtocolText(input.error, ProtocolErrorTextLimit),
       ...(input.detail ? { detail: input.detail } : {}),
       failed_at: this.now()
     });

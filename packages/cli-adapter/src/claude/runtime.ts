@@ -76,6 +76,25 @@ function contentBlocksFromStreamMessage(raw: unknown): Record<string, unknown>[]
   return content.map(asRecord);
 }
 
+function textFromToolResultContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content.map((item) => {
+      if (typeof item === "string") return item;
+      const record = asRecord(item);
+      if (typeof record.text === "string") return record.text;
+      if (typeof record.content === "string") return record.content;
+      if (Array.isArray(record.content)) return textFromToolResultContent(record.content);
+      return Object.keys(record).length > 0 ? JSON.stringify(record) : "";
+    }).filter(Boolean).join("\n");
+  }
+  const record = asRecord(content);
+  if (typeof record.text === "string") return record.text;
+  if (typeof record.content === "string") return record.content;
+  if (Array.isArray(record.content)) return textFromToolResultContent(record.content);
+  return Object.keys(record).length > 0 ? JSON.stringify(record) : "";
+}
+
 function describeToolTarget(tool: Record<string, unknown>): string {
   const input = asRecord(tool.input);
   const filePath = typeof input.file_path === "string" ? input.file_path : typeof input.path === "string" ? input.path : "";
@@ -206,14 +225,23 @@ function permissionPolicy(permissionLevel: string, toolName: string): "allow" | 
     return "deny";
   }
   if (permissionLevel === "full_access") {
-    return toolName === "Bash" ? "ask" : "allow";
+    return "allow";
   }
   return toolName === "Bash" ? "ask" : "allow";
 }
 
-function approvalToPermissionResult(toolUseId: string, decision: ClaudeApprovalDecision, toolName: string): ClaudePermissionResult {
+function reusableApprovalScope(permissionLevel: string, toolName: string): string | undefined {
+  if (permissionLevel === "limited_write" && toolName === "Bash") return `${permissionLevel}:${toolName}`;
+  return undefined;
+}
+
+function allowPermissionResult(toolUseId: string, toolInput: Record<string, unknown>): ClaudePermissionResult {
+  return { behavior: "allow", updatedInput: toolInput, toolUseID: toolUseId };
+}
+
+function approvalToPermissionResult(toolUseId: string, toolInput: Record<string, unknown>, decision: ClaudeApprovalDecision, toolName: string): ClaudePermissionResult {
   if (decision.decision === "allow") {
-    return { behavior: "allow", toolUseID: toolUseId };
+    return allowPermissionResult(toolUseId, toolInput);
   }
   return {
     behavior: "deny",
@@ -238,6 +266,8 @@ export class ClaudeRuntime {
   private hasSelectedSession = false;
   private selectedSessionId: string | undefined;
   private activeQuery: { close(): void } | undefined;
+  private readonly approvedPermissionScopes = new Set<string>();
+  private readonly pendingPermissionScopeDecisions = new Map<string, Promise<ClaudeApprovalDecision>>();
 
   constructor(private readonly input: ClaudeRuntimeInput) {
     this.sdkPromise = Promise.resolve(input.sdk ?? loadClaudeSdk()).catch((error) => {
@@ -251,6 +281,8 @@ export class ClaudeRuntime {
     if (!sdk) throw this.sdkLoadError ?? new Error("Claude SDK is not available");
     this.hasSelectedSession = true;
     this.selectedSessionId = selection.mode === "resume" ? selection.sessionId : undefined;
+    this.approvedPermissionScopes.clear();
+    this.pendingPermissionScopeDecisions.clear();
     return this.selectedSessionId;
   }
 
@@ -436,7 +468,7 @@ export class ClaudeRuntime {
       const policy = permissionPolicy(this.input.permissionLevel, toolName);
       if (policy === "allow") {
         await recorder.updateNode({ nodeId, status: "running" });
-        return { behavior: "allow", toolUseID: nodeId };
+        return allowPermissionResult(nodeId, toolInput);
       }
       if (policy === "deny") {
         const message = `Tool ${toolName} is blocked by CACP permission level ${this.input.permissionLevel}`;
@@ -444,7 +476,13 @@ export class ClaudeRuntime {
         return { behavior: "deny", message, toolUseID: nodeId };
       }
 
-      const decision = await this.input.requestApproval(`approval_${nodeId}`, {
+      const approvalScope = reusableApprovalScope(this.input.permissionLevel, toolName);
+      if (approvalScope && this.approvedPermissionScopes.has(approvalScope)) {
+        await recorder.updateNode({ nodeId, status: "running" });
+        return allowPermissionResult(nodeId, toolInput);
+      }
+
+      const approvalPayload = {
         agent_id: this.input.agentId,
         turn_id: turn.turnId,
         tool_node_id: nodeId,
@@ -457,9 +495,28 @@ export class ClaudeRuntime {
         ...(toolOptions.blockedPath ? { blocked_path: toolOptions.blockedPath } : {}),
         ...(Object.keys(toolInput).length > 0 ? { input: toolInput } : {}),
         requested_at: nowIso()
-      });
+      };
 
-      const permissionResult = approvalToPermissionResult(nodeId, decision, toolName);
+      let decision: ClaudeApprovalDecision;
+      const pendingScopeDecision = approvalScope ? this.pendingPermissionScopeDecisions.get(approvalScope) : undefined;
+      if (pendingScopeDecision) {
+        decision = await pendingScopeDecision;
+      } else {
+        const decisionPromise = this.input.requestApproval(`approval_${nodeId}`, approvalPayload);
+        if (approvalScope) this.pendingPermissionScopeDecisions.set(approvalScope, decisionPromise);
+        try {
+          decision = await decisionPromise;
+        } finally {
+          if (approvalScope && this.pendingPermissionScopeDecisions.get(approvalScope) === decisionPromise) {
+            this.pendingPermissionScopeDecisions.delete(approvalScope);
+          }
+        }
+      }
+      if (approvalScope && decision.decision === "allow") {
+        this.approvedPermissionScopes.add(approvalScope);
+      }
+
+      const permissionResult = approvalToPermissionResult(nodeId, toolInput, decision, toolName);
       if (permissionResult.behavior === "allow") {
         await recorder.updateNode({ nodeId, status: "running" });
       } else {
@@ -514,12 +571,11 @@ export class ClaudeRuntime {
         includePartialMessages: true,
         includeHookEvents: true,
         forwardSubagentText: true,
-        thinking: { type: "adaptive", display: "summarized" },
         toolConfig: { askUserQuestion: { previewFormat: "html" } },
         ...(this.selectedSessionId ? { resume: this.selectedSessionId } : {}),
         canUseTool,
         onElicitation
-      } as Parameters<ClaudeSdk["query"]>[0]["options"] & { thinking: { type: "adaptive"; display: "summarized" } }
+      }
     });
 
     this.activeQuery = query;
@@ -544,10 +600,10 @@ export class ClaudeRuntime {
               title: "Subagent message",
               role: "assistant",
               contentFormat: "text",
-              ...(text ? { text } : {}),
               sourceRefs: { parent_tool_use_id: parentToolUseId }
             });
-            await recorder.completeNode({ nodeId, ...(text ? { summary: text.slice(0, 500) } : {}) });
+            if (text) await recorder.appendNodeDelta({ nodeId, deltaType: "text", chunk: text });
+            await recorder.completeNode({ nodeId, ...(text ? { summary: text } : {}) });
           } else {
             await syncAssistantText(text);
           }
@@ -561,6 +617,33 @@ export class ClaudeRuntime {
                 toolInput: asRecord(block.input),
                 parentToolUseId: parentToolUseId ?? null
               });
+            }
+          }
+          continue;
+        }
+
+        if (msgType === "user") {
+          for (const block of contentBlocksFromStreamMessage(rawMessage)) {
+            if (block.type !== "tool_result") continue;
+            const nodeId = typeof block.tool_use_id === "string" && block.tool_use_id ? block.tool_use_id : undefined;
+            if (!nodeId) continue;
+            const parentToolUseId = typeof record.parent_tool_use_id === "string" ? record.parent_tool_use_id : null;
+            const toolInput = toolInputsByNodeId.get(nodeId) ?? {};
+            if (!recorder.hasNode(nodeId)) {
+              await ensureToolNode({
+                nodeId,
+                toolName: "Tool",
+                toolInput,
+                parentToolUseId,
+                status: "running"
+              });
+            }
+            const output = textFromToolResultContent(block.content);
+            if (output) await recorder.appendNodeDelta({ nodeId, deltaType: block.is_error === true ? "stderr" : "text", chunk: output });
+            if (block.is_error === true) {
+              await recorder.failNode({ nodeId, error: output || "Tool failed" });
+            } else {
+              await recorder.completeNode({ nodeId, summary: recorder.currentTitle(nodeId) ?? "Tool completed" });
             }
           }
           continue;
@@ -654,6 +737,7 @@ export class ClaudeRuntime {
           const summary = typeof record.summary === "string" ? record.summary : undefined;
           const preceding = Array.isArray(record.preceding_tool_use_ids) ? record.preceding_tool_use_ids.filter((value): value is string => typeof value === "string") : [];
           for (const nodeId of preceding) {
+            if (summary) await recorder.appendNodeDelta({ nodeId, deltaType: "text", chunk: summary });
             await recorder.completeNode({ nodeId, ...(summary ? { summary } : {}) });
           }
           continue;
@@ -711,6 +795,7 @@ export class ClaudeRuntime {
             if (taskId) {
               const status = typeof record.status === "string" ? record.status : "completed";
               const summary = typeof record.summary === "string" ? record.summary : undefined;
+              if (summary) await recorder.appendNodeDelta({ nodeId: taskId, deltaType: "text", chunk: summary });
               if (status === "completed") {
                 await recorder.completeNode({ nodeId: taskId, ...(summary ? { summary } : {}) });
               } else {
@@ -743,10 +828,16 @@ export class ClaudeRuntime {
             const hookId = typeof record.hook_id === "string" ? record.hook_id : undefined;
             if (hookId) {
               const outcome = typeof record.outcome === "string" ? record.outcome : "success";
+              const stdout = typeof record.stdout === "string" ? record.stdout : "";
+              const stderr = typeof record.stderr === "string" ? record.stderr : "";
+              const output = typeof record.output === "string" ? record.output : "";
+              if (stdout) await recorder.appendNodeDelta({ nodeId: hookId, deltaType: "stdout", chunk: stdout });
+              if (stderr) await recorder.appendNodeDelta({ nodeId: hookId, deltaType: "stderr", chunk: stderr });
+              if (!stdout && !stderr && output) await recorder.appendNodeDelta({ nodeId: hookId, deltaType: "text", chunk: output });
               if (outcome === "success") {
-                await recorder.completeNode({ nodeId: hookId, summary: typeof record.output === "string" && record.output ? record.output : "Hook completed" });
+                await recorder.completeNode({ nodeId: hookId, summary: output || "Hook completed" });
               } else {
-                await recorder.failNode({ nodeId: hookId, error: typeof record.output === "string" && record.output ? record.output : outcome });
+                await recorder.failNode({ nodeId: hookId, error: output || outcome });
               }
             }
           } else if (subtype === "api_retry") {

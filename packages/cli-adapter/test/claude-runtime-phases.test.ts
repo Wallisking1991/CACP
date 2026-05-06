@@ -29,7 +29,11 @@ function createSuccessResult(sessionId = "session_1", result = "Done") {
   };
 }
 
-function createHarness(queryImpl: (prompt: string, options: Record<string, unknown>) => ReturnType<typeof createQuery>) {
+function createHarness(
+  queryImpl: (prompt: string, options: Record<string, unknown>) => ReturnType<typeof createQuery>,
+  overrides: { permissionLevel?: string } = {}
+) {
+  let activeQueryImpl = queryImpl;
   const publishedDeltas: string[] = [];
   const started: Array<Record<string, unknown>> = [];
   const nodeDeltas: Array<Record<string, unknown>> = [];
@@ -41,11 +45,11 @@ function createHarness(queryImpl: (prompt: string, options: Record<string, unkno
 
   const runtime = new ClaudeRuntime({
     sdk: {
-      query: ({ prompt, options }: { prompt: string; options: Record<string, unknown> }) => queryImpl(prompt, options)
+      query: ({ prompt, options }: { prompt: string; options: Record<string, unknown> }) => activeQueryImpl(prompt, options)
     },
     agentId: "agent_1",
     workingDir: "D:\\Development\\2",
-    permissionLevel: "limited_write",
+    permissionLevel: overrides.permissionLevel ?? "limited_write",
     model: "claude-sonnet-4-20250514",
     publishDelta: async (_turnId: string, chunk: string) => { publishedDeltas.push(chunk); },
     startNode: async (payload: Record<string, unknown>) => { started.push(payload); },
@@ -63,7 +67,11 @@ function createHarness(queryImpl: (prompt: string, options: Record<string, unkno
     }
   });
 
-  return { runtime, publishedDeltas, started, nodeDeltas, updated, completed, failed, approvals, elicitations };
+  const setQueryImpl = (next: typeof queryImpl) => {
+    activeQueryImpl = next;
+  };
+
+  return { runtime, setQueryImpl, publishedDeltas, started, nodeDeltas, updated, completed, failed, approvals, elicitations };
 }
 
 describe("Claude runtime run-trace mapping", () => {
@@ -101,7 +109,7 @@ describe("Claude runtime run-trace mapping", () => {
       text: "inspect"
     });
 
-    expect(capturedOptions?.thinking).toEqual({ type: "adaptive", display: "summarized" });
+    expect(capturedOptions).not.toHaveProperty("thinking");
     const reasoningNode = started.find((node) => node.kind === "reasoning_summary" && node.title === "Thinking");
     expect(reasoningNode).toBeDefined();
     const reasoningNodeId = reasoningNode?.node_id;
@@ -169,6 +177,34 @@ describe("Claude runtime run-trace mapping", () => {
     expect(result.usage?.permission_denials).toEqual([{ tool_name: "Bash", tool_use_id: "toolu_bash", tool_input: { command: "rm -rf dist" } }]);
   });
 
+  it("streams long SDK-provided node summaries as full deltas while keeping terminal summaries short", async () => {
+    const longSummary = "x".repeat(9000);
+    const { runtime, nodeDeltas, completed } = createHarness(() => createQuery([
+      { type: "system", subtype: "init", session_id: "session_1", uuid: "init_1" },
+      { type: "tool_progress", tool_use_id: "toolu_grep", tool_name: "Grep", parent_tool_use_id: null, elapsed_time_seconds: 1, uuid: "tool_progress_1", session_id: "session_1" },
+      { type: "tool_use_summary", summary: longSummary, preceding_tool_use_ids: ["toolu_grep"], uuid: "tool_summary_1", session_id: "session_1" },
+      createSuccessResult("session_1", "Done")
+    ]));
+
+    await runtime.selectSession({ mode: "fresh" });
+    await runtime.runTurn({
+      turnId: "turn_1",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "search"
+    });
+
+    const completedTool = completed.find((node) => node.node_id === "toolu_grep");
+    const summaryDeltas = nodeDeltas.filter((delta) => delta.node_id === "toolu_grep");
+    const streamedSummary = summaryDeltas.map((delta) => delta.chunk).join("");
+    expect(streamedSummary).toBe(longSummary);
+    expect(summaryDeltas.length).toBeGreaterThan(1);
+    expect(completedTool?.summary).toBeDefined();
+    expect((completedTool?.summary as string).length).toBeLessThanOrEqual(500);
+  });
+
   it("preserves SDK result metadata and fallback text when usage object is omitted", async () => {
     const { runtime } = createHarness(() => createQuery([
       {
@@ -207,10 +243,11 @@ describe("Claude runtime run-trace mapping", () => {
   });
 
   it("routes Bash permission prompts through room-backed approval requests", async () => {
+    let permissionResult: Promise<unknown> | undefined;
     const { runtime, approvals, started, updated } = createHarness((_prompt, options) => {
       const canUseTool = options.canUseTool as undefined | ((toolName: string, input: Record<string, unknown>, toolOptions: Record<string, unknown>) => Promise<unknown>);
       if (!canUseTool) throw new Error("missing canUseTool");
-      void canUseTool("Bash", { command: "pnpm install" }, {
+      permissionResult = canUseTool("Bash", { command: "pnpm install" }, {
         signal: new AbortController().signal,
         toolUseID: "toolu_bash",
         title: "Claude wants to run Bash",
@@ -249,12 +286,165 @@ describe("Claude runtime run-trace mapping", () => {
         decision_reason: "Command execution needs approval"
       }
     });
+    await expect(permissionResult).resolves.toMatchObject({
+      behavior: "allow",
+      toolUseID: "toolu_bash",
+      updatedInput: { command: "pnpm install" }
+    });
     const latestBashUpdate = updated.filter((node) => node.node_id === "toolu_bash").at(-1);
     expect(latestBashUpdate?.detail).toMatchObject({
       tool_name: "Bash",
       input: { command: "pnpm install" },
       elapsed_time_seconds: 7
     });
+  });
+
+  it("reuses the first allowed Bash approval for later Bash tools in the same Claude runtime", async () => {
+    const permissionResults: Promise<unknown>[] = [];
+    const firstInput = { command: "echo first > first.txt" };
+    const secondInput = { command: "echo second > second.txt" };
+    const { runtime, setQueryImpl, approvals, updated } = createHarness((_prompt, options) => {
+      const canUseTool = options.canUseTool as undefined | ((toolName: string, input: Record<string, unknown>, toolOptions: Record<string, unknown>) => Promise<unknown>);
+      if (!canUseTool) throw new Error("missing canUseTool");
+      permissionResults.push(canUseTool("Bash", firstInput, {
+        signal: new AbortController().signal,
+        toolUseID: "toolu_bash_first",
+        title: "Claude wants to run Bash",
+        description: "Create the first file"
+      }));
+      return createQuery([
+        { type: "system", subtype: "init", session_id: "session_1", uuid: "init_1" },
+        { type: "tool_progress", tool_use_id: "toolu_bash_first", tool_name: "Bash", parent_tool_use_id: null, elapsed_time_seconds: 1, uuid: "tool_progress_1", session_id: "session_1" },
+        createSuccessResult("session_1", "Done")
+      ]);
+    });
+
+    await runtime.selectSession({ mode: "fresh" });
+    await runtime.runTurn({
+      turnId: "turn_1",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "create first file"
+    });
+
+    setQueryImpl((_prompt, options) => {
+      const canUseTool = options.canUseTool as undefined | ((toolName: string, input: Record<string, unknown>, toolOptions: Record<string, unknown>) => Promise<unknown>);
+      if (!canUseTool) throw new Error("missing canUseTool");
+      permissionResults.push(canUseTool("Bash", secondInput, {
+        signal: new AbortController().signal,
+        toolUseID: "toolu_bash_second",
+        title: "Claude wants to run Bash",
+        description: "Create the second file"
+      }));
+      return createQuery([
+        { type: "system", subtype: "init", session_id: "session_1", uuid: "init_2" },
+        { type: "tool_progress", tool_use_id: "toolu_bash_second", tool_name: "Bash", parent_tool_use_id: null, elapsed_time_seconds: 1, uuid: "tool_progress_2", session_id: "session_1" },
+        createSuccessResult("session_1", "Done again")
+      ]);
+    });
+
+    await runtime.runTurn({
+      turnId: "turn_2",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "create second file"
+    });
+
+    expect(approvals).toHaveLength(1);
+    await expect(permissionResults[0]).resolves.toMatchObject({
+      behavior: "allow",
+      toolUseID: "toolu_bash_first",
+      updatedInput: firstInput
+    });
+    await expect(permissionResults[1]).resolves.toMatchObject({
+      behavior: "allow",
+      toolUseID: "toolu_bash_second",
+      updatedInput: secondInput
+    });
+    expect(updated.some((node) => node.node_id === "toolu_bash_second" && node.status === "running")).toBe(true);
+  });
+
+  it("returns SDK-valid allow results for auto-allowed Write tools", async () => {
+    let permissionResult: Promise<unknown> | undefined;
+    const writeInput = {
+      file_path: "example.txt",
+      content: "Hello from CACP"
+    };
+    const { runtime, approvals, updated } = createHarness((_prompt, options) => {
+      const canUseTool = options.canUseTool as undefined | ((toolName: string, input: Record<string, unknown>, toolOptions: Record<string, unknown>) => Promise<unknown>);
+      if (!canUseTool) throw new Error("missing canUseTool");
+      permissionResult = canUseTool("Write", writeInput, {
+        signal: new AbortController().signal,
+        toolUseID: "toolu_write",
+        title: "Claude wants to write example.txt"
+      });
+      return createQuery([
+        { type: "system", subtype: "init", session_id: "session_1", uuid: "init_1" },
+        { type: "tool_progress", tool_use_id: "toolu_write", tool_name: "Write", parent_tool_use_id: null, elapsed_time_seconds: 1, uuid: "tool_progress_1", session_id: "session_1" },
+        createSuccessResult("session_1", "Done")
+      ]);
+    });
+
+    await runtime.selectSession({ mode: "fresh" });
+    await runtime.runTurn({
+      turnId: "turn_1",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "write file"
+    });
+
+    expect(approvals).toHaveLength(0);
+    await expect(permissionResult).resolves.toMatchObject({
+      behavior: "allow",
+      toolUseID: "toolu_write",
+      updatedInput: writeInput
+    });
+    expect(updated.some((node) => node.node_id === "toolu_write" && node.status === "running")).toBe(true);
+  });
+
+  it("auto-allows Bash in full access without room approval prompts", async () => {
+    let permissionResult: Promise<unknown> | undefined;
+    const bashInput = { command: "echo hello > hello.txt" };
+    const { runtime, approvals, started, updated } = createHarness((_prompt, options) => {
+      const canUseTool = options.canUseTool as undefined | ((toolName: string, input: Record<string, unknown>, toolOptions: Record<string, unknown>) => Promise<unknown>);
+      if (!canUseTool) throw new Error("missing canUseTool");
+      permissionResult = canUseTool("Bash", bashInput, {
+        signal: new AbortController().signal,
+        toolUseID: "toolu_bash_full",
+        title: "Claude wants to run Bash",
+        description: "Create a text file"
+      });
+      return createQuery([
+        { type: "system", subtype: "init", session_id: "session_1", uuid: "init_1" },
+        { type: "tool_progress", tool_use_id: "toolu_bash_full", tool_name: "Bash", parent_tool_use_id: null, elapsed_time_seconds: 2, uuid: "tool_progress_1", session_id: "session_1" },
+        createSuccessResult("session_1", "Done")
+      ]);
+    }, { permissionLevel: "full_access" });
+
+    await runtime.selectSession({ mode: "fresh" });
+    await runtime.runTurn({
+      turnId: "turn_1",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "create file"
+    });
+
+    expect(approvals).toHaveLength(0);
+    await expect(permissionResult).resolves.toMatchObject({
+      behavior: "allow",
+      toolUseID: "toolu_bash_full",
+      updatedInput: bashInput
+    });
+    expect(started.some((node) => node.node_id === "toolu_bash_full" && node.kind === "tool")).toBe(true);
+    expect(updated.some((node) => node.node_id === "toolu_bash_full" && node.status === "running")).toBe(true);
   });
 
   it("preserves assistant tool_use input when progress updates arrive", async () => {
@@ -290,6 +480,51 @@ describe("Claude runtime run-trace mapping", () => {
       input: { file_path: "README.md" },
       elapsed_time_seconds: 2
     });
+  });
+
+  it("attaches SDK tool_result content to the matching tool node output", async () => {
+    const toolResult = [
+      "Web search results for query: \"重庆天气预报 2026年5月\"",
+      "Links:",
+      "- Weather in Chongqing in May 2026 - https://example.com/weather"
+    ].join("\n");
+    const { runtime, nodeDeltas, completed } = createHarness(() => createQuery([
+      {
+        type: "assistant",
+        session_id: "session_1",
+        uuid: "assistant_tool_use",
+        message: {
+          content: [
+            { type: "tool_use", id: "toolu_search", name: "WebSearch", input: { query: "重庆天气预报 2026年5月" } }
+          ]
+        }
+      },
+      {
+        type: "user",
+        session_id: "session_1",
+        uuid: "user_tool_result",
+        message: {
+          role: "user",
+          content: [
+            { type: "tool_result", tool_use_id: "toolu_search", content: toolResult }
+          ]
+        }
+      },
+      createSuccessResult("session_1", "Done")
+    ]));
+
+    await runtime.selectSession({ mode: "fresh" });
+    await runtime.runTurn({
+      turnId: "turn_1",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "search weather"
+    });
+
+    expect(nodeDeltas.filter((delta) => delta.node_id === "toolu_search").map((delta) => delta.chunk).join("")).toBe(toolResult);
+    expect(completed.some((node) => node.node_id === "toolu_search")).toBe(true);
   });
 
   it("routes MCP elicitations through room-backed interaction requests", async () => {
@@ -337,7 +572,7 @@ describe("Claude runtime run-trace mapping", () => {
   });
 
   it("maps memory recall, subagent forwarding, hook events, retries, and compaction into structured nodes", async () => {
-    const { runtime, started, completed } = createHarness(() => createQuery([
+    const { runtime, started, nodeDeltas, completed } = createHarness(() => createQuery([
       { type: "system", subtype: "init", session_id: "session_1", uuid: "init_1" },
       { type: "system", subtype: "memory_recall", mode: "select", memories: [{ path: "D:/mem.md", scope: "personal" }], uuid: "memory_1", session_id: "session_1" },
       { type: "system", subtype: "task_started", task_id: "task_1", tool_use_id: "toolu_task", description: "Run subagent", uuid: "task_started_1", session_id: "session_1" },
@@ -364,10 +599,15 @@ describe("Claude runtime run-trace mapping", () => {
 
     expect(started.some((node) => node.kind === "memory")).toBe(true);
     expect(started.some((node) => node.node_id === "task_1" && node.kind === "subagent")).toBe(true);
-    expect(started.some((node) => node.kind === "subagent_message" && node.parent_node_id === "task_1" && node.text === "Subagent reply")).toBe(true);
+    const subagentMessage = started.find((node) => node.kind === "subagent_message" && node.parent_node_id === "task_1");
+    expect(subagentMessage).toBeDefined();
+    expect(subagentMessage).not.toHaveProperty("text");
+    expect(nodeDeltas.some((delta) => delta.node_id === subagentMessage?.node_id && delta.chunk === "Subagent reply")).toBe(true);
     expect(started.some((node) => node.node_id === "hook_1" && node.kind === "hook")).toBe(true);
     expect(started.some((node) => node.kind === "api_retry")).toBe(true);
     expect(started.some((node) => node.kind === "compaction")).toBe(true);
+    expect(nodeDeltas.some((delta) => delta.node_id === "task_1" && delta.chunk === "Subagent complete")).toBe(true);
+    expect(nodeDeltas.some((delta) => delta.node_id === "hook_1" && delta.delta_type === "stdout" && delta.chunk === "ok")).toBe(true);
     expect(completed.some((node) => node.node_id === "task_1" && node.summary === "Subagent complete")).toBe(true);
     expect(completed.some((node) => node.node_id === "hook_1")).toBe(true);
   });
