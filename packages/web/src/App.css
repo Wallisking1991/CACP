@@ -1457,6 +1457,36 @@ textarea.input {
   border-radius: 8px;
 }
 
+.agent-run-node__text-preview {
+  position: relative;
+}
+
+.agent-run-node__text-preview--collapsed {
+  max-height: 220px;
+  overflow: hidden;
+}
+
+.agent-run-node__text-preview--expanded {
+  max-height: none;
+  overflow: visible;
+}
+
+.agent-run-node__expand-output {
+  align-self: flex-start;
+  border: 1px solid rgba(255, 247, 236, 0.22);
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: rgba(255, 247, 236, 0.1);
+  color: rgba(255, 247, 236, 0.86);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.agent-run-node__expand-output:hover {
+  background: rgba(255, 247, 236, 0.16);
+}
+
 .agent-run-interaction {
   display: flex;
   flex-wrap: wrap;

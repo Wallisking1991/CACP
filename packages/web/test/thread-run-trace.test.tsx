@@ -212,4 +212,25 @@ describe("Thread run trace", () => {
     expect(within(process as HTMLElement).getByText(/Work process/)).toBeVisible();
     expect(screen.getAllByText(/\b1 search\b/)[0]).toBeVisible();
   });
+
+  it("previews long node output and lets the user expand that node only", () => {
+    const longOutput = Array.from({ length: 80 }, (_, index) => `line ${index + 1}: detailed tool output`).join("\n");
+    renderThread({
+      agentRuns: [{
+        ...activeRun,
+        nodes: [{
+          ...activeRun.nodes[0],
+          text_chunks: [longOutput],
+          title: "Inspect verbose output"
+        }]
+      }]
+    });
+
+    expect(screen.getByText(/line 80: detailed tool output/)).toBeInTheDocument();
+    expect(document.querySelector(".agent-run-node__text-preview--collapsed")).toBeInTheDocument();
+    const expand = screen.getByRole("button", { name: "Show full output" });
+    fireEvent.click(expand);
+    expect(screen.getByRole("button", { name: "Collapse output" })).toBeInTheDocument();
+    expect(document.querySelector(".agent-run-node__text-preview--expanded")).toBeInTheDocument();
+  });
 });

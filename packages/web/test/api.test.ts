@@ -146,7 +146,7 @@ describe("room API", () => {
     mockJsonResponse({ launch_id: "launch_1", status: "starting", command: "corepack pnpm ..." });
     const session: RoomSession = { room_id: "room_1", token: "owner_secret", participant_id: "user_owner", role: "owner" };
 
-    await expect(createLocalAgentLaunch(session, { agent_type: "claude-code", permission_level: "read_only", working_dir: "D:\\Development\\2" })).resolves.toMatchObject({
+    await expect(createLocalAgentLaunch(session, { agent_type: "claude-code", permission_level: "read_only" })).resolves.toMatchObject({
       launch_id: "launch_1",
       status: "starting"
     });
@@ -154,7 +154,7 @@ describe("room API", () => {
     expect(fetch).toHaveBeenCalledWith("/rooms/room_1/agent-pairings/start-local", {
       method: "POST",
       headers: { "content-type": "application/json", authorization: "Bearer owner_secret" },
-      body: JSON.stringify({ agent_type: "claude-code", permission_level: "read_only", working_dir: "D:\\Development\\2", server_url: "http://localhost:3737" })
+      body: JSON.stringify({ agent_type: "claude-code", permission_level: "read_only", server_url: "http://localhost:3737" })
     });
   });
 
@@ -165,7 +165,6 @@ describe("room API", () => {
     await expect(createRoomWithLocalAgent("Planning", "Owner", {
       agent_type: "claude-code",
       permission_level: "full_access",
-      working_dir: "D:\\Development\\2"
     })).resolves.toEqual({
       session: { room_id: "room_1", token: "owner_secret", participant_id: "user_owner", role: "owner" },
       launch: { launch_id: "launch_1", status: "starting", command: "corepack pnpm ..." }
@@ -179,7 +178,7 @@ describe("room API", () => {
     expect(fetch).toHaveBeenNthCalledWith(2, "/rooms/room_1/agent-pairings/start-local", {
       method: "POST",
       headers: { "content-type": "application/json", authorization: "Bearer owner_secret" },
-      body: JSON.stringify({ agent_type: "claude-code", permission_level: "full_access", working_dir: "D:\\Development\\2", server_url: "http://localhost:3737" })
+      body: JSON.stringify({ agent_type: "claude-code", permission_level: "full_access", server_url: "http://localhost:3737" })
     });
   });
 
@@ -190,7 +189,6 @@ describe("room API", () => {
     await expect(createRoomWithLocalAgent("Planning", "Owner", {
       agent_type: "claude-code",
       permission_level: "read_only",
-      working_dir: "D:\\Development\\2"
     })).resolves.toEqual({
       session: { room_id: "room_1", token: "owner_secret", participant_id: "user_owner", role: "owner" },
       launch_error: "local agent failed"

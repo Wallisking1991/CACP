@@ -1320,6 +1320,13 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
       const streaming = streamingTurns.get(turnId);
       const status = turnStatusById.get(turnId);
       const error = typeof event.payload.error === "string" ? event.payload.error : "unknown error";
+      const run = agentRuns.get(turnId);
+      if (run) {
+        run.status = run.status === "completed" ? run.status : "failed";
+        run.error = run.error ?? error;
+        streamingTurns.delete(turnId);
+        continue;
+      }
       messages.push({
         message_id: `failed-${turnId}`,
         actor_id: typeof event.payload.agent_id === "string" ? event.payload.agent_id : event.actor_id,
@@ -1375,18 +1382,32 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
       nodes: [...run.nodes].sort((a, b) => agentRunNodeSortKey(a).localeCompare(agentRunNodeSortKey(b)))
     }))
     .sort((a, b) => agentRunSortKey(a).localeCompare(agentRunSortKey(b)));
+  const terminalRunTurnIds = new Set(agentRunsForView
+    .filter((run) => run.status === "completed" || run.status === "failed")
+    .map((run) => run.turn_id));
+  const activeClaudeRuntimeStatuses = [...claudeRuntimeStatuses.values()]
+    .filter((status) => !terminalRunTurnIds.has(status.turn_id));
+  const activeAgentRuntimeStatuses = [...agentRuntimeStatuses.values()]
+    .filter((status) => !terminalRunTurnIds.has(status.turn_id));
+  const claudeRuntimeStatusesForView = activeClaudeRuntimeStatuses
+    .sort((a, b) => (b.updated_at ?? b.started_at ?? "").localeCompare(a.updated_at ?? a.started_at ?? ""))
+    .slice(0, 1);
+  const agentRuntimeStatusesForView = activeAgentRuntimeStatuses
+    .sort((a, b) => (b.updated_at ?? b.started_at ?? "").localeCompare(a.updated_at ?? a.started_at ?? ""))
+    .slice(0, 1);
   const visibleStreamingTurns = [...streamingTurns.values()].filter((turn) => !runTraceTurnIds.has(turn.turn_id));
 
   const workingAgentIds = new Set<string>(visibleStreamingTurns.map((turn) => turn.agent_id));
-  for (const status of claudeRuntimeStatuses.values()) {
+  for (const status of activeClaudeRuntimeStatuses) {
     if (status.phase !== "completed" && status.phase !== "failed") workingAgentIds.add(status.agent_id);
   }
-  for (const status of agentRuntimeStatuses.values()) {
+  for (const status of activeAgentRuntimeStatuses) {
     if (status.phase !== "completed" && status.phase !== "failed") workingAgentIds.add(status.agent_id);
   }
   for (const run of agentRunsForView) {
-    if (run.status !== "completed" && run.status !== "failed") workingAgentIds.add(run.agent_id);
-    if (run.nodes.some((node) => node.status === "waiting_input")) workingAgentIds.add(run.agent_id);
+    const isTerminal = run.status === "completed" || run.status === "failed";
+    if (!isTerminal) workingAgentIds.add(run.agent_id);
+    if (!isTerminal && run.nodes.some((node) => node.status === "waiting_input")) workingAgentIds.add(run.agent_id);
   }
 
   const avatarStatuses: AvatarStatusView[] = [
@@ -1447,17 +1468,13 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     claudeSessionReady,
     claudeSessionPreviews: [...claudeSessionPreviews.values()],
     claudeImports: [...claudeImports.values()],
-    claudeRuntimeStatuses: [...claudeRuntimeStatuses.values()]
-      .sort((a, b) => (b.updated_at ?? b.started_at ?? "").localeCompare(a.updated_at ?? a.started_at ?? ""))
-      .slice(0, 1),
+    claudeRuntimeStatuses: claudeRuntimeStatusesForView,
     agentSessionCatalog,
     agentSessionSelection,
     agentSessionReady,
     agentSessionPreviews: [...agentSessionPreviews.values()],
     agentImports: [...agentImports.values()],
-    agentRuntimeStatuses: [...agentRuntimeStatuses.values()]
-      .sort((a, b) => (b.updated_at ?? b.started_at ?? "").localeCompare(a.updated_at ?? a.started_at ?? ""))
-      .slice(0, 1),
+    agentRuntimeStatuses: agentRuntimeStatusesForView,
     agentRuns: agentRunsForView,
     participantActivity,
     avatarStatuses,

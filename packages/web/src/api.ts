@@ -21,7 +21,6 @@ export interface LocalAgentLaunch {
 export interface AgentSetupInput {
   agent_type: string;
   permission_level: string;
-  working_dir: string;
 }
 
 export interface RoomWithLocalAgentResult {
@@ -305,7 +304,11 @@ export interface AgentPairingResult {
 }
 
 export async function createAgentPairing(session: RoomSession, input: AgentSetupInput): Promise<AgentPairingResult> {
-  return await postJson(`/rooms/${session.room_id}/agent-pairings`, session.token, { ...input, server_url: pairingServerUrlFor(currentBrowserOrigin()) });
+  return await postJson(`/rooms/${session.room_id}/agent-pairings`, session.token, {
+    agent_type: input.agent_type,
+    permission_level: input.permission_level,
+    server_url: pairingServerUrlFor(currentBrowserOrigin())
+  });
 }
 
 export interface JoinRequestResult {
@@ -355,7 +358,11 @@ export async function updateParticipantRole(session: RoomSession, participantId:
 }
 
 export async function createLocalAgentLaunch(session: RoomSession, input: AgentSetupInput): Promise<LocalAgentLaunch> {
-  return await postJson(`/rooms/${session.room_id}/agent-pairings/start-local`, session.token, { ...input, server_url: pairingServerUrlFor(currentBrowserOrigin()) });
+  return await postJson(`/rooms/${session.room_id}/agent-pairings/start-local`, session.token, {
+    agent_type: input.agent_type,
+    permission_level: input.permission_level,
+    server_url: pairingServerUrlFor(currentBrowserOrigin())
+  });
 }
 
 export function inviteUrlFor(origin: string, roomId: string, inviteToken: string): string {

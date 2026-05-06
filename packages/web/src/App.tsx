@@ -235,7 +235,6 @@ export default function App() {
         const pairing = await createAgentPairing(session, {
           agent_type: params.agentType,
           permission_level: params.permissionLevel,
-          working_dir: ".",
         });
         const modalPairing = {
           connection_code: pairing.connection_code,
@@ -251,7 +250,6 @@ export default function App() {
           {
             agent_type: params.agentType,
             permission_level: params.permissionLevel,
-            working_dir: ".",
           }
         );
         activateSession(result.session);

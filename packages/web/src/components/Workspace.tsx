@@ -390,7 +390,6 @@ export default function Workspace({
               const result = await createAgentPairing(session, {
                 agent_type: agentType,
                 permission_level: permissionLevel,
-                working_dir: ".",
               });
               return result.connection_code;
             }}

@@ -225,6 +225,57 @@ describe("room state run trace projection", () => {
     });
   });
 
+  it("does not create a duplicate failed message when a run trace already represents the failed turn", () => {
+    const state = deriveRoomState([
+      event("agent.registered", { agent_id: "agent_1", name: "Claude Code Agent", capabilities: ["claude-code"] }, 1, "owner"),
+      event("participant.joined", { participant: { id: "agent_1", display_name: "Claude Code Agent", role: "agent", type: "agent" } }, 2, "agent_1"),
+      event("agent.status_changed", { agent_id: "agent_1", status: "online" }, 3, "agent_1"),
+      event("agent.turn.started", { turn_id: "turn_1", agent_id: "agent_1" }, 4, "agent_1"),
+      event("agent.run.started", {
+        run_id: "turn_1",
+        turn_id: "turn_1",
+        agent_id: "agent_1",
+        provider: "claude-code",
+        started_at: "2026-05-06T00:00:05.000Z"
+      }, 5, "agent_1"),
+      event("agent.run.node.started", {
+        run_id: "turn_1",
+        turn_id: "turn_1",
+        agent_id: "agent_1",
+        provider: "claude-code",
+        node_id: "thinking_0",
+        kind: "reasoning_summary",
+        status: "streaming",
+        title: "Thinking",
+        started_at: "2026-05-06T00:00:06.000Z",
+        updated_at: "2026-05-06T00:00:06.000Z"
+      }, 6, "agent_1"),
+      event("agent.run.failed", {
+        run_id: "turn_1",
+        turn_id: "turn_1",
+        agent_id: "agent_1",
+        provider: "claude-code",
+        error: "Claude Code returned an error result: API Error",
+        failed_at: "2026-05-06T00:00:07.000Z"
+      }, 7, "agent_1"),
+      event("agent.turn.failed", {
+        turn_id: "turn_1",
+        agent_id: "agent_1",
+        error: "Claude Code returned an error result: API Error"
+      }, 8, "agent_1")
+    ]);
+
+    expect(state.agentRuns[0]).toMatchObject({
+      status: "failed",
+      error: "Claude Code returned an error result: API Error"
+    });
+    expect(state.messages.find((message) => message.message_id === "failed-turn_1")).toBeUndefined();
+    expect(state.avatarStatuses.find((avatar) => avatar.id === "agent_1")).toMatchObject({
+      status: "online",
+      active: false
+    });
+  });
+
   it("preserves run usage metadata and keeps terminal runs out of working avatar state", () => {
     const state = deriveRoomState([
       event("agent.registered", { agent_id: "agent_1", name: "Claude Code Agent", capabilities: ["claude-code"] }, 1, "owner"),
@@ -281,6 +332,48 @@ describe("room state run trace projection", () => {
       status: "streaming",
       text_chunks: ["I will inspect files."]
     });
+    expect(state.avatarStatuses.find((avatar) => avatar.id === "agent_1")).toMatchObject({
+      status: "online",
+      active: false
+    });
+  });
+
+  it("lets terminal run traces clear stale runtime working status", () => {
+    const state = deriveRoomState([
+      event("agent.registered", { agent_id: "agent_1", name: "Claude Code Agent", capabilities: ["claude-code"] }, 1, "owner"),
+      event("participant.joined", { participant: { id: "agent_1", display_name: "Claude Code Agent", role: "agent", type: "agent" } }, 2, "agent_1"),
+      event("agent.status_changed", { agent_id: "agent_1", status: "online" }, 3, "agent_1"),
+      event("agent.runtime.status_changed", {
+        agent_id: "agent_1",
+        provider: "claude-code",
+        turn_id: "turn_1",
+        status_id: "status_1",
+        phase: "generating_answer",
+        current: "Generating answer",
+        metrics: { files_read: 0, searches: 0, commands: 0 },
+        started_at: "2026-05-06T00:00:04.000Z",
+        updated_at: "2026-05-06T00:00:05.000Z"
+      }, 4, "agent_1"),
+      event("agent.run.started", {
+        run_id: "turn_1",
+        turn_id: "turn_1",
+        agent_id: "agent_1",
+        provider: "claude-code",
+        started_at: "2026-05-06T00:00:04.000Z"
+      }, 5, "agent_1"),
+      event("agent.run.completed", {
+        run_id: "turn_1",
+        turn_id: "turn_1",
+        agent_id: "agent_1",
+        provider: "claude-code",
+        message_id: "msg_1",
+        summary: "Answered",
+        metrics: { files_read: 0, searches: 0, commands: 0 },
+        completed_at: "2026-05-06T00:00:07.000Z"
+      }, 6, "agent_1")
+    ]);
+
+    expect(state.agentRuns[0]).toMatchObject({ status: "completed" });
     expect(state.avatarStatuses.find((avatar) => avatar.id === "agent_1")).toMatchObject({
       status: "online",
       active: false
