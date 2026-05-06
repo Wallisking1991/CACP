@@ -1,9 +1,9 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { parseConnectionCode } from "@cacp/protocol";
-import { buildLocalAgentConsoleScript, buildLocalAgentConsoleSpawnCommand, buildServer, defaultLocalAgentLauncher } from "../src/server.js";
+import { buildLocalAgentConsoleScript, buildLocalAgentConsoleSpawnCommand, buildServer, defaultLocalAgentLauncher, type LocalAgentLaunchInput } from "../src/server.js";
 
 async function createRoom() {
   const app = await buildServer({ dbPath: ":memory:" });
@@ -114,7 +114,9 @@ describe("CACP server pairing and room governance", () => {
   });
 
   it("starts a local adapter process for localhost rooms without executing a web-supplied command", async () => {
-    const launches: unknown[] = [];
+    const repoRoot = resolve(process.cwd(), "../..");
+    const adapterRuntimeDir = resolve(repoRoot, ".tmp-test-services", "adapters");
+    const launches: LocalAgentLaunchInput[] = [];
     const app = await buildServer({
       dbPath: ":memory:",
       localAgentLauncher: async (input) => {
@@ -146,8 +148,8 @@ describe("CACP server pairing and room governance", () => {
     expect(launches).toHaveLength(1);
     expect(launches[0]).toMatchObject({
       command: "corepack",
-      args: expect.arrayContaining(["pnpm", "--filter", "@cacp/cli-adapter", "dev", "--", "--connect"]),
-      cwd: expect.stringContaining("Development"),
+      args: expect.arrayContaining(["pnpm", "--dir", repoRoot, "--filter", "@cacp/cli-adapter", "dev", "--", "--cwd", adapterRuntimeDir, "--connect"]),
+      cwd: adapterRuntimeDir,
       showConsole: true
     });
 

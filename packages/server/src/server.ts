@@ -235,8 +235,8 @@ function pairingCommand(connectionCode: string): string {
   return `npx @cacp/cli-adapter --connect ${connectionCode}`;
 }
 
-function pairingLaunchArgs(connectionCode: string): string[] {
-  return ["pnpm", "--filter", "@cacp/cli-adapter", "dev", "--", "--connect", connectionCode];
+function pairingLaunchArgs(connectionCode: string, connectorRuntimeDir: string, workspaceRoot: string): string[] {
+  return ["pnpm", "--dir", workspaceRoot, "--filter", "@cacp/cli-adapter", "dev", "--", "--cwd", connectorRuntimeDir, "--connect", connectionCode];
 }
 
 function resolveLaunchCommand(command: string, args: string[]): { command: string; args: string[] } {
@@ -2522,13 +2522,14 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const pairing = createAgentPairing(request.params.roomId, participant.id, body, serverUrl);
     const launchId = prefixedId("launch");
     const logDir = resolve(localRepoRoot, ".tmp-test-services", "adapters");
+    const connectorRuntimeDir = logDir;
     const outLog = resolve(logDir, `${launchId}.out.log`);
     const errLog = resolve(logDir, `${launchId}.err.log`);
     const launch = await localAgentLauncher({
       launchId,
       command: "corepack",
-      args: pairingLaunchArgs(pairing.connection_code),
-      cwd: localRepoRoot,
+      args: pairingLaunchArgs(pairing.connection_code, connectorRuntimeDir, localRepoRoot),
+      cwd: connectorRuntimeDir,
       outLog,
       errLog,
       showConsole: true,

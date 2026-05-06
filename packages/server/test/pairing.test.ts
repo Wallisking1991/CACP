@@ -37,7 +37,8 @@ describe("agent pairing profiles", () => {
       "manual_flow_control"
     ]);
     expect(profile.system_prompt).toContain("CACP");
-    expect(profile.system_prompt).not.toContain("???");
+    expect(profile.system_prompt).toContain("CACP-Local-Connector");
+    expect(profile.system_prompt).not.toContain("房主本地项目目录");
   });
 
   it("does not configure Claude Code with print mode or disabled session persistence", () => {
@@ -86,6 +87,8 @@ describe("agent pairing profiles", () => {
     ]);
     expect(profile.system_prompt).toContain("Codex CLI Agent");
     expect(profile.system_prompt).toContain("CACP");
+    expect(profile.system_prompt).toContain("CACP-Local-Connector");
+    expect(profile.system_prompt).not.toContain("project directory");
   });
 
   it("declares LLM API agent types", () => {

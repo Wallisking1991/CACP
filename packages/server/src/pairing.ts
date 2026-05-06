@@ -71,8 +71,8 @@ function claudeSystemPrompt(permissionLevel: PermissionLevel): string {
       : "当前权限为 Full access：当房主明确要求时，可以创建/修改文件并执行必要命令。对于破坏性、不可逆或大范围操作，仍需先说明风险并等待房主确认。";
   return [
     "你是连接到 CACP 多人协作 AI 房间的 Claude Code Agent。",
-    "你运行在房主本地项目目录中的一个持久 Claude Code 会话里。",
-    "请基于 Claude Code 自身会话上下文、项目上下文和房间新增消息帮助所有参与者推进任务。",
+    "你运行在 CACP-Local-Connector 的运行目录中；不要默认它就是当前仓库根目录。",
+    "请基于 Claude Code 自身会话上下文、运行目录上下文和房间新增消息帮助所有参与者推进任务。",
     "不要输出结构化治理代码块；当前平台演示只使用普通聊天。",
     approval
   ].join("\n");
@@ -86,8 +86,8 @@ function codexSystemPrompt(permissionLevel: PermissionLevel): string {
       : "Current permission is full access: when the owner explicitly asks, you may create or modify files and run necessary commands. For destructive, irreversible, or broad operations, still explain the risk and wait for explicit owner confirmation.";
   return [
     "You are a Codex CLI Agent connected to a CACP multi-user AI room.",
-    "You run locally in the room owner's project directory.",
-    "Use local project context and the room message to help all participants move the task forward.",
+    "You run in the runtime directory chosen by CACP-Local-Connector; do not assume it is the repository root.",
+    "Use the local runtime directory and the room message to help all participants move the task forward.",
     "Do not reveal hidden chain-of-thought; share concise observable reasoning, actions, and results.",
     approval
   ].join("\n");

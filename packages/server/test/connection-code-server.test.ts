@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { resolve } from "node:path";
 import { parseConnectionCode } from "@cacp/protocol";
-import { buildServer } from "../src/server.js";
+import { buildServer, type LocalAgentLaunchInput } from "../src/server.js";
 import { cloudTestConfig } from "./test-config.js";
 
 describe("agent pairing connection codes", () => {
@@ -57,8 +58,10 @@ describe("agent pairing connection codes", () => {
   });
 
   it("local launch passes --connect so LLM configuration can happen before claim", async () => {
-    const launches: Array<{ args: string[] }> = [];
-    const app = await buildServer({ dbPath: ":memory:", localAgentLauncher: (input) => { launches.push({ args: input.args }); return { pid: 1234 }; } });
+    const repoRoot = "D:\\Development\\2";
+    const adapterRuntimeDir = resolve(repoRoot, ".tmp-test-services", "adapters");
+    const launches: LocalAgentLaunchInput[] = [];
+    const app = await buildServer({ dbPath: ":memory:", repoRoot, localAgentLauncher: (input) => { launches.push(input); return { pid: 1234 }; } });
     const room = (await app.inject({ method: "POST", url: "/rooms", payload: { name: "Room", display_name: "Owner" } })).json() as { room_id: string; owner_token: string };
     const response = await app.inject({
       method: "POST",
@@ -71,6 +74,13 @@ describe("agent pairing connection codes", () => {
     const connectIndex = launches[0].args.indexOf("--connect");
     expect(connectIndex).toBeGreaterThanOrEqual(0);
     expect(parseConnectionCode(launches[0].args[connectIndex + 1]).agent_type).toBe("llm-anthropic-compatible");
+    const cwdIndex = launches[0].args.indexOf("--cwd");
+    expect(cwdIndex).toBeGreaterThanOrEqual(0);
+    expect(launches[0].args[cwdIndex + 1]).toBe(adapterRuntimeDir);
+    const pnpmDirIndex = launches[0].args.indexOf("--dir");
+    expect(pnpmDirIndex).toBeGreaterThanOrEqual(0);
+    expect(launches[0].args[pnpmDirIndex + 1]).toBe(repoRoot);
+    expect(launches[0].cwd).toBe(adapterRuntimeDir);
     expect(launches[0].args).not.toContain("--pair");
     await app.close();
   });
