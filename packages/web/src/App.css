@@ -1353,18 +1353,32 @@ textarea.input {
   overflow-wrap: anywhere;
 }
 
-.agent-run-card__details {
+.agent-run-card__process {
   border: 1px solid rgba(255, 247, 236, 0.18);
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 8px 10px;
-  background: rgba(255, 247, 236, 0.08);
+  background: rgba(255, 247, 236, 0.07);
 }
 
-.agent-run-card__details > summary {
+.agent-run-card__process > summary {
   cursor: pointer;
   font-size: 12px;
-  font-weight: 700;
-  color: rgba(255, 247, 236, 0.86);
+  font-weight: 800;
+  color: rgba(255, 247, 236, 0.9);
+  list-style-position: outside;
+}
+
+.agent-run-card__process[open] > summary {
+  margin-bottom: 8px;
+}
+
+.agent-run-card__process-empty {
+  border: 1px dashed rgba(255, 247, 236, 0.2);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: rgba(255, 247, 236, 0.78);
+  font-size: 13px;
+  background: rgba(255, 247, 236, 0.06);
 }
 
 .agent-run-node-list {
@@ -1389,6 +1403,17 @@ textarea.input {
 .agent-run-node--waiting {
   border-color: rgba(255, 216, 120, 0.45);
   background: rgba(255, 216, 120, 0.12);
+}
+
+.agent-run-card--running .agent-run-node--running,
+.agent-run-card--running .agent-run-node--streaming {
+  border-color: rgba(255, 216, 120, 0.34);
+  background: rgba(255, 216, 120, 0.09);
+}
+
+.agent-run-card--completed .agent-run-card__process:not([open]),
+.agent-run-card--failed .agent-run-card__process:not([open]) {
+  background: rgba(255, 247, 236, 0.045);
 }
 
 .agent-run-node__main {
@@ -1422,6 +1447,14 @@ textarea.input {
   font-size: 12px;
   line-height: 1.55;
   color: rgba(255, 247, 236, 0.82);
+}
+
+.agent-run-node__text--thinking {
+  border-left: 2px solid rgba(255, 216, 120, 0.46);
+  padding-left: 10px;
+  color: rgba(255, 247, 236, 0.76);
+  background: rgba(20, 14, 8, 0.18);
+  border-radius: 8px;
 }
 
 .agent-run-interaction {
