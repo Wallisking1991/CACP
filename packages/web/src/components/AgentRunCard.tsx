@@ -1,37 +1,12 @@
 import type { AgentRunView } from "../room-state.js";
 import { AgentRunNodeList } from "./AgentRunNodeList.js";
+import { answerTextFor, metricsSummary, processSummary, providerLabel, runStatusLabel } from "./agent-run-format.js";
 
 export interface AgentRunCardProps {
   run: AgentRunView;
   agentName: string;
   onResolveApproval?: (runId: string, nodeId: string, decision: "allow" | "deny", reason?: string) => void;
   onResolveElicitation?: (runId: string, nodeId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => void;
-}
-
-function providerLabel(provider: string): string {
-  if (provider === "claude-code") return "Claude Code";
-  if (provider === "codex-cli") return "Codex CLI";
-  return "Local agent";
-}
-
-function runStatusLabel(status: AgentRunView["status"]): string {
-  if (status === "completed") return "Completed";
-  if (status === "failed") return "Failed";
-  return "Working";
-}
-
-function metricsSummary(run: AgentRunView): string | undefined {
-  if (!run.metrics) return undefined;
-  const parts: string[] = [];
-  if (run.metrics.files_read) parts.push(`${run.metrics.files_read} files`);
-  if (run.metrics.searches) parts.push(`${run.metrics.searches} searches`);
-  if (run.metrics.commands) parts.push(`${run.metrics.commands} commands`);
-  return parts.join(" · ") || undefined;
-}
-
-function answerTextFor(run: AgentRunView): string | undefined {
-  if (run.status === "completed") return run.final_text ?? run.answer_text;
-  return run.answer_text ?? run.final_text;
 }
 
 export function AgentRunCard({
@@ -53,6 +28,16 @@ export function AgentRunCard({
       onResolveElicitation={onResolveElicitation}
     />
   );
+  const processOpen = run.status === "running" || (run.status === "failed" && !hasAnswer);
+  const process = run.nodes.length > 0 ? (
+    <details className="agent-run-card__process" open={processOpen}>
+      <summary>Work process · {processSummary(run)}</summary>
+      {nodeList}
+    </details>
+  ) : run.status === "running" ? (
+    <div className="agent-run-card__process-empty">Thinking...</div>
+  ) : null;
+  const answer = hasAnswer ? <div className="agent-run-card__answer message-body">{answerText}</div> : null;
 
   return (
     <article className={`message message-ai-card agent-run-card agent-run-card--${run.status}`}>
@@ -69,16 +54,13 @@ export function AgentRunCard({
 
       {run.status === "running" ? (
         <>
-          {run.nodes.length > 0 ? nodeList : <div className="agent-run-card__summary">Thinking...</div>}
-          {hasAnswer && <div className="agent-run-card__answer message-body">{answerText}</div>}
+          {process}
+          {answer}
         </>
       ) : (
         <>
-          {hasAnswer && <div className="agent-run-card__answer message-body">{answerText}</div>}
-          <details className="agent-run-card__details">
-            <summary>Run details</summary>
-            {nodeList}
-          </details>
+          {answer}
+          {process}
         </>
       )}
     </article>

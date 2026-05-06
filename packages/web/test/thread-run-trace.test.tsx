@@ -107,7 +107,7 @@ describe("Thread run trace", () => {
 
     expect(screen.getByText("Final answer in run card")).toBeInTheDocument();
     expect(screen.queryByText("Legacy final message")).not.toBeInTheDocument();
-    expect(document.querySelector(".agent-run-card__details")).toBeInTheDocument();
+    expect(document.querySelector(".agent-run-card__process")).toBeInTheDocument();
     expect(document.querySelectorAll("article.message-ai-card")).toHaveLength(1);
   });
 
@@ -134,7 +134,7 @@ describe("Thread run trace", () => {
     });
 
     expect(screen.getByText("Answered with repo context")).toBeInTheDocument();
-    expect(document.querySelector(".agent-run-card__details")).toBeInTheDocument();
+    expect(document.querySelector(".agent-run-card__process")).toBeInTheDocument();
   });
 
   it("renders failed runs with error text", () => {
@@ -185,7 +185,7 @@ describe("Thread run trace", () => {
     expect(process?.open).toBe(true);
     expect(screen.getByText("Partial answer")).toBeVisible();
     expect(processScope.getByText(/Work process/)).toBeVisible();
-    expect(processScope.getByText("Thinking")).toBeVisible();
+    expect(processScope.getAllByText("Thinking")[0]).toBeVisible();
     expect(processScope.getByText("I should inspect the directory first.")).toBeVisible();
     expect(processScope.getByText("Search files: src/**/*.ts")).toBeVisible();
   });
@@ -210,6 +210,6 @@ describe("Thread run trace", () => {
     expect(answer.compareDocumentPosition(process as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(process?.open).toBe(false);
     expect(within(process as HTMLElement).getByText(/Work process/)).toBeVisible();
-    expect(screen.getByText(/\b1 search\b/)).toBeVisible();
+    expect(screen.getAllByText(/\b1 search\b/)[0]).toBeVisible();
   });
 });
