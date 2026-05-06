@@ -77,7 +77,7 @@ describe("Thread agent status", () => {
     expect(screen.getByText(/command exited with code 1/i)).toBeInTheDocument();
   });
 
-  it("renders thinking accordion when thinking text is present", () => {
+  it("does not render raw thinking text when thinking text is present", () => {
     renderThread({
       streamingTurns: [{
         turn_id: "turn_1",
@@ -89,8 +89,8 @@ describe("Thread agent status", () => {
     });
 
     const bubble = screen.getByText("Here is the answer").closest("article");
-    expect(bubble?.querySelector(".thinking-accordion")).toBeInTheDocument();
-    expect(bubble?.querySelector(".thinking-accordion__content")).toHaveTextContent("Let me analyze the structure");
+    expect(bubble?.querySelector(".thinking-accordion")).not.toBeInTheDocument();
+    expect(screen.queryByText("Let me analyze the structure")).not.toBeInTheDocument();
   });
 
   it("renders tool progress bar for reading_files phase", () => {

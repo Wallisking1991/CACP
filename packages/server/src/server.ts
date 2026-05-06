@@ -607,6 +607,16 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return { ok: true };
   }
 
+  function validateTerminalAgentRun(roomId: string, runId: string, turnId: string, agentId: string, participant: Participant): { ok: true } | { ok: false; error: string; status: number } {
+    const openValidation = validateOpenAgentRun(roomId, runId, turnId, agentId, participant);
+    if (openValidation.ok) return openValidation;
+    if (openValidation.error !== "no_active_turn") return openValidation;
+
+    const turn = findTurnState(roomId, turnId);
+    if (!turn || turn.agent_id !== agentId || !turn.terminal_status) return openValidation;
+    return { ok: true };
+  }
+
   function providerForAgent(roomId: string, agentId: string): "claude-code" | "codex-cli" | undefined {
     const provider = providerForCapabilities(findAgentCapabilities(store.listEvents(roomId), agentId));
     if (provider === "claude-code" || provider === "codex-cli") return provider;
@@ -2960,7 +2970,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!participant) return deny(reply, "invalid_token");
     const body = AgentRunCompleteBodySchema.parse(request.body);
     if (body.run_id !== request.params.runId) return deny(reply, "run_id_mismatch", 400);
-    const validation = validateOpenAgentRun(request.params.roomId, request.params.runId, body.turn_id, body.agent_id, participant);
+    const validation = validateTerminalAgentRun(request.params.roomId, request.params.runId, body.turn_id, body.agent_id, participant);
     if (!validation.ok) return deny(reply, validation.error, validation.status);
     const providerValidation = resolveValidatedAgentProvider(request.params.roomId, body.agent_id, body.provider);
     if (!providerValidation.ok) return deny(reply, providerValidation.error, providerValidation.status);
@@ -2976,7 +2986,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!participant) return deny(reply, "invalid_token");
     const body = AgentRunFailBodySchema.parse(request.body);
     if (body.run_id !== request.params.runId) return deny(reply, "run_id_mismatch", 400);
-    const validation = validateOpenAgentRun(request.params.roomId, request.params.runId, body.turn_id, body.agent_id, participant);
+    const validation = validateTerminalAgentRun(request.params.roomId, request.params.runId, body.turn_id, body.agent_id, participant);
     if (!validation.ok) return deny(reply, validation.error, validation.status);
     const providerValidation = resolveValidatedAgentProvider(request.params.roomId, body.agent_id, body.provider);
     if (!providerValidation.ok) return deny(reply, providerValidation.error, providerValidation.status);

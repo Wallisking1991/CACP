@@ -1348,6 +1348,11 @@ textarea.input {
   color: #ffe1da;
 }
 
+.agent-run-card__answer {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .agent-run-card__details {
   border: 1px solid rgba(255, 247, 236, 0.18);
   border-radius: 8px;

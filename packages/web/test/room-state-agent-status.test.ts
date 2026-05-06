@@ -131,7 +131,7 @@ describe("room state agent status in message cards", () => {
     });
   });
 
-  it("accumulates thinking delta text on streaming turns", () => {
+  it("treats thinking deltas as private status without exposing raw text", () => {
     const state = deriveRoomState([
       event("agent.turn.started", { turn_id: "turn_1", agent_id: "agent_1" }, 1, "agent_1"),
       event("claude.output.thinking_delta", { agent_id: "agent_1", turn_id: "turn_1", text: "", done: false }, 2, "agent_1"),
@@ -143,9 +143,10 @@ describe("room state agent status in message cards", () => {
     expect(state.streamingTurns).toHaveLength(1);
     expect(state.streamingTurns[0]).toMatchObject({
       turn_id: "turn_1",
-      thinkingText: "Let me analyze the structure",
-      thinkingDone: true
+      phase: "thinking",
+      current: "Thinking complete"
     });
+    expect(state.streamingTurns[0].thinkingText).toBeUndefined();
   });
 
   it("passes detail field from runtime status to streaming turns", () => {

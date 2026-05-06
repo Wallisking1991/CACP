@@ -3,9 +3,11 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
 import Thread from "../src/components/Thread.js";
 import { LangProvider } from "../src/i18n/LangProvider.js";
-import type { AgentRunView } from "../src/room-state.js";
+import type { AgentRunView, MessageView, StreamingTurnView } from "../src/room-state.js";
 
 function renderThread(props: {
+  messages?: MessageView[];
+  streamingTurns?: StreamingTurnView[];
   agentRuns?: AgentRunView[];
   onResolveApproval?: (runId: string, nodeId: string, decision: "allow" | "deny", reason?: string) => void;
   onResolveElicitation?: (runId: string, nodeId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => void;
@@ -14,8 +16,8 @@ function renderThread(props: {
     <LangProvider>
       <Thread
         currentParticipantId="user_1"
-        messages={[]}
-        streamingTurns={[]}
+        messages={props.messages ?? []}
+        streamingTurns={props.streamingTurns ?? []}
         agentRuns={props.agentRuns ?? []}
         actorNames={new Map([["agent_1", "Claude Code Agent"]])}
         claudeImports={[]}
@@ -52,6 +54,47 @@ const activeRun: AgentRunView = {
 };
 
 describe("Thread run trace", () => {
+  it("renders a running run trace as one card with the live answer and no legacy stream bubble", () => {
+    renderThread({
+      streamingTurns: [{ turn_id: "turn_1", agent_id: "agent_1", text: "Legacy streaming answer" }],
+      agentRuns: [{
+        ...activeRun,
+        answer_text: "Live answer from run trace"
+      }]
+    });
+
+    expect(screen.getByText("Live answer from run trace")).toBeInTheDocument();
+    expect(screen.queryByText("Legacy streaming answer")).not.toBeInTheDocument();
+    expect(document.querySelectorAll("article.message-ai-card")).toHaveLength(1);
+  });
+
+  it("renders a completed run trace answer in the run card and suppresses the duplicate final message", () => {
+    renderThread({
+      messages: [{
+        message_id: "msg_1",
+        turn_id: "turn_1",
+        actor_id: "agent_1",
+        text: "Legacy final message",
+        kind: "agent",
+        created_at: "2026-05-06T00:00:09.000Z"
+      }],
+      agentRuns: [{
+        ...activeRun,
+        status: "completed",
+        answer_text: "Streaming answer",
+        final_text: "Final answer in run card",
+        message_id: "msg_1",
+        completed_at: "2026-05-06T00:00:08.000Z",
+        nodes: [{ ...activeRun.nodes[0], status: "completed", summary: "Read guidance", completed_at: "2026-05-06T00:00:04.000Z" }]
+      }]
+    });
+
+    expect(screen.getByText("Final answer in run card")).toBeInTheDocument();
+    expect(screen.queryByText("Legacy final message")).not.toBeInTheDocument();
+    expect(document.querySelector(".agent-run-card__details")).toBeInTheDocument();
+    expect(document.querySelectorAll("article.message-ai-card")).toHaveLength(1);
+  });
+
   it("renders active run nodes in a live run card", () => {
     renderThread({ agentRuns: [activeRun] });
 

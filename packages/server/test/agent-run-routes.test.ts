@@ -90,6 +90,57 @@ async function startNode(app: Awaited<ReturnType<typeof buildServer>>, roomId: s
 }
 
 describe("agent run routes", () => {
+  it("accepts run completion after the matching turn has already completed", async () => {
+    const { app, room, ownerAuth, agent } = await createRoomAndAgent();
+    const turnId = await currentTurnId(app, room.room_id, ownerAuth);
+
+    expect((await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-turns/${turnId}/start`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: {}
+    })).statusCode).toBe(201);
+    expect((await startRun(app, room.room_id, agent.agent_token, agent.agent_id, turnId)).statusCode).toBe(201);
+
+    const turnComplete = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-turns/${turnId}/complete`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: { final_text: "The answer is ready.", exit_code: 0 }
+    });
+    expect(turnComplete.statusCode).toBe(201);
+    const { message_id: messageId } = turnComplete.json() as { message_id: string };
+
+    const runComplete = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnId}/complete`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: {
+        run_id: turnId,
+        turn_id: turnId,
+        agent_id: agent.agent_id,
+        provider: "claude-code",
+        message_id: messageId,
+        summary: "Run complete",
+        metrics: { files_read: 0, searches: 0, commands: 0 },
+        completed_at: "2026-05-05T00:00:04.000Z"
+      }
+    });
+    expect(runComplete.statusCode).toBe(201);
+
+    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
+    expect(events.find((event) => event.type === "agent.run.completed")).toMatchObject({
+      payload: {
+        run_id: turnId,
+        turn_id: turnId,
+        message_id: messageId,
+        provider: "claude-code"
+      }
+    });
+
+    await app.close();
+  });
+
   it("accepts run lifecycle and node publication for the active turn owner", async () => {
     const { app, room, ownerAuth, agent } = await createRoomAndAgent();
     const turnId = await currentTurnId(app, room.room_id, ownerAuth);

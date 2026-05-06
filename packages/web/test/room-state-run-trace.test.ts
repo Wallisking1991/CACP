@@ -16,6 +16,64 @@ function event(type: CacpEvent["type"], payload: Record<string, unknown>, sequen
 }
 
 describe("room state run trace projection", () => {
+  it("merges streamed and final agent output into the run instead of legacy message views", () => {
+    const state = deriveRoomState([
+      event("agent.turn.started", { turn_id: "turn_1", agent_id: "agent_1" }, 1),
+      event("agent.run.started", {
+        run_id: "turn_1",
+        turn_id: "turn_1",
+        agent_id: "agent_1",
+        provider: "claude-code",
+        started_at: "2026-05-06T00:00:02.000Z"
+      }, 2),
+      event("agent.output.delta", { turn_id: "turn_1", agent_id: "agent_1", chunk: "Partial " }, 3),
+      event("agent.output.delta", { turn_id: "turn_1", agent_id: "agent_1", chunk: "answer" }, 4),
+      event("agent.turn.completed", { turn_id: "turn_1", agent_id: "agent_1", message_id: "msg_1", exit_code: 0 }, 5),
+      event("message.created", { message_id: "msg_1", text: "Final answer", kind: "agent", turn_id: "turn_1" }, 6),
+      event("agent.run.completed", {
+        run_id: "turn_1",
+        turn_id: "turn_1",
+        agent_id: "agent_1",
+        provider: "claude-code",
+        message_id: "msg_1",
+        summary: "Answered",
+        metrics: { files_read: 0, searches: 0, commands: 0 },
+        completed_at: "2026-05-06T00:00:07.000Z"
+      }, 7)
+    ]);
+
+    expect(state.agentRuns).toHaveLength(1);
+    expect(state.agentRuns[0]).toMatchObject({
+      run_id: "turn_1",
+      message_id: "msg_1",
+      answer_text: "Partial answer",
+      final_text: "Final answer",
+      status: "completed"
+    });
+    expect(state.messages.find((message) => message.message_id === "msg_1")).toBeUndefined();
+    expect(state.streamingTurns.find((turn) => turn.turn_id === "turn_1")).toBeUndefined();
+  });
+
+  it("keeps a running run trace answer out of legacy streaming turns", () => {
+    const state = deriveRoomState([
+      event("agent.turn.started", { turn_id: "turn_1", agent_id: "agent_1" }, 1),
+      event("agent.run.started", {
+        run_id: "turn_1",
+        turn_id: "turn_1",
+        agent_id: "agent_1",
+        provider: "codex-cli",
+        started_at: "2026-05-06T00:00:02.000Z"
+      }, 2),
+      event("agent.output.delta", { turn_id: "turn_1", agent_id: "agent_1", chunk: "Live answer" }, 3)
+    ]);
+
+    expect(state.agentRuns[0]).toMatchObject({
+      status: "running",
+      answer_text: "Live answer"
+    });
+    expect(state.streamingTurns).toHaveLength(0);
+  });
+
   it("replays run lifecycle and node deltas", () => {
     const state = deriveRoomState([
       event("agent.turn.started", { turn_id: "turn_1", agent_id: "agent_1" }, 1),

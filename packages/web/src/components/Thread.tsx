@@ -99,14 +99,23 @@ export default function Thread({
 }: ThreadProps) {
   const t = useT();
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const runTraceTurnIds = new Set(agentRuns.map((run) => run.turn_id));
+  const runTraceMessageIds = new Set(agentRuns.map((run) => run.message_id).filter((messageId): messageId is string => !!messageId));
+  const visibleMessages = messages.filter((msg) => {
+    if (msg.kind !== "agent") return true;
+    if (msg.turn_id && runTraceTurnIds.has(msg.turn_id)) return false;
+    if (msg.message_id && runTraceMessageIds.has(msg.message_id)) return false;
+    return true;
+  });
+  const visibleStreamingTurns = streamingTurns.filter((turn) => !runTraceTurnIds.has(turn.turn_id));
 
   useEffect(() => {
     if (typeof bottomRef.current?.scrollIntoView === "function") {
       bottomRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages.length, streamingTurns.length, streamingTurns.map((t) => t.text).join("|"), agentRuns.length, agentRuns.map((run) => `${run.run_id}:${run.status}:${run.nodes.map((node) => `${node.node_id}:${node.status}:${node.text_chunks.join("")}`).join(",")}`).join("|")]);
+  }, [visibleMessages.length, visibleStreamingTurns.length, visibleStreamingTurns.map((t) => t.text).join("|"), agentRuns.length, agentRuns.map((run) => `${run.run_id}:${run.status}:${run.answer_text ?? ""}:${run.final_text ?? ""}:${run.nodes.map((node) => `${node.node_id}:${node.status}:${node.text_chunks.join("")}`).join(",")}`).join("|")]);
 
-  const isEmpty = messages.length === 0 && streamingTurns.length === 0 && agentRuns.length === 0;
+  const isEmpty = visibleMessages.length === 0 && visibleStreamingTurns.length === 0 && agentRuns.length === 0;
 
   return (
     <div className="thread">
@@ -117,7 +126,7 @@ export default function Thread({
         </div>
       )}
 
-      {messages.map((msg) => {
+      {visibleMessages.map((msg) => {
         if (msg.kind === "claude_import_banner") {
           const importView = claudeImports?.find((imp) => imp.import_id === msg.claudeImportId);
           const bannerText = importView?.status === "failed"
@@ -219,7 +228,7 @@ export default function Thread({
         />
       ))}
 
-      {streamingTurns.map((turn) => {
+      {visibleStreamingTurns.map((turn) => {
         const agentName = actorNames.get(turn.agent_id) ?? turn.agent_id;
         const statusLine = formatStatusLine(turn.phase, turn.current, turn.metrics);
         const elapsedSeconds = typeof turn.detail?.elapsed_time_seconds === "number" ? turn.detail.elapsed_time_seconds : 0;
@@ -231,16 +240,6 @@ export default function Thread({
               <span>{t("message.ai")}</span>
             </div>
             <div className="streaming-status">{statusLine || t("agent.status.streaming")}</div>
-
-            {turn.thinkingText !== undefined && (
-              <details className="thinking-accordion">
-                <summary className="thinking-accordion__summary">
-                  <span className={`thinking-accordion__pulse${turn.thinkingDone ? "" : " thinking-accordion__pulse--active"}`} />
-                  <span>{t("agent.thinking.collapsed")}</span>
-                </summary>
-                <div className="thinking-accordion__content">{turn.thinkingText}</div>
-              </details>
-            )}
 
             {isToolPhase(turn.phase) && (
               <div className="tool-progress-bar">

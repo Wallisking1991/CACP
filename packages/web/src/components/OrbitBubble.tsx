@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { createPortal } from "react-dom";
 
 export interface OrbitBubbleProps {
@@ -11,7 +12,10 @@ export interface OrbitBubbleProps {
 export function OrbitBubble({ text, durationMs = 3500, onDismiss, avatarId }: OrbitBubbleProps) {
   const [phase, setPhase] = useState<"enter" | "exit">("enter");
   const bubbleRef = useRef<HTMLDivElement | null>(null);
-  const [style, setStyle] = useState<React.CSSProperties>({});
+  const phaseRef = useRef(phase);
+  const [style, setStyle] = useState<CSSProperties>({});
+
+  phaseRef.current = phase;
 
   useEffect(() => {
     const timer = window.setTimeout(() => setPhase("exit"), durationMs);
@@ -19,18 +23,18 @@ export function OrbitBubble({ text, durationMs = 3500, onDismiss, avatarId }: Or
   }, [durationMs]);
 
   useEffect(() => {
-    if (phase !== "exit") return;
     const el = bubbleRef.current;
     if (!el) return;
 
-    const handleEnd = (e: AnimationEvent) => {
-      if (e.target === el) {
+    const handleEnd = (event: AnimationEvent) => {
+      if (event.target === el && phaseRef.current === "exit") {
         onDismiss?.();
       }
     };
+
     el.addEventListener("animationend", handleEnd);
     return () => el.removeEventListener("animationend", handleEnd);
-  }, [phase, onDismiss]);
+  }, [onDismiss]);
 
   // When anchored to an avatar, render via portal with fixed positioning
   // so the bubble is not clipped by ancestor overflow (e.g. avatar rail scroll).

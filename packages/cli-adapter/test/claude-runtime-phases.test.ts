@@ -93,6 +93,11 @@ describe("Claude runtime run-trace mapping", () => {
     expect(started.some((node) => node.node_id === "toolu_1" && node.kind === "tool" && String(node.title).includes("README.md"))).toBe(true);
     expect(updated.some((node) => node.node_id === "toolu_1" && (node.detail as Record<string, unknown> | undefined)?.elapsed_time_seconds === 3)).toBe(true);
     expect(completed.some((node) => node.node_id === "toolu_1" && node.summary === "Read README.md")).toBe(true);
+    expect(started.some((node) => node.kind === "status" && node.title === "Thinking")).toBe(true);
+    const thinkingNode = started.find((node) => node.kind === "status" && node.title === "Thinking");
+    expect(completed.some((node) => node.node_id === thinkingNode?.node_id && node.summary === "Thinking complete")).toBe(true);
+    expect(started.some((node) => JSON.stringify(node).includes("secret reasoning"))).toBe(false);
+    expect(completed.some((node) => JSON.stringify(node).includes("secret reasoning"))).toBe(false);
     expect(nodeDeltas.some((delta) => typeof delta.chunk === "string" && delta.chunk.includes("secret reasoning"))).toBe(false);
     expect(publishedDeltas).toEqual(["Done"]);
     expect(result.metrics.files_read).toBe(1);

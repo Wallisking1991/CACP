@@ -209,8 +209,37 @@ export class ClaudeRuntime {
     let usage: Record<string, unknown> | undefined;
     let activeCompactionNodeId: string | undefined;
     let transientNodeCounter = 0;
+    const thinkingNodeIdsByBlockIndex = new Map<number, string>();
 
     const nextTransientNodeId = (prefix: string) => `${prefix}_${++transientNodeCounter}`;
+
+    const thinkingNodeIdFor = (blockIndex: number | undefined): string => {
+      if (blockIndex === undefined) return "thinking";
+      const existing = thinkingNodeIdsByBlockIndex.get(blockIndex);
+      if (existing) return existing;
+      const nodeId = `thinking_${blockIndex}`;
+      thinkingNodeIdsByBlockIndex.set(blockIndex, nodeId);
+      return nodeId;
+    };
+
+    const ensureThinkingNode = async (blockIndex: number | undefined): Promise<string> => {
+      const nodeId = thinkingNodeIdFor(blockIndex);
+      await recorder.startNode({
+        nodeId,
+        kind: "status",
+        status: "running",
+        title: "Thinking",
+        detail: { signal: "claude_thinking" }
+      });
+      return nodeId;
+    };
+
+    const completeThinkingNode = async (blockIndex: number | undefined): Promise<void> => {
+      const nodeId = thinkingNodeIdFor(blockIndex);
+      if (recorder.hasNode(nodeId) && !recorder.isTerminal(nodeId)) {
+        await recorder.completeNode({ nodeId, summary: "Thinking complete" });
+      }
+    };
 
     const countToolMetric = (nodeId: string, toolName: string) => {
       if (countedToolMetrics.has(nodeId)) return;
@@ -443,10 +472,13 @@ export class ClaudeRuntime {
         if (msgType === "stream_event") {
           const event = asRecord(record.event);
           const eventType = typeof event.type === "string" ? event.type : "";
+          const blockIndex = typeof event.index === "number" ? event.index : undefined;
           if (eventType === "content_block_start") {
             const contentBlock = asRecord(event.content_block);
             const blockType = typeof contentBlock.type === "string" ? contentBlock.type : "";
-            if (blockType === "tool_use") {
+            if (blockType === "thinking") {
+              await ensureThinkingNode(blockIndex);
+            } else if (blockType === "tool_use") {
               const nodeId = typeof contentBlock.id === "string" && contentBlock.id ? contentBlock.id : nextTransientNodeId("tool");
               await ensureToolNode({
                 nodeId,
@@ -459,7 +491,11 @@ export class ClaudeRuntime {
             const delta = asRecord(event.delta);
             if (delta.type === "text_delta" && typeof delta.text === "string") {
               await appendAssistantDelta(delta.text);
+            } else if (delta.type === "thinking_delta") {
+              await ensureThinkingNode(blockIndex);
             }
+          } else if (eventType === "content_block_stop") {
+            await completeThinkingNode(blockIndex);
           }
           continue;
         }

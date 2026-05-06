@@ -19,6 +19,7 @@ export interface ParticipantView { id: string; display_name: string; role: strin
 export interface AgentView { agent_id: string; name: string; capabilities: string[]; status: "online" | "offline" | "unknown"; last_status_at?: string }
 export interface MessageView {
   message_id?: string;
+  turn_id?: string;
   actor_id: string;
   text: string;
   kind: string;
@@ -232,6 +233,8 @@ export interface AgentRunView {
   provider: string;
   status: AgentRunStatusView;
   nodes: AgentRunNodeView[];
+  answer_text?: string;
+  final_text?: string;
   message_id?: string;
   summary?: string;
   metrics?: AgentRunMetrics;
@@ -1115,6 +1118,7 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
       if (run) {
         run.status = "running";
         run.started_at = startedAt;
+        streamingTurns.delete(run.turn_id);
       }
     }
     if (event.type === "agent.run.completed") {
@@ -1238,11 +1242,22 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     }
     if (event.type === "message.created" && typeof event.payload.text === "string") {
       const messageId = typeof event.payload.message_id === "string" ? event.payload.message_id : undefined;
+      const turnId = stringField(event.payload as Record<string, unknown>, "turn_id");
+      const kind = typeof event.payload.kind === "string" ? event.payload.kind : "human";
+      if (kind === "agent" && turnId && agentRuns.has(turnId)) {
+        const run = agentRuns.get(turnId)!;
+        run.message_id = messageId ?? run.message_id;
+        run.final_text = event.payload.text;
+        if (!run.answer_text) run.answer_text = event.payload.text;
+        latestSenderId = event.actor_id;
+        continue;
+      }
       const message: MessageView = {
         message_id: messageId,
+        turn_id: turnId,
         actor_id: event.actor_id,
         text: event.payload.text,
-        kind: typeof event.payload.kind === "string" ? event.payload.kind : "human",
+        kind,
         created_at: event.created_at
       };
       const status = messageId ? turnMessageStatus.get(messageId) : undefined;
@@ -1262,17 +1277,24 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     }
     if (event.type === "agent.turn.started" && typeof event.payload.turn_id === "string" && typeof event.payload.agent_id === "string") streamingTurns.set(event.payload.turn_id, { turn_id: event.payload.turn_id, agent_id: event.payload.agent_id, text: "" });
     if (event.type === "agent.output.delta" && typeof event.payload.turn_id === "string" && typeof event.payload.agent_id === "string" && typeof event.payload.chunk === "string") {
-      const current = streamingTurns.get(event.payload.turn_id) ?? { turn_id: event.payload.turn_id, agent_id: event.payload.agent_id, text: "" };
-      streamingTurns.set(event.payload.turn_id, { ...current, text: current.text + event.payload.chunk });
+      const run = agentRuns.get(event.payload.turn_id);
+      if (run) {
+        run.answer_text = `${run.answer_text ?? ""}${event.payload.chunk}`;
+      } else {
+        const current = streamingTurns.get(event.payload.turn_id) ?? { turn_id: event.payload.turn_id, agent_id: event.payload.agent_id, text: "" };
+        streamingTurns.set(event.payload.turn_id, { ...current, text: current.text + event.payload.chunk });
+      }
     }
     if (event.type === "claude.output.thinking_delta" && typeof event.payload.turn_id === "string") {
       const turnId = event.payload.turn_id;
-      const text = typeof event.payload.text === "string" ? event.payload.text : "";
       const done = !!event.payload.done;
       const current = streamingTurns.get(turnId);
       if (current) {
-        const prevText = current.thinkingText ?? "";
-        streamingTurns.set(turnId, { ...current, thinkingText: prevText + text, thinkingDone: done });
+        streamingTurns.set(turnId, {
+          ...current,
+          phase: "thinking",
+          current: done ? "Thinking complete" : "Thinking"
+        });
       }
     }
     if (event.type === "agent.turn.completed" && typeof event.payload.turn_id === "string") {
@@ -1326,11 +1348,12 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     });
   }
   messages.sort((a, b) => a.created_at.localeCompare(b.created_at));
+  const runTraceTurnIds = new Set([...agentRuns.values()].map((run) => run.turn_id));
 
   // Apply main_input status overrides to persisted message.created items.
   const filteredMessages = messages.filter((msg) => {
     const status = mainInputStatusByMessageId.get(msg.message_id ?? "");
-    return status !== "cancelled" && status !== "failed";
+    return status !== "cancelled" && status !== "failed" && !(msg.kind === "agent" && msg.turn_id && runTraceTurnIds.has(msg.turn_id));
   });
   for (let i = 0; i < filteredMessages.length; i++) {
     const status = mainInputStatusByMessageId.get(filteredMessages[i].message_id ?? "");
@@ -1352,8 +1375,9 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
       nodes: [...run.nodes].sort((a, b) => agentRunNodeSortKey(a).localeCompare(agentRunNodeSortKey(b)))
     }))
     .sort((a, b) => agentRunSortKey(a).localeCompare(agentRunSortKey(b)));
+  const visibleStreamingTurns = [...streamingTurns.values()].filter((turn) => !runTraceTurnIds.has(turn.turn_id));
 
-  const workingAgentIds = new Set<string>([...streamingTurns.values()].map((turn) => turn.agent_id));
+  const workingAgentIds = new Set<string>(visibleStreamingTurns.map((turn) => turn.agent_id));
   for (const status of claudeRuntimeStatuses.values()) {
     if (status.phase !== "completed" && status.phase !== "failed") workingAgentIds.add(status.agent_id);
   }
@@ -1413,7 +1437,7 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     agents: [...agents.values()],
     activeAgentId,
     messages: orderImportedMessages(messages),
-    streamingTurns: [...streamingTurns.values()],
+    streamingTurns: visibleStreamingTurns,
     inviteCount,
     invites: [...invites.values()],
     roomName,

@@ -29,6 +29,11 @@ function metricsSummary(run: AgentRunView): string | undefined {
   return parts.join(" · ") || undefined;
 }
 
+function answerTextFor(run: AgentRunView): string | undefined {
+  if (run.status === "completed") return run.final_text ?? run.answer_text;
+  return run.answer_text ?? run.final_text;
+}
+
 export function AgentRunCard({
   run,
   agentName,
@@ -38,6 +43,8 @@ export function AgentRunCard({
   const provider = providerLabel(run.provider);
   const status = runStatusLabel(run.status);
   const metrics = metricsSummary(run);
+  const answerText = answerTextFor(run);
+  const hasAnswer = answerText !== undefined && answerText.length > 0;
   const nodeList = (
     <AgentRunNodeList
       runId={run.run_id}
@@ -61,12 +68,18 @@ export function AgentRunCard({
       {run.error && <div className="agent-run-card__error">{run.error}</div>}
 
       {run.status === "running" ? (
-        nodeList
+        <>
+          {run.nodes.length > 0 ? nodeList : <div className="agent-run-card__summary">Thinking...</div>}
+          {hasAnswer && <div className="agent-run-card__answer message-body">{answerText}</div>}
+        </>
       ) : (
-        <details className="agent-run-card__details">
-          <summary>Run details</summary>
-          {nodeList}
-        </details>
+        <>
+          {hasAnswer && <div className="agent-run-card__answer message-body">{answerText}</div>}
+          <details className="agent-run-card__details">
+            <summary>Run details</summary>
+            {nodeList}
+          </details>
+        </>
       )}
     </article>
   );
