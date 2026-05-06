@@ -183,13 +183,28 @@ describe("room state run trace projection", () => {
 
   it("keeps failed run details visible after terminal failure", () => {
     const state = deriveRoomState([
+      event("agent.registered", { agent_id: "agent_1", name: "Codex CLI Agent", capabilities: ["codex-cli"] }, 1, "owner"),
+      event("participant.joined", { participant: { id: "agent_1", display_name: "Codex CLI Agent", role: "agent", type: "agent" } }, 2, "agent_1"),
+      event("agent.status_changed", { agent_id: "agent_1", status: "online" }, 3, "agent_1"),
       event("agent.run.started", {
         run_id: "turn_1",
         turn_id: "turn_1",
         agent_id: "agent_1",
         provider: "codex-cli",
-        started_at: "2026-05-06T00:00:01.000Z"
-      }, 1),
+        started_at: "2026-05-06T00:00:04.000Z"
+      }, 4, "agent_1"),
+      event("agent.run.node.started", {
+        run_id: "turn_1",
+        turn_id: "turn_1",
+        agent_id: "agent_1",
+        provider: "codex-cli",
+        node_id: "thinking_0",
+        kind: "reasoning_summary",
+        status: "streaming",
+        title: "Thinking",
+        started_at: "2026-05-06T00:00:05.000Z",
+        updated_at: "2026-05-06T00:00:05.000Z"
+      }, 5, "agent_1"),
       event("agent.run.failed", {
         run_id: "turn_1",
         turn_id: "turn_1",
@@ -197,12 +212,78 @@ describe("room state run trace projection", () => {
         provider: "codex-cli",
         error: "codex_turn_incomplete",
         failed_at: "2026-05-06T00:00:08.000Z"
-      }, 2)
+      }, 6, "agent_1")
     ]);
 
     expect(state.agentRuns[0]).toMatchObject({
       status: "failed",
       error: "codex_turn_incomplete"
+    });
+    expect(state.avatarStatuses.find((avatar) => avatar.id === "agent_1")).toMatchObject({
+      status: "online",
+      active: false
+    });
+  });
+
+  it("preserves run usage metadata and keeps terminal runs out of working avatar state", () => {
+    const state = deriveRoomState([
+      event("agent.registered", { agent_id: "agent_1", name: "Claude Code Agent", capabilities: ["claude-code"] }, 1, "owner"),
+      event("participant.joined", { participant: { id: "agent_1", display_name: "Claude Code Agent", role: "agent", type: "agent" } }, 2, "agent_1"),
+      event("agent.status_changed", { agent_id: "agent_1", status: "online" }, 3, "agent_1"),
+      event("agent.run.started", {
+        run_id: "turn_1",
+        turn_id: "turn_1",
+        agent_id: "agent_1",
+        provider: "claude-code",
+        started_at: "2026-05-06T00:00:04.000Z"
+      }, 4, "agent_1"),
+      event("agent.run.node.started", {
+        run_id: "turn_1",
+        turn_id: "turn_1",
+        agent_id: "agent_1",
+        provider: "claude-code",
+        node_id: "thinking_0",
+        kind: "reasoning_summary",
+        status: "streaming",
+        title: "Thinking",
+        started_at: "2026-05-06T00:00:05.000Z",
+        updated_at: "2026-05-06T00:00:05.000Z"
+      }, 5, "agent_1"),
+      event("agent.run.node.delta", {
+        run_id: "turn_1",
+        turn_id: "turn_1",
+        agent_id: "agent_1",
+        provider: "claude-code",
+        node_id: "thinking_0",
+        delta_type: "text",
+        chunk: "I will inspect files.",
+        updated_at: "2026-05-06T00:00:06.000Z"
+      }, 6, "agent_1"),
+      event("agent.run.completed", {
+        run_id: "turn_1",
+        turn_id: "turn_1",
+        agent_id: "agent_1",
+        provider: "claude-code",
+        message_id: "msg_1",
+        summary: "Answered",
+        metrics: { files_read: 0, searches: 1, commands: 0 },
+        usage: { duration_ms: 2345, num_turns: 2, total_cost_usd: 0.0123, output_tokens: 50 },
+        completed_at: "2026-05-06T00:00:07.000Z"
+      }, 7, "agent_1")
+    ]);
+
+    expect(state.agentRuns[0]).toMatchObject({
+      status: "completed",
+      usage: { duration_ms: 2345, num_turns: 2, total_cost_usd: 0.0123, output_tokens: 50 }
+    });
+    expect(state.agentRuns[0].nodes[0]).toMatchObject({
+      kind: "reasoning_summary",
+      status: "streaming",
+      text_chunks: ["I will inspect files."]
+    });
+    expect(state.avatarStatuses.find((avatar) => avatar.id === "agent_1")).toMatchObject({
+      status: "online",
+      active: false
     });
   });
 });
