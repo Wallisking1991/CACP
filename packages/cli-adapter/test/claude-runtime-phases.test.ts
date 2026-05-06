@@ -67,17 +67,77 @@ function createHarness(queryImpl: (prompt: string, options: Record<string, unkno
 }
 
 describe("Claude runtime run-trace mapping", () => {
-  it("maps tool use and progress into tool nodes without persisting raw thinking deltas", async () => {
-    const { runtime, started, nodeDeltas, updated, completed, publishedDeltas } = createHarness(() => createQuery([
-      { type: "system", subtype: "init", session_id: "session_1", uuid: "init_1" },
-      { type: "stream_event", parent_tool_use_id: null, uuid: "partial_1", session_id: "session_1", event: { type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "", signature: "sig" } } },
-      { type: "stream_event", parent_tool_use_id: null, uuid: "partial_2", session_id: "session_1", event: { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "secret reasoning" } } },
-      { type: "stream_event", parent_tool_use_id: null, uuid: "partial_3", session_id: "session_1", event: { type: "content_block_stop", index: 0 } },
-      { type: "stream_event", parent_tool_use_id: null, uuid: "partial_4", session_id: "session_1", event: { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "toolu_1", name: "Read", input: { file_path: "README.md" } } } },
-      { type: "tool_progress", tool_use_id: "toolu_1", tool_name: "Read", parent_tool_use_id: null, elapsed_time_seconds: 3, uuid: "tool_progress_1", session_id: "session_1" },
-      { type: "tool_use_summary", summary: "Read README.md", preceding_tool_use_ids: ["toolu_1"], uuid: "tool_summary_1", session_id: "session_1" },
-      { type: "assistant", parent_tool_use_id: null, uuid: "assistant_1", session_id: "session_1", message: { content: [{ type: "text", text: "Done" }] } },
-      createSuccessResult("session_1", "Done")
+  it("streams SDK thinking deltas into a reasoning node and enriches streamed tool input", async () => {
+    let capturedOptions: Record<string, unknown> | undefined;
+    const { runtime, started, nodeDeltas, updated, completed, publishedDeltas } = createHarness((_prompt, options) => {
+      capturedOptions = options;
+      return createQuery([
+        { type: "system", subtype: "init", session_id: "session_1", uuid: "init_1" },
+        { type: "stream_event", parent_tool_use_id: null, uuid: "partial_1", session_id: "session_1", event: { type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "", signature: "sig" } } },
+        { type: "stream_event", parent_tool_use_id: null, uuid: "partial_2", session_id: "session_1", event: { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "I should inspect the directory first. " } } },
+        { type: "stream_event", parent_tool_use_id: null, uuid: "partial_3", session_id: "session_1", event: { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "A glob search is enough." } } },
+        { type: "stream_event", parent_tool_use_id: null, uuid: "partial_4", session_id: "session_1", event: { type: "content_block_stop", index: 0 } },
+        { type: "stream_event", parent_tool_use_id: null, uuid: "partial_5", session_id: "session_1", event: { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "toolu_glob", name: "Glob", input: {} } } },
+        { type: "stream_event", parent_tool_use_id: null, uuid: "partial_6", session_id: "session_1", event: { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: "{\"pattern\":" } } },
+        { type: "stream_event", parent_tool_use_id: null, uuid: "partial_7", session_id: "session_1", event: { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: "\"src/**/*.ts\"" } } },
+        { type: "stream_event", parent_tool_use_id: null, uuid: "partial_8", session_id: "session_1", event: { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: "}" } } },
+        { type: "stream_event", parent_tool_use_id: null, uuid: "partial_9", session_id: "session_1", event: { type: "content_block_stop", index: 1 } },
+        { type: "tool_progress", tool_use_id: "toolu_glob", tool_name: "Glob", parent_tool_use_id: null, elapsed_time_seconds: 3, uuid: "tool_progress_1", session_id: "session_1" },
+        { type: "tool_use_summary", summary: "Found TypeScript files", preceding_tool_use_ids: ["toolu_glob"], uuid: "tool_summary_1", session_id: "session_1" },
+        { type: "stream_event", parent_tool_use_id: null, uuid: "partial_10", session_id: "session_1", event: { type: "content_block_start", index: 2, content_block: { type: "text", text: "" } } },
+        { type: "stream_event", parent_tool_use_id: null, uuid: "partial_11", session_id: "session_1", event: { type: "content_block_delta", index: 2, delta: { type: "text_delta", text: "Done" } } },
+        { type: "stream_event", parent_tool_use_id: null, uuid: "partial_12", session_id: "session_1", event: { type: "content_block_stop", index: 2 } },
+        createSuccessResult("session_1", "Done")
+      ]);
+    });
+
+    await runtime.selectSession({ mode: "fresh" });
+    const result = await runtime.runTurn({
+      turnId: "turn_1",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "inspect"
+    });
+
+    expect(capturedOptions?.thinking).toEqual({ type: "adaptive", display: "summarized" });
+    const reasoningNode = started.find((node) => node.kind === "reasoning_summary" && node.title === "Thinking");
+    expect(reasoningNode).toBeDefined();
+    const reasoningNodeId = reasoningNode?.node_id;
+    expect(nodeDeltas.filter((delta) => delta.node_id === reasoningNodeId).map((delta) => delta.chunk).join("")).toBe("I should inspect the directory first. A glob search is enough.");
+    const completedReasoningNode = completed.find((node) => node.node_id === reasoningNodeId);
+    expect(completedReasoningNode).toBeDefined();
+    expect(completedReasoningNode).not.toHaveProperty("summary");
+    expect(started.some((node) => node.node_id === "toolu_glob" && node.kind === "tool" && node.title === "Glob")).toBe(true);
+    expect(updated.some((node) => node.node_id === "toolu_glob" && node.title === "Search files: src/**/*.ts")).toBe(true);
+    expect(updated.some((node) => node.node_id === "toolu_glob" && (node.detail as Record<string, unknown> | undefined)?.tool_name === "Glob")).toBe(true);
+    expect(updated.some((node) => node.node_id === "toolu_glob" && JSON.stringify(node.detail).includes("src/**/*.ts"))).toBe(true);
+    expect(updated.some((node) => node.node_id === "toolu_glob" && (node.detail as Record<string, unknown> | undefined)?.elapsed_time_seconds === 3)).toBe(true);
+    expect(completed.some((node) => node.node_id === "toolu_glob" && node.summary === "Found TypeScript files")).toBe(true);
+    expect(publishedDeltas).toEqual(["Done"]);
+    expect(result.metrics.searches).toBe(1);
+  });
+
+  it("preserves SDK result timing, cost, turns, and usage metadata", async () => {
+    const { runtime } = createHarness(() => createQuery([
+      {
+        type: "result",
+        subtype: "success",
+        duration_ms: 2345,
+        duration_api_ms: 2000,
+        is_error: false,
+        num_turns: 2,
+        result: "Done",
+        stop_reason: "end_turn",
+        total_cost_usd: 0.0123,
+        usage: { input_tokens: 100, cache_read_input_tokens: 400, output_tokens: 50 },
+        modelUsage: { "claude-sonnet-4-20250514": { inputTokens: 100, outputTokens: 50 } },
+        permission_denials: [{ tool_name: "Bash", tool_use_id: "toolu_bash", tool_input: { command: "rm -rf dist" } }],
+        terminal_reason: "completed",
+        uuid: "result_1",
+        session_id: "session_1"
+      }
     ]));
 
     await runtime.selectSession({ mode: "fresh" });
@@ -90,17 +150,18 @@ describe("Claude runtime run-trace mapping", () => {
       text: "inspect"
     });
 
-    expect(started.some((node) => node.node_id === "toolu_1" && node.kind === "tool" && String(node.title).includes("README.md"))).toBe(true);
-    expect(updated.some((node) => node.node_id === "toolu_1" && (node.detail as Record<string, unknown> | undefined)?.elapsed_time_seconds === 3)).toBe(true);
-    expect(completed.some((node) => node.node_id === "toolu_1" && node.summary === "Read README.md")).toBe(true);
-    expect(started.some((node) => node.kind === "status" && node.title === "Thinking")).toBe(true);
-    const thinkingNode = started.find((node) => node.kind === "status" && node.title === "Thinking");
-    expect(completed.some((node) => node.node_id === thinkingNode?.node_id && node.summary === "Thinking complete")).toBe(true);
-    expect(started.some((node) => JSON.stringify(node).includes("secret reasoning"))).toBe(false);
-    expect(completed.some((node) => JSON.stringify(node).includes("secret reasoning"))).toBe(false);
-    expect(nodeDeltas.some((delta) => typeof delta.chunk === "string" && delta.chunk.includes("secret reasoning"))).toBe(false);
-    expect(publishedDeltas).toEqual(["Done"]);
-    expect(result.metrics.files_read).toBe(1);
+    expect(result.usage).toMatchObject({
+      input_tokens: 100,
+      cache_read_input_tokens: 400,
+      output_tokens: 50,
+      duration_ms: 2345,
+      duration_api_ms: 2000,
+      num_turns: 2,
+      total_cost_usd: 0.0123,
+      terminal_reason: "completed"
+    });
+    expect(result.usage?.model_usage).toEqual({ "claude-sonnet-4-20250514": { inputTokens: 100, outputTokens: 50 } });
+    expect(result.usage?.permission_denials).toEqual([{ tool_name: "Bash", tool_use_id: "toolu_bash", tool_input: { command: "rm -rf dist" } }]);
   });
 
   it("routes Bash permission prompts through room-backed approval requests", async () => {
