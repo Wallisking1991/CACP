@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import React from "react";
 import Thread from "../src/components/Thread.js";
 import { LangProvider } from "../src/i18n/LangProvider.js";
@@ -51,6 +51,22 @@ const activeRun: AgentRunView = {
     started_at: "2026-05-06T00:00:02.000Z",
     updated_at: "2026-05-06T00:00:03.000Z"
   }]
+};
+
+const thinkingNode: AgentRunView["nodes"][number] = {
+  run_id: "turn_1",
+  turn_id: "turn_1",
+  agent_id: "agent_1",
+  provider: "claude-code",
+  node_id: "thinking_0",
+  kind: "reasoning_summary",
+  status: "streaming",
+  title: "Thinking",
+  text_chunks: ["I should inspect the directory first."],
+  stdout_chunks: [],
+  stderr_chunks: [],
+  started_at: "2026-05-06T00:00:01.000Z",
+  updated_at: "2026-05-06T00:00:02.000Z"
 };
 
 describe("Thread run trace", () => {
@@ -152,5 +168,48 @@ describe("Thread run trace", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Allow" }));
     expect(onResolveApproval).toHaveBeenCalledWith("turn_1", "approval_1", "allow");
+  });
+
+  it("shows the work process expanded while the run is active", () => {
+    renderThread({
+      agentRuns: [{
+        ...activeRun,
+        nodes: [thinkingNode, { ...activeRun.nodes[0], title: "Search files: src/**/*.ts", detail: { elapsed_time_seconds: 2 } }],
+        answer_text: "Partial answer"
+      }]
+    });
+
+    const process = document.querySelector("details.agent-run-card__process") as HTMLDetailsElement | null;
+    expect(process).not.toBeNull();
+    const processScope = within(process as HTMLElement);
+    expect(process?.open).toBe(true);
+    expect(screen.getByText("Partial answer")).toBeVisible();
+    expect(processScope.getByText(/Work process/)).toBeVisible();
+    expect(processScope.getByText("Thinking")).toBeVisible();
+    expect(processScope.getByText("I should inspect the directory first.")).toBeVisible();
+    expect(processScope.getByText("Search files: src/**/*.ts")).toBeVisible();
+  });
+
+  it("shows the final answer first and collapses the work process after completion", () => {
+    renderThread({
+      agentRuns: [{
+        ...activeRun,
+        status: "completed",
+        final_text: "Final answer in run card",
+        completed_at: "2026-05-06T00:00:08.000Z",
+        metrics: { files_read: 0, searches: 1, commands: 0 },
+        usage: { duration_ms: 2345, output_tokens: 50, total_cost_usd: 0.0123 },
+        nodes: [{ ...thinkingNode, status: "completed", completed_at: "2026-05-06T00:00:03.000Z" }, { ...activeRun.nodes[0], status: "completed", title: "Search files: src/**/*.ts", completed_at: "2026-05-06T00:00:04.000Z" }]
+      }]
+    });
+
+    const answer = screen.getByText("Final answer in run card");
+    expect(answer).toBeVisible();
+    const process = document.querySelector("details.agent-run-card__process") as HTMLDetailsElement | null;
+    expect(process).not.toBeNull();
+    expect(answer.compareDocumentPosition(process as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(process?.open).toBe(false);
+    expect(within(process as HTMLElement).getByText(/Work process/)).toBeVisible();
+    expect(screen.getByText(/\b1 search\b/)).toBeVisible();
   });
 });
