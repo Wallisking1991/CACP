@@ -108,14 +108,21 @@ export default function Thread({
     return true;
   });
   const visibleStreamingTurns = streamingTurns.filter((turn) => !runTraceTurnIds.has(turn.turn_id));
+  const completedRuns = agentRuns.filter((run) => run.status === "completed" || run.status === "failed");
+  const runningRuns = agentRuns.filter((run) => run.status === "running");
+
+  const threadItems = [
+    ...visibleMessages.map((msg) => ({ type: "message" as const, data: msg, time: msg.created_at })),
+    ...completedRuns.map((run) => ({ type: "run" as const, data: run, time: run.started_at })),
+  ].sort((a, b) => a.time.localeCompare(b.time));
 
   useEffect(() => {
     if (typeof bottomRef.current?.scrollIntoView === "function") {
       bottomRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [visibleMessages.length, visibleStreamingTurns.length, visibleStreamingTurns.map((t) => t.text).join("|"), agentRuns.length, agentRuns.map((run) => `${run.run_id}:${run.status}:${run.answer_text ?? ""}:${run.final_text ?? ""}:${run.nodes.map((node) => `${node.node_id}:${node.status}:${node.text_chunks.join("")}`).join(",")}`).join("|")]);
+  }, [threadItems.length, threadItems.map((item) => item.type === "message" ? `${item.data.message_id}:${item.data.kind}` : `${item.data.run_id}:${item.data.status}`).join("|"), visibleStreamingTurns.length, visibleStreamingTurns.map((t) => t.text).join("|"), runningRuns.map((run) => `${run.run_id}:${run.status}:${run.answer_text ?? ""}:${run.final_text ?? ""}:${run.nodes.map((node) => `${node.node_id}:${node.status}:${node.text_chunks.join("")}`).join(",")}`).join("|")]);
 
-  const isEmpty = visibleMessages.length === 0 && visibleStreamingTurns.length === 0 && agentRuns.length === 0;
+  const isEmpty = threadItems.length === 0 && visibleStreamingTurns.length === 0 && runningRuns.length === 0;
 
   return (
     <div className="thread">
@@ -126,7 +133,21 @@ export default function Thread({
         </div>
       )}
 
-      {visibleMessages.map((msg) => {
+      {threadItems.map((item) => {
+        if (item.type === "run") {
+          const run = item.data;
+          return (
+            <AgentRunCard
+              key={run.run_id}
+              run={run}
+              agentName={actorNames.get(run.agent_id) ?? run.agent_id}
+              onResolveApproval={onResolveApproval}
+              onResolveElicitation={onResolveElicitation}
+            />
+          );
+        }
+
+        const msg = item.data;
         if (msg.kind === "claude_import_banner") {
           const importView = claudeImports?.find((imp) => imp.import_id === msg.claudeImportId);
           const bannerText = importView?.status === "failed"
@@ -218,7 +239,7 @@ export default function Thread({
         );
       })}
 
-      {agentRuns.map((run) => (
+      {runningRuns.map((run) => (
         <AgentRunCard
           key={run.run_id}
           run={run}
