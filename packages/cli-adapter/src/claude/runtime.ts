@@ -122,6 +122,80 @@ function metricKeyForTool(toolName: string): keyof AgentRunMetrics | undefined {
   return undefined;
 }
 
+interface ToolBlockState {
+  nodeId: string;
+  toolName: string;
+  parentToolUseId: string | null;
+  inputJson: string;
+  input: Record<string, unknown>;
+}
+
+function parseJsonObject(text: string): Record<string, unknown> | undefined {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function firstString(input: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return "";
+}
+
+function readableToolTitle(toolName: string, input: Record<string, unknown>, fallbackTitle?: string): string {
+  if (fallbackTitle) return fallbackTitle;
+  if (Object.keys(input).length === 0) return toolTitle(toolName, input);
+  if (toolName === "Glob") {
+    const pattern = firstString(input, ["pattern"]);
+    return pattern ? `Search files: ${pattern}` : "Search files";
+  }
+  if (toolName === "Grep") {
+    const pattern = firstString(input, ["pattern", "query"]);
+    return pattern ? `Search text: ${pattern}` : "Search text";
+  }
+  if (toolName === "Read") {
+    const filePath = firstString(input, ["file_path", "path"]);
+    return filePath ? `Read file: ${filePath}` : "Read file";
+  }
+  if (toolName === "LS") {
+    const path = firstString(input, ["path", "dir"]);
+    return path ? `List directory: ${path}` : "List directory";
+  }
+  if (toolName === "Bash") {
+    const command = firstString(input, ["command"]);
+    return command ? `Run command: ${command}` : "Run command";
+  }
+  if (toolName === "Edit" || toolName === "MultiEdit" || toolName === "Write") {
+    const filePath = firstString(input, ["file_path", "path"]);
+    return filePath ? `${toolName} file: ${filePath}` : `${toolName} file`;
+  }
+  return toolTitle(toolName, input);
+}
+
+function toolDetail(toolName: string, input: Record<string, unknown>, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    ...extra,
+    tool_name: toolName,
+    ...(Object.keys(input).length > 0 ? { input } : {})
+  };
+}
+
+function resultUsage(record: Record<string, unknown>): Record<string, unknown> | undefined {
+  const usage = asRecord(record.usage);
+  const merged: Record<string, unknown> = { ...usage };
+  for (const key of ["duration_ms", "duration_api_ms", "num_turns", "total_cost_usd", "stop_reason", "terminal_reason"] as const) {
+    if (record[key] !== undefined && record[key] !== null) merged[key] = record[key];
+  }
+  if (record.modelUsage && typeof record.modelUsage === "object") merged.model_usage = record.modelUsage;
+  if (Array.isArray(record.permission_denials)) merged.permission_denials = record.permission_denials;
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
 function permissionPolicy(permissionLevel: string, toolName: string): "allow" | "ask" | "deny" {
   if (permissionLevel === "read_only") {
     return ReadOnlyTools.has(toolName) ? "allow" : "deny";
@@ -210,6 +284,8 @@ export class ClaudeRuntime {
     let activeCompactionNodeId: string | undefined;
     let transientNodeCounter = 0;
     const thinkingNodeIdsByBlockIndex = new Map<number, string>();
+    const toolBlocksByIndex = new Map<number, ToolBlockState>();
+    const toolInputsByNodeId = new Map<string, Record<string, unknown>>();
 
     const nextTransientNodeId = (prefix: string) => `${prefix}_${++transientNodeCounter}`;
 
@@ -226,18 +302,25 @@ export class ClaudeRuntime {
       const nodeId = thinkingNodeIdFor(blockIndex);
       await recorder.startNode({
         nodeId,
-        kind: "status",
-        status: "running",
+        kind: "reasoning_summary",
+        status: "streaming",
         title: "Thinking",
-        detail: { signal: "claude_thinking" }
+        detail: { signal: "claude_thinking", display: "summarized" }
       });
       return nodeId;
+    };
+
+    const appendThinkingDelta = async (blockIndex: number | undefined, chunk: string): Promise<void> => {
+      const nodeId = await ensureThinkingNode(blockIndex);
+      if (chunk) {
+        await recorder.appendNodeDelta({ nodeId, deltaType: "text", chunk });
+      }
     };
 
     const completeThinkingNode = async (blockIndex: number | undefined): Promise<void> => {
       const nodeId = thinkingNodeIdFor(blockIndex);
       if (recorder.hasNode(nodeId) && !recorder.isTerminal(nodeId)) {
-        await recorder.completeNode({ nodeId, summary: "Thinking complete" });
+        await recorder.completeNode({ nodeId });
       }
     };
 
@@ -289,14 +372,27 @@ export class ClaudeRuntime {
       detail?: Record<string, unknown>;
     }) => {
       countToolMetric(input.nodeId, input.toolName);
+      if (Object.keys(input.toolInput).length > 0) {
+        toolInputsByNodeId.set(input.nodeId, input.toolInput);
+      }
       await recorder.startNode({
         nodeId: input.nodeId,
         parentNodeId: input.parentToolUseId ? (toolUseToTaskNodeId.get(input.parentToolUseId) ?? input.parentToolUseId) : undefined,
         kind: "tool",
         status: input.status ?? "running",
-        title: toolTitle(input.toolName, input.toolInput, input.title),
-        ...(input.detail ? { detail: input.detail } : {}),
+        title: readableToolTitle(input.toolName, input.toolInput, input.title),
+        detail: toolDetail(input.toolName, input.toolInput, input.detail),
         sourceRefs: toolSourceRefs(input.nodeId, input.parentToolUseId)
+      });
+    };
+
+    const updateToolNodeFromInput = async (state: ToolBlockState, extra: Record<string, unknown> = {}) => {
+      toolInputsByNodeId.set(state.nodeId, state.input);
+      await recorder.updateNode({
+        nodeId: state.nodeId,
+        title: readableToolTitle(state.toolName, state.input),
+        detail: toolDetail(state.toolName, state.input, extra),
+        sourceRefs: toolSourceRefs(state.nodeId, state.parentToolUseId)
       });
     };
 
@@ -418,11 +514,12 @@ export class ClaudeRuntime {
         includePartialMessages: true,
         includeHookEvents: true,
         forwardSubagentText: true,
+        thinking: { type: "adaptive", display: "summarized" },
         toolConfig: { askUserQuestion: { previewFormat: "html" } },
         ...(this.selectedSessionId ? { resume: this.selectedSessionId } : {}),
         canUseTool,
         onElicitation
-      }
+      } as Parameters<ClaudeSdk["query"]>[0]["options"] & { thinking: { type: "adaptive"; display: "summarized" } }
     });
 
     this.activeQuery = query;
@@ -480,21 +577,54 @@ export class ClaudeRuntime {
               await ensureThinkingNode(blockIndex);
             } else if (blockType === "tool_use") {
               const nodeId = typeof contentBlock.id === "string" && contentBlock.id ? contentBlock.id : nextTransientNodeId("tool");
+              const parentToolUseId = typeof record.parent_tool_use_id === "string" ? record.parent_tool_use_id : null;
+              const toolName = typeof contentBlock.name === "string" ? contentBlock.name : "Tool";
+              const toolInput = asRecord(contentBlock.input);
               await ensureToolNode({
                 nodeId,
-                toolName: typeof contentBlock.name === "string" ? contentBlock.name : "Tool",
-                toolInput: asRecord(contentBlock.input),
-                parentToolUseId: typeof record.parent_tool_use_id === "string" ? record.parent_tool_use_id : null
+                toolName,
+                toolInput,
+                parentToolUseId
               });
+              if (blockIndex !== undefined) {
+                toolBlocksByIndex.set(blockIndex, {
+                  nodeId,
+                  toolName,
+                  parentToolUseId,
+                  inputJson: Object.keys(toolInput).length > 0 ? JSON.stringify(toolInput) : "",
+                  input: toolInput
+                });
+              }
             }
           } else if (eventType === "content_block_delta") {
             const delta = asRecord(event.delta);
             if (delta.type === "text_delta" && typeof delta.text === "string") {
               await appendAssistantDelta(delta.text);
-            } else if (delta.type === "thinking_delta") {
-              await ensureThinkingNode(blockIndex);
+            } else if (delta.type === "thinking_delta" && typeof delta.thinking === "string") {
+              await appendThinkingDelta(blockIndex, delta.thinking);
+            } else if (delta.type === "input_json_delta" && typeof delta.partial_json === "string" && blockIndex !== undefined) {
+              const state = toolBlocksByIndex.get(blockIndex);
+              if (state) {
+                state.inputJson += delta.partial_json;
+                const parsed = parseJsonObject(state.inputJson);
+                if (parsed) {
+                  state.input = parsed;
+                  await updateToolNodeFromInput(state);
+                }
+              }
             }
           } else if (eventType === "content_block_stop") {
+            if (blockIndex !== undefined) {
+              const state = toolBlocksByIndex.get(blockIndex);
+              if (state) {
+                const parsed = state.inputJson ? parseJsonObject(state.inputJson) : undefined;
+                if (parsed) {
+                  state.input = parsed;
+                  await updateToolNodeFromInput(state);
+                }
+                toolBlocksByIndex.delete(blockIndex);
+              }
+            }
             await completeThinkingNode(blockIndex);
           }
           continue;
@@ -504,6 +634,7 @@ export class ClaudeRuntime {
           const nodeId = typeof record.tool_use_id === "string" && record.tool_use_id ? record.tool_use_id : nextTransientNodeId("tool");
           const toolName = typeof record.tool_name === "string" ? record.tool_name : "Tool";
           const elapsedTime = typeof record.elapsed_time_seconds === "number" ? record.elapsed_time_seconds : 0;
+          const toolInput = toolInputsByNodeId.get(nodeId) ?? {};
           await ensureToolNode({
             nodeId,
             toolName,
@@ -513,7 +644,7 @@ export class ClaudeRuntime {
           await recorder.updateNode({
             nodeId,
             status: "running",
-            detail: { elapsed_time_seconds: elapsedTime },
+            detail: toolDetail(toolName, toolInput, { elapsed_time_seconds: elapsedTime }),
             sourceRefs: toolSourceRefs(nodeId, typeof record.parent_tool_use_id === "string" ? record.parent_tool_use_id : null)
           });
           continue;
@@ -665,8 +796,8 @@ export class ClaudeRuntime {
 
         if (msgType === "result") {
           const resultSubtype = typeof record.subtype === "string" ? record.subtype : "";
-          if (resultSubtype === "success" && typeof record.usage === "object" && record.usage !== null) {
-            usage = record.usage as Record<string, unknown>;
+          if (resultSubtype === "success") {
+            usage = resultUsage(record);
             if (!finalText && typeof record.result === "string" && record.result) {
               await syncAssistantText(record.result);
             }

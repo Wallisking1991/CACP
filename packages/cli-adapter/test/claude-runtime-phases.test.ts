@@ -113,7 +113,12 @@ describe("Claude runtime run-trace mapping", () => {
     expect(updated.some((node) => node.node_id === "toolu_glob" && node.title === "Search files: src/**/*.ts")).toBe(true);
     expect(updated.some((node) => node.node_id === "toolu_glob" && (node.detail as Record<string, unknown> | undefined)?.tool_name === "Glob")).toBe(true);
     expect(updated.some((node) => node.node_id === "toolu_glob" && JSON.stringify(node.detail).includes("src/**/*.ts"))).toBe(true);
-    expect(updated.some((node) => node.node_id === "toolu_glob" && (node.detail as Record<string, unknown> | undefined)?.elapsed_time_seconds === 3)).toBe(true);
+    const latestGlobUpdate = updated.filter((node) => node.node_id === "toolu_glob").at(-1);
+    expect(latestGlobUpdate?.detail).toMatchObject({
+      tool_name: "Glob",
+      input: { pattern: "src/**/*.ts" },
+      elapsed_time_seconds: 3
+    });
     expect(completed.some((node) => node.node_id === "toolu_glob" && node.summary === "Found TypeScript files")).toBe(true);
     expect(publishedDeltas).toEqual(["Done"]);
     expect(result.metrics.searches).toBe(1);
@@ -164,8 +169,45 @@ describe("Claude runtime run-trace mapping", () => {
     expect(result.usage?.permission_denials).toEqual([{ tool_name: "Bash", tool_use_id: "toolu_bash", tool_input: { command: "rm -rf dist" } }]);
   });
 
+  it("preserves SDK result metadata and fallback text when usage object is omitted", async () => {
+    const { runtime } = createHarness(() => createQuery([
+      {
+        type: "result",
+        subtype: "success",
+        duration_ms: 3456,
+        duration_api_ms: 3000,
+        is_error: false,
+        num_turns: 3,
+        result: "Done from result",
+        total_cost_usd: 0.0456,
+        terminal_reason: "completed",
+        uuid: "result_1",
+        session_id: "session_1"
+      }
+    ]));
+
+    await runtime.selectSession({ mode: "fresh" });
+    const result = await runtime.runTurn({
+      turnId: "turn_1",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "inspect"
+    });
+
+    expect(result.finalText).toBe("Done from result");
+    expect(result.usage).toMatchObject({
+      duration_ms: 3456,
+      duration_api_ms: 3000,
+      num_turns: 3,
+      total_cost_usd: 0.0456,
+      terminal_reason: "completed"
+    });
+  });
+
   it("routes Bash permission prompts through room-backed approval requests", async () => {
-    const { runtime, approvals, started } = createHarness((_prompt, options) => {
+    const { runtime, approvals, started, updated } = createHarness((_prompt, options) => {
       const canUseTool = options.canUseTool as undefined | ((toolName: string, input: Record<string, unknown>, toolOptions: Record<string, unknown>) => Promise<unknown>);
       if (!canUseTool) throw new Error("missing canUseTool");
       void canUseTool("Bash", { command: "pnpm install" }, {
@@ -178,6 +220,7 @@ describe("Claude runtime run-trace mapping", () => {
       });
       return createQuery([
         { type: "system", subtype: "init", session_id: "session_1", uuid: "init_1" },
+        { type: "tool_progress", tool_use_id: "toolu_bash", tool_name: "Bash", parent_tool_use_id: null, elapsed_time_seconds: 7, uuid: "tool_progress_1", session_id: "session_1" },
         createSuccessResult("session_1", "Done")
       ]);
     });
@@ -205,6 +248,47 @@ describe("Claude runtime run-trace mapping", () => {
         description: "Install dependencies",
         decision_reason: "Command execution needs approval"
       }
+    });
+    const latestBashUpdate = updated.filter((node) => node.node_id === "toolu_bash").at(-1);
+    expect(latestBashUpdate?.detail).toMatchObject({
+      tool_name: "Bash",
+      input: { command: "pnpm install" },
+      elapsed_time_seconds: 7
+    });
+  });
+
+  it("preserves assistant tool_use input when progress updates arrive", async () => {
+    const { runtime, started, updated } = createHarness(() => createQuery([
+      {
+        type: "assistant",
+        session_id: "session_1",
+        uuid: "assistant_1",
+        message: {
+          content: [
+            { type: "tool_use", id: "toolu_read", name: "Read", input: { file_path: "README.md" } }
+          ]
+        }
+      },
+      { type: "tool_progress", tool_use_id: "toolu_read", tool_name: "Read", parent_tool_use_id: null, elapsed_time_seconds: 2, uuid: "tool_progress_1", session_id: "session_1" },
+      createSuccessResult("session_1", "Done")
+    ]));
+
+    await runtime.selectSession({ mode: "fresh" });
+    await runtime.runTurn({
+      turnId: "turn_1",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "read docs"
+    });
+
+    expect(started.some((node) => node.node_id === "toolu_read" && node.kind === "tool" && node.title === "Read file: README.md")).toBe(true);
+    const latestReadUpdate = updated.filter((node) => node.node_id === "toolu_read").at(-1);
+    expect(latestReadUpdate?.detail).toMatchObject({
+      tool_name: "Read",
+      input: { file_path: "README.md" },
+      elapsed_time_seconds: 2
     });
   });
 
