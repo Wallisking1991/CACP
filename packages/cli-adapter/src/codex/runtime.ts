@@ -36,9 +36,33 @@ function asUsageRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" ? value as Record<string, unknown> : undefined;
 }
 
+function commandBaseName(command: string): string {
+  const trimmed = command.trim();
+  // Handle quoted commands like "cat file.txt" -> cat
+  const first = trimmed.match(/^["']?([^\s"']+)/);
+  return first?.[1] ?? "";
+}
+
+const ReadCommands = new Set(["cat", "head", "tail", "less", "more", "ls", "dir"]);
+const SearchCommands = new Set(["grep", "find", "rg", "fd"]);
+
+function commandTypeForTitle(item: CodexThreadItem): { action: string; subject: string } | undefined {
+  if (item.type !== "command_execution" || typeof item.command !== "string" || !item.command) return undefined;
+  const base = commandBaseName(item.command);
+  const rest = item.command.trim().slice(base.length).trim();
+
+  if (base === "ls" || base === "dir") return { action: "List directory", subject: rest };
+  if (ReadCommands.has(base)) return { action: "Read file", subject: rest };
+  if (SearchCommands.has(base)) return { action: "Search text", subject: item.command.trim() };
+  return { action: "Run command", subject: item.command.trim() };
+}
+
 function toolTitle(item: CodexThreadItem): string {
-  if (item.type === "command_execution" && typeof item.command === "string" && item.command) {
-    return `Run command: ${item.command}`;
+  if (item.type === "command_execution") {
+    const inferred = commandTypeForTitle(item);
+    if (inferred) {
+      return inferred.subject ? `${inferred.action}: ${inferred.subject}` : inferred.action;
+    }
   }
   if (item.type === "web_search" || item.type === "web_search_call") {
     return "Web search";
@@ -47,11 +71,20 @@ function toolTitle(item: CodexThreadItem): string {
     const toolName = typeof item.tool_name === "string" ? item.tool_name : typeof item.name === "string" ? item.name : "MCP tool";
     return `Use ${toolName}`;
   }
+  if (item.type === "file_change") {
+    const filePath = typeof item.file_path === "string" && item.file_path ? item.file_path : undefined;
+    const changeType = typeof item.change_type === "string" && item.change_type ? item.change_type : "Change";
+    return filePath ? `${changeType.charAt(0).toUpperCase() + changeType.slice(1)} file: ${filePath}` : "File change";
+  }
+  if (item.type === "todo_list") {
+    const title = typeof item.title === "string" && item.title ? item.title : undefined;
+    return title ? `Todo list: ${title}` : "Todo list";
+  }
   return "Codex step";
 }
 
 function nodeKindForItem(item: CodexThreadItem): "tool" | "reasoning_summary" | "status" {
-  if (item.type === "command_execution" || item.type === "web_search" || item.type === "web_search_call" || item.type === "mcp_tool_call") {
+  if (item.type === "command_execution" || item.type === "web_search" || item.type === "web_search_call" || item.type === "mcp_tool_call" || item.type === "file_change" || item.type === "todo_list") {
     return "tool";
   }
   if (item.type === "reasoning") return "reasoning_summary";
@@ -151,7 +184,17 @@ export class CodexRuntime {
         const id = itemIdentity(item, "command");
         if (countedCommands.has(id)) return;
         countedCommands.add(id);
-        metrics.commands += 1;
+
+        const command = typeof item.command === "string" ? item.command : "";
+        const base = commandBaseName(command);
+
+        if (ReadCommands.has(base)) {
+          metrics.files_read += 1;
+        } else if (SearchCommands.has(base)) {
+          metrics.searches += 1;
+        } else {
+          metrics.commands += 1;
+        }
       } else if (item.type === "web_search" || item.type === "web_search_call") {
         const id = itemIdentity(item, "search");
         if (countedSearches.has(id)) return;

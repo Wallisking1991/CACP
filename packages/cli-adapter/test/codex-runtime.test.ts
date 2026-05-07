@@ -224,4 +224,458 @@ describe("Codex runtime", () => {
     const connectingStartIndex = started.findIndex((n) => n.node_id === "connecting");
     expect(connectingStartIndex).toBeGreaterThanOrEqual(0);
   });
+
+  it("infers Read file title from cat command", async () => {
+    const { runtime, started } = createRuntime({
+      sdk: {
+        startThread: () => ({
+          id: null,
+          runStreamed: async () => ({
+            events: events([
+              { type: "thread.started", thread_id: "thread_123" },
+              { type: "item.started", item: { id: "cmd_1", type: "command_execution", command: "cat package.json" } },
+              { type: "item.completed", item: { id: "cmd_1", type: "command_execution", command: "cat package.json", exit_code: 0 } },
+              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
+            ])
+          })
+        }),
+        resumeThread: () => { throw new Error("unexpected"); }
+      }
+    });
+
+    await runtime.selectSession({ mode: "fresh" });
+    await runtime.runTurn({
+      turnId: "turn_1",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "hello"
+    });
+
+    const cmdNode = started.find((n) => n.node_id === "cmd_1");
+    expect(cmdNode?.title).toBe("Read file: package.json");
+  });
+
+  it("infers List directory title from ls command", async () => {
+    const { runtime, started } = createRuntime({
+      sdk: {
+        startThread: () => ({
+          id: null,
+          runStreamed: async () => ({
+            events: events([
+              { type: "thread.started", thread_id: "thread_123" },
+              { type: "item.started", item: { id: "cmd_1", type: "command_execution", command: "ls src/" } },
+              { type: "item.completed", item: { id: "cmd_1", type: "command_execution", command: "ls src/", exit_code: 0 } },
+              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
+            ])
+          })
+        }),
+        resumeThread: () => { throw new Error("unexpected"); }
+      }
+    });
+
+    await runtime.selectSession({ mode: "fresh" });
+    await runtime.runTurn({
+      turnId: "turn_1",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "hello"
+    });
+
+    const cmdNode = started.find((n) => n.node_id === "cmd_1");
+    expect(cmdNode?.title).toBe("List directory: src/");
+  });
+
+  it("infers Search text title from grep command", async () => {
+    const { runtime, started } = createRuntime({
+      sdk: {
+        startThread: () => ({
+          id: null,
+          runStreamed: async () => ({
+            events: events([
+              { type: "thread.started", thread_id: "thread_123" },
+              { type: "item.started", item: { id: "cmd_1", type: "command_execution", command: "grep -r 'foo' ." } },
+              { type: "item.completed", item: { id: "cmd_1", type: "command_execution", command: "grep -r 'foo' .", exit_code: 0 } },
+              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
+            ])
+          })
+        }),
+        resumeThread: () => { throw new Error("unexpected"); }
+      }
+    });
+
+    await runtime.selectSession({ mode: "fresh" });
+    await runtime.runTurn({
+      turnId: "turn_1",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "hello"
+    });
+
+    const cmdNode = started.find((n) => n.node_id === "cmd_1");
+    expect(cmdNode?.title).toBe("Search text: grep -r 'foo' .");
+  });
+
+  it("falls back to Run command title for non-file commands", async () => {
+    const { runtime, started } = createRuntime({
+      sdk: {
+        startThread: () => ({
+          id: null,
+          runStreamed: async () => ({
+            events: events([
+              { type: "thread.started", thread_id: "thread_123" },
+              { type: "item.started", item: { id: "cmd_1", type: "command_execution", command: "npm install" } },
+              { type: "item.completed", item: { id: "cmd_1", type: "command_execution", command: "npm install", exit_code: 0 } },
+              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
+            ])
+          })
+        }),
+        resumeThread: () => { throw new Error("unexpected"); }
+      }
+    });
+
+    await runtime.selectSession({ mode: "fresh" });
+    await runtime.runTurn({
+      turnId: "turn_1",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "hello"
+    });
+
+    const cmdNode = started.find((n) => n.node_id === "cmd_1");
+    expect(cmdNode?.title).toBe("Run command: npm install");
+  });
+
+  it("counts files_read from cat, head, tail, less commands", async () => {
+    const { runtime } = createRuntime({
+      sdk: {
+        startThread: () => ({
+          id: null,
+          runStreamed: async () => ({
+            events: events([
+              { type: "thread.started", thread_id: "thread_123" },
+              { type: "item.started", item: { id: "cmd_1", type: "command_execution", command: "cat package.json" } },
+              { type: "item.completed", item: { id: "cmd_1", type: "command_execution", command: "cat package.json", exit_code: 0 } },
+              { type: "item.started", item: { id: "cmd_2", type: "command_execution", command: "head -20 src/index.ts" } },
+              { type: "item.completed", item: { id: "cmd_2", type: "command_execution", command: "head -20 src/index.ts", exit_code: 0 } },
+              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
+            ])
+          })
+        }),
+        resumeThread: () => { throw new Error("unexpected"); }
+      }
+    });
+
+    await runtime.selectSession({ mode: "fresh" });
+    const result = await runtime.runTurn({
+      turnId: "turn_1",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "hello"
+    });
+
+    expect(result.metrics.files_read).toBe(2);
+    expect(result.metrics.searches).toBe(0);
+    expect(result.metrics.commands).toBe(0);
+  });
+
+  it("counts files_read from ls and dir commands", async () => {
+    const { runtime } = createRuntime({
+      sdk: {
+        startThread: () => ({
+          id: null,
+          runStreamed: async () => ({
+            events: events([
+              { type: "thread.started", thread_id: "thread_123" },
+              { type: "item.started", item: { id: "cmd_1", type: "command_execution", command: "ls src/" } },
+              { type: "item.completed", item: { id: "cmd_1", type: "command_execution", command: "ls src/", exit_code: 0 } },
+              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
+            ])
+          })
+        }),
+        resumeThread: () => { throw new Error("unexpected"); }
+      }
+    });
+
+    await runtime.selectSession({ mode: "fresh" });
+    const result = await runtime.runTurn({
+      turnId: "turn_1",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "hello"
+    });
+
+    expect(result.metrics.files_read).toBe(1);
+  });
+
+  it("counts searches from grep and find commands", async () => {
+    const { runtime } = createRuntime({
+      sdk: {
+        startThread: () => ({
+          id: null,
+          runStreamed: async () => ({
+            events: events([
+              { type: "thread.started", thread_id: "thread_123" },
+              { type: "item.started", item: { id: "cmd_1", type: "command_execution", command: "grep 'foo' *.ts" } },
+              { type: "item.completed", item: { id: "cmd_1", type: "command_execution", command: "grep 'foo' *.ts", exit_code: 0 } },
+              { type: "item.started", item: { id: "cmd_2", type: "command_execution", command: "find . -name '*.ts'" } },
+              { type: "item.completed", item: { id: "cmd_2", type: "command_execution", command: "find . -name '*.ts'", exit_code: 0 } },
+              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
+            ])
+          })
+        }),
+        resumeThread: () => { throw new Error("unexpected"); }
+      }
+    });
+
+    await runtime.selectSession({ mode: "fresh" });
+    const result = await runtime.runTurn({
+      turnId: "turn_1",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "hello"
+    });
+
+    expect(result.metrics.searches).toBe(2);
+  });
+
+  it("counts commands from other shell commands", async () => {
+    const { runtime } = createRuntime({
+      sdk: {
+        startThread: () => ({
+          id: null,
+          runStreamed: async () => ({
+            events: events([
+              { type: "thread.started", thread_id: "thread_123" },
+              { type: "item.started", item: { id: "cmd_1", type: "command_execution", command: "npm install" } },
+              { type: "item.completed", item: { id: "cmd_1", type: "command_execution", command: "npm install", exit_code: 0 } },
+              { type: "item.started", item: { id: "cmd_2", type: "command_execution", command: "git status" } },
+              { type: "item.completed", item: { id: "cmd_2", type: "command_execution", command: "git status", exit_code: 0 } },
+              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
+            ])
+          })
+        }),
+        resumeThread: () => { throw new Error("unexpected"); }
+      }
+    });
+
+    await runtime.selectSession({ mode: "fresh" });
+    const result = await runtime.runTurn({
+      turnId: "turn_1",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "hello"
+    });
+
+    expect(result.metrics.commands).toBe(2);
+  });
+
+  it("deduplicates metrics by item identity across started/updated/completed", async () => {
+    const { runtime } = createRuntime({
+      sdk: {
+        startThread: () => ({
+          id: null,
+          runStreamed: async () => ({
+            events: events([
+              { type: "thread.started", thread_id: "thread_123" },
+              { type: "item.started", item: { id: "cmd_1", type: "command_execution", command: "cat file.txt" } },
+              { type: "item.updated", item: { id: "cmd_1", type: "command_execution", command: "cat file.txt" } },
+              { type: "item.completed", item: { id: "cmd_1", type: "command_execution", command: "cat file.txt", exit_code: 0 } },
+              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
+            ])
+          })
+        }),
+        resumeThread: () => { throw new Error("unexpected"); }
+      }
+    });
+
+    await runtime.selectSession({ mode: "fresh" });
+    const result = await runtime.runTurn({
+      turnId: "turn_1",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "hello"
+    });
+
+    expect(result.metrics.files_read).toBe(1);
+  });
+
+  it("maps usage fields from turn.completed including reasoning tokens", async () => {
+    const { runtime } = createRuntime({
+      sdk: {
+        startThread: () => ({
+          id: null,
+          runStreamed: async () => ({
+            events: events([
+              { type: "thread.started", thread_id: "thread_123" },
+              { type: "turn.completed", usage: { input_tokens: 500, cached_input_tokens: 200, output_tokens: 300, reasoning_output_tokens: 150 } }
+            ])
+          })
+        }),
+        resumeThread: () => { throw new Error("unexpected"); }
+      }
+    });
+
+    await runtime.selectSession({ mode: "fresh" });
+    const result = await runtime.runTurn({
+      turnId: "turn_1",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "hello"
+    });
+
+    expect(result.usage).toEqual({
+      input_tokens: 500,
+      cached_input_tokens: 200,
+      output_tokens: 300,
+      reasoning_output_tokens: 150
+    });
+  });
+
+  it("creates meaningful title for file_change items", async () => {
+    const { runtime, started } = createRuntime({
+      sdk: {
+        startThread: () => ({
+          id: null,
+          runStreamed: async () => ({
+            events: events([
+              { type: "thread.started", thread_id: "thread_123" },
+              { type: "item.started", item: { id: "fc_1", type: "file_change", file_path: "src/index.ts", change_type: "edit" } },
+              { type: "item.completed", item: { id: "fc_1", type: "file_change", file_path: "src/index.ts", change_type: "edit" } },
+              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
+            ])
+          })
+        }),
+        resumeThread: () => { throw new Error("unexpected"); }
+      }
+    });
+
+    await runtime.selectSession({ mode: "fresh" });
+    await runtime.runTurn({
+      turnId: "turn_1",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "hello"
+    });
+
+    const fileChangeNode = started.find((n) => n.node_id === "fc_1");
+    expect(fileChangeNode?.title).toBe("Edit file: src/index.ts");
+  });
+
+  it("handles file_change without file_path gracefully", async () => {
+    const { runtime, started } = createRuntime({
+      sdk: {
+        startThread: () => ({
+          id: null,
+          runStreamed: async () => ({
+            events: events([
+              { type: "thread.started", thread_id: "thread_123" },
+              { type: "item.started", item: { id: "fc_1", type: "file_change" } },
+              { type: "item.completed", item: { id: "fc_1", type: "file_change" } },
+              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
+            ])
+          })
+        }),
+        resumeThread: () => { throw new Error("unexpected"); }
+      }
+    });
+
+    await runtime.selectSession({ mode: "fresh" });
+    await runtime.runTurn({
+      turnId: "turn_1",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "hello"
+    });
+
+    const fileChangeNode = started.find((n) => n.node_id === "fc_1");
+    expect(fileChangeNode?.title).toBe("File change");
+  });
+
+  it("creates meaningful title for todo_list items", async () => {
+    const { runtime, started } = createRuntime({
+      sdk: {
+        startThread: () => ({
+          id: null,
+          runStreamed: async () => ({
+            events: events([
+              { type: "thread.started", thread_id: "thread_123" },
+              { type: "item.started", item: { id: "td_1", type: "todo_list", title: "Fix bugs" } },
+              { type: "item.completed", item: { id: "td_1", type: "todo_list", title: "Fix bugs", items: [{ text: "Fix bug A", done: true }] } },
+              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
+            ])
+          })
+        }),
+        resumeThread: () => { throw new Error("unexpected"); }
+      }
+    });
+
+    await runtime.selectSession({ mode: "fresh" });
+    await runtime.runTurn({
+      turnId: "turn_1",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "hello"
+    });
+
+    const todoNode = started.find((n) => n.node_id === "td_1");
+    expect(todoNode?.title).toBe("Todo list: Fix bugs");
+  });
+
+  it("handles todo_list without title gracefully", async () => {
+    const { runtime, started } = createRuntime({
+      sdk: {
+        startThread: () => ({
+          id: null,
+          runStreamed: async () => ({
+            events: events([
+              { type: "thread.started", thread_id: "thread_123" },
+              { type: "item.started", item: { id: "td_1", type: "todo_list" } },
+              { type: "item.completed", item: { id: "td_1", type: "todo_list" } },
+              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
+            ])
+          })
+        }),
+        resumeThread: () => { throw new Error("unexpected"); }
+      }
+    });
+
+    await runtime.selectSession({ mode: "fresh" });
+    await runtime.runTurn({
+      turnId: "turn_1",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "hello"
+    });
+
+    const todoNode = started.find((n) => n.node_id === "td_1");
+    expect(todoNode?.title).toBe("Todo list");
+  });
 });
