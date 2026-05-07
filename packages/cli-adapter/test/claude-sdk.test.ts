@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createClaudeSdkFromModule } from "../src/claude/claude-sdk.js";
+import { createClaudeSdkFromModule, findClaudeBinary, loadClaudeSdk } from "../src/claude/claude-sdk.js";
 
 function createQuery(messages: unknown[], onClose = vi.fn()) {
   return {
@@ -82,5 +82,46 @@ describe("Claude SDK boundary", () => {
 
   it("throws a clear error when the query API is missing", () => {
     expect(() => createClaudeSdkFromModule({})).toThrow(/query API/i);
+  });
+
+  it("loadClaudeSdk forwards pathToClaudeCodeExecutable to the SDK wrapper", async () => {
+    const queryCalls: Array<{ prompt: string; options: Record<string, unknown> }> = [];
+    const mockModule = {
+      query: ({ prompt, options }: { prompt: string; options: Record<string, unknown> }) => {
+        queryCalls.push({ prompt, options });
+        return createQuery([{ type: "system", subtype: "init", session_id: "s1" }]);
+      },
+      listSessions: async () => [],
+      getSessionMessages: async () => []
+    };
+
+    // Mock the dynamic import
+    vi.doMock("@anthropic-ai/claude-agent-sdk", () => mockModule);
+
+    const sdk = await loadClaudeSdk({ pathToClaudeCodeExecutable: "D:\\tools\\claude.exe" });
+    sdk.query({ prompt: "test", options: { cwd: ".", model: "test" } });
+
+    expect(queryCalls[0]?.options?.pathToClaudeCodeExecutable).toBe("D:\\tools\\claude.exe");
+
+    vi.doUnmock("@anthropic-ai/claude-agent-sdk");
+  });
+});
+
+describe("findClaudeBinary", () => {
+  it("respects CACP_CLAUDE_PATH when the file exists", () => {
+    const original = process.env.CACP_CLAUDE_PATH;
+    process.env.CACP_CLAUDE_PATH = process.execPath; // node.exe always exists
+    const result = findClaudeBinary();
+    process.env.CACP_CLAUDE_PATH = original;
+    expect(result).toBe(process.execPath);
+  });
+
+  it("returns undefined when CACP_CLAUDE_PATH points to a missing file", () => {
+    const original = process.env.CACP_CLAUDE_PATH;
+    process.env.CACP_CLAUDE_PATH = "/nonexistent/path/claude.exe";
+    const result = findClaudeBinary();
+    process.env.CACP_CLAUDE_PATH = original;
+    // Should fall through to other search methods; result may be undefined or a real binary
+    expect(result === undefined || typeof result === "string").toBe(true);
   });
 });

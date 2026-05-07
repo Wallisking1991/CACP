@@ -1,7 +1,8 @@
-import { copyFile, mkdir, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { copyFile, mkdir, readdir, writeFile } from "node:fs/promises";
+import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 
 if (process.platform !== "win32") {
   throw new Error("build:connector:win must be run on Windows.");
@@ -16,6 +17,19 @@ const exe = resolve(root, "packages/web/public/downloads/CACP-Local-Connector.ex
 function run(command, args, shell = process.platform === "win32") {
   const result = spawnSync(command, args, { cwd: root, stdio: "inherit", shell });
   if (result.status !== 0) process.exit(result.status ?? 1);
+}
+
+async function findClaudeBinaryInPnpmStore() {
+  const pnpmDir = join(root, "node_modules", ".pnpm");
+  if (!existsSync(pnpmDir)) return undefined;
+  const entries = await readdir(pnpmDir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.isDirectory() && entry.name.startsWith("@anthropic-ai+claude-agent-sdk-win32-x64@")) {
+      const candidate = join(pnpmDir, entry.name, "node_modules", "@anthropic-ai", "claude-agent-sdk-win32-x64", "claude.exe");
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return undefined;
 }
 
 await mkdir(dirname(bundle), { recursive: true });
@@ -38,5 +52,15 @@ run("corepack", [
   "--sentinel-fuse",
   "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2"
 ]);
+
+// Copy claude.exe alongside the SEA executable so findClaudeBinary() can discover it
+const claudeBinary = await findClaudeBinaryInPnpmStore();
+if (claudeBinary) {
+  const dest = resolve(root, "packages/web/public/downloads/claude.exe");
+  await copyFile(claudeBinary, dest);
+  console.log(`Copied ${claudeBinary} -> ${dest}`);
+} else {
+  console.warn("Warning: claude.exe not found in pnpm store. Claude Code runtime will require CACP_CLAUDE_PATH or a system-installed claude executable.");
+}
 
 console.log(`Built ${exe}`);

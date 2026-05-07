@@ -13,6 +13,10 @@ cacp.zuchongai.com {
     reverse_proxy 127.0.0.1:3737
   }
 
+  handle /invites* {
+    reverse_proxy 127.0.0.1:3737
+  }
+
   handle {
     root * /opt/cacp/packages/web/dist
     try_files {path} /index.html
