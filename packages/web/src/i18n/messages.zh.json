@@ -192,6 +192,7 @@
   "message.ai": "AI",
   "message.system": "系统",
   "message.queued": "排队中",
+  "queue.summary": "{count} 条消息排队中",
   "header.room": "房间",
   "header.peopleCount": "{count} 人",
   "header.agentOnline": "{name} 在线",

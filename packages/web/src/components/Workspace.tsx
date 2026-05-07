@@ -6,13 +6,14 @@ import { startTyping, stopTyping, updatePresence, createAgentPairing } from "../
 import { roomPermissionsForRole } from "../role-permissions.js";
 import { deriveRoomState, humanParticipants, isTurnInFlight } from "../room-state.js";
 import type { AgentSessionReadyView, AgentSessionSelectionView, ClaudeSessionReadyView, ClaudeSessionSelectionView } from "../room-state.js";
-import { requestClaudeSessionPreview, selectClaudeSession, requestAgentSessionPreview, selectAgentSession, sendOrbitNote, likeOrbitNote, unlikeOrbitNote, promoteOrbitNotes, sendMainInput, clearOrbit, resolveAgentRunApproval, resolveAgentRunElicitation } from "../api.js";
+import { requestClaudeSessionPreview, selectClaudeSession, requestAgentSessionPreview, selectAgentSession, sendOrbitNote, likeOrbitNote, unlikeOrbitNote, promoteOrbitNotes, sendMainInput, cancelMainInput, clearOrbit, resolveAgentRunApproval, resolveAgentRunElicitation } from "../api.js";
 import { createTypingActivityController, type TypingActivityController } from "../activity-client.js";
 import { createRoomSoundController, shouldPlayCueForMessage } from "../room-sound.js";
 import { useT } from "../i18n/useT.js";
 import Header from "./Header.js";
 import Thread from "./Thread.js";
 import MainComposer from "./MainComposer.js";
+import { MainInputQueueBar } from "./MainInputQueueBar.js";
 import OrbitComposer from "./OrbitComposer.js";
 import { AgentSessionRequiredModal } from "./AgentSessionRequiredModal.js";
 import { Popover } from "./Popover.js";
@@ -436,6 +437,13 @@ export default function Workspace({
             }}
             onResolveElicitation={(runId, nodeId, action, content) => {
               void resolveAgentRunElicitation({ serverUrl, roomId: session.room_id, token: session.token, runId, nodeId, action, content }).catch(() => {});
+            }}
+          />
+
+          <MainInputQueueBar
+            queue={room.mainInputQueue}
+            onCancel={(inputId) => {
+              void cancelMainInput(session, inputId).catch(() => {});
             }}
           />
 

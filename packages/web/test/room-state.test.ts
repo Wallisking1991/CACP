@@ -672,7 +672,7 @@ describe("room state", () => {
       expect(queued.mainInputQueue[0].status).toBe("queued");
 
       const triggered = deriveRoomState(events);
-      expect(triggered.mainInputQueue[0].status).toBe("triggered");
+      expect(triggered.mainInputQueue).toHaveLength(0);
     });
 
     it("marks input as cancelled or failed", () => {
@@ -680,13 +680,13 @@ describe("room state", () => {
         event("main_input.accepted", { input_id: "input_1", text: "Hello" }, 1, "user_1"),
         event("main_input.cancelled", { input_id: "input_1" }, 2, "user_1")
       ]);
-      expect(cancelled.mainInputQueue[0].status).toBe("cancelled");
+      expect(cancelled.mainInputQueue).toHaveLength(0);
 
       const failed = deriveRoomState([
         event("main_input.accepted", { input_id: "input_1", text: "Hello" }, 1, "user_1"),
         event("main_input.failed", { input_id: "input_1" }, 2, "system")
       ]);
-      expect(failed.mainInputQueue[0].status).toBe("failed");
+      expect(failed.mainInputQueue).toHaveLength(0);
     });
   });
 

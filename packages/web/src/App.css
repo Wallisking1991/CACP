@@ -3948,3 +3948,69 @@ textarea.input {
     background: var(--surface-warm);
   }
 }
+
+.main-input-queue-bar {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-1);
+}
+
+.main-input-queue-bar__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+}
+
+.main-input-queue-bar__text {
+  font-size: 13px;
+  color: var(--ink-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.main-input-queue-bar__cancel {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-2);
+  color: var(--ink-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.main-input-queue-bar__cancel:hover {
+  background: var(--surface-warm);
+  color: var(--ink);
+}
+
+.main-input-queue-bar__summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 0;
+  font-size: 13px;
+  color: var(--ink-secondary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.main-input-queue-bar__summary:hover {
+  color: var(--ink);
+}
+
+.main-input-queue-bar__list {
+  padding-top: 4px;
+}
+
+.main-input-queue-bar__list .main-input-queue-bar__item {
+  padding: 6px 0 6px 12px;
+  border-left: 2px solid var(--border-subtle);
+}

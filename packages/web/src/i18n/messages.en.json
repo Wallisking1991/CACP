@@ -192,6 +192,7 @@
   "message.ai": "AI",
   "message.system": "System",
   "message.queued": "QUEUED",
+  "queue.summary": "{count} messages waiting",
   "header.room": "Room",
   "header.peopleCount": "{count} people",
   "header.agentOnline": "{name} online",

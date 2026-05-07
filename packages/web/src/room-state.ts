@@ -1341,9 +1341,11 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
   }
 
   // Map main-input queue items to virtual messages for Thread rendering.
-  // Skip items that already have a persisted message.created to avoid duplicates.
+  // triggered items go to Thread as human messages.
+  // accepted items (not yet queued) show in Thread for immediate feedback.
+  // queued items render in the queue bar above composer, not in Thread.
   for (const item of mainInputQueue.values()) {
-    if (item.status === "cancelled" || item.status === "failed") continue;
+    if (item.status === "cancelled" || item.status === "failed" || item.status === "queued") continue;
     const hasMessageCreated = messages.some((m) => m.message_id === item.input_id);
     if (hasMessageCreated) continue;
     messages.push({
@@ -1358,16 +1360,11 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
   const runTraceTurnIds = new Set([...agentRuns.values()].map((run) => run.turn_id));
 
   // Apply main_input status overrides to persisted message.created items.
+  // cancelled/failed main_input hides the corresponding message from Thread.
   const filteredMessages = messages.filter((msg) => {
     const status = mainInputStatusByMessageId.get(msg.message_id ?? "");
     return status !== "cancelled" && status !== "failed" && !(msg.kind === "agent" && msg.turn_id && runTraceTurnIds.has(msg.turn_id));
   });
-  for (let i = 0; i < filteredMessages.length; i++) {
-    const status = mainInputStatusByMessageId.get(filteredMessages[i].message_id ?? "");
-    if (status === "accepted" || status === "queued") {
-      filteredMessages[i] = { ...filteredMessages[i], kind: "queued" };
-    }
-  }
   messages = filteredMessages;
 
   for (const activity of participantActivity.values()) {
@@ -1480,7 +1477,7 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     avatarStatuses,
     latestSenderId,
     orbitNotes: [...orbitNotes.values()].sort((a, b) => a.created_at.localeCompare(b.created_at)),
-    mainInputQueue: [...mainInputQueue.values()],
+    mainInputQueue: [...mainInputQueue.values()].filter((item) => item.status === "accepted" || item.status === "queued"),
     connectorSyncCursor
   };
 }
