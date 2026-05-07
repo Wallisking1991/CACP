@@ -42,6 +42,7 @@ export interface OrbitNote {
   author_name: string;
   text: string;
   created_at: string;
+  reply_to?: string;
 }
 
 export interface OrbitPromotionPayload {

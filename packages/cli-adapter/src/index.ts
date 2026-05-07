@@ -596,29 +596,9 @@ async function main() {
     setTimeout(() => process.exit(0), 25).unref();
   });
   ws.on("error", (error) => console.error(error));
-  console.log("DEBUG: main() is returning, WebSocket handlers set up");
   // Keep event loop alive
   const keepAlive = setInterval(() => {}, 10000);
   ws.on("close", () => clearInterval(keepAlive));
 }
 
-process.on("beforeExit", (code) => {
-  console.error("DIAGNOSTIC: beforeExit fired, exit code:", code);
-  console.error("DIAGNOSTIC: active handles count:", (process as any)._getActiveHandles?.().length ?? "N/A");
-  console.error("DIAGNOSTIC: active requests count:", (process as any)._getActiveRequests?.().length ?? "N/A");
-});
-process.on("exit", (code) => {
-  console.error("DIAGNOSTIC: exit fired, code:", code);
-});
-process.on("uncaughtException", (err) => {
-  console.error("DIAGNOSTIC: uncaughtException:", err);
-});
-process.on("unhandledRejection", (reason, promise) => {
-  console.error("DIAGNOSTIC: unhandledRejection:", reason);
-});
-process.on("SIGTERM", () => console.error("DIAGNOSTIC: SIGTERM received"));
-process.on("SIGINT", () => console.error("DIAGNOSTIC: SIGINT received"));
-
-console.log("DEBUG: About to call main()");
 void main().catch((error) => handleFatalError(error));
-console.log("DEBUG: main() called (async)");

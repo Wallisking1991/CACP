@@ -4,13 +4,14 @@ import React from "react";
 import Thread from "../src/components/Thread.js";
 import type { MessageView, StreamingTurnView } from "../src/room-state.js";
 
-function renderThread(messages: MessageView[]) {
+function renderThread(messages: MessageView[], pendingAgentName?: string) {
   return render(
     <Thread
       currentParticipantId="p1"
       messages={messages}
       streamingTurns={[]}
       actorNames={new Map()}
+      pendingAgentName={pendingAgentName}
     />
   );
 }
@@ -41,5 +42,16 @@ describe("Thread queued messages", () => {
     }];
     renderThread(messages);
     expect(screen.getByText(/QUEUED/i)).toBeInTheDocument();
+  });
+
+  it("renders skeleton bubble when pendingAgentName is provided", () => {
+    renderThread([], "Claude Code");
+    expect(screen.getByText("Claude Code")).toBeInTheDocument();
+    expect(document.querySelector(".skeleton-bubble")).toBeInTheDocument();
+  });
+
+  it("does not render skeleton bubble when pendingAgentName is absent", () => {
+    renderThread([]);
+    expect(document.querySelector(".skeleton-bubble")).not.toBeInTheDocument();
   });
 });

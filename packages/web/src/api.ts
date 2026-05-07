@@ -66,8 +66,8 @@ export async function sendMessage(session: RoomSession, text: string): Promise<v
   await postJson(`/rooms/${session.room_id}/messages`, session.token, { text });
 }
 
-export async function sendOrbitNote(session: RoomSession, text: string): Promise<{ note_id: string }> {
-  return await postJson(`/rooms/${session.room_id}/orbit/notes`, session.token, { text });
+export async function sendOrbitNote(session: RoomSession, text: string, replyTo?: string): Promise<{ note_id: string }> {
+  return await postJson(`/rooms/${session.room_id}/orbit/notes`, session.token, { text, reply_to: replyTo });
 }
 
 export async function likeOrbitNote(session: RoomSession, noteId: string): Promise<{ liked: boolean; count: number }> {

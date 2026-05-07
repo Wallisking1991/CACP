@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useT } from "../i18n/useT.js";
 import { roomPermissionsForRole } from "../role-permissions.js";
 import type { RoomSession } from "../api.js";
@@ -10,9 +10,11 @@ import type { MentionRange } from "./MentionOverlay.js";
 export interface OrbitComposerProps {
   role: RoomSession["role"];
   members: Array<{ id: string; display_name: string; role: string }>;
-  onSendOrbitNote: (text: string) => void;
+  onSendOrbitNote: (text: string, replyTo?: string) => void;
   onTypingInput: (text: string) => void;
   onStopTyping: () => void;
+  replyTo?: { noteId: string; authorName: string; text: string };
+  onCancelReply?: () => void;
 }
 
 export default function OrbitComposer({
@@ -21,6 +23,8 @@ export default function OrbitComposer({
   onSendOrbitNote,
   onTypingInput,
   onStopTyping,
+  replyTo,
+  onCancelReply,
 }: OrbitComposerProps) {
   const t = useT();
   const [text, setText] = useState("");
@@ -28,6 +32,12 @@ export default function OrbitComposer({
   const [mentionActive, setMentionActive] = useState(false);
   const [mentionIndex, setMentionIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (replyTo) {
+      textareaRef.current?.focus();
+    }
+  }, [replyTo]);
 
   const perms = roomPermissionsForRole(role);
   const canInput = perms.canSendOrbitNotes;
@@ -51,14 +61,58 @@ export default function OrbitComposer({
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    onSendOrbitNote(trimmed);
+    onSendOrbitNote(trimmed, replyTo?.noteId);
     setText("");
     setMentionActive(false);
     onStopTyping();
-  }, [text, onSendOrbitNote, onStopTyping]);
+  }, [text, onSendOrbitNote, onStopTyping, replyTo]);
+
+  const cursorPosRef = useRef(0);
+
+  const checkMention = useCallback((value: string, pos: number) => {
+    const beforeCursor = value.slice(0, pos);
+    const atIndex = beforeCursor.lastIndexOf("@");
+    if (atIndex >= 0 && !beforeCursor.slice(atIndex + 1).includes(" ")) {
+      const query = beforeCursor.slice(atIndex + 1);
+      setMentionQuery(query);
+      setMentionActive(true);
+      setMentionIndex(0);
+    } else {
+      setMentionActive(false);
+    }
+  }, []);
+
+  const handleInput = useCallback(
+    (e: React.FormEvent<HTMLTextAreaElement>) => {
+      const value = e.currentTarget.value;
+      const cursorPos = e.currentTarget.selectionStart ?? value.length;
+      cursorPosRef.current = cursorPos;
+      setText(value);
+      onTypingInput(value);
+      checkMention(value, cursorPos);
+      // Delayed re-check to handle IME composition races
+      requestAnimationFrame(() => {
+        const textarea = textareaRef.current;
+        if (textarea) {
+          checkMention(textarea.value, textarea.selectionStart ?? textarea.value.length);
+        }
+      });
+    },
+    [onTypingInput, checkMention]
+  );
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      // Force mention check on @ keypress as a fallback for IME/input races
+      if (e.key === "@") {
+        const textarea = e.currentTarget;
+        const pos = (textarea.selectionStart ?? textarea.value.length) + 1;
+        requestAnimationFrame(() => {
+          const t = textareaRef.current;
+          if (t) checkMention(t.value, t.selectionStart ?? pos);
+        });
+      }
+
       if (mentionActive) {
         if (e.key === "ArrowDown") {
           e.preventDefault();
@@ -77,7 +131,7 @@ export default function OrbitComposer({
           );
           const selected = filtered[mentionIndex % filtered.length];
           if (selected && textareaRef.current) {
-            const cursorPos = textareaRef.current.selectionStart;
+            const cursorPos = cursorPosRef.current;
             const before = text.slice(0, cursorPos - mentionQuery.length - 1);
             const after = text.slice(cursorPos);
             const newText = before + "@" + selected.name + " " + after;
@@ -98,32 +152,27 @@ export default function OrbitComposer({
         handleSend();
       }
     },
-    [mentionActive, mentionItems, mentionQuery, mentionIndex, text, handleSend]
-  );
-
-  const handleInput = useCallback(
-    (e: React.FormEvent<HTMLTextAreaElement>) => {
-      const value = e.currentTarget.value;
-      const cursorPos = e.currentTarget.selectionStart;
-      setText(value);
-      onTypingInput(value);
-
-      const beforeCursor = value.slice(0, cursorPos);
-      const atIndex = beforeCursor.lastIndexOf("@");
-      if (atIndex >= 0 && !beforeCursor.slice(atIndex + 1).includes(" ")) {
-        const query = beforeCursor.slice(atIndex + 1);
-        setMentionQuery(query);
-        setMentionActive(true);
-        setMentionIndex(0);
-      } else {
-        setMentionActive(false);
-      }
-    },
-    [onTypingInput]
+    [mentionActive, mentionItems, mentionQuery, mentionIndex, text, handleSend, checkMention]
   );
 
   return (
     <div className="orbit-composer" data-testid="orbit-composer">
+      {replyTo && (
+        <div className="orbit-composer-reply-bar">
+          <span className="orbit-composer-reply-bar__label">{t("orbitComposer.replyingTo")}</span>
+          <span className="orbit-composer-reply-bar__name">{replyTo.authorName}</span>
+          <span className="orbit-composer-reply-bar__preview">{replyTo.text}</span>
+          <button
+            type="button"
+            className="orbit-composer-reply-bar__cancel"
+            onClick={onCancelReply}
+            aria-label={t("orbitComposer.cancelReply")}
+            title={t("orbitComposer.cancelReply")}
+          >
+            ×
+          </button>
+        </div>
+      )}
       <div className="mention-overlay-wrapper composer-input-wrapper">
         <MentionOverlay text={text} mentions={mentions} />
         <textarea
@@ -154,7 +203,7 @@ export default function OrbitComposer({
           query={mentionQuery}
           activeIndex={mentionIndex}
           onSelect={(id, name) => {
-            const cursorPos = textareaRef.current?.selectionStart ?? text.length;
+            const cursorPos = cursorPosRef.current;
             const beforeCursor = text.slice(0, cursorPos);
             const atIndex = beforeCursor.lastIndexOf("@");
             if (atIndex >= 0) {
@@ -163,7 +212,7 @@ export default function OrbitComposer({
             }
             setMentionActive(false);
             setMentionIndex(0);
-            textareaRef.current?.focus();
+            requestAnimationFrame(() => textareaRef.current?.focus());
           }}
           onClose={() => setMentionActive(false)}
         />

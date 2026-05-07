@@ -261,6 +261,7 @@ export class EventStore {
         author_name TEXT NOT NULL,
         text TEXT NOT NULL,
         created_at TEXT NOT NULL,
+        reply_to TEXT,
         PRIMARY KEY (room_id, note_id)
       );
       CREATE INDEX IF NOT EXISTS idx_orbit_notes_room ON orbit_notes(room_id);
@@ -270,6 +271,7 @@ export class EventStore {
     this.migrateParticipantHistoryAccess();
     this.migrateAgentPairingAgentTypes();
     this.migrateAgentPairingParticipantId();
+    this.migrateOrbitNotesReplyTo();
   }
 
   close(): void {
@@ -381,17 +383,17 @@ export class EventStore {
     this.db.prepare(`DELETE FROM orbit_notes WHERE room_id = ?`).run(roomId);
   }
 
-  addOrbitNote(note: { room_id: string; note_id: string; author_id: string; author_name: string; text: string; created_at: string }): void {
+  addOrbitNote(note: { room_id: string; note_id: string; author_id: string; author_name: string; text: string; created_at: string; reply_to?: string }): void {
     this.db.prepare(`
-      INSERT INTO orbit_notes (room_id, note_id, author_id, author_name, text, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(note.room_id, note.note_id, note.author_id, note.author_name, note.text, note.created_at);
+      INSERT INTO orbit_notes (room_id, note_id, author_id, author_name, text, created_at, reply_to)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(note.room_id, note.note_id, note.author_id, note.author_name, note.text, note.created_at, note.reply_to ?? null);
   }
 
-  getOrbitNotes(roomId: string): Array<{ note_id: string; author_id: string; author_name: string; text: string; created_at: string }> {
+  getOrbitNotes(roomId: string): Array<{ note_id: string; author_id: string; author_name: string; text: string; created_at: string; reply_to?: string }> {
     return this.db.prepare(`
-      SELECT note_id, author_id, author_name, text, created_at FROM orbit_notes WHERE room_id = ? ORDER BY created_at ASC
-    `).all(roomId) as Array<{ note_id: string; author_id: string; author_name: string; text: string; created_at: string }>;
+      SELECT note_id, author_id, author_name, text, created_at, reply_to FROM orbit_notes WHERE room_id = ? ORDER BY created_at ASC
+    `).all(roomId) as Array<{ note_id: string; author_id: string; author_name: string; text: string; created_at: string; reply_to?: string }>;
   }
 
   clearOrbitNotes(roomId: string): void {
@@ -689,6 +691,13 @@ export class EventStore {
     const columns = this.db.prepare(`PRAGMA table_info(agent_pairings)`).all() as Array<{ name: string }>;
     if (!columns.some((col) => col.name === "participant_id")) {
       this.db.exec(`ALTER TABLE agent_pairings ADD COLUMN participant_id TEXT;`);
+    }
+  }
+
+  private migrateOrbitNotesReplyTo(): void {
+    const columns = this.db.prepare(`PRAGMA table_info(orbit_notes)`).all() as Array<{ name: string }>;
+    if (!columns.some((col) => col.name === "reply_to")) {
+      this.db.exec(`ALTER TABLE orbit_notes ADD COLUMN reply_to TEXT;`);
     }
   }
 }

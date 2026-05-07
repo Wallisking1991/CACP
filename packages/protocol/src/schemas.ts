@@ -621,7 +621,8 @@ export const OrbitNoteCreatedPayloadSchema = z.object({
   author_id: z.string().min(1),
   author_name: z.string().min(1),
   text: z.string().min(1).max(2000),
-  created_at: z.string().datetime()
+  created_at: z.string().datetime(),
+  reply_to: z.string().optional()
 });
 
 export const OrbitLikeChangedPayloadSchema = z.object({

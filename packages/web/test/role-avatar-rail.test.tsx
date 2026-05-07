@@ -55,7 +55,7 @@ describe("RoleAvatarRail", () => {
     expect(onClickAgentAvatar).toHaveBeenCalled();
   });
 
-  it("does not show hover delete badge", () => {
+  it("shows delete badge for other members when owner", () => {
     const onRemoveAvatar = vi.fn();
     render(
       <RoleAvatarRail
@@ -69,6 +69,44 @@ describe("RoleAvatarRail", () => {
 
     const bobStack = screen.getByLabelText("Bob, Member, typing").closest(".role-avatar-stack") as HTMLElement;
     fireEvent.mouseEnter(bobStack);
+
+    const buttons = screen.queryAllByRole("button", { name: /remove/i });
+    expect(buttons.length).toBeGreaterThan(0);
+  });
+
+  it("does not show delete badge for self", () => {
+    const onRemoveAvatar = vi.fn();
+    render(
+      <RoleAvatarRail
+        avatars={avatars}
+        maxVisible={6}
+        isOwner={true}
+        currentParticipantId="user_1"
+        onRemoveAvatar={onRemoveAvatar}
+      />
+    );
+
+    const aliceStack = screen.getByLabelText("Alice, Owner, online").closest(".role-avatar-stack") as HTMLElement;
+    fireEvent.mouseEnter(aliceStack);
+
+    const aliceBtn = aliceStack.querySelector(".role-avatar__delete");
+    expect(aliceBtn).not.toBeInTheDocument();
+  });
+
+  it("does not show delete badge when not owner", () => {
+    const onRemoveAvatar = vi.fn();
+    render(
+      <RoleAvatarRail
+        avatars={avatars}
+        maxVisible={6}
+        isOwner={false}
+        currentParticipantId="user_2"
+        onRemoveAvatar={onRemoveAvatar}
+      />
+    );
+
+    const aliceStack = screen.getByLabelText("Alice, Owner, online").closest(".role-avatar-stack") as HTMLElement;
+    fireEvent.mouseEnter(aliceStack);
 
     expect(screen.queryByRole("button", { name: /remove/i })).not.toBeInTheDocument();
   });

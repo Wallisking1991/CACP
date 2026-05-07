@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n/useT.js";
-import type { OrbitNoteView } from "./OrbitLayer.js";
+import type { OrbitNoteView } from "../room-state.js";
 
 export interface OrbitPromoteModalProps {
   open: boolean;

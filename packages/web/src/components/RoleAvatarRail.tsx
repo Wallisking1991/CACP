@@ -1,5 +1,6 @@
 import { useT } from "../i18n/useT.js";
 import type { AvatarStatusView } from "../room-state.js";
+import { humanColors, agentColors } from "../avatar-colors.js";
 import { OrbitBubble } from "./OrbitBubble.js";
 
 export interface RoleAvatarRailProps {
@@ -48,45 +49,82 @@ export function RoleAvatarRail({ avatars, maxVisible = 10, isOwner, currentParti
 
   return (
     <div className="role-avatar-rail" ref={railRef} aria-label={t("room.controls")}>
-      {visible.filter((avatar) => avatar.group === "agents").map((avatar) => (
-        <div
-          key={avatar.id}
-          className="role-avatar-stack"
-          data-avatar-id={avatar.id}
-          data-agent-active={avatar.status === "working" || avatar.status === "typing" ? "true" : undefined}
-          title={avatarLabel(avatar)}
-          onClick={onClickAgentAvatar}
-          style={{ cursor: onClickAgentAvatar ? "pointer" : undefined }}
-        >
-          <span className={`role-avatar role-avatar--${avatar.kind} role-avatar--${avatar.status}`} aria-label={avatarLabel(avatar)}>
-            <span className="role-avatar__initials">{initials(avatar.display_name)}</span>
-            <span className="role-avatar__status" aria-hidden="true" />
-          </span>
-          <span className="role-avatar__name">{avatar.display_name}</span>
-          {orbitBubbles?.get(avatar.id) ? (
-            <OrbitBubble text={orbitBubbles.get(avatar.id)!} avatarId={avatar.id} />
-          ) : null}
-        </div>
-      ))}
-      {visible.filter((avatar) => avatar.group === "humans").map((avatar) => (
-        <div
-          key={avatar.id}
-          className="role-avatar-stack"
-          data-avatar-id={avatar.id}
-          title={avatarLabel(avatar)}
-          onClick={onClickHumanAvatar}
-          style={{ cursor: onClickHumanAvatar ? "pointer" : undefined }}
-        >
-          <span className={`role-avatar role-avatar--${avatar.kind} role-avatar--${avatar.status}`} aria-label={avatarLabel(avatar)}>
-            <span className="role-avatar__initials">{initials(avatar.display_name)}</span>
-            <span className="role-avatar__status" aria-hidden="true" />
-          </span>
-          <span className="role-avatar__name">{avatar.display_name}</span>
-          {orbitBubbles?.get(avatar.id) ? (
-            <OrbitBubble text={orbitBubbles.get(avatar.id)!} avatarId={avatar.id} />
-          ) : null}
-        </div>
-      ))}
+      {visible.filter((avatar) => avatar.group === "agents").map((avatar) => {
+        const colors = agentColors(avatar.id);
+        return (
+          <div
+            key={avatar.id}
+            className="role-avatar-stack"
+            data-avatar-id={avatar.id}
+            data-agent-active={avatar.status === "working" || avatar.status === "typing" ? "true" : undefined}
+            title={avatarLabel(avatar)}
+            onClick={onClickAgentAvatar}
+            style={{ cursor: onClickAgentAvatar ? "pointer" : undefined }}
+          >
+            <span
+              className={`role-avatar role-avatar--${avatar.kind} role-avatar--${avatar.status}`}
+              aria-label={avatarLabel(avatar)}
+              style={{ background: colors.gradient, color: colors.text, borderColor: colors.border }}
+            >
+              <span className="role-avatar__initials">{initials(avatar.display_name)}</span>
+              <span className="role-avatar__icon" aria-hidden="true">🤖</span>
+              <span className="role-avatar__halo" aria-hidden="true" />
+            </span>
+            <span className="role-avatar__name" style={{ color: colors.bar }}>{avatar.display_name}</span>
+            {isOwner && currentParticipantId !== avatar.id && onRemoveAvatar && (
+              <button
+                type="button"
+                className="role-avatar__delete"
+                onClick={(e) => { e.stopPropagation(); onRemoveAvatar(avatar.id); }}
+                aria-label={t("avatar.remove", { name: avatar.display_name })}
+                title={t("avatar.remove", { name: avatar.display_name })}
+              >
+                ×
+              </button>
+            )}
+            {orbitBubbles?.get(avatar.id) ? (
+              <OrbitBubble text={orbitBubbles.get(avatar.id)!} avatarId={avatar.id} />
+            ) : null}
+          </div>
+        );
+      })}
+      {visible.filter((avatar) => avatar.group === "humans").map((avatar) => {
+        const colors = humanColors(avatar.id);
+        return (
+          <div
+            key={avatar.id}
+            className="role-avatar-stack"
+            data-avatar-id={avatar.id}
+            title={avatarLabel(avatar)}
+            onClick={onClickHumanAvatar}
+            style={{ cursor: onClickHumanAvatar ? "pointer" : undefined }}
+          >
+            <span
+              className={`role-avatar role-avatar--${avatar.kind} role-avatar--${avatar.status}`}
+              aria-label={avatarLabel(avatar)}
+              style={{ background: colors.bg, color: colors.text, borderColor: colors.border }}
+            >
+              <span className="role-avatar__initials">{initials(avatar.display_name)}</span>
+              <span className="role-avatar__halo" aria-hidden="true" />
+            </span>
+            <span className="role-avatar__name" style={{ color: colors.bar }}>{avatar.display_name}</span>
+            {isOwner && currentParticipantId !== avatar.id && onRemoveAvatar && (
+              <button
+                type="button"
+                className="role-avatar__delete"
+                onClick={(e) => { e.stopPropagation(); onRemoveAvatar(avatar.id); }}
+                aria-label={t("avatar.remove", { name: avatar.display_name })}
+                title={t("avatar.remove", { name: avatar.display_name })}
+              >
+                ×
+              </button>
+            )}
+            {orbitBubbles?.get(avatar.id) ? (
+              <OrbitBubble text={orbitBubbles.get(avatar.id)!} avatarId={avatar.id} />
+            ) : null}
+          </div>
+        );
+      })}
       {hiddenCount > 0 ? <span className="role-avatar-overflow">+{hiddenCount}</span> : null}
     </div>
   );

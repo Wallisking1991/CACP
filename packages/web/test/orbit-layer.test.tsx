@@ -173,4 +173,85 @@ describe("OrbitLayer", () => {
     renderOrbitLayer({ ...baseProps, canPromote: false, hasPromotable: true, onPromoteClick: vi.fn() });
     expect(screen.queryByRole("button", { name: /Promote orbit notes/i })).not.toBeInTheDocument();
   });
+
+  it("shows reply button on hover and calls onReply when clicked", () => {
+    const onReply = vi.fn();
+    const notes = [
+      { note_id: "note_1", text: "Hello", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: false }
+    ];
+    renderOrbitLayer({ ...baseProps, notes, onReply });
+
+    // Default: no reply button visible
+    expect(screen.queryByRole("button", { name: /Reply/i })).not.toBeInTheDocument();
+
+    // Hover reveals the reply button
+    const noteEl = document.querySelector(".orbit-note");
+    fireEvent.mouseEnter(noteEl!);
+    const btn = screen.getByRole("button", { name: /Reply/i });
+    expect(btn.textContent).toContain("↩");
+
+    fireEvent.click(btn);
+    expect(onReply).toHaveBeenCalledWith("note_1");
+  });
+
+  it("renders reply preview for notes with reply_to", () => {
+    const notes = [
+      { note_id: "note_1", text: "Original", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: false },
+      { note_id: "note_2", text: "Reply text", created_by: "user_1", created_at: "2026-04-25T00:00:01.000Z", likes: 0, liked_by_me: false, quoted: false, reply_to: "note_1" }
+    ];
+    renderOrbitLayer({ ...baseProps, notes });
+
+    expect(screen.getByText("Reply text")).toBeInTheDocument();
+    const replyPreview = document.querySelector(".orbit-note-reply-preview");
+    expect(replyPreview).not.toBeNull();
+    expect(replyPreview!.textContent).toContain("Bob");
+    expect(replyPreview!.textContent).toContain("Original");
+  });
+
+  it("does not show reply button when canReact is false", () => {
+    const onReply = vi.fn();
+    const notes = [
+      { note_id: "note_1", text: "Hello", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: false }
+    ];
+    renderOrbitLayer({ ...baseProps, notes, onReply, canReact: false });
+
+    const noteEl = document.querySelector(".orbit-note");
+    fireEvent.mouseEnter(noteEl!);
+    expect(screen.queryByRole("button", { name: /Reply/i })).not.toBeInTheDocument();
+  });
+
+  it("highlights message that @mentions current user", () => {
+    const notes = [
+      { note_id: "note_1", text: "Hey @Alice check this", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: false }
+    ];
+    renderOrbitLayer({ ...baseProps, notes, currentDisplayName: "Alice" });
+
+    const noteEl = document.querySelector(".orbit-note");
+    expect(noteEl!.classList.contains("orbit-note--highlighted")).toBe(true);
+    expect(document.querySelector(".orbit-note-mention-icon")).not.toBeNull();
+  });
+
+  it("highlights message that replies to current user's note", () => {
+    const notes = [
+      { note_id: "note_1", text: "My message", created_by: "user_1", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: false },
+      { note_id: "note_2", text: "Reply to you", created_by: "user_2", created_at: "2026-04-25T00:00:01.000Z", likes: 0, liked_by_me: false, quoted: false, reply_to: "note_1" }
+    ];
+    renderOrbitLayer({ ...baseProps, notes });
+
+    const notesEls = document.querySelectorAll(".orbit-note");
+    expect(notesEls[0]!.classList.contains("orbit-note--highlighted")).toBe(false);
+    expect(notesEls[1]!.classList.contains("orbit-note--highlighted")).toBe(true);
+    expect(document.querySelector(".orbit-note-reply-icon")).not.toBeNull();
+  });
+
+  it("shows mention icon instead of reply icon when both apply", () => {
+    const notes = [
+      { note_id: "note_1", text: "My message", created_by: "user_1", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: false },
+      { note_id: "note_2", text: "@Alice replying", created_by: "user_2", created_at: "2026-04-25T00:00:01.000Z", likes: 0, liked_by_me: false, quoted: false, reply_to: "note_1" }
+    ];
+    renderOrbitLayer({ ...baseProps, notes, currentDisplayName: "Alice" });
+
+    expect(document.querySelector(".orbit-note-mention-icon")).not.toBeNull();
+    expect(document.querySelector(".orbit-note-reply-icon")).toBeNull();
+  });
 });

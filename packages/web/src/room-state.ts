@@ -75,6 +75,7 @@ export interface OrbitNoteView {
   likes: number;
   liked_by_me: boolean;
   quoted: boolean;
+  reply_to?: string;
 }
 
 export type MainInputStatus = "accepted" | "queued" | "triggered" | "cancelled" | "failed";
@@ -579,6 +580,7 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     }
     if (event.type === "orbit.note.created" && typeof event.payload.note_id === "string" && typeof event.payload.text === "string") {
       const createdAt = typeof event.payload.created_at === "string" ? event.payload.created_at : event.created_at;
+      const replyTo = typeof event.payload.reply_to === "string" ? event.payload.reply_to : undefined;
       orbitNotes.set(event.payload.note_id, {
         note_id: event.payload.note_id,
         text: event.payload.text,
@@ -586,7 +588,8 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
         created_at: createdAt,
         likes: 0,
         liked_by_me: false,
-        quoted: false
+        quoted: false,
+        reply_to: replyTo
       });
     }
     if (event.type === "orbit.like.changed" && typeof event.payload.note_id === "string") {
@@ -1363,7 +1366,7 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
   // cancelled/failed main_input hides the corresponding message from Thread.
   const filteredMessages = messages.filter((msg) => {
     const status = mainInputStatusByMessageId.get(msg.message_id ?? "");
-    return status !== "cancelled" && status !== "failed" && !(msg.kind === "agent" && msg.turn_id && runTraceTurnIds.has(msg.turn_id));
+    return status !== "cancelled" && status !== "failed" && status !== "queued" && !(msg.kind === "agent" && msg.turn_id && runTraceTurnIds.has(msg.turn_id));
   });
   messages = filteredMessages;
 

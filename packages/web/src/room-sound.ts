@@ -1,4 +1,4 @@
-export type RoomSoundCue = "message" | "ai-start" | "agent-online" | "join-request";
+export type RoomSoundCue = "message" | "mention" | "ai-start" | "agent-online" | "join-request";
 
 export interface RoomSoundController {
   enabled: () => boolean;
@@ -61,6 +61,26 @@ if (typeof document !== "undefined") {
 function synthTone(cue: RoomSoundCue, volume: number): void {
   const context = getAudioContext();
   if (!context) return;
+
+  if (cue === "mention") {
+    const targetGain = 0.04 * volume;
+    // Rapid double-beep at 400Hz
+    [0, 0.12].forEach((offset) => {
+      const osc = context.createOscillator();
+      const g = context.createGain();
+      osc.frequency.value = 400;
+      osc.type = "sine";
+      g.gain.setValueAtTime(0.0001, context.currentTime + offset);
+      g.gain.exponentialRampToValueAtTime(targetGain, context.currentTime + offset + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + offset + 0.1);
+      osc.connect(g);
+      g.connect(context.destination);
+      osc.start(context.currentTime + offset);
+      osc.stop(context.currentTime + offset + 0.12);
+    });
+    return;
+  }
+
   const oscillator = context.createOscillator();
   const gain = context.createGain();
   const frequency = cue === "ai-start" ? 180 : 260;

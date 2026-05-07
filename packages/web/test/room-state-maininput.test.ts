@@ -87,7 +87,7 @@ describe("deriveRoomState mainInputQueue → messages", () => {
     expect(state.mainInputQueue).toHaveLength(0);
   });
 
-  it("does not duplicate-render when message.created exists for the same main_input", () => {
+  it("hides queued message.created from Thread while keeping it in queue bar", () => {
     const events: CacpEvent[] = [
       baseEvent("room.created", { name: "Test Room" }),
       { ...baseEvent("message.created", { message_id: "in1", text: "Hello", kind: "human" }), created_at: "2026-05-02T00:00:01.000Z" },
@@ -96,8 +96,9 @@ describe("deriveRoomState mainInputQueue → messages", () => {
     ];
     const state = deriveRoomState(events, { currentParticipantId: "p1" });
     const msgs = state.messages.filter((m) => m.message_id === "in1");
-    expect(msgs).toHaveLength(1);
-    expect(msgs[0].kind).toBe("human");
+    expect(msgs).toHaveLength(0);
+    expect(state.mainInputQueue).toHaveLength(1);
+    expect(state.mainInputQueue[0].status).toBe("queued");
   });
 
   it("shows kind human when main_input is triggered and message.created exists", () => {

@@ -29,4 +29,22 @@ describe("OrbitToggleTab", () => {
     );
     expect(screen.getByRole("button")).toHaveAttribute("aria-pressed", "false");
   });
+
+  it("adds mention class to badge when hasMentions is true", () => {
+    render(
+      <LangProvider><OrbitToggleTab open={false} unreadCount={3} hasMentions={true} onClick={vi.fn()} /></LangProvider>
+    );
+    const badge = document.querySelector(".orbit-unread-badge");
+    expect(badge).not.toBeNull();
+    expect(badge!.classList.contains("orbit-unread-badge--mention")).toBe(true);
+  });
+
+  it("does not add mention class when hasMentions is false", () => {
+    render(
+      <LangProvider><OrbitToggleTab open={false} unreadCount={3} hasMentions={false} onClick={vi.fn()} /></LangProvider>
+    );
+    const badge = document.querySelector(".orbit-unread-badge");
+    expect(badge).not.toBeNull();
+    expect(badge!.classList.contains("orbit-unread-badge--mention")).toBe(false);
+  });
 });

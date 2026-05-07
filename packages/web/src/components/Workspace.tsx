@@ -108,6 +108,13 @@ export default function Workspace({
     return names;
   }, [room.participants, room.agents]);
 
+  const actorKinds = useMemo(() => {
+    const kinds = new Map<string, "human" | "agent">();
+    for (const p of room.participants) kinds.set(p.id, "human");
+    for (const a of room.agents) kinds.set(a.agent_id, "agent");
+    return kinds;
+  }, [room.participants, room.agents]);
+
   const soundControllerRef = useRef(createRoomSoundController());
   const [soundEnabled, setSoundEnabled] = useState(soundControllerRef.current.enabled());
   const [soundVolume, setSoundVolume] = useState(soundControllerRef.current.volume());
@@ -126,8 +133,10 @@ export default function Workspace({
   const panelOpenRef = useRef(panelOpen);
   useEffect(() => { panelOpenRef.current = panelOpen; }, [panelOpen]);
   const [unreadOrbit, setUnreadOrbit] = useState(0);
+  const [unreadMentions, setUnreadMentions] = useState(0);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [pendingAgentName, setPendingAgentName] = useState<string | undefined>();
+  const [replyToNoteId, setReplyToNoteId] = useState<string | undefined>();
   const seenOrbitEventIdsRef = useRef<Set<string>>(new Set());
   const orbitUnreadBaselineReadyRef = useRef(false);
 
@@ -168,11 +177,26 @@ export default function Workspace({
         return noteCreatedAt >= myJoinTime;
       }).length;
       if (foreignCount > 0) setUnreadOrbit((current) => current + foreignCount);
+
+      const myName = peopleParticipants.find((p) => p.id === session.participant_id)?.display_name;
+      const mentionCount = newOrbitEvents.filter((event) => {
+        if (event.actor_id === session.participant_id) return false;
+        const payload = event.payload as { created_at?: string; text?: string; reply_to?: string };
+        const noteCreatedAt = payload.created_at ? Date.parse(payload.created_at) : Date.parse(event.created_at);
+        if (noteCreatedAt < myJoinTime) return false;
+        const isMentioned = myName ? new RegExp("@" + myName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).test(payload.text ?? "") : false;
+        const isReplyToMe = room.orbitNotes.some((n) => n.note_id === payload.reply_to && n.created_by === session.participant_id);
+        return isMentioned || isReplyToMe;
+      }).length;
+      if (mentionCount > 0) setUnreadMentions((current) => current + mentionCount);
     }
-  }, [events, panelOpen, session.participant_id]);
+  }, [events, panelOpen, session.participant_id, peopleParticipants, room.orbitNotes]);
 
   useEffect(() => {
-    if (panelOpen) setUnreadOrbit(0);
+    if (panelOpen) {
+      setUnreadOrbit(0);
+      setUnreadMentions(0);
+    }
   }, [panelOpen]);
 
   useEffect(() => {
@@ -230,9 +254,43 @@ export default function Workspace({
           break;
         }
         case "orbit.note.created": {
+          const orbitText = typeof event.payload.text === "string" ? event.payload.text : "";
+          const orbitReplyTo = typeof event.payload.reply_to === "string" ? event.payload.reply_to : undefined;
+          const myName = peopleParticipants.find((p) => p.id === session.participant_id)?.display_name;
+          const isMentioned = myName ? new RegExp("@" + myName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).test(orbitText) : false;
+          const isReplyToMe = room.orbitNotes.some((n) => n.note_id === orbitReplyTo && n.created_by === session.participant_id);
+          const isDirectedAtMe = isMentioned || isReplyToMe;
+
           if (shouldPlayCueForMessage({ actorId: event.actor_id, currentParticipantId: session.participant_id })) {
-            soundControllerRef.current.play("message");
+            soundControllerRef.current.play(isDirectedAtMe ? "mention" : "message");
           }
+
+          // Browser notification for @mention / reply when page not focused
+          if (isDirectedAtMe && event.actor_id !== session.participant_id && document.visibilityState === "hidden") {
+            const senderName = actorNames.get(event.actor_id) || event.actor_id;
+            const actionLabel = isReplyToMe ? t("notification.replyToYou") : t("notification.mentionedYou");
+            const bodyText = orbitText.slice(0, 60) + (orbitText.length > 60 ? "…" : "");
+            if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+              const notification = new Notification(`${senderName} ${actionLabel}`, { body: bodyText });
+              notification.onclick = () => {
+                window.focus();
+                setPanelOpen(true);
+                notification.close();
+              };
+            } else if (typeof Notification !== "undefined" && Notification.permission === "default") {
+              void Notification.requestPermission().then((permission) => {
+                if (permission === "granted") {
+                  const notification = new Notification(`${senderName} ${actionLabel}`, { body: bodyText });
+                  notification.onclick = () => {
+                    window.focus();
+                    setPanelOpen(true);
+                    notification.close();
+                  };
+                }
+              });
+            }
+          }
+
           // Show bubble if not self and orbit panel is closed
           if (event.actor_id !== session.participant_id && !panelOpenRef.current && typeof event.payload.text === "string") {
             const avatarId = event.actor_id;
@@ -278,7 +336,7 @@ export default function Workspace({
         }
       }
     }
-  }, [events, session.room_id, session.participant_id]);
+  }, [events, session.room_id, session.participant_id, peopleParticipants, room.orbitNotes]);
 
   const shellRef = useRef<HTMLDivElement>(null);
 
@@ -341,15 +399,20 @@ export default function Workspace({
   const canClearOrbit = permissions.canManageControls;
   const promotableOrbitNotes = room.orbitNotes.filter((note) => !note.quoted);
 
+  const replyToNote = replyToNoteId ? room.orbitNotes.find((n) => n.note_id === replyToNoteId) : undefined;
+
   const orbitPanel = panelOpen ? (
     <div className="orbit-panel">
       <OrbitLayer
         notes={room.orbitNotes}
         currentParticipantId={session.participant_id}
+        currentDisplayName={myDisplayName}
         actorNames={actorNames}
+        actorKinds={actorKinds}
         canReact={permissions.canSendOrbitNotes}
         onLike={(noteId) => { void likeOrbitNote(session, noteId).catch(() => {}); }}
         onUnlike={(noteId) => { void unlikeOrbitNote(session, noteId).catch(() => {}); }}
+        onReply={(noteId) => setReplyToNoteId(noteId)}
         canPromote={canPromoteOrbit}
         hasPromotable={promotableOrbitNotes.length > 0}
         onPromoteClick={() => setPromoteModalOpen(true)}
@@ -366,9 +429,18 @@ export default function Workspace({
       <OrbitComposer
         role={session.role}
         members={peopleParticipants}
-        onSendOrbitNote={(text) => { void sendOrbitNote(session, text).catch(() => {}); }}
+        onSendOrbitNote={(text, replyTo) => {
+          void sendOrbitNote(session, text, replyTo).catch(() => {});
+          setReplyToNoteId(undefined);
+        }}
         onTypingInput={(value) => typingControllerRef.current?.inputChanged(value)}
         onStopTyping={() => typingControllerRef.current?.stopNow()}
+        replyTo={replyToNote ? {
+          noteId: replyToNote.note_id,
+          authorName: actorNames.get(replyToNote.created_by) || replyToNote.created_by,
+          text: replyToNote.text,
+        } : undefined}
+        onCancelReply={() => setReplyToNoteId(undefined)}
       />
     </div>
   ) : null;
@@ -453,7 +525,9 @@ export default function Workspace({
             agents={room.agents}
             onSendMainInput={(text) => {
               const agent = room.agents.find((a) => a.agent_id === room.activeAgentId);
-              setPendingAgentName(agent?.name ?? t("message.ai"));
+              if (!turnInFlight) {
+                setPendingAgentName(agent?.name ?? t("message.ai"));
+              }
               void sendMainInput(session, text).catch(() => {});
             }}
             onTypingInput={(value) => typingControllerRef.current?.inputChanged(value)}
@@ -554,6 +628,7 @@ export default function Workspace({
       <OrbitToggleTab
         open={panelOpen}
         unreadCount={unreadOrbit}
+        hasMentions={unreadMentions > 0}
         onClick={() => setPanelOpen((open) => !open)}
       />
       <OrbitClearConfirmDialog

@@ -610,7 +610,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   function validateTerminalAgentRun(roomId: string, runId: string, turnId: string, agentId: string, participant: Participant): { ok: true } | { ok: false; error: string; status: number } {
     const openValidation = validateOpenAgentRun(roomId, runId, turnId, agentId, participant);
     if (openValidation.ok) return openValidation;
-    if (openValidation.error !== "no_active_turn") return openValidation;
+    if (openValidation.error !== "no_active_turn" && openValidation.error !== "turn_not_found") return openValidation;
 
     const turn = findTurnState(roomId, turnId);
     if (!turn || turn.agent_id !== agentId || !turn.terminal_status) return openValidation;
@@ -1277,12 +1277,19 @@ export async function buildServer(options: BuildServerOptions = {}) {
       trigger_turn_id: turnId,
       message_id: next.input_id
     });
+    const messageCreated = event(roomId, "message.created", next.author_id, {
+      message_id: next.input_id,
+      text: next.text,
+      kind: "human",
+      created_at: next.created_at
+    });
 
     // Persist the turn request and triggered marker so reconnecting clients
     // see the complete main-input lifecycle.
     const stored = store.appendEvent(turnEvent);
     bus.publish({ event: stored, delivery: roomDelivery() });
     appendAndPublish(triggered);
+    appendAndPublish(messageCreated);
 
     return true;
   }
@@ -2200,17 +2207,17 @@ export async function buildServer(options: BuildServerOptions = {}) {
       queued_after_turn_id: queuedTurnId,
       message_id: inputId
     });
-    const messageCreated = event(roomId, "message.created", participant.id, {
-      message_id: inputId,
-      text: body.text,
-      kind: "human",
-      created_at: now
-    });
-    appendAndPublish(messageCreated);
+    let messageCreated: CacpEvent | undefined;
     let triggered: CacpEvent | undefined;
     let extraTurnEvents: CacpEvent[] = [];
     let triggerTurnId = "";
     if (!openTurn) {
+      messageCreated = event(roomId, "message.created", participant.id, {
+        message_id: inputId,
+        text: body.text,
+        kind: "human",
+        created_at: now
+      });
       const turnRequestEvents = createMainInputTurnRequestEvents(roomId, {
         actorId: participant.id,
         authorName: participant.display_name,
@@ -2237,6 +2244,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
         created_at: now
       });
     }
+    if (messageCreated) appendAndPublish(messageCreated);
     appendAndPublish(accepted);
     appendAndPublish(queued);
     if (triggered) appendAndPublish(triggered);
@@ -2262,7 +2270,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");
     if (!hasHumanRole(participant, ["owner", "admin", "member"])) return deny(reply, "forbidden", 403);
-    const body = z.object({ text: z.string().min(1).max(2000) }).parse(request.body);
+    const body = z.object({ text: z.string().min(1).max(2000), reply_to: z.string().optional() }).parse(request.body);
     const roomId = request.params.roomId;
     const orbit = getOrbitState(roomId);
     const noteId = prefixedId("note");
@@ -2272,7 +2280,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
       author_id: participant.id,
       author_name: participant.display_name,
       text: body.text,
-      created_at: now
+      created_at: now,
+      reply_to: body.reply_to
     });
     store.addOrbitNote({ room_id: roomId, ...note });
     publishRoleFiltered(event(roomId, "orbit.note.created", participant.id, {
@@ -2280,7 +2289,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
       author_id: note.author_id,
       author_name: note.author_name,
       text: note.text,
-      created_at: note.created_at
+      created_at: note.created_at,
+      reply_to: note.reply_to
     }), HUMAN_ROLES);
     return reply.code(201).send({ note_id: noteId });
   });

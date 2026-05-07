@@ -141,6 +141,75 @@ describe("agent run routes", () => {
     await app.close();
   });
 
+  it("accepts run completion when a newer queued turn was triggered during completeTurn", async () => {
+    const { app, room, ownerAuth, agent } = await createRoomAndAgent();
+    const turnA = await currentTurnId(app, room.room_id, ownerAuth);
+
+    // Agent starts turn A and its run
+    expect((await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-turns/${turnA}/start`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: {}
+    })).statusCode).toBe(201);
+    expect((await startRun(app, room.room_id, agent.agent_token, agent.agent_id, turnA)).statusCode).toBe(201);
+
+    // Owner queues a second message while turn A is still open
+    const queued = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/main-inputs`,
+      headers: ownerAuth,
+      payload: { text: "Follow-up question" }
+    });
+    expect(queued.statusCode).toBe(201);
+    expect(queued.json()).toMatchObject({ status: "queued" });
+
+    // Agent completes turn A — server auto-triggers turn B from the queue
+    const turnComplete = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-turns/${turnA}/complete`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: { final_text: "Answer to first question.", exit_code: 0 }
+    });
+    expect(turnComplete.statusCode).toBe(201);
+    const { message_id: messageId } = turnComplete.json() as { message_id: string };
+
+    // Verify a new turn B was indeed created
+    const eventsAfterComplete = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
+    const turnBEvent = eventsAfterComplete.find((e) => e.type === "agent.turn.requested" && e.payload.turn_id !== turnA);
+    expect(turnBEvent).toBeDefined();
+
+    // Agent now tries to completeRun for turn A — this must succeed even though turn B is open
+    const runComplete = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-runs/${turnA}/complete`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+      payload: {
+        run_id: turnA,
+        turn_id: turnA,
+        agent_id: agent.agent_id,
+        provider: "claude-code",
+        message_id: messageId,
+        summary: "Run complete",
+        metrics: { files_read: 0, searches: 0, commands: 0 },
+        completed_at: "2026-05-05T00:00:04.000Z"
+      }
+    });
+    expect(runComplete.statusCode).toBe(201);
+
+    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
+    expect(events.find((event) => event.type === "agent.run.completed")).toMatchObject({
+      payload: {
+        run_id: turnA,
+        turn_id: turnA,
+        message_id: messageId,
+        provider: "claude-code"
+      }
+    });
+
+    await app.close();
+  });
+
   it("accepts run lifecycle and node publication for the active turn owner", async () => {
     const { app, room, ownerAuth, agent } = await createRoomAndAgent();
     const turnId = await currentTurnId(app, room.room_id, ownerAuth);
