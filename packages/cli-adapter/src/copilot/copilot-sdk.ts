@@ -170,26 +170,6 @@ export async function loadCopilotSdk(options: { cliPath?: string } = {}): Promis
   // @ts-ignore — optional dependency, resolved at runtime when @github/copilot-sdk is installed
   const module = await import("@github/copilot-sdk") as UnknownSdkModule;
 
-  // First attempt: let the SDK resolve the binary normally
-  try {
-    return createCopilotSdkFromModule(module, options);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    // Only fall back to PATH search if the error is about missing CLI
-    if (!message.includes("Unable to locate") && !message.includes("not found")) {
-      throw error;
-    }
-  }
-
-  // Second attempt: search for the CLI ourselves and provide it
   const cliPath = options.cliPath ?? findCopilotCli() ?? process.env.CACP_COPILOT_PATH;
-  if (cliPath) {
-    return createCopilotSdkFromModule(module, { cliPath });
-  }
-
-  throw new Error(
-    "Unable to locate GitHub Copilot CLI (gh). " +
-    "Install the GitHub CLI (https://cli.github.com/) " +
-    "or set the CACP_COPILOT_PATH environment variable to the gh executable."
-  );
+  return createCopilotSdkFromModule(module, cliPath ? { cliPath } : {});
 }
