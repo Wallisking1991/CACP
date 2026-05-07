@@ -49,7 +49,9 @@ export function AgentRunCard({
         <span className="agent-run-card__status">{status}</span>
         {metrics && <span className="agent-run-card__metrics">{metrics}</span>}
       </div>
-      {run.summary && <div className="agent-run-card__summary">{run.summary}</div>}
+      {run.summary && run.summary.toLowerCase() !== status.toLowerCase() && (
+        <div className="agent-run-card__summary">{run.summary}</div>
+      )}
       {run.error && <div className="agent-run-card__error">{run.error}</div>}
 
       {run.status === "running" ? (

@@ -49,7 +49,10 @@ export function AgentRunNodeList({
             <div className="agent-run-node__main">
               <span className="agent-run-node__kind">{nodeKindLabel(node)}</span>
               <span className="agent-run-node__title">{node.title}</span>
-              <span className="agent-run-node__status">{nodeStatusLabel(node)}</span>
+              {(() => {
+                const label = nodeStatusLabel(node);
+                return label ? <span className="agent-run-node__status">{label}</span> : null;
+              })()}
             </div>
             {node.text && <div className="agent-run-node__text">{node.text}</div>}
             {chunks && (

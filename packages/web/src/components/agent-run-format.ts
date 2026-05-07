@@ -41,7 +41,6 @@ export function runMetricsParts(run: AgentRunView): string[] {
   if (run.metrics?.commands) parts.push(plural(run.metrics.commands, "command"));
   if (outputTokens !== undefined) parts.push(plural(outputTokens, "output token"));
   if (turns !== undefined) parts.push(plural(turns, "turn"));
-  if (totalCost !== undefined && totalCost > 0) parts.push(`$${totalCost.toFixed(4)}`);
   return parts;
 }
 
@@ -74,9 +73,10 @@ export function nodeKindLabel(node: AgentRunNodeView): string {
 }
 
 export function nodeStatusLabel(node: AgentRunNodeView): string {
+  if (node.status === "completed" || node.status === "failed") return "";
   const parts = [node.status.replace("_", " ")];
   const elapsed = numberField(node.detail?.elapsed_time_seconds);
-  if (elapsed !== undefined && node.status !== "completed" && node.status !== "failed") parts.push(`${elapsed}s`);
+  if (elapsed !== undefined) parts.push(`${elapsed}s`);
   return parts.join(" · ");
 }
 
@@ -89,12 +89,8 @@ export function shouldRenderNodeSummary(node: AgentRunNodeView): boolean {
 
 export function processSummary(run: AgentRunView): string {
   const parts: string[] = [];
-  const thinkingCount = run.nodes.filter((node) => node.kind === "reasoning_summary").length;
-  const toolCount = run.nodes.filter((node) => node.kind === "tool").length;
-  if (thinkingCount > 0) parts.push("thinking");
   if (run.metrics?.searches) parts.push(plural(run.metrics.searches, "search", "searches"));
   if (run.metrics?.files_read) parts.push(plural(run.metrics.files_read, "file"));
   if (run.metrics?.commands) parts.push(plural(run.metrics.commands, "command"));
-  if (parts.length === 0 && toolCount > 0) parts.push(plural(toolCount, "tool step"));
   return parts.length > 0 ? parts.join(", ") : "activity";
 }
