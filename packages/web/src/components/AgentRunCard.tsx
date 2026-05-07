@@ -34,8 +34,6 @@ export function AgentRunCard({
       <summary>Work process · {processSummary(run)}</summary>
       {nodeList}
     </details>
-  ) : run.status === "running" ? (
-    <div className="agent-run-card__process-empty">Thinking...</div>
   ) : null;
   const answer = hasAnswer ? <div className="agent-run-card__answer message-body">{answerText}</div> : null;
 

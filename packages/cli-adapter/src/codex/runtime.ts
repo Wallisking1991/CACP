@@ -237,13 +237,25 @@ export class CodexRuntime {
     };
 
     const prompt = promptForTurn(input, this.input.permissionLevel);
+    await recorder.startNode({
+      nodeId: "connecting",
+      kind: "status",
+      status: "running",
+      title: "Connecting"
+    });
+
     const abortController = new AbortController();
     this.activeAbortController = abortController;
 
     try {
       const { events } = await this.thread.runStreamed(prompt, { signal: abortController.signal });
 
+      let firstEvent = true;
       for await (const event of events) {
+        if (firstEvent) {
+          await recorder.completeNode({ nodeId: "connecting", summary: "Connected" });
+          firstEvent = false;
+        }
         switch (event.type) {
           case "thread.started": {
             sessionId = event.thread_id;

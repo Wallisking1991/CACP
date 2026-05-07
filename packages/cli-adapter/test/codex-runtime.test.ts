@@ -181,4 +181,47 @@ describe("Codex runtime", () => {
     expect(turnSignal?.aborted).toBe(true);
     await running;
   });
+
+  it("emits a connecting node before runStreamed and completes it on thread.started", async () => {
+    const { runtime, started, completed } = createRuntime({
+      sdk: {
+        startThread: () => ({
+          id: null,
+          runStreamed: async () => ({
+            events: events([
+              { type: "thread.started", thread_id: "thread_123" },
+              { type: "turn.started" },
+              { type: "item.started", item: { id: "msg_1", type: "agent_message", text: "Hello" } },
+              { type: "item.completed", item: { id: "msg_1", type: "agent_message", text: "Hello" } },
+              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
+            ])
+          })
+        }),
+        resumeThread: () => { throw new Error("unexpected"); }
+      }
+    });
+
+    await runtime.selectSession({ mode: "fresh" });
+    await runtime.runTurn({
+      turnId: "turn_1",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "hello"
+    });
+
+    const connectingStart = started.find((n) => n.node_id === "connecting");
+    const connectingComplete = completed.find((n) => n.node_id === "connecting");
+    expect(connectingStart).toMatchObject({
+      node_id: "connecting",
+      kind: "status",
+      title: "Connecting",
+      status: "running"
+    });
+    expect(connectingComplete).toBeDefined();
+
+    const connectingStartIndex = started.findIndex((n) => n.node_id === "connecting");
+    expect(connectingStartIndex).toBeGreaterThanOrEqual(0);
+  });
 });

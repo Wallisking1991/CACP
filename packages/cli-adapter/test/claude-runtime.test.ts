@@ -30,26 +30,28 @@ function createSuccessResult(sessionId = "session_1", result = "answer") {
 }
 
 function createRuntime(overrides: Record<string, unknown> = {}) {
-  return new ClaudeRuntime({
+  const sinkCalls: Array<{ method: string; payload: Record<string, unknown> }> = [];
+  const runtime = new ClaudeRuntime({
     agentId: "agent_1",
     workingDir: "D:\\Development\\2",
     permissionLevel: "read_only",
     model: "claude-sonnet-4-20250514",
     publishDelta: async () => undefined,
-    startNode: async () => undefined,
-    appendNodeDelta: async () => undefined,
-    updateNode: async () => undefined,
-    completeNode: async () => undefined,
-    failNode: async () => undefined,
+    startNode: async (payload: Record<string, unknown>) => { sinkCalls.push({ method: "startNode", payload }); },
+    appendNodeDelta: async (payload: Record<string, unknown>) => { sinkCalls.push({ method: "appendNodeDelta", payload }); },
+    updateNode: async (payload: Record<string, unknown>) => { sinkCalls.push({ method: "updateNode", payload }); },
+    completeNode: async (payload: Record<string, unknown>) => { sinkCalls.push({ method: "completeNode", payload }); },
+    failNode: async (payload: Record<string, unknown>) => { sinkCalls.push({ method: "failNode", payload }); },
     requestApproval: async () => ({ decision: "allow", resolved_by: "user_1", resolved_at: "2026-05-05T00:00:00.000Z" }),
     requestElicitation: async () => ({ action: "cancel", resolved_by: "user_1", resolved_at: "2026-05-05T00:00:00.000Z" }),
     ...overrides
   });
+  return { runtime, sinkCalls };
 }
 
 describe("Claude runtime", () => {
   it("absorbs sdk load failure so the process does not crash from an unhandled rejection", async () => {
-    const runtime = createRuntime({
+    const { runtime } = createRuntime({
       sdk: Promise.reject(new Error("Claude SDK not installed")) as unknown as { query: () => never }
     });
 
@@ -60,7 +62,7 @@ describe("Claude runtime", () => {
     const sdk = {
       query: () => createQuery([{ type: "assistant", message: "unexpected" }])
     };
-    const runtime = createRuntime({ sdk });
+    const { runtime } = createRuntime({ sdk });
 
     await expect(runtime.runTurn({
       turnId: "turn_1",
@@ -91,7 +93,7 @@ describe("Claude runtime", () => {
         ]);
       }
     };
-    const runtime = createRuntime({
+    const { runtime } = createRuntime({
       sdk,
       publishDelta: async (_turnId: string, chunk: string) => { deltas.push(chunk); }
     });
@@ -140,7 +142,7 @@ describe("Claude runtime", () => {
         ]);
       }
     };
-    const runtime = createRuntime({ sdk });
+    const { runtime } = createRuntime({ sdk });
 
     await runtime.selectSession({ mode: "resume", sessionId: "session_9" });
     const first = await runtime.runTurn({
@@ -165,5 +167,51 @@ describe("Claude runtime", () => {
     expect(second.finalText).toBe("resumed answer");
     expect(queryCalls[0]?.prompt).toContain("Message: first");
     expect(queryCalls[1]?.prompt).toContain("Message: second");
+  });
+
+  it("emits a connecting node before query and completes it on first stream message", async () => {
+    const sdk = {
+      query: () => createQuery([
+        { type: "system", subtype: "init", session_id: "session_1", uuid: "init_1" },
+        {
+          type: "assistant",
+          parent_tool_use_id: null,
+          uuid: "assistant_1",
+          session_id: "session_1",
+          message: { content: [{ type: "text", text: "hello" }] }
+        },
+        createSuccessResult("session_1", "hello")
+      ])
+    };
+    const { runtime, sinkCalls } = createRuntime({ sdk });
+
+    await runtime.selectSession({ mode: "fresh" });
+    await runtime.runTurn({
+      turnId: "turn_1",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "hi"
+    });
+
+    const connectingStartIndex = sinkCalls.findIndex(
+      (c) => c.method === "startNode" && c.payload.node_id === "connecting"
+    );
+    const connectingCompleteIndex = sinkCalls.findIndex(
+      (c) => c.method === "completeNode" && c.payload.node_id === "connecting"
+    );
+
+    expect(connectingStartIndex).toBeGreaterThanOrEqual(0);
+    expect(sinkCalls[connectingStartIndex]?.payload).toMatchObject({
+      node_id: "connecting",
+      kind: "status",
+      title: "Connecting",
+      status: "running"
+    });
+    expect(connectingCompleteIndex).toBeGreaterThan(connectingStartIndex);
+    expect(sinkCalls[connectingCompleteIndex]?.payload).toMatchObject({
+      node_id: "connecting"
+    });
   });
 });

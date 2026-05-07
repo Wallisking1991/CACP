@@ -561,6 +561,13 @@ export class ClaudeRuntime {
       return elicitationToResult(decision);
     };
 
+    await recorder.startNode({
+      nodeId: "connecting",
+      kind: "status",
+      status: "running",
+      title: "Connecting"
+    });
+
     const query = sdk.query({
       prompt: promptForTurn(turn, this.input.permissionLevel),
       options: {
@@ -581,7 +588,12 @@ export class ClaudeRuntime {
     this.activeQuery = query;
 
     try {
+      let firstMessage = true;
       for await (const rawMessage of query) {
+        if (firstMessage) {
+          await recorder.completeNode({ nodeId: "connecting", summary: "Connected" });
+          firstMessage = false;
+        }
         captureSessionId(rawMessage);
         const record = asRecord(rawMessage);
         const msgType = typeof record.type === "string" ? record.type : "";
