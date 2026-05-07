@@ -11,6 +11,7 @@ export interface ThreadProps {
   actorNames: Map<string, string>;
   claudeImports?: ClaudeImportView[];
   agentImports?: AgentImportView[];
+  pendingAgentName?: string;
   onResolveApproval?: (runId: string, nodeId: string, decision: "allow" | "deny", reason?: string) => void;
   onResolveElicitation?: (runId: string, nodeId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => void;
 }
@@ -94,6 +95,7 @@ export default function Thread({
   actorNames,
   claudeImports,
   agentImports,
+  pendingAgentName,
   onResolveApproval,
   onResolveElicitation,
 }: ThreadProps) {
@@ -120,9 +122,9 @@ export default function Thread({
     if (typeof bottomRef.current?.scrollIntoView === "function") {
       bottomRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [threadItems.length, threadItems.map((item) => item.type === "message" ? `${item.data.message_id}:${item.data.kind}` : `${item.data.run_id}:${item.data.status}`).join("|"), visibleStreamingTurns.length, visibleStreamingTurns.map((t) => t.text).join("|"), runningRuns.map((run) => `${run.run_id}:${run.status}:${run.answer_text ?? ""}:${run.final_text ?? ""}:${run.nodes.map((node) => `${node.node_id}:${node.status}:${node.text_chunks.join("")}`).join(",")}`).join("|")]);
+  }, [threadItems.length, threadItems.map((item) => item.type === "message" ? `${item.data.message_id}:${item.data.kind}` : `${item.data.run_id}:${item.data.status}`).join("|"), visibleStreamingTurns.length, visibleStreamingTurns.map((t) => t.text).join("|"), runningRuns.map((run) => `${run.run_id}:${run.status}:${run.answer_text ?? ""}:${run.final_text ?? ""}:${run.nodes.map((node) => `${node.node_id}:${node.status}:${node.text_chunks.join("")}`).join(",")}`).join("|"), pendingAgentName]);
 
-  const isEmpty = threadItems.length === 0 && visibleStreamingTurns.length === 0 && runningRuns.length === 0;
+  const isEmpty = threadItems.length === 0 && visibleStreamingTurns.length === 0 && runningRuns.length === 0 && !pendingAgentName;
 
   return (
     <div className="thread">
@@ -287,6 +289,19 @@ export default function Thread({
           </article>
         );
       })}
+
+      {pendingAgentName && (
+        <article className="message message-ai-card skeleton-bubble">
+          <div className="message-meta">
+            <span>{pendingAgentName}</span>
+            <span>{t("message.ai")}</span>
+          </div>
+          <div className="skeleton-content">
+            <div className="skeleton-line" />
+            <div className="skeleton-line skeleton-line--short" />
+          </div>
+        </article>
+      )}
 
       <div ref={bottomRef} />
     </div>

@@ -3905,6 +3905,35 @@ textarea.input {
   100% { transform: scale(3.5); opacity: 0; }
 }
 
+.skeleton-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.skeleton-line {
+  height: 14px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    var(--surface-warm) 0%,
+    var(--surface-2) 50%,
+    var(--surface-warm) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+.skeleton-line--short {
+  width: 60%;
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .header-ripple,
   .header-wave-layer,
@@ -3912,5 +3941,10 @@ textarea.input {
   .agent-wave-layer {
     animation: none !important;
     opacity: 0.04;
+  }
+
+  .skeleton-line {
+    animation: none;
+    background: var(--surface-warm);
   }
 }

@@ -126,6 +126,7 @@ export default function Workspace({
   useEffect(() => { panelOpenRef.current = panelOpen; }, [panelOpen]);
   const [unreadOrbit, setUnreadOrbit] = useState(0);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
+  const [pendingAgentName, setPendingAgentName] = useState<string | undefined>();
   const seenOrbitEventIdsRef = useRef<Set<string>>(new Set());
   const orbitUnreadBaselineReadyRef = useRef(false);
 
@@ -260,6 +261,7 @@ export default function Workspace({
           break;
         }
         case "agent.turn.started": {
+          setPendingAgentName(undefined);
           soundControllerRef.current.play("ai-start");
           break;
         }
@@ -428,6 +430,7 @@ export default function Workspace({
             actorNames={actorNames}
             claudeImports={room.claudeImports}
             agentImports={room.agentImports}
+            pendingAgentName={pendingAgentName}
             onResolveApproval={(runId, nodeId, decision, reason) => {
               void resolveAgentRunApproval({ serverUrl, roomId: session.room_id, token: session.token, runId, nodeId, decision, reason }).catch(() => {});
             }}
@@ -440,7 +443,11 @@ export default function Workspace({
             role={session.role}
             turnInFlight={turnInFlight}
             agents={room.agents}
-            onSendMainInput={(text) => { void sendMainInput(session, text).catch(() => {}); }}
+            onSendMainInput={(text) => {
+              const agent = room.agents.find((a) => a.agent_id === room.activeAgentId);
+              setPendingAgentName(agent?.name ?? t("message.ai"));
+              void sendMainInput(session, text).catch(() => {});
+            }}
             onTypingInput={(value) => typingControllerRef.current?.inputChanged(value)}
             onStopTyping={() => typingControllerRef.current?.stopNow()}
           />
