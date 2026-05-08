@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import Fastify, { type FastifyReply } from "fastify";
 import websocket from "@fastify/websocket";
 import { z } from "zod";
-import { buildConnectionCode, evaluatePolicy, ConnectorLedgerEntrySchema, PolicySchema, VoteRecordSchema, ParticipantPresenceSchema, type CacpEvent, type Participant, type ParticipantRole, type Policy, type VoteRecord } from "@cacp/protocol";
+import { buildConnectionCode, evaluatePolicy, ConnectorLedgerEntrySchema, PolicySchema, VoteRecordSchema, ParticipantPresenceSchema, type CacpEvent, type Participant, type ParticipantRole, type Policy, type VoteRecord, type LocalAgentProvider } from "@cacp/protocol";
 import { bearerToken, requireParticipant, hasAnyRole, hasHumanRole } from "./auth.js";
 import { buildAgentContextPrompt, findActiveAgentId, findAgentCapabilities, findAnyOpenTurn, findOpenTurn, findQueuedFollowupMessage, findQueuedFollowupMessages, hasQueuedFollowup, recentConversationMessages, type ConversationMessage, type OpenTurn } from "./conversation.js";
 import { EventBus } from "./event-bus.js";
@@ -617,13 +617,13 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return { ok: true };
   }
 
-  function providerForAgent(roomId: string, agentId: string): "claude-code" | "codex-cli" | undefined {
+  function providerForAgent(roomId: string, agentId: string): LocalAgentProvider | undefined {
     const provider = providerForCapabilities(findAgentCapabilities(store.listEvents(roomId), agentId));
     if (provider === "claude-code" || provider === "codex-cli") return provider;
     return undefined;
   }
 
-  function resolveValidatedAgentProvider(roomId: string, agentId: string, requestedProvider: string): { ok: true; provider: "claude-code" | "codex-cli" } | { ok: false; error: string; status: number } {
+  function resolveValidatedAgentProvider(roomId: string, agentId: string, requestedProvider: string): { ok: true; provider: LocalAgentProvider } | { ok: false; error: string; status: number } {
     const actualProvider = providerForAgent(roomId, agentId);
     if (!actualProvider) return { ok: false, error: "missing_local_agent_capability", status: 403 };
     if (actualProvider !== requestedProvider) return { ok: false, error: "provider_mismatch", status: 403 };
@@ -1303,7 +1303,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return { ok: true };
   }
 
-  function validateLocalAgentProvider(roomId: string, agentId: string, provider: "claude-code" | "codex-cli"): { ok: true } | { ok: false; error: string; status: number } {
+  function validateLocalAgentProvider(roomId: string, agentId: string, provider: LocalAgentProvider): { ok: true } | { ok: false; error: string; status: number } {
     const target = findParticipant(roomId, agentId);
     if (!target || target.type !== "agent" || target.role !== "agent") return { ok: false, error: "invalid_target_agent", status: 400 };
     const events = store.listEvents(roomId);
@@ -1316,7 +1316,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return { ok: true };
   }
 
-  function validateLocalAgentRuntime(roomId: string, agentId: string, provider: "claude-code" | "codex-cli", turnId: string): { ok: true } | { ok: false; error: string; status: number } {
+  function validateLocalAgentRuntime(roomId: string, agentId: string, provider: LocalAgentProvider, turnId: string): { ok: true } | { ok: false; error: string; status: number } {
     const events = store.listEvents(roomId);
     const activeAgentId = findActiveAgentId(events);
     if (activeAgentId !== agentId) return { ok: false, error: "not_active_agent", status: 403 };
@@ -1386,7 +1386,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return undefined;
   }
 
-  function latestLocalAgentSessionSelection(events: CacpEvent[], agentId: string, provider: "claude-code" | "codex-cli"): { mode: "fresh" } | { mode: "resume"; session_id: string } | undefined {
+  function latestLocalAgentSessionSelection(events: CacpEvent[], agentId: string, provider: LocalAgentProvider): { mode: "fresh" } | { mode: "resume"; session_id: string } | undefined {
     for (const storedEvent of [...events].reverse()) {
       if (storedEvent.type !== "agent.session_selected" || storedEvent.payload.agent_id !== agentId || storedEvent.payload.provider !== provider) continue;
       if (storedEvent.payload.mode === "fresh") return { mode: "fresh" };
@@ -1397,7 +1397,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return undefined;
   }
 
-  function hasLocalAgentSessionReady(events: CacpEvent[], agentId: string, provider: "claude-code" | "codex-cli"): boolean {
+  function hasLocalAgentSessionReady(events: CacpEvent[], agentId: string, provider: LocalAgentProvider): boolean {
     let selectionIndex = -1;
     let selection: { mode: "fresh" } | { mode: "resume"; session_id: string } | undefined;
     for (let index = events.length - 1; index >= 0; index -= 1) {
@@ -1422,7 +1422,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     });
   }
 
-  function validateSelectedLocalAgentResumeSession(roomId: string, agentId: string, provider: "claude-code" | "codex-cli", sessionId: string): { ok: true } | { ok: false; error: string; status: number } {
+  function validateSelectedLocalAgentResumeSession(roomId: string, agentId: string, provider: LocalAgentProvider, sessionId: string): { ok: true } | { ok: false; error: string; status: number } {
     const selection = latestLocalAgentSessionSelection(store.listEvents(roomId), agentId, provider);
     if (!selection || selection.mode !== "resume") {
       return { ok: false, error: "agent_resume_session_not_selected", status: 409 };
@@ -1433,7 +1433,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return { ok: true };
   }
 
-  function validateSelectedLocalAgentSessionReady(roomId: string, agentId: string, provider: "claude-code" | "codex-cli", body: { mode: "fresh" } | { mode: "resume"; session_id: string }): { ok: true } | { ok: false; error: string; status: number } {
+  function validateSelectedLocalAgentSessionReady(roomId: string, agentId: string, provider: LocalAgentProvider, body: { mode: "fresh" } | { mode: "resume"; session_id: string }): { ok: true } | { ok: false; error: string; status: number } {
     const selection = latestLocalAgentSessionSelection(store.listEvents(roomId), agentId, provider);
     if (!selection) return { ok: false, error: "agent_session_not_selected", status: 409 };
     if (body.mode !== selection.mode) return { ok: false, error: "agent_session_selection_mismatch", status: 409 };
