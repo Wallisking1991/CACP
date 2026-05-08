@@ -15,6 +15,8 @@ import { ClaudeRuntime } from "./claude/runtime.js";
 import { CodexRuntime } from "./codex/runtime.js";
 import { listCodexSessions } from "./codex/session-catalog.js";
 import { buildCodexImportFromSessionFile, chunkCodexImportMessages, findCodexSessionFile } from "./codex/transcript-import.js";
+import { CopilotRuntime } from "./copilot/runtime.js";
+import { loadCopilotSdk } from "./copilot/copilot-sdk.js";
 import { roomAssetDirectory } from "./connector/room-assets.js";
 import { MainThreadLedger } from "./connector/main-ledger.js";
 import { buildLlmPromptFromLedger } from "./connector/llm-context.js";
@@ -86,6 +88,22 @@ async function main() {
   }) : undefined;
 
   const codexRuntime = isCodexCli ? new CodexRuntime({
+    agentId: registered.agent_id,
+    workingDir: config.agent.working_dir,
+    permissionLevel: config.permission_level ?? "read_only",
+    model: config.agent.model,
+    publishDelta: async (turnId, chunk) => {
+      await roomClient.publishTurnDelta(turnId, chunk);
+    },
+    startNode: async (payload) => { await roomClient.startRunNode(payload.run_id, payload); },
+    appendNodeDelta: async (payload) => { await roomClient.appendRunNodeDelta(payload.run_id, payload.node_id, payload); },
+    updateNode: async (payload) => { await roomClient.updateRunNode(payload.run_id, payload.node_id, payload); },
+    completeNode: async (payload) => { await roomClient.completeRunNode(payload.run_id, payload.node_id, payload); },
+    failNode: async (payload) => { await roomClient.failRunNode(payload.run_id, payload.node_id, payload); }
+  }) : undefined;
+
+  const isCopilotCli = !config.llm && config.agent.capabilities.includes("github-copilot");
+  const copilotRuntime = isCopilotCli ? new CopilotRuntime({
     agentId: registered.agent_id,
     workingDir: config.agent.working_dir,
     permissionLevel: config.permission_level ?? "read_only",
@@ -313,6 +331,20 @@ async function main() {
         return;
       }
 
+      if (parsed.data.type === "agent.session_preview.requested" && copilotRuntime) {
+        const payload = parsed.data.payload as { preview_id?: string; agent_id?: string; session_id?: string; provider?: string };
+        if (!payload.preview_id || !payload.session_id || payload.agent_id !== registered.agent_id || payload.provider !== "github-copilot") return;
+        await roomClient.failAgentPreview(payload.preview_id, {
+          preview_id: payload.preview_id,
+          agent_id: registered.agent_id,
+          provider: "github-copilot",
+          session_id: payload.session_id,
+          error: "Session preview not yet implemented for GitHub Copilot",
+          failed_at: new Date().toISOString()
+        });
+        return;
+      }
+
       if (parsed.data.type === "agent.session_selected" && codexRuntime) {
         const payload = parsed.data.payload as { agent_id?: string; mode?: string; session_id?: string; provider?: string };
         if (payload.agent_id !== registered.agent_id || payload.provider !== "codex-cli") return;
@@ -391,6 +423,40 @@ async function main() {
         return;
       }
 
+      if (parsed.data.type === "agent.session_selected" && copilotRuntime) {
+        const payload = parsed.data.payload as { agent_id?: string; mode?: string; session_id?: string; provider?: string };
+        if (payload.agent_id !== registered.agent_id || payload.provider !== "github-copilot") return;
+        if (payload.mode === "fresh") {
+          try {
+            await copilotRuntime.selectSession({ mode: "fresh" });
+            await roomClient.publishAgentSessionReady({
+              agent_id: registered.agent_id,
+              provider: "github-copilot",
+              mode: "fresh",
+              ready_at: nowIso()
+            });
+          } catch (error) {
+            console.error("Copilot session selection failed:", error instanceof Error ? error.message : String(error));
+          }
+          return;
+        }
+        if (payload.mode === "resume" && payload.session_id) {
+          try {
+            await copilotRuntime.selectSession({ mode: "resume", sessionId: payload.session_id });
+            await roomClient.publishAgentSessionReady({
+              agent_id: registered.agent_id,
+              provider: "github-copilot",
+              mode: "resume",
+              session_id: payload.session_id,
+              ready_at: nowIso()
+            });
+          } catch (error) {
+            console.error("Copilot session resume failed:", error instanceof Error ? error.message : String(error));
+          }
+        }
+        return;
+      }
+
       if (parsed.data.type === "task.created") {
         const payload = parsed.data.payload as { task_id?: string; target_agent_id?: string };
         if (payload.target_agent_id === registered.agent_id) {
@@ -416,7 +482,7 @@ async function main() {
           created_at: parsed.data.created_at,
           turn_id: turnId
         });
-        let runProvider: "claude-code" | "codex-cli" | undefined;
+        let runProvider: "claude-code" | "codex-cli" | "github-copilot" | undefined;
         let turnCompleted = false;
         let runStarted = false;
         try {
@@ -499,6 +565,39 @@ async function main() {
               completed_at: nowIso()
             });
             appendAgentFinal(turnId, result.finalText, ledgerSource);
+          } else if (copilotRuntime) {
+            runProvider = "github-copilot";
+            await roomClient.startTurn(turnId);
+            await roomClient.startRun(turnId, {
+              run_id: turnId,
+              turn_id: turnId,
+              agent_id: registered.agent_id,
+              provider: runProvider,
+              started_at: nowIso()
+            });
+            runStarted = true;
+            const result = await copilotRuntime.runTurn({
+              turnId,
+              roomName: typeof payload.room_name === "string" ? payload.room_name : undefined,
+              speakerName: typeof payload.speaker_name === "string" ? payload.speaker_name : "Room participant",
+              speakerRole: typeof payload.speaker_role === "string" ? payload.speaker_role : "member",
+              modeLabel: typeof payload.mode === "string" ? payload.mode : "normal",
+              text: turnText
+            });
+            const turnCompletion = await roomClient.completeTurn(turnId, result.finalText);
+            turnCompleted = true;
+            await roomClient.completeRun(turnId, {
+              run_id: turnId,
+              turn_id: turnId,
+              agent_id: registered.agent_id,
+              provider: runProvider,
+              message_id: turnCompletion.message_id,
+              summary: statusSummary({ metrics: result.metrics }),
+              metrics: result.metrics,
+              ...(result.usage ? { usage: result.usage } : {}),
+              completed_at: nowIso()
+            });
+            appendAgentFinal(turnId, result.finalText, ledgerSource);
           }
         } catch (error) {
           const rawMessage = error instanceof Error ? error.message : String(error);
@@ -546,7 +645,7 @@ async function main() {
       agentName: config.agent.name,
       workingDir: config.agent.working_dir,
       claudeSessionMode: isClaudeCode ? "pending-selection" : "not-applicable",
-      agentSessionLabel: isCodexCli ? "Codex CLI session" : isClaudeCode ? "Claude Code persistent session" : "Local agent runtime"
+      agentSessionLabel: isCopilotCli ? "GitHub Copilot session" : isCodexCli ? "Codex CLI session" : isClaudeCode ? "Claude Code persistent session" : "Local agent runtime"
     });
     console.log(`Connected adapter stream for room ${config.room_id}`);
     console.log("DEBUG: WebSocket is open, about to publish catalog");
@@ -579,6 +678,31 @@ async function main() {
           console.error("Failed to publish Codex session catalog", error instanceof Error ? error.message : String(error));
         });
     }
+    if (isCopilotCli) {
+      void (async () => {
+        try {
+          const sdk = await loadCopilotSdk();
+          const sessions = await sdk.listSessions();
+          await roomClient.publishAgentSessionCatalog({
+            agent_id: registered.agent_id,
+            provider: "github-copilot",
+            working_dir: config.agent.working_dir,
+            sessions: sessions.map((s) => ({
+              session_id: s.sessionId,
+              title: s.summary ?? `Copilot session ${s.sessionId.slice(0, 8)}`,
+              project_dir: config.agent.working_dir,
+              updated_at: s.modifiedTime.toISOString(),
+              message_count: 0,
+              byte_size: 0,
+              importable: false,
+              provider: "github-copilot"
+            }))
+          });
+        } catch (error) {
+          console.error("Failed to publish Copilot session catalog", error instanceof Error ? error.message : String(error));
+        }
+      })();
+    }
   });
   ws.on("close", (code, reason) => {
     const reasonText = reason.toString();
@@ -591,6 +715,9 @@ async function main() {
     });
     void codexRuntime?.close().catch((error) => {
       console.error("Failed to close Codex runtime", error);
+    });
+    void copilotRuntime?.close().catch((error) => {
+      console.error("Failed to close Copilot runtime", error);
     });
     process.exitCode = 0;
     setTimeout(() => process.exit(0), 25).unref();
