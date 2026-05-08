@@ -4,6 +4,7 @@ export function providerLabel(provider: string): string {
   if (provider === "claude-code") return "Claude Code";
   if (provider === "codex-cli") return "Codex CLI";
   if (provider === "github-copilot") return "GitHub Copilot";
+  if (provider === "kimi-cli") return "Kimi CLI";
   return "Local agent";
 }
 

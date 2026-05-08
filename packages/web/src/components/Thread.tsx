@@ -166,7 +166,7 @@ export default function Thread({
 
         if (msg.kind === "agent_import_banner") {
           const importView = agentImports?.find((imp) => imp.agentImportId === msg.agentImportId);
-          const provider = importView?.provider === "codex-cli" ? "Codex CLI" : importView?.provider === "github-copilot" ? "GitHub Copilot" : importView?.provider === "claude-code" ? "Claude Code" : "Local agent";
+          const provider = importView?.provider === "kimi-cli" ? "Kimi CLI" : importView?.provider === "codex-cli" ? "Codex CLI" : importView?.provider === "github-copilot" ? "GitHub Copilot" : importView?.provider === "claude-code" ? "Claude Code" : "Local agent";
           const bannerText = importView?.status === "failed"
             ? t("agent.import.banner.failed", { provider, title: importView.title, error: importView.error ?? "" })
             : importView?.status === "completed"
@@ -198,7 +198,7 @@ export default function Thread({
 
         if (msg.kind.startsWith("agent_import_")) {
           const importView = agentImports?.find((imp) => imp.agentImportId === msg.agentImportId);
-          const provider = importView?.provider === "codex-cli" ? "Codex CLI" : importView?.provider === "github-copilot" ? "GitHub Copilot" : importView?.provider === "claude-code" ? "Claude Code" : "Local agent";
+          const provider = importView?.provider === "kimi-cli" ? "Kimi CLI" : importView?.provider === "codex-cli" ? "Codex CLI" : importView?.provider === "github-copilot" ? "GitHub Copilot" : importView?.provider === "claude-code" ? "Claude Code" : "Local agent";
           const label = msg.kind === "agent_import_user"
             ? t("agent.import.user", { provider })
             : msg.kind === "agent_import_assistant"

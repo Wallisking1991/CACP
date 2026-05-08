@@ -4,7 +4,7 @@ import { useT } from "../i18n/useT.js";
 
 interface Props {
   agentId: string;
-  provider?: "claude-code" | "codex-cli" | "github-copilot";
+  provider?: "claude-code" | "codex-cli" | "github-copilot" | "kimi-cli";
   catalog: {
     agent_id: string;
     provider?: string;
@@ -35,7 +35,8 @@ function formatDate(iso: string): string {
   }
 }
 
-function providerDisplayName(provider: "claude-code" | "codex-cli" | "github-copilot"): string {
+function providerDisplayName(provider: "claude-code" | "codex-cli" | "github-copilot" | "kimi-cli"): string {
+  if (provider === "kimi-cli") return "Kimi CLI";
   if (provider === "codex-cli") return "Codex CLI";
   if (provider === "github-copilot") return "GitHub Copilot";
   return "Claude Code";

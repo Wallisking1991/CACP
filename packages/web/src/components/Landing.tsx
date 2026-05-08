@@ -25,7 +25,8 @@ interface LandingProps {
 const commandAgentTypes = [
   { value: "claude-code", labelKey: "agentType.claudeCode" },
   { value: "codex-cli", labelKey: "agentType.codexCli" },
-  { value: "github-copilot", labelKey: "agentType.githubCopilot" }
+  { value: "github-copilot", labelKey: "agentType.githubCopilot" },
+  { value: "kimi-cli", labelKey: "agentType.kimiCli" }
 ] as const;
 
 const llmAgentTypes = [

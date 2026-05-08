@@ -17,6 +17,9 @@ import { listCodexSessions } from "./codex/session-catalog.js";
 import { buildCodexImportFromSessionFile, chunkCodexImportMessages, findCodexSessionFile } from "./codex/transcript-import.js";
 import { CopilotRuntime } from "./copilot/runtime.js";
 import { loadCopilotSdk } from "./copilot/copilot-sdk.js";
+import { KimiRuntime } from "./kimi/runtime.js";
+import { listKimiSessions } from "./kimi/session-catalog.js";
+import { buildKimiImportFromSessionEvents, chunkKimiImportMessages } from "./kimi/transcript-import.js";
 import { roomAssetDirectory } from "./connector/room-assets.js";
 import { MainThreadLedger } from "./connector/main-ledger.js";
 import { buildLlmPromptFromLedger } from "./connector/llm-context.js";
@@ -100,6 +103,23 @@ async function main() {
     updateNode: async (payload) => { await roomClient.updateRunNode(payload.run_id, payload.node_id, payload); },
     completeNode: async (payload) => { await roomClient.completeRunNode(payload.run_id, payload.node_id, payload); },
     failNode: async (payload) => { await roomClient.failRunNode(payload.run_id, payload.node_id, payload); }
+  }) : undefined;
+
+  const isKimiCli = !config.llm && config.agent.capabilities.includes("kimi-cli");
+  const kimiRuntime = isKimiCli ? new KimiRuntime({
+    agentId: registered.agent_id,
+    workingDir: config.agent.working_dir,
+    permissionLevel: config.permission_level ?? "read_only",
+    model: config.agent.model,
+    publishDelta: async (turnId, chunk) => {
+      await roomClient.publishTurnDelta(turnId, chunk);
+    },
+    startNode: async (payload) => { await roomClient.startRunNode(payload.run_id, payload); },
+    appendNodeDelta: async (payload) => { await roomClient.appendRunNodeDelta(payload.run_id, payload.node_id, payload); },
+    updateNode: async (payload) => { await roomClient.updateRunNode(payload.run_id, payload.node_id, payload); },
+    completeNode: async (payload) => { await roomClient.completeRunNode(payload.run_id, payload.node_id, payload); },
+    failNode: async (payload) => { await roomClient.failRunNode(payload.run_id, payload.node_id, payload); },
+    requestApproval: async (nodeId, payload) => { return await roomClient.requestRunApproval(payload.turn_id, nodeId, payload); }
   }) : undefined;
 
   const isCopilotCli = !config.llm && config.agent.capabilities.includes("github-copilot");
@@ -345,6 +365,44 @@ async function main() {
         return;
       }
 
+      if (parsed.data.type === "agent.session_preview.requested" && kimiRuntime) {
+        const payload = parsed.data.payload as { preview_id?: string; agent_id?: string; session_id?: string; provider?: string };
+        if (!payload.preview_id || !payload.session_id || payload.agent_id !== registered.agent_id || payload.provider !== "kimi-cli") return;
+        try {
+          const previewResult = await buildKimiImportFromSessionEvents({
+            importId: payload.preview_id,
+            agentId: registered.agent_id,
+            workingDir: config.agent.working_dir,
+            sessionId: payload.session_id,
+            title: `Kimi session ${payload.session_id.slice(0, 8)}`
+          });
+          for (const chunk of chunkKimiImportMessages(previewResult.messages)) {
+            await roomClient.uploadAgentPreviewMessages(payload.preview_id, chunk.map((message) => {
+              const { import_id: _importId, ...previewMessage } = message;
+              return { ...previewMessage, preview_id: payload.preview_id!, provider: "kimi-cli" };
+            }));
+          }
+          await roomClient.completeAgentPreview(payload.preview_id, {
+            preview_id: payload.preview_id,
+            agent_id: registered.agent_id,
+            provider: "kimi-cli",
+            session_id: payload.session_id,
+            previewed_message_count: previewResult.messages.length,
+            completed_at: new Date().toISOString()
+          });
+        } catch (error) {
+          await roomClient.failAgentPreview(payload.preview_id, {
+            preview_id: payload.preview_id,
+            agent_id: registered.agent_id,
+            provider: "kimi-cli",
+            session_id: payload.session_id,
+            error: error instanceof Error ? error.message : String(error),
+            failed_at: new Date().toISOString()
+          });
+        }
+        return;
+      }
+
       if (parsed.data.type === "agent.session_selected" && codexRuntime) {
         const payload = parsed.data.payload as { agent_id?: string; mode?: string; session_id?: string; provider?: string };
         if (payload.agent_id !== registered.agent_id || payload.provider !== "codex-cli") return;
@@ -457,6 +515,83 @@ async function main() {
         return;
       }
 
+      if (parsed.data.type === "agent.session_selected" && kimiRuntime) {
+        const payload = parsed.data.payload as { agent_id?: string; mode?: string; session_id?: string; provider?: string };
+        if (payload.agent_id !== registered.agent_id || payload.provider !== "kimi-cli") return;
+        if (payload.mode === "fresh") {
+          try {
+            await kimiRuntime.selectSession({ mode: "fresh" });
+            await roomClient.publishAgentSessionReady({
+              agent_id: registered.agent_id,
+              provider: "kimi-cli",
+              mode: "fresh",
+              ready_at: nowIso()
+            });
+          } catch (error) {
+            console.error("Kimi session selection failed:", error instanceof Error ? error.message : String(error));
+          }
+          return;
+        }
+        if (payload.mode === "resume" && payload.session_id) {
+          const importId = `import_${randomUUID()}`;
+          const fallbackTitle = `Kimi session ${payload.session_id.slice(0, 8)}`;
+          let importClosed = false;
+          try {
+            const catalog = await listKimiSessions({ workingDir: config.agent.working_dir });
+            const selected = catalog.sessions.find((session) => session.session_id === payload.session_id);
+            const importResult = await buildKimiImportFromSessionEvents({
+              importId,
+              agentId: registered.agent_id,
+              workingDir: config.agent.working_dir,
+              sessionId: payload.session_id,
+              title: selected?.title ?? fallbackTitle
+            });
+            const startedAt = new Date().toISOString();
+            await roomClient.startAgentImport({
+              import_id: importId,
+              agent_id: registered.agent_id,
+              provider: "kimi-cli",
+              session_id: payload.session_id,
+              title: importResult.title,
+              message_count: importResult.messages.length,
+              started_at: startedAt
+            });
+            for (const chunk of chunkKimiImportMessages(importResult.messages)) {
+              await roomClient.uploadAgentImportMessages(importId, chunk.map((message) => ({ ...message, provider: "kimi-cli" })));
+            }
+            await kimiRuntime.selectSession({ mode: "resume", sessionId: payload.session_id });
+            await roomClient.completeAgentImport(importId, {
+              import_id: importId,
+              agent_id: registered.agent_id,
+              provider: "kimi-cli",
+              session_id: payload.session_id,
+              imported_message_count: importResult.messages.length,
+              completed_at: nowIso()
+            });
+            importClosed = true;
+            await roomClient.publishAgentSessionReady({
+              agent_id: registered.agent_id,
+              provider: "kimi-cli",
+              mode: "resume",
+              session_id: payload.session_id,
+              ready_at: nowIso()
+            });
+          } catch (error) {
+            if (importClosed) throw error;
+            await roomClient.failAgentImport(importId, {
+              import_id: importId,
+              agent_id: registered.agent_id,
+              provider: "kimi-cli",
+              session_id: payload.session_id,
+              error: error instanceof Error ? error.message : String(error),
+              failed_at: nowIso()
+            });
+            importClosed = true;
+          }
+        }
+        return;
+      }
+
       if (parsed.data.type === "task.created") {
         const payload = parsed.data.payload as { task_id?: string; target_agent_id?: string };
         if (payload.target_agent_id === registered.agent_id) {
@@ -482,7 +617,7 @@ async function main() {
           created_at: parsed.data.created_at,
           turn_id: turnId
         });
-        let runProvider: "claude-code" | "codex-cli" | "github-copilot" | undefined;
+        let runProvider: "claude-code" | "codex-cli" | "github-copilot" | "kimi-cli" | undefined;
         let turnCompleted = false;
         let runStarted = false;
         try {
@@ -598,6 +733,38 @@ async function main() {
               completed_at: nowIso()
             });
             appendAgentFinal(turnId, result.finalText, ledgerSource);
+          } else if (kimiRuntime) {
+            runProvider = "kimi-cli";
+            await roomClient.startTurn(turnId);
+            await roomClient.startRun(turnId, {
+              run_id: turnId,
+              turn_id: turnId,
+              agent_id: registered.agent_id,
+              provider: runProvider,
+              started_at: nowIso()
+            });
+            runStarted = true;
+            const result = await kimiRuntime.runTurn({
+              turnId,
+              roomName: typeof payload.room_name === "string" ? payload.room_name : undefined,
+              speakerName: typeof payload.speaker_name === "string" ? payload.speaker_name : "Room participant",
+              speakerRole: typeof payload.speaker_role === "string" ? payload.speaker_role : "member",
+              modeLabel: typeof payload.mode === "string" ? payload.mode : "normal",
+              text: turnText
+            });
+            const turnCompletion = await roomClient.completeTurn(turnId, result.finalText);
+            turnCompleted = true;
+            await roomClient.completeRun(turnId, {
+              run_id: turnId,
+              turn_id: turnId,
+              agent_id: registered.agent_id,
+              provider: runProvider,
+              message_id: turnCompletion.message_id,
+              summary: statusSummary({ metrics: result.metrics }),
+              metrics: result.metrics,
+              completed_at: nowIso()
+            });
+            appendAgentFinal(turnId, result.finalText, ledgerSource);
           }
         } catch (error) {
           const rawMessage = error instanceof Error ? error.message : String(error);
@@ -645,7 +812,7 @@ async function main() {
       agentName: config.agent.name,
       workingDir: config.agent.working_dir,
       claudeSessionMode: isClaudeCode ? "pending-selection" : "not-applicable",
-      agentSessionLabel: isCopilotCli ? "GitHub Copilot session" : isCodexCli ? "Codex CLI session" : isClaudeCode ? "Claude Code persistent session" : "Local agent runtime"
+      agentSessionLabel: isKimiCli ? "Kimi CLI session" : isCopilotCli ? "GitHub Copilot session" : isCodexCli ? "Codex CLI session" : isClaudeCode ? "Claude Code persistent session" : "Local agent runtime"
     });
     console.log(`Connected adapter stream for room ${config.room_id}`);
     console.log("DEBUG: WebSocket is open, about to publish catalog");
@@ -704,6 +871,18 @@ async function main() {
         }
       })();
     }
+    if (isKimiCli) {
+      void listKimiSessions({ workingDir: config.agent.working_dir })
+        .then((catalog) => roomClient.publishAgentSessionCatalog({
+          agent_id: registered.agent_id,
+          provider: "kimi-cli",
+          working_dir: catalog.workingDir,
+          sessions: catalog.sessions
+        }))
+        .catch((error) => {
+          console.error("Failed to publish Kimi session catalog", error instanceof Error ? error.message : String(error));
+        });
+    }
   });
   ws.on("close", (code, reason) => {
     const reasonText = reason.toString();
@@ -719,6 +898,9 @@ async function main() {
     });
     void copilotRuntime?.close().catch((error) => {
       console.error("Failed to close Copilot runtime", error);
+    });
+    void kimiRuntime?.close().catch((error) => {
+      console.error("Failed to close Kimi runtime", error);
     });
     process.exitCode = 0;
     setTimeout(() => process.exit(0), 25).unref();

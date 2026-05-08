@@ -7,6 +7,7 @@ describe("agent pairing profiles", () => {
       "claude-code",
       "codex-cli",
       "github-copilot",
+      "kimi-cli",
       "llm-api",
       "llm-openai-compatible",
       "llm-anthropic-compatible"
@@ -146,6 +147,45 @@ describe("agent pairing profiles", () => {
     ]);
     expect(profile.system_prompt).toContain("GitHub Copilot");
     expect(profile.system_prompt).toContain("CACP");
+  });
+
+  it("includes kimi-cli in command agent type values", () => {
+    expect(AgentTypeValues).toContain("kimi-cli");
+    expect(isLlmAgentType("kimi-cli")).toBe(false);
+  });
+
+  it("builds a Kimi CLI profile", () => {
+    const profile = buildAgentProfile({
+      agentType: "kimi-cli",
+      permissionLevel: "limited_write",
+      workingDir: "D:\\Development\\2"
+    });
+
+    expect(profile.name).toBe("Kimi CLI Agent");
+    expect(profile.command).toBe("kimi");
+    expect(profile.args).toEqual([]);
+    expect(profile.working_dir).toBe("D:\\Development\\2");
+    expect(profile.capabilities).toEqual([
+      "kimi-cli",
+      "kimi.persistent_session",
+      "limited_write",
+      "manual_flow_control"
+    ]);
+    expect(profile.system_prompt).toContain("Kimi CLI");
+    expect(profile.system_prompt).toContain("CACP");
+  });
+
+  it("keeps permission intent in Kimi CLI profile capabilities", () => {
+    const readOnly = buildAgentProfile({ agentType: "kimi-cli", permissionLevel: "read_only", workingDir: "." });
+    const limitedWrite = buildAgentProfile({ agentType: "kimi-cli", permissionLevel: "limited_write", workingDir: "." });
+    const fullAccess = buildAgentProfile({ agentType: "kimi-cli", permissionLevel: "full_access", workingDir: "." });
+
+    expect(readOnly.capabilities).toContain("read_only");
+    expect(readOnly.capabilities).toContain("repo.read");
+    expect(limitedWrite.capabilities).toContain("limited_write");
+    expect(limitedWrite.capabilities).toContain("manual_flow_control");
+    expect(fullAccess.capabilities).toContain("full_access");
+    expect(fullAccess.capabilities).toContain("manual_flow_control");
   });
 
   it("keeps permission intent in GitHub Copilot profile capabilities", () => {

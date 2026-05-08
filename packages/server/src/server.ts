@@ -620,7 +620,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
 
   function providerForAgent(roomId: string, agentId: string): LocalAgentProvider | undefined {
     const provider = providerForCapabilities(findAgentCapabilities(store.listEvents(roomId), agentId));
-    if (provider === "claude-code" || provider === "codex-cli" || provider === "github-copilot") return provider;
+    if (provider === "claude-code" || provider === "codex-cli" || provider === "github-copilot" || provider === "kimi-cli") return provider;
     return undefined;
   }
 

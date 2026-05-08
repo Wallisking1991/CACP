@@ -192,7 +192,7 @@ export async function selectAgentSession(input: {
   roomId: string;
   token: string;
   agentId: string;
-  provider: "claude-code" | "codex-cli" | "github-copilot";
+  provider: "claude-code" | "codex-cli" | "github-copilot" | "kimi-cli";
   mode: "fresh" | "resume";
   sessionId?: string;
 }): Promise<{ ok: true }> {
@@ -218,7 +218,7 @@ export async function requestAgentSessionPreview(input: {
   roomId: string;
   token: string;
   agentId: string;
-  provider: "claude-code" | "codex-cli" | "github-copilot";
+  provider: "claude-code" | "codex-cli" | "github-copilot" | "kimi-cli";
   sessionId: string;
 }): Promise<{ ok: true; preview_id: string }> {
   const response = await fetch(`${input.serverUrl}/rooms/${input.roomId}/agent-sessions/previews`, {

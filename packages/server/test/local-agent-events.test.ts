@@ -14,8 +14,16 @@ describe("providerForCapabilities", () => {
     expect(providerForCapabilities(["github-copilot", "copilot.cli"])).toBe("github-copilot");
   });
 
+  it("returns kimi-cli when capabilities include kimi-cli", () => {
+    expect(providerForCapabilities(["kimi-cli", "kimi.persistent_session"])).toBe("kimi-cli");
+  });
+
   it("prefers claude-code over codex-cli when both are present", () => {
     expect(providerForCapabilities(["codex-cli", "claude-code"])).toBe("claude-code");
+  });
+
+  it("prefers claude-code over kimi-cli when both are present", () => {
+    expect(providerForCapabilities(["kimi-cli", "claude-code"])).toBe("claude-code");
   });
 
   it("returns undefined for unknown capabilities", () => {
@@ -35,6 +43,10 @@ describe("providerDisplayName", () => {
   it("returns GitHub Copilot for github-copilot", () => {
     expect(providerDisplayName("github-copilot")).toBe("GitHub Copilot");
   });
+
+  it("returns Kimi CLI for kimi-cli", () => {
+    expect(providerDisplayName("kimi-cli")).toBe("Kimi CLI");
+  });
 });
 
 describe("localAgentCapabilityForProvider", () => {
@@ -42,5 +54,6 @@ describe("localAgentCapabilityForProvider", () => {
     expect(localAgentCapabilityForProvider("claude-code")).toBe("claude-code");
     expect(localAgentCapabilityForProvider("codex-cli")).toBe("codex-cli");
     expect(localAgentCapabilityForProvider("github-copilot")).toBe("github-copilot");
+    expect(localAgentCapabilityForProvider("kimi-cli")).toBe("kimi-cli");
   });
 });

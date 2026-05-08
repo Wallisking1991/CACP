@@ -94,13 +94,15 @@ export default function Workspace({
   const peopleParticipants = useMemo(() => humanParticipants(room.participants), [room.participants]);
 
   const activeAgent = room.agents.find((a) => a.agent_id === room.activeAgentId);
-  const activeAgentProvider = activeAgent?.capabilities.includes("github-copilot")
-    ? "github-copilot"
-    : activeAgent?.capabilities.includes("codex-cli")
-      ? "codex-cli"
-      : activeAgent?.capabilities.includes("claude-code")
-        ? "claude-code"
-        : undefined;
+  const activeAgentProvider = activeAgent?.capabilities.includes("kimi-cli")
+    ? "kimi-cli"
+    : activeAgent?.capabilities.includes("github-copilot")
+      ? "github-copilot"
+      : activeAgent?.capabilities.includes("codex-cli")
+        ? "codex-cli"
+        : activeAgent?.capabilities.includes("claude-code")
+          ? "claude-code"
+          : undefined;
   const turnInFlight = isTurnInFlight(events);
 
   const actorNames = useMemo(() => {

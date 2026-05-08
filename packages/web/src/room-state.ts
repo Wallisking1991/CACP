@@ -403,7 +403,7 @@ function connectorLedgerMessageKind(entry: ConnectorLedgerEntry): string {
 }
 
 export function isLocalAgentProvider(value: unknown): value is AgentSessionReadyView["provider"] {
-  return value === "claude-code" || value === "codex-cli" || value === "github-copilot";
+  return value === "claude-code" || value === "codex-cli" || value === "github-copilot" || value === "kimi-cli";
 }
 
 function isValidJoinRequestStatus(value: unknown): value is JoinRequestView["status"] {
