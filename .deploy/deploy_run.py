@@ -115,6 +115,7 @@ corepack prepare pnpm@9.15.4 --activate
 export PATH=/opt/rh/gcc-toolset-11/root/usr/bin:$PATH
 export LD_LIBRARY_PATH=/opt/rh/gcc-toolset-11/root/usr/lib64:${{LD_LIBRARY_PATH:-}}
 
+export PYTHON=/usr/bin/python3.8
 corepack pnpm install --frozen-lockfile
 corepack pnpm --filter @cacp/protocol build
 corepack pnpm --filter @cacp/server build:prod
