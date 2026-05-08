@@ -402,8 +402,8 @@ function connectorLedgerMessageKind(entry: ConnectorLedgerEntry): string {
   return "human";
 }
 
-function isLocalAgentProvider(value: unknown): value is AgentSessionReadyView["provider"] {
-  return value === "claude-code" || value === "codex-cli";
+export function isLocalAgentProvider(value: unknown): value is AgentSessionReadyView["provider"] {
+  return value === "claude-code" || value === "codex-cli" || value === "github-copilot";
 }
 
 function isValidJoinRequestStatus(value: unknown): value is JoinRequestView["status"] {

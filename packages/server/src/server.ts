@@ -39,7 +39,8 @@ import {
   AgentSessionPreviewMessagePayloadSchema,
   AgentSessionPreviewRequestedPayloadSchema,
   AgentSessionReadyPayloadSchema,
-  AgentSessionSelectedPayloadSchema
+  AgentSessionSelectedPayloadSchema,
+  LocalAgentProviderSchema
 } from "@cacp/protocol";
 import {
   ClaudeSessionCatalogBodySchema,
@@ -101,12 +102,12 @@ const AgentSessionCatalogBodySchema = AgentSessionCatalogUpdatedPayloadSchema;
 const AgentSessionSelectionBodySchema = z.discriminatedUnion("mode", [
   z.object({
     agent_id: z.string().min(1),
-    provider: z.enum(["claude-code", "codex-cli"]),
+    provider: LocalAgentProviderSchema,
     mode: z.literal("fresh")
   }),
   z.object({
     agent_id: z.string().min(1),
-    provider: z.enum(["claude-code", "codex-cli"]),
+    provider: LocalAgentProviderSchema,
     mode: z.literal("resume"),
     session_id: z.string().min(1)
   })
@@ -619,7 +620,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
 
   function providerForAgent(roomId: string, agentId: string): LocalAgentProvider | undefined {
     const provider = providerForCapabilities(findAgentCapabilities(store.listEvents(roomId), agentId));
-    if (provider === "claude-code" || provider === "codex-cli") return provider;
+    if (provider === "claude-code" || provider === "codex-cli" || provider === "github-copilot") return provider;
     return undefined;
   }
 

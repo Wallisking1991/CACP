@@ -6,7 +6,7 @@ import type { AgentSessionCatalogView, AgentSessionPreviewView, AgentSessionSele
 interface Props {
   canManageRoom: boolean;
   agentId: string;
-  provider: "claude-code" | "codex-cli";
+  provider: "claude-code" | "codex-cli" | "github-copilot";
   catalog?: AgentSessionCatalogView;
   selection?: AgentSessionSelectionView;
   previews?: AgentSessionPreviewView[];
@@ -24,8 +24,10 @@ function formatDate(iso: string): string {
   }
 }
 
-function providerDisplayName(provider: "claude-code" | "codex-cli"): string {
-  return provider === "codex-cli" ? "Codex CLI" : "Claude Code";
+function providerDisplayName(provider: "claude-code" | "codex-cli" | "github-copilot"): string {
+  if (provider === "codex-cli") return "Codex CLI";
+  if (provider === "github-copilot") return "GitHub Copilot";
+  return "Claude Code";
 }
 
 export function AgentSessionPicker({ canManageRoom, agentId, provider, catalog, selection, previews = [], onRequestPreview, onSelect, wantsReselect: controlledWantsReselect, onReselectChange }: Props) {

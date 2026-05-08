@@ -6,6 +6,7 @@ describe("agent pairing profiles", () => {
     expect(AgentTypeValues).toEqual([
       "claude-code",
       "codex-cli",
+      "github-copilot",
       "llm-api",
       "llm-openai-compatible",
       "llm-anthropic-compatible"
@@ -15,6 +16,7 @@ describe("agent pairing profiles", () => {
     expect(isLlmAgentType("llm-anthropic-compatible")).toBe(true);
     expect(isLlmAgentType("claude-code")).toBe(false);
     expect(isLlmAgentType("codex-cli")).toBe(false);
+    expect(isLlmAgentType("github-copilot")).toBe(false);
     expect((AgentTypeValues as readonly string[]).includes("codex")).toBe(false);
     expect((AgentTypeValues as readonly string[]).includes("opencode")).toBe(false);
     expect((AgentTypeValues as readonly string[]).includes("echo")).toBe(false);
@@ -119,5 +121,43 @@ describe("agent pairing profiles", () => {
     expect(llmApi.args).toEqual([]);
     expect(llmApi.capabilities).toEqual(["llm.api", "chat.stream"]);
     expect(llmApi.capabilities).not.toContain("full_access");
+  });
+
+  it("includes github-copilot in command agent type values", () => {
+    expect(AgentTypeValues).toContain("github-copilot");
+  });
+
+  it("builds a GitHub Copilot CLI profile", () => {
+    const profile = buildAgentProfile({
+      agentType: "github-copilot",
+      permissionLevel: "limited_write",
+      workingDir: "D:\\Development\\2"
+    });
+
+    expect(profile.name).toBe("GitHub Copilot Agent");
+    expect(profile.command).toBe("gh");
+    expect(profile.args).toEqual([]);
+    expect(profile.working_dir).toBe("D:\\Development\\2");
+    expect(profile.capabilities).toEqual([
+      "github-copilot",
+      "copilot.persistent_session",
+      "limited_write",
+      "manual_flow_control"
+    ]);
+    expect(profile.system_prompt).toContain("GitHub Copilot");
+    expect(profile.system_prompt).toContain("CACP");
+  });
+
+  it("keeps permission intent in GitHub Copilot profile capabilities", () => {
+    const readOnly = buildAgentProfile({ agentType: "github-copilot", permissionLevel: "read_only", workingDir: "." });
+    const limitedWrite = buildAgentProfile({ agentType: "github-copilot", permissionLevel: "limited_write", workingDir: "." });
+    const fullAccess = buildAgentProfile({ agentType: "github-copilot", permissionLevel: "full_access", workingDir: "." });
+
+    expect(readOnly.capabilities).toContain("read_only");
+    expect(readOnly.capabilities).toContain("repo.read");
+    expect(limitedWrite.capabilities).toContain("limited_write");
+    expect(limitedWrite.capabilities).toContain("manual_flow_control");
+    expect(fullAccess.capabilities).toContain("full_access");
+    expect(fullAccess.capabilities).toContain("manual_flow_control");
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CacpEvent } from "@cacp/protocol";
-import { isTurnInFlight, humanParticipants } from "../src/room-state.js";
+import { isTurnInFlight, humanParticipants, isLocalAgentProvider } from "../src/room-state.js";
 
 function event(type: CacpEvent["type"], payload: Record<string, unknown>, sequence: number, actor_id = "user_1"): CacpEvent {
   return {
@@ -61,5 +61,25 @@ describe("humanParticipants", () => {
       "user_member",
       "user_observer"
     ]);
+  });
+});
+
+describe("isLocalAgentProvider", () => {
+  it("returns true for claude-code", () => {
+    expect(isLocalAgentProvider("claude-code")).toBe(true);
+  });
+
+  it("returns true for codex-cli", () => {
+    expect(isLocalAgentProvider("codex-cli")).toBe(true);
+  });
+
+  it("returns true for github-copilot", () => {
+    expect(isLocalAgentProvider("github-copilot")).toBe(true);
+  });
+
+  it("returns false for non-local providers", () => {
+    expect(isLocalAgentProvider("llm-api")).toBe(false);
+    expect(isLocalAgentProvider("unknown")).toBe(false);
+    expect(isLocalAgentProvider(null)).toBe(false);
   });
 });

@@ -1,4 +1,4 @@
-export const CommandAgentTypeValues = ["claude-code", "codex-cli"] as const;
+export const CommandAgentTypeValues = ["claude-code", "codex-cli", "github-copilot"] as const;
 export const LlmAgentTypeValues = ["llm-api", "llm-openai-compatible", "llm-anthropic-compatible"] as const;
 export const AgentTypeValues = [...CommandAgentTypeValues, ...LlmAgentTypeValues] as const;
 export type AgentType = typeof AgentTypeValues[number];
@@ -31,6 +31,22 @@ export function buildAgentProfile(input: { agentType: AgentType; permissionLevel
   if (input.agentType === "llm-anthropic-compatible") {
     return { name: "Anthropic-compatible LLM API Agent", command: "", args: [], working_dir: workingDir, capabilities: ["llm.api", "chat.stream", "llm.anthropic_compatible"], system_prompt: llmApiSystemPrompt() };
   }
+  if (input.agentType === "github-copilot") {
+    return {
+      name: "GitHub Copilot Agent",
+      command: "gh",
+      args: [],
+      working_dir: workingDir,
+      capabilities: [
+        "github-copilot",
+        "copilot.persistent_session",
+        input.permissionLevel,
+        ...(input.permissionLevel === "read_only" ? ["repo.read"] : ["manual_flow_control"])
+      ],
+      system_prompt: copilotSystemPrompt(input.permissionLevel)
+    };
+  }
+
   if (input.agentType === "codex-cli") {
     return {
       name: "Codex CLI Agent",
@@ -86,6 +102,21 @@ function codexSystemPrompt(permissionLevel: PermissionLevel): string {
       : "Current permission is full access: when the owner explicitly asks, you may create or modify files and run necessary commands. For destructive, irreversible, or broad operations, still explain the risk and wait for explicit owner confirmation.";
   return [
     "You are a Codex CLI Agent connected to a CACP multi-user AI room.",
+    "You run in the runtime directory chosen by CACP-Local-Connector; do not assume it is the repository root.",
+    "Use the local runtime directory and the room message to help all participants move the task forward.",
+    "Do not reveal hidden chain-of-thought; share concise observable reasoning, actions, and results.",
+    approval
+  ].join("\n");
+}
+
+function copilotSystemPrompt(permissionLevel: PermissionLevel): string {
+  const approval = permissionLevel === "read_only"
+    ? "Current permission is read-only: do not modify files and do not run write, delete, install, or environment-changing commands."
+    : permissionLevel === "limited_write"
+      ? "Current permission allows normal file creation and edits inside the workspace. For deletion, broad refactors, dependency installation, network access, or environment-changing commands, explain the risk and wait for explicit owner confirmation."
+      : "Current permission is full access: when the owner explicitly asks, you may create or modify files and run necessary commands. For destructive, irreversible, or broad operations, still explain the risk and wait for explicit owner confirmation.";
+  return [
+    "You are a GitHub Copilot Agent connected to a CACP multi-user AI room.",
     "You run in the runtime directory chosen by CACP-Local-Connector; do not assume it is the repository root.",
     "Use the local runtime directory and the room message to help all participants move the task forward.",
     "Do not reveal hidden chain-of-thought; share concise observable reasoning, actions, and results.",

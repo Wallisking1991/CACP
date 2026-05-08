@@ -72,6 +72,7 @@
   "agentType.group.llmApi": "LLM API Agent",
   "agentType.claudeCode": "Claude Code CLI",
   "agentType.codexCli": "Codex CLI",
+  "agentType.githubCopilot": "GitHub Copilot CLI",
   "agentType.llmApi": "LLM API Agent",
   "agentType.llmOpenAiCompatible": "OpenAI-compatible API",
   "agentType.llmAnthropicCompatible": "Anthropic-compatible API",

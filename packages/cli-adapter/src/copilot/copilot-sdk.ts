@@ -167,6 +167,9 @@ export function createCopilotSdkFromModule(module: UnknownSdkModule, options: { 
 }
 
 export async function loadCopilotSdk(options: { cliPath?: string } = {}): Promise<CopilotSdk> {
+  // Suppress Node.js experimental SQLite warnings from gh CLI copilot subprocess
+  process.env.NODE_NO_WARNINGS = "1";
+
   // @ts-ignore — optional dependency, resolved at runtime when @github/copilot-sdk is installed
   const module = await import("@github/copilot-sdk") as UnknownSdkModule;
 

@@ -1,13 +1,18 @@
-export type LocalAgentProvider = "claude-code" | "codex-cli";
+import type { LocalAgentProvider } from "@cacp/protocol";
+
+export { type LocalAgentProvider };
 
 export function providerForCapabilities(capabilities: string[]): LocalAgentProvider | undefined {
   if (capabilities.includes("claude-code")) return "claude-code";
+  if (capabilities.includes("github-copilot")) return "github-copilot";
   if (capabilities.includes("codex-cli")) return "codex-cli";
   return undefined;
 }
 
 export function providerDisplayName(provider: LocalAgentProvider): string {
-  return provider === "codex-cli" ? "Codex CLI" : "Claude Code";
+  if (provider === "codex-cli") return "Codex CLI";
+  if (provider === "github-copilot") return "GitHub Copilot";
+  return "Claude Code";
 }
 
 export function localAgentCapabilityForProvider(provider: LocalAgentProvider): string {

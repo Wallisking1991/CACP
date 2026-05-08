@@ -682,6 +682,7 @@ async function main() {
       void (async () => {
         try {
           const sdk = await loadCopilotSdk();
+          await sdk.start();
           const sessions = await sdk.listSessions();
           await roomClient.publishAgentSessionCatalog({
             agent_id: registered.agent_id,

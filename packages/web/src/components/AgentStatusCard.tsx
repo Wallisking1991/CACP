@@ -32,6 +32,7 @@ function formatElapsed(status: AgentRuntimeStatusView): string | undefined {
 
 function providerDisplayName(provider: string | undefined): string {
   if (provider === "codex-cli") return "Codex CLI";
+  if (provider === "github-copilot") return "GitHub Copilot";
   if (provider === "claude-code") return "Claude Code";
   return "Local code agent";
 }
