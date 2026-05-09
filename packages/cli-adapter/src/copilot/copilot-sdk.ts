@@ -1,5 +1,6 @@
 import { execSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { CopilotSdk, CopilotSdkSession } from "./types.js";
 
@@ -76,6 +77,144 @@ export function findCopilotCli(): string | undefined {
   // 4. Scan PATH directories
   const fromPath = scanPathEnv(name);
   if (fromPath) return fromPath;
+
+  return undefined;
+}
+
+function scanPnpmVirtualStoreForCopilot(baseDirs: string[]): string | undefined {
+  for (const base of baseDirs) {
+    const pnpmDir = join(base, "node_modules", ".pnpm");
+    if (!existsSync(pnpmDir)) continue;
+    try {
+      const entries = readdirSync(pnpmDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory() && entry.name.startsWith("@github+copilot@")) {
+          const candidate = join(pnpmDir, entry.name, "node_modules", "@github", "copilot", "index.js");
+          if (existsSync(candidate)) return candidate;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return undefined;
+}
+
+function scanNpmLocalForCopilot(baseDirs: string[]): string | undefined {
+  for (const base of baseDirs) {
+    const candidate = join(base, "node_modules", "@github", "copilot", "index.js");
+    if (existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+function resolveNpmGlobalRoot(): string | undefined {
+  try {
+    const result = execSync("npm root -g", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    if (result && existsSync(result)) return result;
+  } catch {
+    // ignore
+  }
+  return undefined;
+}
+
+function resolvePnpmGlobalRoot(): string | undefined {
+  try {
+    const result = execSync("pnpm root -g", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    if (result && existsSync(result)) return result;
+  } catch {
+    // ignore
+  }
+  return undefined;
+}
+
+function resolveYarnGlobalRoot(): string | undefined {
+  try {
+    const globalDir = execSync("yarn global dir", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    if (globalDir) {
+      const candidate = join(globalDir, "node_modules");
+      if (existsSync(candidate)) return candidate;
+    }
+  } catch {
+    // ignore
+  }
+  return undefined;
+}
+
+function scanNpmGlobalForCopilot(): string | undefined {
+  const globalRoots: string[] = [];
+
+  // Dynamic resolution from package managers (most reliable)
+  const npmRoot = resolveNpmGlobalRoot();
+  if (npmRoot) globalRoots.push(npmRoot);
+  const pnpmRoot = resolvePnpmGlobalRoot();
+  if (pnpmRoot) globalRoots.push(pnpmRoot);
+  const yarnRoot = resolveYarnGlobalRoot();
+  if (yarnRoot) globalRoots.push(yarnRoot);
+
+  // Fallback static paths
+  if (process.platform === "win32") {
+    const appData = process.env.APPDATA;
+    if (appData) globalRoots.push(join(appData, "npm", "node_modules"));
+    const localAppData = process.env.LOCALAPPDATA;
+    if (localAppData) globalRoots.push(join(localAppData, "npm", "node_modules"));
+  } else {
+    globalRoots.push(join(homedir(), ".npm", "lib", "node_modules"));
+    globalRoots.push("/usr/local/lib/node_modules");
+    globalRoots.push("/usr/lib/node_modules");
+  }
+
+  for (const root of globalRoots) {
+    const candidate = join(root, "@github", "copilot", "index.js");
+    if (existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+function resolveCopilotViaRequire(): string | undefined {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const resolved = require.resolve("@github/copilot");
+    if (existsSync(resolved)) return resolved;
+  } catch {
+    // ignore
+  }
+  return undefined;
+}
+
+function collectAncestorDirs(start: string): string[] {
+  const dirs: string[] = [];
+  let current = start;
+  while (true) {
+    dirs.push(current);
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return dirs;
+}
+
+export function findCopilotPackage(): string | undefined {
+  const baseDirs: string[] = [];
+  try {
+    baseDirs.push(...collectAncestorDirs(process.cwd()));
+  } catch { /* ignore */ }
+
+  // 1. pnpm virtual store (walk up from cwd so monorepo subdirs work)
+  const fromPnpm = scanPnpmVirtualStoreForCopilot(baseDirs);
+  if (fromPnpm) return fromPnpm;
+
+  // 2. npm local installs (walk up from cwd)
+  const fromNpmLocal = scanNpmLocalForCopilot(baseDirs);
+  if (fromNpmLocal) return fromNpmLocal;
+
+  // 3. npm global installs
+  const fromNpmGlobal = scanNpmGlobalForCopilot();
+  if (fromNpmGlobal) return fromNpmGlobal;
+
+  // 4. require.resolve fallback (works in unbundled environments)
+  const fromRequire = resolveCopilotViaRequire();
+  if (fromRequire) return fromRequire;
 
   return undefined;
 }
@@ -173,6 +312,9 @@ export async function loadCopilotSdk(options: { cliPath?: string } = {}): Promis
   // @ts-ignore — optional dependency, resolved at runtime when @github/copilot-sdk is installed
   const module = await import("@github/copilot-sdk") as UnknownSdkModule;
 
-  const cliPath = options.cliPath ?? findCopilotCli() ?? process.env.CACP_COPILOT_PATH;
+  const cliPath = options.cliPath
+    ?? findCopilotPackage()
+    ?? findCopilotCli()
+    ?? process.env.CACP_COPILOT_PATH;
   return createCopilotSdkFromModule(module, cliPath ? { cliPath } : {});
 }

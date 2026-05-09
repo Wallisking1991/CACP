@@ -23,6 +23,36 @@ function execWhich(command: string): string | undefined {
   return undefined;
 }
 
+function scanCommonInstallPaths(name: string): string | undefined {
+  const commonPaths: string[] = [];
+  if (process.platform === "win32") {
+    const programFiles = process.env.PROGRAMFILES;
+    const programFilesX86 = process.env["PROGRAMFILES(X86)"];
+    const localAppData = process.env.LOCALAPPDATA;
+    if (programFiles) commonPaths.push(join(programFiles, "Kimi"));
+    if (programFilesX86) commonPaths.push(join(programFilesX86, "Kimi"));
+    if (localAppData) commonPaths.push(join(localAppData, "Kimi"));
+    // Scoop / Chocolatey / winget typical paths
+    const userProfile = process.env.USERPROFILE;
+    if (userProfile) {
+      commonPaths.push(join(userProfile, "scoop", "shims"));
+      commonPaths.push(join(userProfile, "scoop", "apps", "kimi", "current"));
+    }
+  } else {
+    commonPaths.push("/usr/local/bin");
+    commonPaths.push("/opt/kimi/bin");
+    commonPaths.push(join(homedir(), ".local", "bin"));
+    // Homebrew paths
+    commonPaths.push("/opt/homebrew/bin");
+    commonPaths.push("/usr/local/opt/kimi/bin");
+  }
+  for (const dir of commonPaths) {
+    const candidate = join(dir, name);
+    if (existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+
 function scanPathEnv(name: string): string | undefined {
   const pathKey = process.platform === "win32" ? "Path" : "PATH";
   const pathEnv = process.env[pathKey] || process.env.PATH || "";
@@ -66,6 +96,9 @@ export function findKimiCli(): string | undefined {
 
   const fromPath = scanPathEnv(name);
   if (fromPath) return fromPath;
+
+  const fromCommon = scanCommonInstallPaths(name);
+  if (fromCommon) return fromCommon;
 
   return undefined;
 }

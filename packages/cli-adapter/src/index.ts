@@ -20,12 +20,34 @@ import { loadCopilotSdk } from "./copilot/copilot-sdk.js";
 import { KimiRuntime } from "./kimi/runtime.js";
 import { listKimiSessions } from "./kimi/session-catalog.js";
 import { buildKimiImportFromSessionEvents, chunkKimiImportMessages } from "./kimi/transcript-import.js";
+import { findCodexBinary } from "./codex/codex-sdk.js";
+import { findCopilotCli, findCopilotPackage } from "./copilot/copilot-sdk.js";
+import { findClaudeBinary } from "./claude/claude-sdk.js";
+import { findKimiCli } from "./kimi/kimi-sdk.js";
 import { roomAssetDirectory } from "./connector/room-assets.js";
 import { MainThreadLedger } from "./connector/main-ledger.js";
 import { buildLlmPromptFromLedger } from "./connector/llm-context.js";
 
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
-  console.log("Usage: cacp-cli-adapter [config.json]\n       cacp-cli-adapter --connect <connection_code>\n       cacp-cli-adapter --server <url> --pair <pairing_token>\n\nDouble-click without arguments to paste a CACP connection code.");
+  console.log("Usage: cacp-cli-adapter [config.json]\n       cacp-cli-adapter --connect <connection_code>\n       cacp-cli-adapter --server <url> --pair <pairing_token>\n       cacp-cli-adapter --detect-cli\n\nDouble-click without arguments to paste a CACP connection code.");
+  process.exit(0);
+}
+
+if (process.argv.includes("--detect-cli")) {
+  const tools = [
+    { name: "Codex CLI", found: !!findCodexBinary(), hint: "If you plan to use Codex as your agent tool, please install it from: https://github.com/openai/codex" },
+    { name: "Copilot SDK", found: !!findCopilotPackage(), hint: "If you plan to use Copilot as your agent tool, please install it with: npm install -g @github/copilot" },
+    { name: "Claude Code", found: !!findClaudeBinary(), hint: "If you plan to use Claude Code as your agent tool, please install it from: https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview" },
+    { name: "Kimi CLI", found: !!findKimiCli(), hint: "If you plan to use Kimi as your agent tool, please install it and ensure it is available in your PATH. https://www.moonshot.cn/" }
+  ];
+  console.log("Checking local agent CLI tools...");
+  console.log("");
+  for (const t of tools) {
+    console.log(t.found ? `[OK] ${t.name}` : `[MISSING] ${t.name} - ${t.hint}`);
+  }
+  console.log("");
+  console.log("Note: CLI tools must be installed globally (e.g. npm install -g <package>) so the connector can find them.");
+  console.log("");
   process.exit(0);
 }
 
@@ -857,7 +879,7 @@ async function main() {
             working_dir: config.agent.working_dir,
             sessions: sessions.map((s) => ({
               session_id: s.sessionId,
-              title: s.summary ?? `Copilot session ${s.sessionId.slice(0, 8)}`,
+              title: (s.summary ?? `Copilot session ${s.sessionId.slice(0, 8)}`).slice(0, 200),
               project_dir: config.agent.working_dir,
               updated_at: s.modifiedTime.toISOString(),
               message_count: 0,

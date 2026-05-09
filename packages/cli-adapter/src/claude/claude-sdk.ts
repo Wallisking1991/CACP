@@ -132,8 +132,51 @@ function scanNpmLocal(baseDirs: string[], name: string): string | undefined {
   return undefined;
 }
 
+function resolveNpmGlobalRoot(): string | undefined {
+  try {
+    const result = execSync("npm root -g", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    if (result && existsSync(result)) return result;
+  } catch {
+    // ignore
+  }
+  return undefined;
+}
+
+function resolvePnpmGlobalRoot(): string | undefined {
+  try {
+    const result = execSync("pnpm root -g", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    if (result && existsSync(result)) return result;
+  } catch {
+    // ignore
+  }
+  return undefined;
+}
+
+function resolveYarnGlobalRoot(): string | undefined {
+  try {
+    const globalDir = execSync("yarn global dir", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    if (globalDir) {
+      const candidate = join(globalDir, "node_modules");
+      if (existsSync(candidate)) return candidate;
+    }
+  } catch {
+    // ignore
+  }
+  return undefined;
+}
+
 function scanNpmGlobal(name: string): string | undefined {
   const globalRoots: string[] = [];
+
+  // Dynamic resolution from package managers (most reliable)
+  const npmRoot = resolveNpmGlobalRoot();
+  if (npmRoot) globalRoots.push(npmRoot);
+  const pnpmRoot = resolvePnpmGlobalRoot();
+  if (pnpmRoot) globalRoots.push(pnpmRoot);
+  const yarnRoot = resolveYarnGlobalRoot();
+  if (yarnRoot) globalRoots.push(yarnRoot);
+
+  // Fallback static paths
   if (process.platform === "win32") {
     const appData = process.env.APPDATA;
     if (appData) globalRoots.push(join(appData, "npm", "node_modules"));
@@ -144,6 +187,7 @@ function scanNpmGlobal(name: string): string | undefined {
     globalRoots.push("/usr/local/lib/node_modules");
     globalRoots.push("/usr/lib/node_modules");
   }
+
   for (const root of globalRoots) {
     const platformPkg = platformPackageName();
     if (!platformPkg) continue;

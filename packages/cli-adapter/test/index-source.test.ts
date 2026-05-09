@@ -135,4 +135,11 @@ describe("connector index source", () => {
     expect(selectIndex).toBeLessThan(completeIndex);
     expect(completeIndex).toBeLessThan(readyIndex);
   });
+
+  it("truncates Copilot session summaries to 200 characters for catalog titles", () => {
+    const copilotCatalogIndex = indexSource.indexOf("if (isCopilotCli)");
+    expect(copilotCatalogIndex).toBeGreaterThan(-1);
+    const copilotCatalogBlock = indexSource.slice(copilotCatalogIndex, copilotCatalogIndex + 2000);
+    expect(copilotCatalogBlock).toContain(".slice(0, 200)");
+  });
 });
