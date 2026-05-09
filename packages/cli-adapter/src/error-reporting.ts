@@ -17,6 +17,11 @@ export interface ReportTurnFailureInput {
   log?: (message: string, error: unknown) => void;
 }
 
+function isTokenExpiredError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("401") && message.includes("invalid_token");
+}
+
 export async function reportTurnFailure(input: ReportTurnFailureInput): Promise<void> {
   const safeError = protocolSafeErrorMessage(input.displayError);
   const failedAt = input.now?.() ?? new Date().toISOString();
@@ -26,13 +31,17 @@ export async function reportTurnFailure(input: ReportTurnFailureInput): Promise<
     try {
       await input.reportRunFailure(safeError, failedAt);
     } catch (error) {
-      log("Adapter failed to report run failure", error);
+      if (!isTokenExpiredError(error)) {
+        log("Adapter failed to report run failure", error);
+      }
     }
   }
 
   try {
     await input.failTurn(safeError);
   } catch (error) {
-    log("Adapter failed to report turn failure", error);
+    if (!isTokenExpiredError(error)) {
+      log("Adapter failed to report turn failure", error);
+    }
   }
 }
