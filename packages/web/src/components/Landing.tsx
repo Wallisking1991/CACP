@@ -327,7 +327,7 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
 
                 {isCloudMode() && (
                   <div className="connector-setup landing-connector-setup">
-                    <a className="btn btn-ghost" href="/downloads/CACP-Local-Connector.exe" download>
+                    <a className="btn btn-ghost" href="/downloads/CACP-Local-Connector.zip" download>
                       {t("landing.connector.download")}
                     </a>
                     <p className="landing-safe-copy">

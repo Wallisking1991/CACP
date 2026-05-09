@@ -17,7 +17,7 @@ describe("agent pairing connection codes", () => {
     expect(response.statusCode).toBe(201);
     const body = response.json() as { connection_code: string; pairing_token?: string; download_url: string; expires_at: string };
     expect(body.pairing_token).toBeUndefined();
-    expect(body.download_url).toBe("/downloads/CACP-Local-Connector.exe");
+    expect(body.download_url).toBe("/downloads/CACP-Local-Connector.zip");
     const parsed = parseConnectionCode(body.connection_code);
     expect(parsed.server_url).toBe("https://cacp.example.com");
     expect(parsed.room_id).toBe(room.room_id);

@@ -5,7 +5,7 @@ import ConnectionCodeModal from "../src/components/ConnectionCodeModal.js";
 
 const pairing = {
   connection_code: "CACP-CONNECT:v1:full-secret-code",
-  download_url: "/downloads/CACP-Local-Connector.exe",
+  download_url: "/downloads/CACP-Local-Connector.zip",
   expires_at: "2026-04-28T04:30:00.000Z"
 };
 
@@ -29,7 +29,7 @@ describe("ConnectionCodeModal", () => {
     renderModal();
 
     expect(screen.getByRole("dialog", { name: "Connect local Agent" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Download CACP-Local-Connector.exe" })).toHaveAttribute("href", pairing.download_url);
+    expect(screen.getByRole("link", { name: "Download CACP-Local-Connector.zip" })).toHaveAttribute("href", pairing.download_url);
     expect(screen.getByRole("button", { name: "Copy connection code" })).toBeInTheDocument();
     expect(screen.getByText(/Connection code expires at/)).toBeInTheDocument();
   });

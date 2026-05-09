@@ -33,3 +33,6 @@ jobs:
 
       - name: Run validation
         run: corepack pnpm check
+
+      - name: Build CACP-Local-Connector.zip
+        run: node scripts/package-connector.mjs

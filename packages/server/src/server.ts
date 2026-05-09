@@ -2516,7 +2516,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
         permission_level: body.permission_level
       }),
       expires_at: pairing.expiresAt,
-      download_url: "/downloads/CACP-Local-Connector.exe"
+      download_url: "/downloads/CACP-Local-Connector.zip"
     });
   });
 

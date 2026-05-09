@@ -19,7 +19,7 @@ vi.mock("../src/api.js", async () => {
     })),
     createAgentPairing: vi.fn(async () => ({
       connection_code: "CACP-CONNECT:v1:full-secret-code",
-      download_url: "/downloads/CACP-Local-Connector.exe",
+      download_url: "/downloads/CACP-Local-Connector.zip",
       expires_at: "2026-04-28T04:30:00.000Z"
     })),
     getRoomMe: vi.fn(async () => ({
@@ -54,7 +54,7 @@ describe("App connector onboarding modal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create room and generate connector command" }));
 
     expect(await screen.findByRole("dialog", { name: "Connect local Agent" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Download CACP-Local-Connector.exe" })).toHaveAttribute("href", "/downloads/CACP-Local-Connector.exe");
+    expect(screen.getByRole("link", { name: "Download CACP-Local-Connector.zip" })).toHaveAttribute("href", "/downloads/CACP-Local-Connector.zip");
     fireEvent.click(screen.getByRole("button", { name: "Copy connection code" }));
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("CACP-CONNECT:v1:full-secret-code"));
   });

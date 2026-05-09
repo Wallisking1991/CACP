@@ -20,7 +20,7 @@ describe("Landing cloud connector setup", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Advanced options: Agent type and permission" }));
-    expect(screen.getByRole("link", { name: "Download Local Connector" })).toHaveAttribute("href", "/downloads/CACP-Local-Connector.exe");
+    expect(screen.getByRole("link", { name: "Download Local Connector" })).toHaveAttribute("href", "/downloads/CACP-Local-Connector.zip");
     expect(screen.getByText("Place the connector in your project folder, run it, then paste the room connection code.")).toBeInTheDocument();
     expect(screen.queryByLabelText("Working directory")).not.toBeInTheDocument();
     expect(container.querySelector("input[webkitdirectory]")).toBeNull();
