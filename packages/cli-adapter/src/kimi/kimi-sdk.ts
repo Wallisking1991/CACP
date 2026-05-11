@@ -1,5 +1,6 @@
 import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { KimiSdk, KimiSdkSession, KimiSdkStreamEvent, KimiSdkTurn } from "./types.js";
 
