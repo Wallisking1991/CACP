@@ -5,6 +5,7 @@ import { useT } from "../i18n/useT.js";
 interface Props {
   agentId: string;
   provider?: "claude-code" | "codex-cli" | "github-copilot" | "kimi-cli";
+  inline?: boolean;
   catalog: {
     agent_id: string;
     provider?: string;
@@ -42,7 +43,7 @@ function providerDisplayName(provider: "claude-code" | "codex-cli" | "github-cop
   return "Claude Code";
 }
 
-export function AgentSessionRequiredModal({ agentId, provider = "claude-code", catalog, previews = [], onRequestPreview, onSelect }: Props) {
+export function AgentSessionRequiredModal({ agentId, provider = "claude-code", inline = false, catalog, previews = [], onRequestPreview, onSelect }: Props) {
   const t = useT();
   const [inspectedSession, setInspectedSession] = useState<AgentSessionSummary | undefined>();
   const [busy, setBusy] = useState(false);
@@ -141,39 +142,47 @@ export function AgentSessionRequiredModal({ agentId, provider = "claude-code", c
     </div>
   ) : null;
 
-  return (
-    <div className="agent-session-required-overlay" role="dialog" aria-modal="true" aria-label={t("claude.session.requiredTitle")}>
-      <div className="agent-session-required-modal">
-        <div className="agent-session-required-header">
-          <p className="eyebrow">{providerLabel} {t("agent.session.eyebrow")}</p>
-          <h2>{t("agent.session.headline", { provider: providerLabel })}</h2>
-          <p>{t("claude.session.requiredSubcopy")}</p>
+  const modalBody = (
+    <div className="agent-session-required-modal">
+      <div className="agent-session-required-header">
+        <p className="eyebrow">{providerLabel} {t("agent.session.eyebrow")}</p>
+        <h2>{t("agent.session.headline", { provider: providerLabel })}</h2>
+        <p>{t("claude.session.requiredSubcopy")}</p>
+      </div>
+
+      <div className="agent-session-required-content">
+        <p>{t("agent.session.workingDir")}: <code>{catalog.working_dir}</code></p>
+
+        <div className="claude-session-actions">
+          <button type="button" className="btn btn-primary" disabled={busy} onClick={() => submit({ mode: "fresh" })}>{t("agent.session.startFreshBtn")}</button>
+          {latest ? <button type="button" className="btn btn-ghost" disabled={busy || !latest.importable} onClick={() => void inspect(latest)}>{t("agent.session.inspectLatestBtn", { title: latest.title })}</button> : null}
         </div>
 
-        <div className="agent-session-required-content">
-          <p>{t("agent.session.workingDir")}: <code>{catalog.working_dir}</code></p>
-
-          <div className="claude-session-actions">
-            <button type="button" className="btn btn-primary" disabled={busy} onClick={() => submit({ mode: "fresh" })}>{t("agent.session.startFreshBtn")}</button>
-            {latest ? <button type="button" className="btn btn-ghost" disabled={busy || !latest.importable} onClick={() => void inspect(latest)}>{t("agent.session.inspectLatestBtn", { title: latest.title })}</button> : null}
-          </div>
-
-          {catalog.sessions.length ? (
-            <ul className="claude-session-list">
-              {catalog.sessions.map((session) => (
-                <li key={session.session_id}>
-                  <div className="claude-session-list-main">
-                    <span>{session.title}</span>
-                    <span>{session.message_count} messages · {Math.round(session.byte_size / 1024)} KB</span>
-                  </div>
-                  <button type="button" className="btn btn-ghost" disabled={busy || !session.importable} onClick={() => void inspect(session)}>{t("agent.session.inspectBtn")}</button>
-                </li>
-              ))}
-            </ul>
-          ) : <p>{t("agent.session.noSessions", { provider: providerLabel })}</p>}
-        </div>
+        {catalog.sessions.length ? (
+          <ul className="claude-session-list">
+            {catalog.sessions.map((session) => (
+              <li key={session.session_id}>
+                <div className="claude-session-list-main">
+                  <span>{session.title}</span>
+                  <span>{session.message_count} messages · {Math.round(session.byte_size / 1024)} KB</span>
+                </div>
+                <button type="button" className="btn btn-ghost" disabled={busy || !session.importable} onClick={() => void inspect(session)}>{t("agent.session.inspectBtn")}</button>
+              </li>
+            ))}
+          </ul>
+        ) : <p>{t("agent.session.noSessions", { provider: providerLabel })}</p>}
       </div>
       {inspectDialog}
+    </div>
+  );
+
+  if (inline) {
+    return modalBody;
+  }
+
+  return (
+    <div className="agent-session-required-overlay" role="dialog" aria-modal="true" aria-label={t("claude.session.requiredTitle")}>
+      {modalBody}
     </div>
   );
 }

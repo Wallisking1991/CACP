@@ -4,7 +4,7 @@ import type { CacpEvent } from "@cacp/protocol";
 import type { RoomSession } from "../api.js";
 import { startTyping, stopTyping, updatePresence, createAgentPairing } from "../api.js";
 import { roomPermissionsForRole } from "../role-permissions.js";
-import { deriveRoomState, humanParticipants, isTurnInFlight } from "../room-state.js";
+import { deriveRoomState, humanParticipants, isTurnInFlight, computeAgentReadiness, claudeSelectionIsReady, agentSelectionIsReady } from "../room-state.js";
 import type { AgentSessionReadyView, AgentSessionSelectionView, ClaudeSessionReadyView, ClaudeSessionSelectionView } from "../room-state.js";
 import { requestClaudeSessionPreview, selectClaudeSession, requestAgentSessionPreview, selectAgentSession, sendOrbitNote, likeOrbitNote, unlikeOrbitNote, promoteOrbitNotes, sendMainInput, cancelMainInput, clearOrbit, resolveAgentRunApproval, resolveAgentRunElicitation } from "../api.js";
 import { createTypingActivityController, type TypingActivityController } from "../activity-client.js";
@@ -16,6 +16,7 @@ import MainComposer from "./MainComposer.js";
 import { MainInputQueueBar } from "./MainInputQueueBar.js";
 import OrbitComposer from "./OrbitComposer.js";
 import { AgentSessionRequiredModal } from "./AgentSessionRequiredModal.js";
+import { AgentStatusBanner } from "./AgentStatusBanner.js";
 import { Popover } from "./Popover.js";
 import { AgentAvatarPopover } from "./AgentAvatarPopover.js";
 import { PeopleAvatarPopover } from "./PeopleAvatarPopover.js";
@@ -40,32 +41,6 @@ export interface WorkspaceProps {
   error?: string;
   cloudMode?: boolean;
   createdPairing?: { connection_code: string; download_url: string; expires_at: string };
-}
-
-function claudeSelectionIsReady(
-  activeAgentId: string | undefined,
-  selection: ClaudeSessionSelectionView | undefined,
-  ready: ClaudeSessionReadyView | undefined
-): boolean {
-  if (!activeAgentId || !selection || !ready) return false;
-  if (selection.agent_id !== activeAgentId || ready.agent_id !== activeAgentId) return false;
-  if (selection.mode !== ready.mode) return false;
-  if (selection.mode === "resume") return ready.mode === "resume" && ready.session_id === selection.session_id;
-  return ready.mode === "fresh";
-}
-
-function agentSelectionIsReady(
-  activeAgentId: string | undefined,
-  activeAgentProvider: "claude-code" | "codex-cli" | "github-copilot" | undefined,
-  selection: AgentSessionSelectionView | undefined,
-  ready: AgentSessionReadyView | undefined
-): boolean {
-  if (!activeAgentId || !activeAgentProvider || !selection || !ready) return false;
-  if (selection.agent_id !== activeAgentId || ready.agent_id !== activeAgentId) return false;
-  if (selection.provider !== activeAgentProvider || ready.provider !== activeAgentProvider) return false;
-  if (selection.mode !== ready.mode) return false;
-  if (selection.mode === "resume") return ready.mode === "resume" && ready.session_id === selection.session_id;
-  return ready.mode === "fresh";
 }
 
 export default function Workspace({
@@ -383,6 +358,9 @@ export default function Workspace({
 
   const serverUrl = typeof window !== "undefined" ? window.location.origin : "http://localhost:3737";
 
+  const agentReadiness = computeAgentReadiness(room, activeAgentProvider);
+  const agentReady = agentReadiness === "ready";
+
   const needsClaudeSessionSelection =
     permissions.canManageControls &&
     room.activeAgentId &&
@@ -499,6 +477,8 @@ export default function Workspace({
             orbitBubbles={new Map(Array.from(orbitBubbles.entries()).map(([k, v]) => [k, v.text]))}
           />
 
+          <AgentStatusBanner status={agentReadiness} isOwner={isOwner} providerLabel={activeAgent ? activeAgent.name : undefined} />
+
           <Thread
             currentParticipantId={session.participant_id}
             messages={room.messages}
@@ -527,6 +507,7 @@ export default function Workspace({
             role={session.role}
             turnInFlight={turnInFlight}
             agents={room.agents}
+            agentReady={agentReady}
             onSendMainInput={(text) => {
               const agent = room.agents.find((a) => a.agent_id === room.activeAgentId);
               if (!turnInFlight) {
@@ -538,6 +519,42 @@ export default function Workspace({
             onStopTyping={() => typingControllerRef.current?.stopNow()}
           />
 
+          {needsClaudeSessionSelection && room.activeAgentId && room.claudeSessionCatalog && (
+            <div className="agent-session-inline">
+              <AgentSessionRequiredModal
+                agentId={room.activeAgentId}
+                provider="claude-code"
+                inline
+                catalog={room.claudeSessionCatalog}
+                previews={room.claudeSessionPreviews}
+                onRequestPreview={(sessionId) =>
+                  requestClaudeSessionPreview({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId, sessionId })
+                }
+                onSelect={(selection) =>
+                  selectClaudeSession({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId, ...selection })
+                }
+              />
+            </div>
+          )}
+
+          {needsGenericSessionSelection && room.activeAgentId && room.agentSessionCatalog && activeAgentProvider && (
+            <div className="agent-session-inline">
+              <AgentSessionRequiredModal
+                agentId={room.activeAgentId}
+                provider={activeAgentProvider}
+                inline
+                catalog={room.agentSessionCatalog}
+                previews={room.agentSessionPreviews}
+                onRequestPreview={(sessionId) =>
+                  requestAgentSessionPreview({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId, provider: activeAgentProvider, sessionId })
+                }
+                onSelect={(selection) =>
+                  selectAgentSession({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId, provider: activeAgentProvider, ...selection })
+                }
+              />
+            </div>
+          )}
+
           {error && (
             <p className="error inline-error" style={{ padding: "0 16px 12px" }}>
               {error}
@@ -547,36 +564,6 @@ export default function Workspace({
 
         {orbitPanel}
       </div>
-
-      {needsClaudeSessionSelection && room.activeAgentId && room.claudeSessionCatalog && (
-        <AgentSessionRequiredModal
-          agentId={room.activeAgentId}
-          provider="claude-code"
-          catalog={room.claudeSessionCatalog}
-          previews={room.claudeSessionPreviews}
-          onRequestPreview={(sessionId) =>
-            requestClaudeSessionPreview({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId, sessionId })
-          }
-          onSelect={(selection) =>
-            selectClaudeSession({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId, ...selection })
-          }
-        />
-      )}
-
-      {needsGenericSessionSelection && room.activeAgentId && room.agentSessionCatalog && activeAgentProvider && (
-        <AgentSessionRequiredModal
-          agentId={room.activeAgentId}
-          provider={activeAgentProvider}
-          catalog={room.agentSessionCatalog}
-          previews={room.agentSessionPreviews}
-          onRequestPreview={(sessionId) =>
-            requestAgentSessionPreview({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId, provider: activeAgentProvider, sessionId })
-          }
-          onSelect={(selection) =>
-            selectAgentSession({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId, provider: activeAgentProvider, ...selection })
-          }
-        />
-      )}
 
       <Popover triggerRef={railRef} open={peoplePopoverOpen} onClose={() => setPeoplePopoverOpen(false)}>
         <PeopleAvatarPopover

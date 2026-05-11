@@ -11,6 +11,7 @@ export interface MainComposerProps {
   role: RoomSession["role"];
   turnInFlight: boolean;
   agents: Array<{ agent_id: string; name: string }>;
+  agentReady?: boolean;
   onSendMainInput: (text: string) => void;
   onTypingInput: (text: string) => void;
   onStopTyping: () => void;
@@ -20,6 +21,7 @@ export default function MainComposer({
   role,
   turnInFlight,
   agents,
+  agentReady = true,
   onSendMainInput,
   onTypingInput,
   onStopTyping,
@@ -32,7 +34,7 @@ export default function MainComposer({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const perms = roomPermissionsForRole(role);
-  const canInput = perms.canSendMainInput;
+  const canInput = perms.canSendMainInput && agentReady;
   const isQueued = turnInFlight;
 
   const mentionItems: MentionItem[] = agents.map((a) => ({

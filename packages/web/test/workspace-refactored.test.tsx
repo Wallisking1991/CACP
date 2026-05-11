@@ -165,7 +165,7 @@ describe("Workspace refactored shell", () => {
 
     render(<LangProvider><Workspace {...props} /></LangProvider>);
 
-    expect(screen.getByRole("dialog", { name: /Select Agent Session/i })).toBeInTheDocument();
+    expect(screen.getByTestId("agent-status-banner")).toHaveAttribute("data-status", "selecting_session");
     expect(screen.getByText(/Choose how Codex CLI joins this room/i)).toBeInTheDocument();
   });
 

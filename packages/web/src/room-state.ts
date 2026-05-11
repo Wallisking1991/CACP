@@ -406,6 +406,57 @@ export function isLocalAgentProvider(value: unknown): value is AgentSessionReady
   return value === "claude-code" || value === "codex-cli" || value === "github-copilot" || value === "kimi-cli";
 }
 
+export function claudeSelectionIsReady(
+  activeAgentId: string | undefined,
+  selection: ClaudeSessionSelectionView | undefined,
+  ready: ClaudeSessionReadyView | undefined
+): boolean {
+  if (!activeAgentId || !selection || !ready) return false;
+  if (selection.agent_id !== activeAgentId || ready.agent_id !== activeAgentId) return false;
+  if (selection.mode !== ready.mode) return false;
+  if (selection.mode === "resume") return ready.mode === "resume" && ready.session_id === selection.session_id;
+  return ready.mode === "fresh";
+}
+
+export function agentSelectionIsReady(
+  activeAgentId: string | undefined,
+  activeAgentProvider: "claude-code" | "codex-cli" | "github-copilot" | "kimi-cli" | undefined,
+  selection: AgentSessionSelectionView | undefined,
+  ready: AgentSessionReadyView | undefined
+): boolean {
+  if (!activeAgentId || !activeAgentProvider || !selection || !ready) return false;
+  if (selection.agent_id !== activeAgentId || ready.agent_id !== activeAgentId) return false;
+  if (selection.provider !== activeAgentProvider || ready.provider !== activeAgentProvider) return false;
+  if (selection.mode !== ready.mode) return false;
+  if (selection.mode === "resume") return ready.mode === "resume" && ready.session_id === selection.session_id;
+  return ready.mode === "fresh";
+}
+
+export type AgentReadinessStatus = "no_agent" | "selecting_session" | "ready";
+
+export function computeAgentReadiness(
+  room: RoomViewState,
+  activeAgentProvider?: "claude-code" | "codex-cli" | "github-copilot" | "kimi-cli"
+): AgentReadinessStatus {
+  if (!room.activeAgentId) return "no_agent";
+
+  // Claude-specific session flow
+  if (room.claudeSessionCatalog && room.claudeSessionCatalog.agent_id === room.activeAgentId) {
+    if (!claudeSelectionIsReady(room.activeAgentId, room.claudeSessionSelection, room.claudeSessionReady)) {
+      return "selecting_session";
+    }
+  }
+
+  // Generic agent session flow
+  if (activeAgentProvider && room.agentSessionCatalog && room.agentSessionCatalog.agent_id === room.activeAgentId && room.agentSessionCatalog.provider === activeAgentProvider) {
+    if (!agentSelectionIsReady(room.activeAgentId, activeAgentProvider, room.agentSessionSelection, room.agentSessionReady)) {
+      return "selecting_session";
+    }
+  }
+
+  return "ready";
+}
+
 function isValidJoinRequestStatus(value: unknown): value is JoinRequestView["status"] {
   return value === "pending" || value === "approved" || value === "rejected" || value === "expired";
 }

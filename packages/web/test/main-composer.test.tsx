@@ -59,4 +59,19 @@ describe("MainComposer", () => {
     fireEvent.click(screen.getByRole("button", { name: /Trigger Agent/i }));
     expect(onSendMainInput).toHaveBeenCalledWith("Click test");
   });
+
+  it("disables textarea and button when agentReady is false", () => {
+    renderMainComposer({ ...baseProps, agentReady: false });
+    const textarea = screen.getByPlaceholderText(/Type a message for the Agent/i);
+    expect(textarea).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Trigger Agent/i })).toBeDisabled();
+  });
+
+  it("keeps textarea and button enabled when agentReady is true", () => {
+    renderMainComposer({ ...baseProps, agentReady: true });
+    const textarea = screen.getByPlaceholderText(/Type a message for the Agent/i);
+    fireEvent.change(textarea, { target: { value: "Hello" } });
+    expect(textarea).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: /Trigger Agent/i })).not.toBeDisabled();
+  });
 });
