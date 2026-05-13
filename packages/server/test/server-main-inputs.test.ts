@@ -245,7 +245,7 @@ describe("POST /rooms/:roomId/main-inputs", () => {
     expect(promoteRes.statusCode).toBe(201);
     await waitForEvent(received, (e) => e.type === "agent.turn.requested");
     const requested = received.find((e) => e.type === "agent.turn.requested")!;
-    expect(String(requested.payload.context_prompt)).toContain("<CACP_ORBIT_DISCUSSION>");
+    expect(String(requested.payload.context_prompt)).toContain("[Orbit background]");
     expect(String(requested.payload.context_prompt)).toContain("Budget risk needs detail");
     expect(requested.payload.source).toBe("orbit_promote");
 

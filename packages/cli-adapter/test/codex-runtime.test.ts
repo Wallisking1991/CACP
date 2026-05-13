@@ -66,7 +66,7 @@ describe("Codex runtime", () => {
         startThread: (options: Record<string, unknown>) => ({
           id: null,
           runStreamed: async (prompt: string) => {
-            expect(prompt).toContain("Message: list files");
+            expect(prompt).toMatch(/^\$\$\[Owner\/owner\] list files\$\$$/);
             expect(options.sandboxMode).toBe("read-only");
             return {
               events: events([

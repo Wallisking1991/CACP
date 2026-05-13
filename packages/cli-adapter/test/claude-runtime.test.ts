@@ -165,8 +165,8 @@ describe("Claude runtime", () => {
     expect(queryCalls.map((call) => call.options.resume)).toEqual(["session_9", "session_9"]);
     expect(first.finalText).toBe("resumed answer");
     expect(second.finalText).toBe("resumed answer");
-    expect(queryCalls[0]?.prompt).toContain("Message: first");
-    expect(queryCalls[1]?.prompt).toContain("Message: second");
+    expect(queryCalls[0]?.prompt).toMatch(/^\$\$\[Owner\/owner\] first\$\$$/);
+    expect(queryCalls[1]?.prompt).toMatch(/^\$\$\[Owner\/owner\] second\$\$$/);
   });
 
   it("emits a connecting node before query and completes it on first stream message", async () => {

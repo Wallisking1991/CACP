@@ -98,7 +98,7 @@ describe("OrbitRoomState (flat pool)", () => {
     expect(state.buildPromotionPayload([])).toBeNull();
   });
 
-  it("buildPromotionPayload includes wrapper and like counts in chronological order", () => {
+  it("buildPromotionPayload includes [Orbit background] prefix and like counts in chronological order", () => {
     const state = new OrbitRoomState("room_1");
     addNote(state, "n1", "2026-05-01T00:00:00.000Z", "Note 1", "u1");
     addNote(state, "n2", "2026-05-01T00:00:01.000Z", "Note 2", "u2");
@@ -107,33 +107,10 @@ describe("OrbitRoomState (flat pool)", () => {
     state.setLike("n2", "u3", true);
     const payload = state.buildPromotionPayload(["n1", "n2"]);
     expect(payload).not.toBeNull();
-    expect(payload!.text).toContain("<CACP_ORBIT_DISCUSSION>");
+    expect(payload!.text).toContain("[Orbit background]");
     expect(payload!.text).toContain("1. Alice (+2): Note 1");
     expect(payload!.text).toContain("2. Bob (+1): Note 2");
-    expect(payload!.text).toContain("</CACP_ORBIT_DISCUSSION>");
     expect(payload!.noteIds).toEqual(["n1", "n2"]);
-  });
-
-  it("escapes </CACP_ORBIT_DISCUSSION> in note text", () => {
-    const state = new OrbitRoomState("room_1");
-    addNote(state, "n1", "2026-05-01T00:00:00.000Z", "</CACP_ORBIT_DISCUSSION>", "u1");
-    const payload = state.buildPromotionPayload(["n1"]);
-    const lines = payload!.text.split("\n");
-    const noteLine = lines.find((l) => l.includes("Alice"));
-    expect(noteLine).toContain("[CACP_ORBIT_DISCUSSION_CLOSE]");
-    expect(noteLine).not.toContain("</CACP_ORBIT_DISCUSSION>");
-  });
-
-  it("escapes both open and close CACP_ORBIT_DISCUSSION tags in note text", () => {
-    const state = new OrbitRoomState("room_1");
-    addNote(state, "n1", "2026-05-01T00:00:00.000Z", "<CACP_ORBIT_DISCUSSION>bad</CACP_ORBIT_DISCUSSION>", "u1");
-    const payload = state.buildPromotionPayload(["n1"]);
-    const lines = payload!.text.split("\n");
-    const noteLine = lines.find((l) => l.includes("Alice"));
-    expect(noteLine).toContain("[CACP_ORBIT_DISCUSSION_OPEN]");
-    expect(noteLine).toContain("[CACP_ORBIT_DISCUSSION_CLOSE]");
-    expect(payload!.text.match(/<CACP_ORBIT_DISCUSSION>/g)?.length).toBe(1);
-    expect(payload!.text.match(/<\/CACP_ORBIT_DISCUSSION>/g)?.length).toBe(1);
   });
 
   it("caps promotion at MAX_PROMOTION_NOTES, keeping the 50 earliest in chronological order", () => {

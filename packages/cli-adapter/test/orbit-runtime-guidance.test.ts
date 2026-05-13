@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { ClaudeRuntime } from "../src/claude/runtime.js";
 import { CodexRuntime } from "../src/codex/runtime.js";
 
-describe("Claude runtime orbit guidance", () => {
-  it("includes CACP_ORBIT_DISCUSSION guidance in the turn prompt", async () => {
+describe("Claude runtime prompt format", () => {
+  it("formats turn prompt with $$[Speaker/Role] message$$", async () => {
     const prompts: string[] = [];
     const sdk = {
       query: ({ prompt }: { prompt: string }) => {
@@ -60,13 +60,12 @@ describe("Claude runtime orbit guidance", () => {
     });
 
     const prompt = prompts[0];
-    expect(prompt).toContain("CACP_ORBIT_DISCUSSION");
-    expect(prompt).toContain("not a direct command");
+    expect(prompt).toMatch(/^\$\$\[Owner\/owner\] hello\$\$$/);
   });
 });
 
-describe("Codex runtime orbit guidance", () => {
-  it("includes CACP_ORBIT_DISCUSSION guidance in the turn prompt", async () => {
+describe("Codex runtime prompt format", () => {
+  it("formats turn prompt with $$[Speaker/Role] message$$", async () => {
     const prompts: string[] = [];
     const mockThread = {
       id: "thread_1",
@@ -109,7 +108,6 @@ describe("Codex runtime orbit guidance", () => {
     });
 
     const prompt = prompts[0];
-    expect(prompt).toContain("CACP_ORBIT_DISCUSSION");
-    expect(prompt).toContain("not a direct command");
+    expect(prompt).toMatch(/^\$\$\[Owner\/owner\] hello\$\$$/);
   });
 });

@@ -32,8 +32,12 @@ await rm(staging, { recursive: true, force: true });
 await mkdir(staging, { recursive: true });
 await mkdir(downloadsDir, { recursive: true });
 
-// 4. Copy bundle
+// 4. Copy bundle and instructions
 await copyFile(bundle, resolve(staging, "index.cjs"));
+await copyFile(
+  resolve(root, "packages/cli-adapter/CACP_INSTRUCTIONS.md"),
+  resolve(staging, "CACP_INSTRUCTIONS.md")
+);
 
 // 5. Write start scripts with CLI environment checks
 const windowsBat = `@echo off

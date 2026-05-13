@@ -129,7 +129,7 @@ export class OrbitRoomState {
   }
 
   /**
-   * Build the `<CACP_ORBIT_DISCUSSION>` payload that gets injected as a
+   * Build the `[Orbit background]` payload that gets injected as a
    * Send-to-Agent main input when a human promotes orbit notes into the
    * main thread. The returned `noteIds` mirror exactly the lines that
    * survived both the per-note caps and the byte-cap, so the caller can
@@ -149,7 +149,7 @@ export class OrbitRoomState {
 
     const lines = selected.map((note, index) => {
       const count = this.getLikeCount(note.note_id);
-      let safeText = this.escapeOrbitDiscussionText(note.text);
+      let safeText = note.text;
       if (safeText.length > MAX_PROMOTION_NOTE_TEXT) {
         safeText = safeText.slice(0, MAX_PROMOTION_NOTE_TEXT) + " [truncated]";
       }
@@ -163,13 +163,13 @@ export class OrbitRoomState {
 
     const encoder = new TextEncoder();
     let inner = lines.join("\n");
-    let text = `<CACP_ORBIT_DISCUSSION>\n${inner}\n</CACP_ORBIT_DISCUSSION>`;
+    let text = `[Orbit background]\n${inner}`;
 
     while (encoder.encode(text).length > MAX_PROMOTION_BYTES && lines.length > 0) {
       lines.pop();
       survivingIds.pop();
       inner = lines.join("\n");
-      text = `<CACP_ORBIT_DISCUSSION>\n${inner}\n[truncated]\n</CACP_ORBIT_DISCUSSION>`;
+      text = `[Orbit background]\n${inner}\n[truncated]`;
     }
 
     // Defensive: guarantees we never emit an empty discussion block if future
@@ -177,12 +177,6 @@ export class OrbitRoomState {
     if (lines.length === 0) return null;
 
     return { text, noteCount: lines.length, noteIds: survivingIds };
-  }
-
-  escapeOrbitDiscussionText(text: string): string {
-    return text
-      .replace(/<CACP_ORBIT_DISCUSSION>/gi, "[CACP_ORBIT_DISCUSSION_OPEN]")
-      .replace(/<\/CACP_ORBIT_DISCUSSION>/gi, "[CACP_ORBIT_DISCUSSION_CLOSE]");
   }
 
   /**
