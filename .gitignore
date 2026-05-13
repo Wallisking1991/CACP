@@ -1,5 +1,5 @@
 .worktrees/
-.claude/worktrees/
+.claude/
 node_modules/
 dist/
 .vite/
