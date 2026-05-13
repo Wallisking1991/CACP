@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin as defaultStdin, stdout as defaultStdout } from "node:process";
 
@@ -13,15 +14,15 @@ export interface FatalErrorHandlerOptions extends FatalPauseInput {
   exit?: (code: number) => void;
 }
 
-function isConnectorExe(path: string | undefined): boolean {
-  return (path ?? "").toLowerCase().endsWith("cacp-local-connector.exe");
+function isConnectorBundle(path: string | undefined): boolean {
+  return basename(path ?? "") === "index.cjs";
 }
 
 export function shouldPauseBeforeFatalExit(input: FatalPauseInput): boolean {
   if (input.stdinIsTTY === false) return false;
-  const packagedConnector = isConnectorExe(input.execPath) || isConnectorExe(input.argv[0]) || isConnectorExe(input.argv[1]);
+  const packagedConnector = isConnectorBundle(input.argv[1]);
   if (!packagedConnector) return false;
-  const userArgs = isConnectorExe(input.argv[0]) ? input.argv.slice(1) : input.argv.slice(2);
+  const userArgs = input.argv.slice(2);
   return userArgs.length === 0;
 }
 

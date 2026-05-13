@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { buildConnectionCode } from "@cacp/protocol";
-import { defaultConnectorWorkingDir, loadRuntimeConfigFromArgs, parseAdapterArgs, resolveConnectorWorkingDir } from "../src/config.js";
+import { defaultConnectorHomeDir, defaultConnectorWorkingDir, loadRuntimeConfigFromArgs, parseAdapterArgs, resolveConnectorWorkingDir } from "../src/config.js";
 
 describe("adapter config arguments", () => {
   it("parses pairing mode arguments with raw token", () => {
@@ -104,16 +104,32 @@ describe("adapter config arguments", () => {
     }
   });
 
-  it("uses executable directory for packaged connector default cwd", () => {
+  it("uses parent directory for zip-bundle connector default cwd", () => {
     expect(defaultConnectorWorkingDir({
-      argv: ["C:\\Tools\\CACP-Local-Connector.exe"],
+      argv: ["C:\\Program Files\\nodejs\\node.exe", "D:\\Projects\\my-app\\CACP-Local-Connector\\index.cjs"],
       cwd: () => "D:\\Shell",
-      execPath: "C:\\Tools\\CACP-Local-Connector.exe"
-    })).toBe("C:\\Tools");
+      execPath: "C:\\Program Files\\nodejs\\node.exe"
+    })).toBe("D:\\Projects\\my-app");
   });
 
   it("uses process cwd for developer CLI default cwd", () => {
     expect(defaultConnectorWorkingDir({
+      argv: ["C:\\Program Files\\nodejs\\node.exe", "D:\\Development\\2\\packages\\cli-adapter\\dist\\index.js"],
+      cwd: () => "D:\\Development\\2",
+      execPath: "C:\\Program Files\\nodejs\\node.exe"
+    })).toBe("D:\\Development\\2");
+  });
+
+  it("returns connector directory as home for zip-bundle", () => {
+    expect(defaultConnectorHomeDir({
+      argv: ["C:\\Program Files\\nodejs\\node.exe", "D:\\Projects\\my-app\\CACP-Local-Connector\\index.cjs"],
+      cwd: () => "D:\\Shell",
+      execPath: "C:\\Program Files\\nodejs\\node.exe"
+    })).toBe("D:\\Projects\\my-app\\CACP-Local-Connector");
+  });
+
+  it("returns process cwd as home for developer CLI", () => {
+    expect(defaultConnectorHomeDir({
       argv: ["C:\\Program Files\\nodejs\\node.exe", "D:\\Development\\2\\packages\\cli-adapter\\dist\\index.js"],
       cwd: () => "D:\\Development\\2",
       execPath: "C:\\Program Files\\nodejs\\node.exe"

@@ -11,7 +11,6 @@
     "dev:web": "corepack pnpm --filter @cacp/protocol build && corepack pnpm --filter @cacp/web dev",
     "dev:adapter": "corepack pnpm --filter @cacp/protocol build && corepack pnpm --filter @cacp/cli-adapter dev ../../docs/examples/claude-code-agent.json",
     "check": "corepack pnpm test && corepack pnpm build",
-    "build:connector:win": "corepack pnpm --filter @cacp/protocol build && node scripts/build-local-connector.mjs",
     "package:connector": "node scripts/package-connector.mjs"
   },
   "pnpm": {
@@ -23,7 +22,6 @@
   "devDependencies": {
     "@types/node": "^22.10.7",
     "esbuild": "^0.24.2",
-    "postject": "^1.0.0-alpha.6",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "vitest": "^2.1.8"

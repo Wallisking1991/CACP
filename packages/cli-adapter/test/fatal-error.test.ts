@@ -4,8 +4,8 @@ import { handleFatalError, shouldPauseBeforeFatalExit } from "../src/fatal-error
 describe("fatal connector errors", () => {
   it("pauses after fatal errors when the packaged connector was double-clicked", () => {
     expect(shouldPauseBeforeFatalExit({
-      argv: ["C:\\Tools\\CACP-Local-Connector.exe"],
-      execPath: "C:\\Tools\\CACP-Local-Connector.exe",
+      argv: ["C:\\Program Files\\nodejs\\node.exe", "D:\\Projects\\my-app\\CACP-Local-Connector\\index.cjs"],
+      execPath: "C:\\Program Files\\nodejs\\node.exe",
       stdinIsTTY: true
     })).toBe(true);
   });
@@ -24,8 +24,8 @@ describe("fatal connector errors", () => {
     const exit = vi.fn();
 
     await handleFatalError(new Error("CACP connection code expired."), {
-      argv: ["C:\\Tools\\CACP-Local-Connector.exe"],
-      execPath: "C:\\Tools\\CACP-Local-Connector.exe",
+      argv: ["C:\\Program Files\\nodejs\\node.exe", "D:\\Projects\\my-app\\CACP-Local-Connector\\index.cjs"],
+      execPath: "C:\\Program Files\\nodejs\\node.exe",
       stdinIsTTY: true,
       writeError: (line) => stderr.push(line),
       pause,

@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import WebSocket from "ws";
 import { CacpEventSchema, type ConnectorSnapshotRequestedPayload, type ParticipantRole } from "@cacp/protocol";
-import { loadRuntimeConfigFromArgs } from "./config.js";
+import { defaultConnectorHomeDir, loadRuntimeConfigFromArgs } from "./config.js";
 import { printConnectedBanner } from "./connected-banner.js";
 import { runLlmTurn } from "./llm/runner.js";
 import { sanitizeLlmError } from "./llm/sanitize.js";
@@ -81,8 +81,10 @@ async function main() {
     agentToken: registered.agent_token
   });
 
+  const connectorHome = defaultConnectorHomeDir();
+
   const ledgerDir = roomAssetDirectory({
-    baseDir: config.agent.working_dir,
+    baseDir: connectorHome,
     roomId: config.room_id,
     roomName: ""
   });

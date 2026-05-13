@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { stdin as defaultStdin, stdout as defaultStdout } from "node:process";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { parseConnectionCode } from "@cacp/protocol";
 import { z } from "zod";
 import { isLlmAgentType, type LlmAgentType, type LlmProviderConfig } from "./llm/types.js";
@@ -89,10 +89,24 @@ function extractCwdArg(args: string[]): { argsWithoutCwd: string[]; cwd?: string
   return { argsWithoutCwd: next, cwd };
 }
 
-export function defaultConnectorWorkingDir(proc: ConnectorProcessLike = process): string {
+function isZipBundle(proc: ConnectorProcessLike): boolean {
   const launchedPath = proc.argv[1];
-  const packaged = !launchedPath || launchedPath === proc.execPath || proc.execPath.toLowerCase().endsWith("cacp-local-connector.exe");
-  return packaged ? dirname(proc.execPath) : proc.cwd();
+  return !!launchedPath && basename(launchedPath) === "index.cjs";
+}
+
+export function defaultConnectorWorkingDir(proc: ConnectorProcessLike = process): string {
+  if (isZipBundle(proc)) {
+    const scriptDir = dirname(proc.argv[1]!);
+    return dirname(scriptDir);
+  }
+  return proc.cwd();
+}
+
+export function defaultConnectorHomeDir(proc: ConnectorProcessLike = process): string {
+  if (isZipBundle(proc)) {
+    return dirname(proc.argv[1]!);
+  }
+  return proc.cwd();
 }
 
 export function resolveConnectorWorkingDir(input?: string, proc: ConnectorProcessLike = process): string {
