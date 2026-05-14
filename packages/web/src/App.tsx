@@ -100,7 +100,11 @@ export default function App() {
         }
         if (event.type === "participant.role_updated") {
           const payload = event.payload as { participant_id?: string; new_role?: string };
-          if (payload.participant_id === currentSession.participant_id && payload.new_role) {
+          if (
+            payload.participant_id === currentSession.participant_id &&
+            payload.new_role &&
+            payload.new_role !== currentSession.role
+          ) {
             const updated = { ...currentSession, role: payload.new_role };
             saveStoredSession(window.localStorage, updated);
             setAllSessions((prev) => ({ ...prev, [updated.room_id]: updated }));

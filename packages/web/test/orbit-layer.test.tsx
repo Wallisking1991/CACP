@@ -254,4 +254,58 @@ describe("OrbitLayer", () => {
     expect(document.querySelector(".orbit-note-mention-icon")).not.toBeNull();
     expect(document.querySelector(".orbit-note-reply-icon")).toBeNull();
   });
+
+  it("does not reset scrollTop when notes reference changes but length stays the same", () => {
+    const notes = [
+      { note_id: "note_1", text: "Hello", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: false }
+    ];
+
+    const { rerender } = render(
+      <LangProvider>
+        <OrbitLayer {...baseProps} notes={notes} />
+      </LangProvider>
+    );
+
+    const container = document.querySelector(".orbit-notes") as HTMLElement;
+    Object.defineProperty(container, "scrollHeight", { value: 200, writable: true });
+    Object.defineProperty(container, "clientHeight", { value: 100, writable: true });
+    container.scrollTop = 50;
+
+    rerender(
+      <LangProvider>
+        <OrbitLayer {...baseProps} notes={[...notes]} />
+      </LangProvider>
+    );
+
+    expect(container.scrollTop).toBe(50);
+  });
+
+  it("scrolls to bottom when notes length increases", () => {
+    const notes = [
+      { note_id: "note_1", text: "Hello", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: false }
+    ];
+
+    const { rerender } = render(
+      <LangProvider>
+        <OrbitLayer {...baseProps} notes={notes} />
+      </LangProvider>
+    );
+
+    const container = document.querySelector(".orbit-notes") as HTMLElement;
+    Object.defineProperty(container, "scrollHeight", { value: 200, writable: true });
+    Object.defineProperty(container, "clientHeight", { value: 100, writable: true });
+    container.scrollTop = 50;
+
+    const longerNotes = [
+      ...notes,
+      { note_id: "note_2", text: "World", created_by: "user_2", created_at: "2026-04-25T00:00:01.000Z", likes: 0, liked_by_me: false, quoted: false }
+    ];
+    rerender(
+      <LangProvider>
+        <OrbitLayer {...baseProps} notes={longerNotes} />
+      </LangProvider>
+    );
+
+    expect(container.scrollTop).toBe(200);
+  });
 });

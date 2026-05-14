@@ -2872,7 +2872,6 @@ textarea.input {
   padding-bottom: 4px;
   padding-right: 2px;
 }
-.orbit-notes > :first-child { margin-top: auto; }
 .orbit-notes::-webkit-scrollbar { width: 8px; }
 .orbit-notes::-webkit-scrollbar-thumb {
   background: var(--ink-4, #9ca3af);

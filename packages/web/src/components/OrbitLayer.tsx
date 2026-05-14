@@ -56,7 +56,7 @@ export function OrbitLayer({
       container.scrollTop = container.scrollHeight;
     }
     prevNotesLen.current = notes.length;
-  }, [notes, isNearBottom]);
+  }, [notes.length, isNearBottom]);
 
   const handleScroll = () => {
     const container = notesContainerRef.current;
