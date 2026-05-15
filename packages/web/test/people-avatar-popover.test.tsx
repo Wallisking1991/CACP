@@ -166,6 +166,7 @@ describe("PeopleAvatarPopover", () => {
 
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onUpdateRole).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /Confirm/i })).not.toBeInTheDocument();
   });
 
   it("does not show role dropdown for admin", () => {

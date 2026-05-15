@@ -42,16 +42,14 @@ export function RoleChangeConfirmDialog({
     return String(t(`role.${role}` as Parameters<typeof t>[0]) ?? role);
   }
 
-  const titleLabel = String(t("role.change.confirm.title"));
-  const bodyLabel = String(
-    t("role.change.confirm.body", {
-      name: participantName,
-      oldRole: roleLabel(oldRole),
-      newRole: roleLabel(newRole),
-    })
-  );
-  const confirmLabel = String(t("role.change.confirm.confirm"));
-  const cancelLabel = String(t("role.change.confirm.cancel"));
+  const titleLabel = t("role.change.confirm.title");
+  const bodyLabel = t("role.change.confirm.body", {
+    name: participantName,
+    oldRole: roleLabel(oldRole),
+    newRole: roleLabel(newRole),
+  });
+  const confirmLabel = t("role.change.confirm.confirm");
+  const cancelLabel = t("role.change.confirm.cancel");
 
   return createPortal(
     <div className="confirm-modal-overlay" onClick={onCancel}>
