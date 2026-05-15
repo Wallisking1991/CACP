@@ -112,7 +112,7 @@ describe("PeopleAvatarPopover", () => {
       </LangProvider>
     );
 
-    const selects = screen.getAllByLabelText(/changeRole/i);
+    const selects = screen.getAllByLabelText(/change role/i);
     expect(selects.length).toBeGreaterThan(0);
 
     fireEvent.change(selects[0], { target: { value: "admin" } });
@@ -138,12 +138,33 @@ describe("PeopleAvatarPopover", () => {
       </LangProvider>
     );
 
-    const selects = screen.getAllByLabelText(/changeRole/i);
+    const selects = screen.getAllByLabelText(/change role/i);
     fireEvent.change(selects[0], { target: { value: "observer" } });
     expect(onUpdateRole).not.toHaveBeenCalled();
 
     const cancelBtn = screen.getByRole("button", { name: /Cancel/i });
     fireEvent.click(cancelBtn);
+    expect(onUpdateRole).not.toHaveBeenCalled();
+  });
+
+  it("cancels role change when user presses Escape in the dialog", () => {
+    const onUpdateRole = vi.fn();
+    render(
+      <LangProvider>
+        <PeopleAvatarPopover
+          participants={participants}
+          isOwner={true}
+          currentParticipantId="user_1"
+          onUpdateRole={onUpdateRole}
+        />
+      </LangProvider>
+    );
+
+    const selects = screen.getAllByLabelText(/change role/i);
+    fireEvent.change(selects[0], { target: { value: "observer" } });
+    expect(onUpdateRole).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(window, { key: "Escape" });
     expect(onUpdateRole).not.toHaveBeenCalled();
   });
 
@@ -160,7 +181,7 @@ describe("PeopleAvatarPopover", () => {
       </LangProvider>
     );
 
-    expect(screen.queryByLabelText(/changeRole/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/change role/i)).not.toBeInTheDocument();
   });
 
   it("does not show role dropdown for owner themselves", () => {
@@ -176,7 +197,7 @@ describe("PeopleAvatarPopover", () => {
     );
 
     // Alice (owner, user_1) should not have a dropdown; Bob, Charlie, Dave should.
-    const selects = screen.getAllByLabelText(/changeRole/i);
+    const selects = screen.getAllByLabelText(/change role/i);
     expect(selects).toHaveLength(3);
     // Ensure none of the selects belong to Alice by checking values
     for (const select of selects) {
@@ -202,7 +223,7 @@ describe("PeopleAvatarPopover", () => {
     );
 
     // Only Bob (member) should have a dropdown; both owners should not.
-    const selects = screen.getAllByLabelText(/changeRole/i);
+    const selects = screen.getAllByLabelText(/change role/i);
     expect(selects).toHaveLength(1);
   });
 });

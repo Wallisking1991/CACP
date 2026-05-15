@@ -267,6 +267,7 @@
   "joinRequestModal.body": "{name} 想加入这个房间。",
   "joinRequestModal.more": "还有 {count} 个申请等待处理。",
   "joinRequestModal.later": "稍后处理",
+  "sidebar.changeRole": "修改 {name} 的角色",
   "sidebar.removeParticipant": "移除",
   "sidebar.removeAvatar": "移除 {name}",
   "sidebar.removeAgent": "移除 Agent",

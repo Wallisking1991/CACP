@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useT } from "../i18n/useT.js";
 import type { ParticipantView } from "../room-state.js";
-import { RoleChangeConfirmDialog } from "./RoleChangeConfirmDialog.js";
+import { RoleChangeConfirmDialog, type ParticipantRole } from "./RoleChangeConfirmDialog.js";
 
 export interface PeopleAvatarPopoverProps {
   participants: ParticipantView[];
@@ -15,8 +15,8 @@ export interface PeopleAvatarPopoverProps {
 interface PendingRoleChange {
   participantId: string;
   participantName: string;
-  oldRole: string;
-  newRole: string;
+  oldRole: ParticipantRole;
+  newRole: ParticipantRole;
 }
 
 export function PeopleAvatarPopover({
@@ -30,6 +30,10 @@ export function PeopleAvatarPopover({
   const t = useT();
   const [pending, setPending] = useState<PendingRoleChange | null>(null);
 
+  function roleLabel(role: ParticipantRole): string {
+    return String(t(`role.${role}` as Parameters<typeof t>[0]) ?? role);
+  }
+
   return (
     <div className="popover-content people-popover">
       <h3 className="popover-title">{t("sidebar.peopleLabel")}</h3>
@@ -40,7 +44,7 @@ export function PeopleAvatarPopover({
               {participant.display_name}
             </span>
             <span className="popover-list-item-meta">
-              {t(`role.${participant.role}` as Parameters<typeof t>[0]) ?? participant.role}
+              {roleLabel(participant.role as ParticipantRole)}
             </span>
             {isOwner && participant.id !== currentParticipantId && onUpdateRole && participant.role !== "owner" ? (
               <select
@@ -50,8 +54,8 @@ export function PeopleAvatarPopover({
                   setPending({
                     participantId: participant.id,
                     participantName: participant.display_name,
-                    oldRole: participant.role,
-                    newRole: e.target.value,
+                    oldRole: participant.role as ParticipantRole,
+                    newRole: e.target.value as ParticipantRole,
                   });
                 }}
                 aria-label={t("sidebar.changeRole", { name: participant.display_name })}
@@ -77,8 +81,8 @@ export function PeopleAvatarPopover({
       <RoleChangeConfirmDialog
         open={pending !== null}
         participantName={pending?.participantName ?? ""}
-        oldRole={pending?.oldRole ?? ""}
-        newRole={pending?.newRole ?? ""}
+        oldRole={pending?.oldRole ?? "member"}
+        newRole={pending?.newRole ?? "member"}
         onConfirm={() => {
           if (pending && onUpdateRole) {
             onUpdateRole(pending.participantId, pending.newRole);

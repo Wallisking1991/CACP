@@ -264,6 +264,7 @@
   "joinRequestModal.body": "{name} wants to join this room.",
   "joinRequestModal.more": "{count} more requests are waiting.",
   "joinRequestModal.later": "Later",
+  "sidebar.changeRole": "Change role for {name}",
   "sidebar.removeParticipant": "Remove",
   "sidebar.removeAvatar": "Remove {name}",
   "sidebar.removeAgent": "Remove Agent",
