@@ -91,4 +91,85 @@ describe("Popover", () => {
     // Position should be computed based on trigger rect
     expect(content.style.position).toBe("fixed");
   });
+
+  it("calls onClose after mouse leaves the popover panel for 2 seconds", () => {
+    vi.useFakeTimers();
+    const onClose = vi.fn();
+    function TestComponent() {
+      const triggerRef = useRef<HTMLButtonElement>(null);
+      return (
+        <>
+          <button ref={triggerRef}>Trigger</button>
+          <Popover triggerRef={triggerRef} open={true} onClose={onClose}>
+            <div data-testid="popover-content">Content</div>
+          </Popover>
+        </>
+      );
+    }
+    render(<TestComponent />);
+    const panel = screen.getByTestId("popover-content").closest("[data-popover='true']") as HTMLElement;
+
+    fireEvent.mouseLeave(panel);
+    expect(onClose).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1999);
+    expect(onClose).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
+    expect(onClose).toHaveBeenCalledOnce();
+
+    vi.useRealTimers();
+  });
+
+  it("calls onClose after mouse leaves the trigger for 2 seconds", () => {
+    vi.useFakeTimers();
+    const onClose = vi.fn();
+    function TestComponent() {
+      const triggerRef = useRef<HTMLButtonElement>(null);
+      return (
+        <>
+          <button ref={triggerRef} data-testid="trigger">Trigger</button>
+          <Popover triggerRef={triggerRef} open={true} onClose={onClose}>
+            <div data-testid="popover-content">Content</div>
+          </Popover>
+        </>
+      );
+    }
+    render(<TestComponent />);
+
+    fireEvent.mouseLeave(screen.getByTestId("trigger"));
+    vi.advanceTimersByTime(2000);
+
+    expect(onClose).toHaveBeenCalledOnce();
+
+    vi.useRealTimers();
+  });
+
+  it("cancels onClose when mouse re-enters during the delay", () => {
+    vi.useFakeTimers();
+    const onClose = vi.fn();
+    function TestComponent() {
+      const triggerRef = useRef<HTMLButtonElement>(null);
+      return (
+        <>
+          <button ref={triggerRef}>Trigger</button>
+          <Popover triggerRef={triggerRef} open={true} onClose={onClose}>
+            <div data-testid="popover-content">Content</div>
+          </Popover>
+        </>
+      );
+    }
+    render(<TestComponent />);
+    const panel = screen.getByTestId("popover-content").closest("[data-popover='true']") as HTMLElement;
+
+    fireEvent.mouseLeave(panel);
+    vi.advanceTimersByTime(1000);
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.mouseEnter(panel);
+    vi.advanceTimersByTime(2000);
+    expect(onClose).not.toHaveBeenCalled();
+
+    vi.useRealTimers();
+  });
 });

@@ -11,7 +11,9 @@ export interface PopoverProps {
 export function Popover({ triggerRef, open, onClose, children }: PopoverProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [style, setStyle] = useState<React.CSSProperties>({});
-  const hoverTimerRef = useRef<number>(0);
+  const hoverTimerRef = useRef<ReturnType<typeof window.setTimeout> | undefined>(undefined);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open || !triggerRef.current) return;
@@ -68,7 +70,7 @@ export function Popover({ triggerRef, open, onClose, children }: PopoverProps) {
 
     function handleMouseLeave() {
       hoverTimerRef.current = window.setTimeout(() => {
-        onClose();
+        onCloseRef.current();
       }, 2000);
     }
 
@@ -87,7 +89,7 @@ export function Popover({ triggerRef, open, onClose, children }: PopoverProps) {
       trigger?.removeEventListener("mouseleave", handleMouseLeave);
       window.clearTimeout(hoverTimerRef.current);
     };
-  }, [open, onClose, triggerRef]);
+  }, [open, triggerRef]);
 
   if (!open || typeof document === "undefined") return null;
 

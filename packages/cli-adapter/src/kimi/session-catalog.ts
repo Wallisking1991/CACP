@@ -34,7 +34,7 @@ export async function listKimiSessions(input: KimiSessionCatalogInput): Promise<
         project_dir: session.workDir || input.workingDir,
         updated_at: new Date(session.updatedAt).toISOString(),
         message_count: messageCount,
-        byte_size: 0,
+        byte_size: 0, // Kimi SDK does not expose session size; placeholder for UI consistency
         importable: messageCount > 0,
         provider: "kimi-cli" as const
       };
