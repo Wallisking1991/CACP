@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { useT } from "../i18n/useT.js";
 import type { ParticipantView } from "../room-state.js";
+import { RoleChangeConfirmDialog } from "./RoleChangeConfirmDialog.js";
 
 export interface PeopleAvatarPopoverProps {
   participants: ParticipantView[];
@@ -8,6 +10,13 @@ export interface PeopleAvatarPopoverProps {
   currentParticipantId?: string;
   onRemoveParticipant?: (participantId: string) => void;
   onUpdateRole?: (participantId: string, role: string) => void;
+}
+
+interface PendingRoleChange {
+  participantId: string;
+  participantName: string;
+  oldRole: string;
+  newRole: string;
 }
 
 export function PeopleAvatarPopover({
@@ -19,6 +28,7 @@ export function PeopleAvatarPopover({
   onUpdateRole,
 }: PeopleAvatarPopoverProps) {
   const t = useT();
+  const [pending, setPending] = useState<PendingRoleChange | null>(null);
 
   return (
     <div className="popover-content people-popover">
@@ -36,7 +46,14 @@ export function PeopleAvatarPopover({
               <select
                 className="role-select"
                 value={participant.role}
-                onChange={(e) => onUpdateRole(participant.id, e.target.value)}
+                onChange={(e) => {
+                  setPending({
+                    participantId: participant.id,
+                    participantName: participant.display_name,
+                    oldRole: participant.role,
+                    newRole: e.target.value,
+                  });
+                }}
                 aria-label={t("sidebar.changeRole", { name: participant.display_name })}
               >
                 <option value="admin">{t("role.admin")}</option>
@@ -57,6 +74,19 @@ export function PeopleAvatarPopover({
           </div>
         ))}
       </div>
+      <RoleChangeConfirmDialog
+        open={pending !== null}
+        participantName={pending?.participantName ?? ""}
+        oldRole={pending?.oldRole ?? ""}
+        newRole={pending?.newRole ?? ""}
+        onConfirm={() => {
+          if (pending && onUpdateRole) {
+            onUpdateRole(pending.participantId, pending.newRole);
+          }
+          setPending(null);
+        }}
+        onCancel={() => setPending(null)}
+      />
     </div>
   );
 }

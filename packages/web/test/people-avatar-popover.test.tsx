@@ -116,7 +116,35 @@ describe("PeopleAvatarPopover", () => {
     expect(selects.length).toBeGreaterThan(0);
 
     fireEvent.change(selects[0], { target: { value: "admin" } });
+    // Should NOT call onUpdateRole immediately; confirmation dialog should appear
+    expect(onUpdateRole).not.toHaveBeenCalled();
+
+    // Confirm the role change in the dialog
+    const confirmBtn = screen.getByRole("button", { name: /Confirm/i });
+    fireEvent.click(confirmBtn);
     expect(onUpdateRole).toHaveBeenCalledWith("user_2", "admin");
+  });
+
+  it("cancels role change when user clicks cancel in the dialog", () => {
+    const onUpdateRole = vi.fn();
+    render(
+      <LangProvider>
+        <PeopleAvatarPopover
+          participants={participants}
+          isOwner={true}
+          currentParticipantId="user_1"
+          onUpdateRole={onUpdateRole}
+        />
+      </LangProvider>
+    );
+
+    const selects = screen.getAllByLabelText(/changeRole/i);
+    fireEvent.change(selects[0], { target: { value: "observer" } });
+    expect(onUpdateRole).not.toHaveBeenCalled();
+
+    const cancelBtn = screen.getByRole("button", { name: /Cancel/i });
+    fireEvent.click(cancelBtn);
+    expect(onUpdateRole).not.toHaveBeenCalled();
   });
 
   it("does not show role dropdown for admin", () => {
