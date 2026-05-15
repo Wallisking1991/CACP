@@ -15,7 +15,7 @@ docs/examples/*.local.md
 .superpowers/
 .cacp/
 
-.deploy/*.local.json
+.deploy/
 docs/Server info.md
 packages/web/public/downloads/CACP-Local-Connector.exe
 packages/web/public/downloads/CACP-Local-Connector.zip
