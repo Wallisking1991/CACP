@@ -134,4 +134,47 @@ describe("PeopleAvatarPopover", () => {
 
     expect(screen.queryByLabelText(/changeRole/i)).not.toBeInTheDocument();
   });
+
+  it("does not show role dropdown for owner themselves", () => {
+    render(
+      <LangProvider>
+        <PeopleAvatarPopover
+          participants={participants}
+          isOwner={true}
+          currentParticipantId="user_1"
+          onUpdateRole={vi.fn()}
+        />
+      </LangProvider>
+    );
+
+    // Alice (owner, user_1) should not have a dropdown; Bob, Charlie, Dave should.
+    const selects = screen.getAllByLabelText(/changeRole/i);
+    expect(selects).toHaveLength(3);
+    // Ensure none of the selects belong to Alice by checking values
+    for (const select of selects) {
+      expect(select).not.toHaveValue("owner");
+    }
+  });
+
+  it("does not show role dropdown for any owner participant", () => {
+    const multiOwnerParticipants = [
+      { id: "user_1", display_name: "Alice", role: "owner" as const },
+      { id: "user_5", display_name: "Eve", role: "owner" as const },
+      { id: "user_2", display_name: "Bob", role: "member" as const },
+    ];
+    render(
+      <LangProvider>
+        <PeopleAvatarPopover
+          participants={multiOwnerParticipants}
+          isOwner={true}
+          currentParticipantId="user_1"
+          onUpdateRole={vi.fn()}
+        />
+      </LangProvider>
+    );
+
+    // Only Bob (member) should have a dropdown; both owners should not.
+    const selects = screen.getAllByLabelText(/changeRole/i);
+    expect(selects).toHaveLength(1);
+  });
 });
