@@ -98,16 +98,4 @@ describe("Landing cloud connector setup", () => {
     expect(screen.getByText("© 2026 ZuchongAI。保留所有权利。")).toBeInTheDocument();
     expect(screen.getByText("联系方式：453043662@qq.com，1023289914@qq.com")).toBeInTheDocument();
   });
-
-  it("shows LLM connector instructions in cloud mode", () => {
-    render(
-      <LangProvider>
-        <Landing onCreate={() => {}} onJoin={() => {}} loading={false} />
-      </LangProvider>
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Advanced options: Agent type and permission" }));
-    fireEvent.change(screen.getByLabelText("Agent type"), { target: { value: "llm-api" } });
-    expect(screen.queryByLabelText("Permission")).not.toBeInTheDocument();
-    expect(screen.getByText("Download and run the connector, paste the connection code, then choose the LLM API provider and enter API settings in the connector console.")).toBeInTheDocument();
-  });
 });

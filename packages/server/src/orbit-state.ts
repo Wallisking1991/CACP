@@ -40,6 +40,7 @@ export interface OrbitNote {
   note_id: string;
   author_id: string;
   author_name: string;
+  author_role: string;
   text: string;
   created_at: string;
   reply_to?: string;
@@ -147,13 +148,12 @@ export class OrbitRoomState {
       selected = selected.slice(0, MAX_PROMOTION_NOTES);
     }
 
-    const lines = selected.map((note, index) => {
-      const count = this.getLikeCount(note.note_id);
+    const lines = selected.map((note) => {
       let safeText = note.text;
       if (safeText.length > MAX_PROMOTION_NOTE_TEXT) {
         safeText = safeText.slice(0, MAX_PROMOTION_NOTE_TEXT) + " [truncated]";
       }
-      return `${index + 1}. ${note.author_name} (+${count}): ${safeText}`;
+      return `${note.author_name}(${note.author_role}): ${safeText}`;
     });
 
     // Track each line's source note id in lockstep with `lines`, so when the
@@ -162,14 +162,12 @@ export class OrbitRoomState {
     const survivingIds = selected.map((note) => note.note_id);
 
     const encoder = new TextEncoder();
-    let inner = lines.join("\n");
-    let text = `[Orbit background]\n${inner}`;
+    let text = lines.join("\n");
 
     while (encoder.encode(text).length > MAX_PROMOTION_BYTES && lines.length > 0) {
       lines.pop();
       survivingIds.pop();
-      inner = lines.join("\n");
-      text = `[Orbit background]\n${inner}\n[truncated]`;
+      text = lines.join("\n");
     }
 
     // Defensive: guarantees we never emit an empty discussion block if future
@@ -221,6 +219,7 @@ export class OrbitRoomState {
           note_id: note.note_id,
           author_id: note.author_id,
           author_name: note.author_name,
+          author_role: note.author_role,
           text: note.text,
           created_at: note.created_at
         }

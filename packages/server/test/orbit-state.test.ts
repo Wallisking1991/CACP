@@ -22,6 +22,7 @@ function addNote(
     note_id,
     author_id,
     author_name: author_id === "u1" ? "Alice" : author_id === "u2" ? "Bob" : "Carol",
+    author_role: author_id === "u1" ? "member" : author_id === "u2" ? "admin" : "member",
     text,
     created_at
   });
@@ -82,7 +83,7 @@ describe("OrbitRoomState (flat pool)", () => {
     expect(payload).not.toBeNull();
     expect(payload!.noteCount).toBe(1);
     expect(payload!.noteIds).toEqual(["n2"]);
-    expect(payload!.text).toContain("1. Bob (+0): Second");
+    expect(payload!.text).toContain("Bob(admin): Second");
     expect(payload!.text).not.toContain("First");
   });
 
@@ -98,7 +99,7 @@ describe("OrbitRoomState (flat pool)", () => {
     expect(state.buildPromotionPayload([])).toBeNull();
   });
 
-  it("buildPromotionPayload includes [Orbit background] prefix and like counts in chronological order", () => {
+  it("buildPromotionPayload formats notes as authorName(authorRole): text in chronological order", () => {
     const state = new OrbitRoomState("room_1");
     addNote(state, "n1", "2026-05-01T00:00:00.000Z", "Note 1", "u1");
     addNote(state, "n2", "2026-05-01T00:00:01.000Z", "Note 2", "u2");
@@ -107,9 +108,8 @@ describe("OrbitRoomState (flat pool)", () => {
     state.setLike("n2", "u3", true);
     const payload = state.buildPromotionPayload(["n1", "n2"]);
     expect(payload).not.toBeNull();
-    expect(payload!.text).toContain("[Orbit background]");
-    expect(payload!.text).toContain("1. Alice (+2): Note 1");
-    expect(payload!.text).toContain("2. Bob (+1): Note 2");
+    expect(payload!.text).toContain("Alice(member): Note 1");
+    expect(payload!.text).toContain("Bob(admin): Note 2");
     expect(payload!.noteIds).toEqual(["n1", "n2"]);
   });
 
@@ -135,13 +135,12 @@ describe("OrbitRoomState (flat pool)", () => {
     expect(payload!.text).not.toContain("Note 50");
   });
 
-  it("truncates promotion payload to MAX_PROMOTION_BYTES (8192) with [truncated] marker", () => {
+  it("truncates promotion payload to MAX_PROMOTION_BYTES (8192) by dropping trailing lines", () => {
     const state = new OrbitRoomState("room_1");
     const longText = "A".repeat(10000);
     addNote(state, "n1", "2026-05-01T00:00:00.000Z", longText, "u1");
     const payload = state.buildPromotionPayload(["n1"]);
     expect(new TextEncoder().encode(payload!.text).length).toBeLessThanOrEqual(MAX_PROMOTION_BYTES);
-    expect(payload!.text).toContain("[truncated]");
     expect(payload!.text).toContain("Alice");
   });
 
@@ -224,6 +223,7 @@ describe("OrbitRoomState.replayFor (flat pool)", () => {
       note_id: "n1",
       author_id: "u1",
       author_name: "Alice",
+      author_role: "member",
       text: "Hello",
       created_at: "2026-05-01T00:00:00.000Z"
     });

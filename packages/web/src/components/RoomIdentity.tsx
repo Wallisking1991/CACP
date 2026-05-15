@@ -42,13 +42,10 @@ function initials(name: string): string {
 }
 
 const agentTypes = [
-  { value: "claude-code", labelKey: "agentType.claudeCode", group: "agentType.group.localCommand" },
-  { value: "codex-cli", labelKey: "agentType.codexCli", group: "agentType.group.localCommand" },
-  { value: "github-copilot", labelKey: "agentType.githubCopilot", group: "agentType.group.localCommand" },
-  { value: "kimi-cli", labelKey: "agentType.kimiCli", group: "agentType.group.localCommand" },
-  { value: "llm-api", labelKey: "agentType.llmApi", group: "agentType.group.llmApi" },
-  { value: "llm-openai-compatible", labelKey: "agentType.llmOpenAiCompatible", group: "agentType.group.llmApi" },
-  { value: "llm-anthropic-compatible", labelKey: "agentType.llmAnthropicCompatible", group: "agentType.group.llmApi" },
+  { value: "claude-code", labelKey: "agentType.claudeCode" },
+  { value: "codex-cli", labelKey: "agentType.codexCli" },
+  { value: "github-copilot", labelKey: "agentType.githubCopilot" },
+  { value: "kimi-cli", labelKey: "agentType.kimiCli" },
 ];
 
 const permissionLevels = [
@@ -216,24 +213,11 @@ export function RoomIdentity({ roomName, roomId, userDisplayName, userRole, isOw
         value={agentType}
         onChange={(e) => setAgentType(e.target.value)}
       >
-        <optgroup label={t("agentType.group.localCommand")}>
-          {agentTypes
-            .filter((a) => a.group === "agentType.group.localCommand")
-            .map((a) => (
-              <option key={a.value} value={a.value}>
-                {t(a.labelKey as Parameters<typeof t>[0])}
-              </option>
-            ))}
-        </optgroup>
-        <optgroup label={t("agentType.group.llmApi")}>
-          {agentTypes
-            .filter((a) => a.group === "agentType.group.llmApi")
-            .map((a) => (
-              <option key={a.value} value={a.value}>
-                {t(a.labelKey as Parameters<typeof t>[0])}
-              </option>
-            ))}
-        </optgroup>
+        {agentTypes.map((a) => (
+          <option key={a.value} value={a.value}>
+            {t(a.labelKey as Parameters<typeof t>[0])}
+          </option>
+        ))}
       </select>
       <label className="section-label" htmlFor="conn-code-permission">{t("landing.create.permissionLevel")}</label>
       <select

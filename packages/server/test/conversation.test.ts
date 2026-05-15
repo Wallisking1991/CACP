@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CacpEvent, Participant } from "@cacp/protocol";
 import {
-  buildAgentContextPrompt,
   findActiveAgentId,
   findOpenTurn,
   hasQueuedFollowup,
@@ -65,28 +64,4 @@ describe("conversation helpers", () => {
     expect(recent[19].text).toBe("message 25");
   });
 
-  it("builds a readable prompt from participants and recent messages without structured governance blocks", () => {
-    const participants: Participant[] = [
-      { id: "user_1", type: "human", display_name: "Alice", role: "owner" },
-      { id: "user_2", type: "human", display_name: "Bob", role: "member" },
-      { id: "agent_1", type: "agent", display_name: "Claude Code Agent", role: "agent" }
-    ];
-
-    const prompt = buildAgentContextPrompt({
-      participants,
-      messages: [
-        { actorName: "Alice", kind: "human", text: "What should we do next?" },
-        { actorName: "Bob", kind: "human", text: "Build shared context first." }
-      ],
-      agentName: "Claude Code Agent"
-    });
-
-    expect(prompt).toContain("Claude Code Agent");
-    expect(prompt).toContain("Alice(owner)");
-    expect(prompt).toContain("Bob(member)");
-    expect(prompt).toContain("Alice: What should we do next?");
-    expect(prompt).toContain("Bob: Build shared context first.");
-    expect(prompt).not.toContain("cacp-decision");
-    expect(prompt).not.toContain("cacp-question");
-  });
 });

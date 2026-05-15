@@ -152,54 +152,18 @@ describe("adapter config arguments", () => {
     }
   });
 
-  it("configures LLM API settings from connection code before claiming", async () => {
-    const code = buildConnectionCode({ server_url: "https://cacp.example.com", pairing_token: "pair_llm", expires_at: "2026-04-28T08:15:00.000Z", agent_type: "llm-openai-compatible" });
-    const callOrder: string[] = [];
-    const fetchImpl = vi.fn(async () => {
-      callOrder.push("claim");
-      return new Response(JSON.stringify({ room_id: "room_1", agent_id: "agent_1", agent_token: "agent_token", agent: { name: "OpenAI-compatible LLM API Agent", command: "", args: [], working_dir: ".", capabilities: ["llm.api"] }, agent_type: "llm-openai-compatible" }), { status: 201, headers: { "content-type": "application/json" } });
-    }) as unknown as typeof fetch;
-
-    const config = await loadRuntimeConfigFromArgs(["--connect", code], fetchImpl, {
-      configureLlmAgent: async (agentType) => { callOrder.push(`configure:${agentType}`); return { providerId: "custom-openai-compatible" as const, protocol: "openai-chat" as const, baseUrl: "https://api.example.com/v1", model: "model-a", apiKey: "secret", options: {} }; }
-    });
-
-    expect(callOrder).toEqual(["configure:llm-openai-compatible", "claim"]);
-    expect(config.llm?.providerId).toBe("custom-openai-compatible");
-    expect(config.agent.command).toBe("");
-  });
-
-  it("configures provider configs before claiming llm-api pairings", async () => {
-    const code = buildConnectionCode({ server_url: "https://cacp.example.com", pairing_token: "pair_llm", expires_at: "2026-04-28T08:15:00.000Z", agent_type: "llm-api" });
-    const callOrder: string[] = [];
-    const fetchImpl = vi.fn(async () => {
-      callOrder.push("claim");
-      return new Response(JSON.stringify({ room_id: "room_1", agent_id: "agent_1", agent_token: "agent_token", agent: { name: "LLM API Agent", command: "", args: [], working_dir: ".", capabilities: ["llm.api", "chat.stream"] }, agent_type: "llm-api" }), { status: 201, headers: { "content-type": "application/json" } });
-    }) as unknown as typeof fetch;
-    const config = await loadRuntimeConfigFromArgs(["--connect", code], fetchImpl, {
-      configureLlmAgent: async () => { callOrder.push("configure"); return { providerId: "siliconflow", protocol: "openai-chat", baseUrl: "https://api.siliconflow.cn/v1", model: "Qwen/Qwen3.5-4B", apiKey: "secret", options: { enable_thinking: true } }; }
-    });
-    expect(callOrder).toEqual(["configure", "claim"]);
-    expect(config.llm?.providerId).toBe("siliconflow");
-  });
-
-  it("does not claim when LLM API configuration is cancelled", async () => {
-    const code = buildConnectionCode({ server_url: "https://cacp.example.com", pairing_token: "pair_llm", expires_at: "2026-04-28T08:15:00.000Z", agent_type: "llm-anthropic-compatible" });
-    const fetchImpl = vi.fn() as unknown as typeof fetch;
-    await expect(loadRuntimeConfigFromArgs(["--connect", code], fetchImpl, { configureLlmAgent: async () => undefined })).rejects.toThrow("llm_api_configuration_cancelled");
-    expect(fetchImpl).not.toHaveBeenCalled();
-  });
-
-  it("explains expired connection codes after LLM API configuration succeeds", async () => {
-    const code = buildConnectionCode({ server_url: "https://cacp.example.com", pairing_token: "pair_llm", expires_at: "2026-04-28T08:15:00.000Z", agent_type: "llm-api" });
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ error: "pairing_expired" }), {
-      status: 401,
-      statusText: "Unauthorized",
-      headers: { "content-type": "application/json" }
-    })) as unknown as typeof fetch;
-
-    await expect(loadRuntimeConfigFromArgs(["--connect", code], fetchImpl, {
-      configureLlmAgent: async () => ({ providerId: "siliconflow", protocol: "openai-chat", baseUrl: "https://api.siliconflow.cn/v1", model: "Qwen/Qwen3.5-9B", apiKey: "secret", options: {} })
-    })).rejects.toThrow("CACP connection code expired");
+  it("claims a pairing from a connection code without LLM configuration", async () => {
+    const code = buildConnectionCode({ server_url: "https://cacp.example.com", pairing_token: "cacp_pair", expires_at: "2026-04-27T08:15:00.000Z" });
+    const fetchImpl = vi.fn(async (url: string) => {
+      expect(url).toBe("https://cacp.example.com/agent-pairings/cacp_pair/claim?server_url=https%3A%2F%2Fcacp.example.com");
+      return new Response(JSON.stringify({
+        room_id: "room_alpha",
+        agent_id: "agent_alpha",
+        agent_token: "cacp_agent",
+        agent: { name: "Claude Code Agent", command: "claude", args: [], working_dir: ".", capabilities: ["claude-code", "claude.persistent_session", "repo.read"] }
+      }), { status: 201, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    const config = await loadRuntimeConfigFromArgs(["--connect", code], fetchImpl);
+    expect(config.registered_agent?.agent_token).toBe("cacp_agent");
   });
 });

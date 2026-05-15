@@ -29,13 +29,6 @@ const commandAgentTypes = [
   { value: "kimi-cli", labelKey: "agentType.kimiCli" }
 ] as const;
 
-const llmAgentTypes = [
-  { value: "llm-api", labelKey: "agentType.llmApi" },
-  { value: "llm-openai-compatible", labelKey: "agentType.llmOpenAiCompatible" },
-  { value: "llm-anthropic-compatible", labelKey: "agentType.llmAnthropicCompatible" }
-] as const;
-const llmAgentTypeValues = new Set<string>(llmAgentTypes.map((item) => item.value));
-
 const permissionLevels = [
   { value: "read_only", labelKey: "permission.readOnly" },
   { value: "limited_write", labelKey: "permission.limitedWrite" },
@@ -92,7 +85,6 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
   const [inviteCheckStatus, setInviteCheckStatus] = useState<"idle" | "checking" | "valid" | "invalid">("idle");
   const [inviteCheckReason, setInviteCheckReason] = useState<string | undefined>();
 
-  const selectedLlmApiAgent = llmAgentTypeValues.has(agentType);
   const createValid = roomName.trim() && ownerDisplayName.trim();
   const joinValid = Boolean(inviteTarget && joinDisplayName.trim() && inviteCheckStatus === "valid");
 
@@ -154,7 +146,7 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
       roomName: roomName.trim(),
       displayName: ownerDisplayName.trim(),
       agentType,
-      permissionLevel: selectedLlmApiAgent ? "read_only" : permissionLevel
+      permissionLevel
     });
   }
 
@@ -297,42 +289,27 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
                   value={agentType}
                   onChange={(e) => setAgentType(e.target.value)}
                 >
-                  <optgroup label={t("agentType.group.localCommand")}>
-                    {commandAgentTypes.map((item) => <option key={item.value} value={item.value}>{t(item.labelKey)}</option>)}
-                  </optgroup>
-                  <optgroup label={t("agentType.group.llmApi")}>
-                    {llmAgentTypes.map((item) => <option key={item.value} value={item.value}>{t(item.labelKey)}</option>)}
-                  </optgroup>
+                  {commandAgentTypes.map((item) => <option key={item.value} value={item.value}>{t(item.labelKey)}</option>)}
                 </select>
 
-                {!selectedLlmApiAgent && (
-                  <>
-                    <label className="section-label" htmlFor="landing-permission-level">{t("landing.create.permissionLevel")}</label>
-                    <select
-                      id="landing-permission-level"
-                      className="input landing-input"
-                      value={permissionLevel}
-                      onChange={(e) => setPermissionLevel(e.target.value)}
-                    >
-                      {permissionLevels.map((item) => (
-                        <option key={item.value} value={item.value}>{t(item.labelKey)}</option>
-                      ))}
-                    </select>
-                  </>
-                )}
-
-                {selectedLlmApiAgent && (
-                  <p className="landing-safe-copy">{t("landing.create.llmApiKeyLocalOnly")}</p>
-                )}
+                <label className="section-label" htmlFor="landing-permission-level">{t("landing.create.permissionLevel")}</label>
+                <select
+                  id="landing-permission-level"
+                  className="input landing-input"
+                  value={permissionLevel}
+                  onChange={(e) => setPermissionLevel(e.target.value)}
+                >
+                  {permissionLevels.map((item) => (
+                    <option key={item.value} value={item.value}>{t(item.labelKey)}</option>
+                  ))}
+                </select>
 
                 {isCloudMode() && (
                   <div className="connector-setup landing-connector-setup">
                     <a className="btn btn-ghost" href="/downloads/CACP-Local-Connector.zip" download>
                       {t("landing.connector.download")}
                     </a>
-                    <p className="landing-safe-copy">
-                      {selectedLlmApiAgent ? t("landing.connector.llmInstructions") : t("landing.connector.instructions")}
-                    </p>
+                    <p className="landing-safe-copy">{t("landing.connector.instructions")}</p>
                   </div>
                 )}
               </div>

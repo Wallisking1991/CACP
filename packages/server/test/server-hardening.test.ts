@@ -56,10 +56,25 @@ async function registerAgent(app: Awaited<ReturnType<typeof buildServer>>, roomI
     method: "POST",
     url: `/rooms/${roomId}/agents/register`,
     headers: ownerAuth,
-    payload: { name, capabilities: ["legacy.task_runner", "shell.oneshot"] }
+    payload: { name, capabilities: ["claude-code", "claude.persistent_session", "legacy.task_runner", "shell.oneshot"] }
   });
   expect(response.statusCode).toBe(201);
   return response.json() as { agent_id: string; agent_token: string };
+}
+
+async function setupClaudeSession(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerAuth: { authorization: string }, agentId: string, agentToken: string) {
+  expect((await app.inject({
+    method: "POST",
+    url: `/rooms/${roomId}/claude/session-selection`,
+    headers: ownerAuth,
+    payload: { agent_id: agentId, mode: "fresh" }
+  })).statusCode).toBe(201);
+  expect((await app.inject({
+    method: "POST",
+    url: `/rooms/${roomId}/claude/session-ready`,
+    headers: { authorization: `Bearer ${agentToken}` },
+    payload: { agent_id: agentId, mode: "fresh", session_id: "session_fresh", ready_at: "2026-04-29T00:00:00.000Z" }
+  })).statusCode).toBe(201);
 }
 
 
@@ -329,6 +344,7 @@ describe("CACP server hardening", () => {
     const assigned = await registerAgent(app, room.room_id, ownerAuth, "Assigned Turn Agent");
     const other = await registerAgent(app, room.room_id, ownerAuth, "Other Turn Agent");
     expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/select`, headers: ownerAuth, payload: { agent_id: assigned.agent_id } })).statusCode).toBe(201);
+    await setupClaudeSession(app, room.room_id, ownerAuth, assigned.agent_id, assigned.agent_token);
     expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "Trigger turn" } })).statusCode).toBe(201);
     const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: { turn_id?: string } }>;
     const turnId = events.find((event) => event.type === "agent.turn.requested")?.payload.turn_id;

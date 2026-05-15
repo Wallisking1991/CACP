@@ -23,19 +23,8 @@ describe("connector index source", () => {
     expect(indexSource).toContain("roomClient.completeRun");
   });
 
-  it("routes agent turns through the LLM runner when llm config exists", () => {
-    expect(indexSource).toContain("runLlmTurn");
-    expect(indexSource).toContain("if (config.llm)");
-    expect(indexSource).toContain("roomClient.publishTurnDelta");
-  });
-
   it("silently ignores task.created for all agents instead of calling fail", () => {
     expect(indexSource).toContain("Ignoring task.created because this connector no longer runs generic local command tasks.");
-  });
-
-  it("sanitizes LLM runtime errors before sending to server", () => {
-    expect(indexSource).toContain("sanitizeLlmError");
-    expect(indexSource).toContain("config.llm ? sanitizeLlmError");
   });
 
   it("handles claude.session_selected events for persistent session management", () => {
@@ -83,10 +72,6 @@ describe("connector index source", () => {
 
   it("appends agent_final to ledger after successful turn completion", () => {
     expect(indexSource).toContain('entry_type: "agent_final"');
-  });
-
-  it("builds LLM prompts from ledger context for API-based agents", () => {
-    expect(indexSource).toContain("buildLlmPromptFromLedger");
   });
 
   it("handles connector.snapshot.requested events by streaming ledger snapshots", () => {

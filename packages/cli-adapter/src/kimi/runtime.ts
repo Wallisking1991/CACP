@@ -4,7 +4,7 @@ import { findKimiCli, loadKimiSdk } from "./kimi-sdk.js";
 import type { KimiRuntimeInput, KimiSdk, KimiSdkSession, KimiSdkStreamEvent, KimiTurnResult } from "./types.js";
 
 function promptForTurn(input: { text: string; speakerName: string; speakerRole: string }): string {
-  return `$$[${input.speakerName}/${input.speakerRole}] ${input.text}$$`;
+  return `${input.speakerName}(${input.speakerRole}): ${input.text}`;
 }
 
 function permissionHandlerForLevel(level: string): (request: { kind: string }) => { kind: string } {

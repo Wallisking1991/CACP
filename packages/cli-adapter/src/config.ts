@@ -4,9 +4,6 @@ import { stdin as defaultStdin, stdout as defaultStdout } from "node:process";
 import { basename, dirname, resolve } from "node:path";
 import { parseConnectionCode } from "@cacp/protocol";
 import { z } from "zod";
-import { isLlmAgentType, type LlmAgentType, type LlmProviderConfig } from "./llm/types.js";
-import { validateLlmConnectivity } from "./llm/runner.js";
-import { promptForLlmApiConfig, createConsolePrompter } from "./llm/config-wizard.js";
 
 export const AdapterConfigSchema = z.object({
   server_url: z.string().url(),
@@ -22,15 +19,7 @@ export const AdapterConfigSchema = z.object({
     system_prompt: z.string().optional(),
     model: z.string().min(1).optional()
   }),
-  permission_level: z.string().optional(),
-  llm: z.object({
-    providerId: z.enum(["siliconflow", "kimi", "minimax", "openai", "anthropic", "glm-official", "deepseek", "custom-openai-compatible", "custom-anthropic-compatible"]),
-    protocol: z.enum(["openai-chat", "anthropic-messages"]),
-    baseUrl: z.string().min(1),
-    model: z.string().min(1),
-    apiKey: z.string().min(1),
-    options: z.record(z.string(), z.unknown()).default({})
-  }).optional()
+  permission_level: z.string().optional()
 });
 
 export type AdapterConfig = z.infer<typeof AdapterConfigSchema>;
@@ -42,8 +31,6 @@ const PairingClaimSchema = z.object({
   agent: AdapterConfigSchema.shape.agent,
   permission_level: z.string().optional()
 });
-
-export type ConfigureLlmAgent = (agentType: LlmAgentType) => Promise<LlmProviderConfig | undefined>;
 
 export type AdapterArgs =
   | { mode: "file"; config_path: string; cwd?: string }
@@ -117,7 +104,7 @@ export function resolveConnectorWorkingDir(input?: string, proc: ConnectorProces
   return candidate;
 }
 
-async function claimPairing(serverUrl: string, pairingToken: string, workingDir: string, fetchImpl: typeof fetch, llm?: LlmProviderConfig): Promise<AdapterConfig> {
+async function claimPairing(serverUrl: string, pairingToken: string, workingDir: string, fetchImpl: typeof fetch): Promise<AdapterConfig> {
   const claimUrl = `${serverUrl}/agent-pairings/${encodeURIComponent(pairingToken)}/claim?server_url=${encodeURIComponent(serverUrl)}`;
   const response = await fetchImpl(claimUrl, {
     method: "POST",
@@ -126,15 +113,13 @@ async function claimPairing(serverUrl: string, pairingToken: string, workingDir:
   });
   if (!response.ok) throw new Error(await formatPairingClaimError(response));
   const claim = PairingClaimSchema.parse(await response.json());
-  const config: AdapterConfig = {
+  return {
     server_url: serverUrl,
     room_id: claim.room_id,
     registered_agent: { agent_id: claim.agent_id, agent_token: claim.agent_token },
     agent: claim.agent,
     permission_level: claim.permission_level
   };
-  if (llm) config.llm = llm;
-  return config;
 }
 
 async function formatPairingClaimError(response: Response): Promise<string> {
@@ -149,9 +134,9 @@ async function formatPairingClaimError(response: Response): Promise<string> {
 
   switch (errorCode) {
     case "pairing_expired":
-      return "CACP connection code expired before the connector could claim it. Generate a new LLM API Agent connection code in the room and try again.";
+      return "CACP connection code expired before the connector could claim it. Generate a new connection code in the room and try again.";
     case "pairing_claimed":
-      return "CACP connection code has already been used. Generate a new LLM API Agent connection code in the room and try again.";
+      return "CACP connection code has already been used. Generate a new connection code in the room and try again.";
     case "invalid_pairing":
       return "CACP connection code is invalid or no longer available. Copy a fresh connection code from the room and try again.";
     case "max_agents_reached":
@@ -185,17 +170,7 @@ export function parseAdapterArgs(args: string[]): AdapterArgs {
   return { mode: "file", config_path: argsWithoutCwd[0] ?? "docs/examples/claude-code-agent.json", cwd };
 }
 
-export interface RuntimeConfigOptions {
-  configureLlmAgent?: ConfigureLlmAgent;
-}
-
-async function defaultConfigureLlmAgent(agentType: LlmAgentType): Promise<LlmProviderConfig | undefined> {
-  return await promptForLlmApiConfig(agentType, createConsolePrompter(), async (config) => {
-    return await validateLlmConnectivity(config);
-  });
-}
-
-export async function loadRuntimeConfigFromArgs(args: string[], fetchImpl: typeof fetch = fetch, options: RuntimeConfigOptions = {}): Promise<AdapterConfig> {
+export async function loadRuntimeConfigFromArgs(args: string[], fetchImpl: typeof fetch = fetch): Promise<AdapterConfig> {
   const parsed = parseAdapterArgs(args);
   if (parsed.mode === "file") {
     const config = loadConfig(parsed.config_path);
@@ -204,21 +179,11 @@ export async function loadRuntimeConfigFromArgs(args: string[], fetchImpl: typeo
   const workingDir = resolveConnectorWorkingDir(parsed.cwd);
   if (parsed.mode === "prompt") {
     const payload = parseConnectionCode(await promptForConnectionCode());
-    let llm: LlmProviderConfig | undefined;
-    if (isLlmAgentType(payload.agent_type)) {
-      llm = await (options.configureLlmAgent ?? defaultConfigureLlmAgent)(payload.agent_type);
-      if (!llm) throw new Error("llm_api_configuration_cancelled");
-    }
-    return claimPairing(payload.server_url, payload.pairing_token, workingDir, fetchImpl, llm);
+    return claimPairing(payload.server_url, payload.pairing_token, workingDir, fetchImpl);
   }
   if (parsed.mode === "connect") {
     const payload = parseConnectionCode(parsed.connection_code);
-    let llm: LlmProviderConfig | undefined;
-    if (isLlmAgentType(payload.agent_type)) {
-      llm = await (options.configureLlmAgent ?? defaultConfigureLlmAgent)(payload.agent_type);
-      if (!llm) throw new Error("llm_api_configuration_cancelled");
-    }
-    return claimPairing(payload.server_url, payload.pairing_token, workingDir, fetchImpl, llm);
+    return claimPairing(payload.server_url, payload.pairing_token, workingDir, fetchImpl);
   }
   return claimPairing(parsed.server_url, parsed.pairing_token, workingDir, fetchImpl);
 }

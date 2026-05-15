@@ -4,7 +4,7 @@ import { loadCopilotSdk } from "./copilot-sdk.js";
 import type { CopilotRuntimeInput, CopilotSdk, CopilotSdkSession, CopilotTurnInput, CopilotTurnResult } from "./types.js";
 
 function promptForTurn(input: CopilotTurnInput): string {
-  return `$$[${input.speakerName}/${input.speakerRole}] ${input.text}$$`;
+  return `${input.speakerName}(${input.speakerRole}): ${input.text}`;
 }
 
 function permissionHandlerForLevel(level: string) {

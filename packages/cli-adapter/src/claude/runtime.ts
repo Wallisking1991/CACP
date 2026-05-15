@@ -113,7 +113,7 @@ function toolTitle(toolName: string, input: Record<string, unknown>, fallbackTit
 }
 
 function promptForTurn(input: ClaudeTurnInput): string {
-  return `$$[${input.speakerName}/${input.speakerRole}] ${input.text}$$`;
+  return `${input.speakerName}(${input.speakerRole}): ${input.text}`;
 }
 
 function computeTextDelta(previous: string, next: string): string {

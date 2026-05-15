@@ -128,22 +128,3 @@ export function recentConversationMessages(events: CacpEvent[], limit = 20): Con
     }));
 }
 
-export function buildAgentContextPrompt(input: { participants: Participant[]; messages: PromptMessage[]; agentName: string }): string {
-  const participants = input.participants
-    .map((participant) => `- ${participant.display_name}(${participant.role})`)
-    .join("\n");
-  const messages = input.messages
-    .map((message) => `${message.actorName}: ${message.text}`)
-    .join("\n");
-  return [
-    `You are ${input.agentName}, an AI agent participating in a CACP multi-person collaboration room.`,
-    "",
-    "Current room participants:",
-    participants || "- No visible participants",
-    "",
-    "Recent conversation:",
-    messages || "No recent conversation.",
-    "",
-    "Reply in concise, actionable Chinese by default. Do not modify files unless explicitly asked."
-  ].join("\n");
-}

@@ -4,7 +4,7 @@ export const ProtocolVersionSchema = z.enum(["0.1.0", "0.2.0"]);
 
 export const ParticipantTypeSchema = z.enum(["human", "agent", "system", "observer"]);
 export const ParticipantRoleSchema = z.enum(["owner", "admin", "member", "observer", "agent"]);
-export const AgentTypeSchema = z.enum(["claude-code", "codex-cli", "github-copilot", "kimi-cli", "llm-api", "llm-openai-compatible", "llm-anthropic-compatible"]);
+export const AgentTypeSchema = z.enum(["claude-code", "codex-cli", "github-copilot", "kimi-cli"]);
 export const ParticipantSchema = z.object({
   id: z.string().min(1),
   type: ParticipantTypeSchema,

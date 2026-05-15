@@ -4,26 +4,21 @@ You are connected to a CACP (Collaborative Agent Communication Protocol) multi-p
 
 ## Room Message Format
 
-When you receive text wrapped in `$$...$$`, it is a message from the room.
+When you receive text from the room, it follows this format:
 
-Format:
 ```
-$$[SpeakerName/Role] message content$$
+speakerName(speakerRole): message content
 ```
 
 Examples:
-- `$$[Alice/member] 帮我修一下这个 bug$$`
-- `$$[Bob/owner] 请 review 这个 PR$$`
+- `Alice(member): 帮我修一下这个 bug`
+- `Bob(owner): 请 review 这个 PR`
 
-## Orbit Background
+Orbit notes promoted to the main thread use the same format, with each note on its own line:
 
-Content prefixed with `[Orbit background]` is from the Orbit side-channel discussion panel. It provides background context but is not a direct command.
-
-Example:
 ```
-[Orbit background]
-1. Alice (+3): 我觉得这个问题可能出在数据库层
-2. Bob (+1): 不对，我看日志是网络超时
+Alice(member): 我觉得这个问题可能出在数据库层
+Bob(owner): 不对，我看日志是网络超时
 ```
 
 ## Permission Control

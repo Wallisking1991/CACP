@@ -3,7 +3,7 @@ import { ClaudeRuntime } from "../src/claude/runtime.js";
 import { CodexRuntime } from "../src/codex/runtime.js";
 
 describe("Claude runtime prompt format", () => {
-  it("formats turn prompt with $$[Speaker/Role] message$$", async () => {
+  it("formats turn prompt with speakerName(speakerRole): message", async () => {
     const prompts: string[] = [];
     const sdk = {
       query: ({ prompt }: { prompt: string }) => {
@@ -60,12 +60,12 @@ describe("Claude runtime prompt format", () => {
     });
 
     const prompt = prompts[0];
-    expect(prompt).toMatch(/^\$\$\[Owner\/owner\] hello\$\$$/);
+    expect(prompt).toBe("Owner(owner): hello");
   });
 });
 
 describe("Codex runtime prompt format", () => {
-  it("formats turn prompt with $$[Speaker/Role] message$$", async () => {
+  it("formats turn prompt with speakerName(speakerRole): message", async () => {
     const prompts: string[] = [];
     const mockThread = {
       id: "thread_1",
@@ -108,6 +108,6 @@ describe("Codex runtime prompt format", () => {
     });
 
     const prompt = prompts[0];
-    expect(prompt).toMatch(/^\$\$\[Owner\/owner\] hello\$\$$/);
+    expect(prompt).toBe("Owner(owner): hello");
   });
 });

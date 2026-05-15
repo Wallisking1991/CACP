@@ -25,66 +25,6 @@ describe("agent pairing connection codes", () => {
     await app.close();
   });
 
-  it("returns LLM API agent type in connection codes", async () => {
-    const app = await buildServer({ dbPath: ":memory:" });
-    const room = (await app.inject({ method: "POST", url: "/rooms", payload: { name: "Room", display_name: "Owner" } })).json() as { room_id: string; owner_token: string };
-    const response = await app.inject({
-      method: "POST",
-      url: `/rooms/${room.room_id}/agent-pairings`,
-      headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { agent_type: "llm-openai-compatible", permission_level: "read_only", working_dir: ".", server_url: "http://127.0.0.1:3737" }
-    });
-
-    expect(response.statusCode).toBe(201);
-    const parsed = parseConnectionCode((response.json() as { connection_code: string }).connection_code);
-    expect(parsed.agent_type).toBe("llm-openai-compatible");
-    await app.close();
-  });
-
-  it("round-trips llm-api agent type in connection codes", async () => {
-    const app = await buildServer({ dbPath: ":memory:" });
-    const room = (await app.inject({ method: "POST", url: "/rooms", payload: { name: "Room", display_name: "Owner" } })).json() as { room_id: string; owner_token: string };
-    const response = await app.inject({
-      method: "POST",
-      url: `/rooms/${room.room_id}/agent-pairings`,
-      headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { agent_type: "llm-api", permission_level: "read_only", working_dir: ".", server_url: "http://127.0.0.1:3737" }
-    });
-
-    expect(response.statusCode).toBe(201);
-    const parsed = parseConnectionCode((response.json() as { connection_code: string }).connection_code);
-    expect(parsed.agent_type).toBe("llm-api");
-    await app.close();
-  });
-
-  it("local launch passes --connect so LLM configuration can happen before claim", async () => {
-    const repoRoot = "D:\\Development\\2";
-    const adapterRuntimeDir = resolve(repoRoot, ".tmp-test-services", "adapters");
-    const launches: LocalAgentLaunchInput[] = [];
-    const app = await buildServer({ dbPath: ":memory:", repoRoot, localAgentLauncher: (input) => { launches.push(input); return { pid: 1234 }; } });
-    const room = (await app.inject({ method: "POST", url: "/rooms", payload: { name: "Room", display_name: "Owner" } })).json() as { room_id: string; owner_token: string };
-    const response = await app.inject({
-      method: "POST",
-      url: `/rooms/${room.room_id}/agent-pairings/start-local`,
-      headers: { authorization: `Bearer ${room.owner_token}`, host: "127.0.0.1:3737" },
-      payload: { agent_type: "llm-anthropic-compatible", permission_level: "read_only", working_dir: ".", server_url: "http://127.0.0.1:3737" }
-    });
-
-    expect(response.statusCode).toBe(201);
-    const connectIndex = launches[0].args.indexOf("--connect");
-    expect(connectIndex).toBeGreaterThanOrEqual(0);
-    expect(parseConnectionCode(launches[0].args[connectIndex + 1]).agent_type).toBe("llm-anthropic-compatible");
-    const cwdIndex = launches[0].args.indexOf("--cwd");
-    expect(cwdIndex).toBeGreaterThanOrEqual(0);
-    expect(launches[0].args[cwdIndex + 1]).toBe(adapterRuntimeDir);
-    const pnpmDirIndex = launches[0].args.indexOf("--dir");
-    expect(pnpmDirIndex).toBeGreaterThanOrEqual(0);
-    expect(launches[0].args[pnpmDirIndex + 1]).toBe(repoRoot);
-    expect(launches[0].cwd).toBe(adapterRuntimeDir);
-    expect(launches[0].args).not.toContain("--pair");
-    await app.close();
-  });
-
   it("rejects removed generic local command agent types", async () => {
     const app = await buildServer({ dbPath: ":memory:" });
     const roomResponse = await app.inject({ method: "POST", url: "/rooms", payload: { name: "Room", display_name: "Owner" } });

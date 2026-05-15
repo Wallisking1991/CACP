@@ -218,7 +218,7 @@ export class EventStore {
         room_id TEXT NOT NULL,
         token_hash TEXT NOT NULL UNIQUE,
         created_by TEXT NOT NULL,
-        agent_type TEXT NOT NULL CHECK(agent_type IN ('claude-code', 'codex-cli', 'github-copilot', 'kimi-cli', 'llm-api', 'llm-openai-compatible', 'llm-anthropic-compatible')),
+        agent_type TEXT NOT NULL CHECK(agent_type IN ('claude-code', 'codex-cli', 'github-copilot', 'kimi-cli')),
         permission_level TEXT NOT NULL CHECK(permission_level IN ('read_only', 'limited_write', 'full_access')),
         working_dir TEXT NOT NULL CHECK(length(working_dir) <= 500),
         created_at TEXT NOT NULL,
@@ -259,6 +259,7 @@ export class EventStore {
         note_id TEXT NOT NULL,
         author_id TEXT NOT NULL,
         author_name TEXT NOT NULL,
+        author_role TEXT NOT NULL DEFAULT 'member',
         text TEXT NOT NULL,
         created_at TEXT NOT NULL,
         reply_to TEXT,
@@ -272,6 +273,7 @@ export class EventStore {
     this.migrateAgentPairingAgentTypes();
     this.migrateAgentPairingParticipantId();
     this.migrateOrbitNotesReplyTo();
+    this.migrateOrbitNotesAuthorRole();
   }
 
   close(): void {
@@ -383,17 +385,17 @@ export class EventStore {
     this.db.prepare(`DELETE FROM orbit_notes WHERE room_id = ?`).run(roomId);
   }
 
-  addOrbitNote(note: { room_id: string; note_id: string; author_id: string; author_name: string; text: string; created_at: string; reply_to?: string }): void {
+  addOrbitNote(note: { room_id: string; note_id: string; author_id: string; author_name: string; author_role: string; text: string; created_at: string; reply_to?: string }): void {
     this.db.prepare(`
-      INSERT INTO orbit_notes (room_id, note_id, author_id, author_name, text, created_at, reply_to)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(note.room_id, note.note_id, note.author_id, note.author_name, note.text, note.created_at, note.reply_to ?? null);
+      INSERT INTO orbit_notes (room_id, note_id, author_id, author_name, author_role, text, created_at, reply_to)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(note.room_id, note.note_id, note.author_id, note.author_name, note.author_role, note.text, note.created_at, note.reply_to ?? null);
   }
 
-  getOrbitNotes(roomId: string): Array<{ note_id: string; author_id: string; author_name: string; text: string; created_at: string; reply_to?: string }> {
+  getOrbitNotes(roomId: string): Array<{ note_id: string; author_id: string; author_name: string; author_role: string; text: string; created_at: string; reply_to?: string }> {
     return this.db.prepare(`
-      SELECT note_id, author_id, author_name, text, created_at, reply_to FROM orbit_notes WHERE room_id = ? ORDER BY created_at ASC
-    `).all(roomId) as Array<{ note_id: string; author_id: string; author_name: string; text: string; created_at: string; reply_to?: string }>;
+      SELECT note_id, author_id, author_name, author_role, text, created_at, reply_to FROM orbit_notes WHERE room_id = ? ORDER BY created_at ASC
+    `).all(roomId) as Array<{ note_id: string; author_id: string; author_name: string; author_role: string; text: string; created_at: string; reply_to?: string }>;
   }
 
   clearOrbitNotes(roomId: string): void {
@@ -635,7 +637,7 @@ export class EventStore {
   private migrateAgentPairingAgentTypes(): void {
     const table = this.db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'agent_pairings'`).get() as { sql: string } | undefined;
     if (!table) return;
-    const hasNewConstraint = table.sql.includes("'github-copilot'") && table.sql.includes("'kimi-cli'") && table.sql.includes("'llm-anthropic-compatible'") && table.sql.includes("'codex-cli'") && !table.sql.includes("'codex'") && !table.sql.includes("'opencode'") && !table.sql.includes("'echo'");
+    const hasNewConstraint = table.sql.includes("'github-copilot'") && table.sql.includes("'kimi-cli'") && table.sql.includes("'codex-cli'") && !table.sql.includes("'llm-api'") && !table.sql.includes("'codex'") && !table.sql.includes("'opencode'") && !table.sql.includes("'echo'");
     if (hasNewConstraint) return;
     const columns = this.db.prepare(`PRAGMA table_info(agent_pairings)`).all() as Array<{ name: string }>;
     const participantIdSelect = columns.some((column) => column.name === "participant_id") ? "participant_id" : "NULL";
@@ -645,7 +647,7 @@ export class EventStore {
         room_id TEXT NOT NULL,
         token_hash TEXT NOT NULL UNIQUE,
         created_by TEXT NOT NULL,
-        agent_type TEXT NOT NULL CHECK(agent_type IN ('claude-code', 'codex-cli', 'github-copilot', 'kimi-cli', 'llm-api', 'llm-openai-compatible', 'llm-anthropic-compatible')),
+        agent_type TEXT NOT NULL CHECK(agent_type IN ('claude-code', 'codex-cli', 'github-copilot', 'kimi-cli')),
         permission_level TEXT NOT NULL CHECK(permission_level IN ('read_only', 'limited_write', 'full_access')),
         working_dir TEXT NOT NULL CHECK(length(working_dir) <= 500),
         created_at TEXT NOT NULL,
@@ -656,7 +658,7 @@ export class EventStore {
       INSERT INTO agent_pairings_next
         SELECT pairing_id, room_id, token_hash, created_by, agent_type, permission_level, working_dir, created_at, expires_at, claimed_at, ${participantIdSelect}
         FROM agent_pairings
-        WHERE agent_type IN ('claude-code', 'codex-cli', 'github-copilot', 'kimi-cli', 'llm-api', 'llm-openai-compatible', 'llm-anthropic-compatible');
+        WHERE agent_type IN ('claude-code', 'codex-cli', 'github-copilot', 'kimi-cli');
       DROP TABLE agent_pairings;
       ALTER TABLE agent_pairings_next RENAME TO agent_pairings;
       CREATE INDEX IF NOT EXISTS idx_agent_pairings_room ON agent_pairings(room_id);
@@ -698,6 +700,13 @@ export class EventStore {
     const columns = this.db.prepare(`PRAGMA table_info(orbit_notes)`).all() as Array<{ name: string }>;
     if (!columns.some((col) => col.name === "reply_to")) {
       this.db.exec(`ALTER TABLE orbit_notes ADD COLUMN reply_to TEXT;`);
+    }
+  }
+
+  private migrateOrbitNotesAuthorRole(): void {
+    const columns = this.db.prepare(`PRAGMA table_info(orbit_notes)`).all() as Array<{ name: string }>;
+    if (!columns.some((col) => col.name === "author_role")) {
+      this.db.exec(`ALTER TABLE orbit_notes ADD COLUMN author_role TEXT NOT NULL DEFAULT 'member';`);
     }
   }
 }

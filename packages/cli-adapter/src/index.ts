@@ -4,8 +4,6 @@ import WebSocket from "ws";
 import { CacpEventSchema, type ConnectorSnapshotRequestedPayload, type ParticipantRole } from "@cacp/protocol";
 import { defaultConnectorHomeDir, loadRuntimeConfigFromArgs } from "./config.js";
 import { printConnectedBanner } from "./connected-banner.js";
-import { runLlmTurn } from "./llm/runner.js";
-import { sanitizeLlmError } from "./llm/sanitize.js";
 import { handleFatalError } from "./fatal-error.js";
 import { reportTurnFailure } from "./error-reporting.js";
 import { RoomClient, statusSummary } from "./room-client.js";
@@ -26,7 +24,6 @@ import { findClaudeBinary } from "./claude/claude-sdk.js";
 import { findKimiCli } from "./kimi/kimi-sdk.js";
 import { roomAssetDirectory } from "./connector/room-assets.js";
 import { MainThreadLedger } from "./connector/main-ledger.js";
-import { buildLlmPromptFromLedger } from "./connector/llm-context.js";
 
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
   console.log("Usage: cacp-cli-adapter [config.json]\n       cacp-cli-adapter --connect <connection_code>\n       cacp-cli-adapter --server <url> --pair <pairing_token>\n       cacp-cli-adapter --detect-cli\n\nDouble-click without arguments to paste a CACP connection code.");
@@ -95,8 +92,8 @@ async function main() {
     ledgerDir
   });
 
-  const isClaudeCode = !config.llm && config.agent.capabilities.includes("claude-code");
-  const isCodexCli = !config.llm && config.agent.capabilities.includes("codex-cli");
+  const isClaudeCode = config.agent.capabilities.includes("claude-code");
+  const isCodexCli = config.agent.capabilities.includes("codex-cli");
   const claudeRuntime = isClaudeCode ? new ClaudeRuntime({
     agentId: registered.agent_id,
     workingDir: config.agent.working_dir,
@@ -129,7 +126,7 @@ async function main() {
     failNode: async (payload) => { await roomClient.failRunNode(payload.run_id, payload.node_id, payload); }
   }) : undefined;
 
-  const isKimiCli = !config.llm && config.agent.capabilities.includes("kimi-cli");
+  const isKimiCli = config.agent.capabilities.includes("kimi-cli");
   const kimiRuntime = isKimiCli ? new KimiRuntime({
     agentId: registered.agent_id,
     workingDir: config.agent.working_dir,
@@ -146,7 +143,7 @@ async function main() {
     requestApproval: async (nodeId, payload) => { return await roomClient.requestRunApproval(payload.turn_id, nodeId, payload); }
   }) : undefined;
 
-  const isCopilotCli = !config.llm && config.agent.capabilities.includes("github-copilot");
+  const isCopilotCli = config.agent.capabilities.includes("github-copilot");
   const copilotRuntime = isCopilotCli ? new CopilotRuntime({
     agentId: registered.agent_id,
     workingDir: config.agent.working_dir,
@@ -645,20 +642,7 @@ async function main() {
         let turnCompleted = false;
         let runStarted = false;
         try {
-          if (config.llm) {
-            await roomClient.startTurn(turnId);
-            const result = await runLlmTurn({
-              llm: config.llm,
-              prompt: buildLlmPromptFromLedger({ entries: ledger.snapshotSince(0), currentInput: turnText }),
-              systemPrompt: config.agent.system_prompt,
-              onDelta: async (chunk) => {
-                await roomClient.publishTurnDelta(turnId, chunk);
-              }
-            });
-            await roomClient.completeTurn(turnId, result.finalText);
-            turnCompleted = true;
-            appendAgentFinal(turnId, result.finalText, ledgerSource);
-          } else if (claudeRuntime) {
+          if (claudeRuntime) {
             runProvider = "claude-code";
             await roomClient.startTurn(turnId);
             await roomClient.startRun(turnId, {
@@ -791,8 +775,7 @@ async function main() {
             appendAgentFinal(turnId, result.finalText, ledgerSource);
           }
         } catch (error) {
-          const rawMessage = error instanceof Error ? error.message : String(error);
-          const displayError = config.llm ? sanitizeLlmError(rawMessage, config.llm.apiKey) : rawMessage;
+          const displayError = error instanceof Error ? error.message : String(error);
           console.error("Adapter turn failed", displayError);
           if (turnCompleted) {
             console.error("Adapter failed after turn completion", displayError);

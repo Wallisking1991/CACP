@@ -7,7 +7,7 @@ import websocket from "@fastify/websocket";
 import { z } from "zod";
 import { buildConnectionCode, evaluatePolicy, ConnectorLedgerEntrySchema, PolicySchema, VoteRecordSchema, ParticipantPresenceSchema, type CacpEvent, type Participant, type ParticipantRole, type Policy, type VoteRecord, type LocalAgentProvider } from "@cacp/protocol";
 import { bearerToken, requireParticipant, hasAnyRole, hasHumanRole } from "./auth.js";
-import { buildAgentContextPrompt, findActiveAgentId, findAgentCapabilities, findAnyOpenTurn, findOpenTurn, findQueuedFollowupMessage, findQueuedFollowupMessages, hasQueuedFollowup, recentConversationMessages, type ConversationMessage, type OpenTurn } from "./conversation.js";
+import { findActiveAgentId, findAgentCapabilities, findAnyOpenTurn, findOpenTurn, findQueuedFollowupMessage, findQueuedFollowupMessages, hasQueuedFollowup, recentConversationMessages, type ConversationMessage, type OpenTurn } from "./conversation.js";
 import { EventBus } from "./event-bus.js";
 import { EventStore, type StoredParticipant } from "./event-store.js";
 import { roomDelivery, targetedDelivery, roleDelivery, canDeliverEnvelope, HUMAN_ROLES, type RelayEnvelope } from "./relay.js";
@@ -15,7 +15,7 @@ import { hasAllowedOrigin, loadServerConfig, type ServerConfig } from "./config.
 import { event, hashToken, openSecret, prefixedId, sealSecret, token } from "./ids.js";
 import { OrbitRoomState } from "./orbit-state.js";
 import { FixedWindowRateLimiter } from "./rate-limit.js";
-import { AgentTypeValues, PermissionLevelValues, buildAgentProfile, isLlmAgentType, type AgentType, type PermissionLevel } from "./pairing.js";
+import { AgentTypeValues, PermissionLevelValues, buildAgentProfile, type AgentType, type PermissionLevel } from "./pairing.js";
 import {
   AgentRunApprovalRequestBodySchema,
   AgentRunApprovalResolveBodySchema,
@@ -1036,19 +1036,6 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return turn;
   }
 
-  function buildContextPrompt(roomId: string, agentId: string): string {
-    const events = store.listEvents(roomId);
-    const participants = store.getParticipants(roomId);
-    const names = new Map(participants.map((participant) => [participant.id, participant.display_name]));
-    const agent = participants.find((participant) => participant.id === agentId);
-    const messages = recentConversationMessages(events, 20).map((message) => ({
-      actorName: names.get(message.actor_id) ?? message.actor_id,
-      kind: message.kind,
-      text: message.text
-    }));
-    return buildAgentContextPrompt({ participants: participants.map(publicParticipant), messages, agentName: agent?.display_name ?? agentId });
-  }
-
   function openTurnInRoom(roomId: string): OpenTurn | undefined {
     return findAnyOpenTurn(store.listEvents(roomId));
   }
@@ -1142,7 +1129,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     })];
   }
 
-  function createAgentTurnRequestEvents(roomId: string, actorId: string, reason: "human_message" | "queued_followup", contextPrompt?: string, previousTurnId?: string): CacpEvent[] {
+  function createAgentTurnRequestEvents(roomId: string, actorId: string, reason: "human_message" | "queued_followup", previousTurnId?: string): CacpEvent[] {
     const events = store.listEvents(roomId);
     const turnEvents = events;
     const activeAgentId = findActiveAgentId(events);
@@ -1193,11 +1180,6 @@ export async function buildServer(options: BuildServerOptions = {}) {
           speakerName = queuedDetails.speakerName;
           speakerRole = queuedDetails.speakerRole;
         }
-      } else {
-        messageText = contextPrompt ?? buildContextPrompt(roomId, activeAgentId);
-        const latestMessage = recentConversationMessages(events, 1)[0];
-        speakerName = latestMessage ? (names.get(latestMessage.actor_id) ?? latestMessage.actor_id) : "Room";
-        speakerRole = latestMessage ? (roles.get(latestMessage.actor_id) ?? "member") : "member";
       }
       return [event(roomId, "agent.turn.requested", actorId, {
         turn_id: turnId,
@@ -1210,12 +1192,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
         message_text: messageText
       })];
     }
-    return [event(roomId, "agent.turn.requested", actorId, {
-      turn_id: turnId,
-      agent_id: activeAgentId,
-      reason,
-      context_prompt: contextPrompt ?? buildContextPrompt(roomId, activeAgentId)
-    })];
+    return [];
   }
 
   /**
@@ -2280,6 +2257,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       note_id: noteId,
       author_id: participant.id,
       author_name: participant.display_name,
+      author_role: participant.role,
       text: body.text,
       created_at: now,
       reply_to: body.reply_to
@@ -2289,6 +2267,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       note_id: note.note_id,
       author_id: note.author_id,
       author_name: note.author_name,
+      author_role: note.author_role,
       text: note.text,
       created_at: note.created_at,
       reply_to: note.reply_to
@@ -2364,6 +2343,11 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const payload = orbit.buildPromotionPayload(freshRequestedIds);
     if (!payload) return deny(reply, "no_notes_selected", 409);
 
+    const lastNoteId = payload.noteIds[payload.noteIds.length - 1];
+    const lastNote = lastNoteId ? orbit.getNote(lastNoteId) : undefined;
+    const speakerName = lastNote?.author_name ?? participant.display_name;
+    const speakerRole = (lastNote?.author_role ?? participant.role) as ParticipantRole;
+
     const inputId = prefixedId("input");
     const now = new Date().toISOString();
     const events = store.listEvents(roomId);
@@ -2394,8 +2378,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!openTurn) {
       const turnRequestEvents = createMainInputTurnRequestEvents(roomId, {
         actorId: participant.id,
-        authorName: participant.display_name,
-        authorRole: participant.role,
+        authorName: speakerName,
+        authorRole: speakerRole,
         text: payload.text,
         source: "orbit_promote"
       });
@@ -2410,8 +2394,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
       queuedArr.push({
         input_id: inputId,
         author_id: participant.id,
-        author_name: participant.display_name,
-        author_role: participant.role,
+        author_name: speakerName,
+        author_role: speakerRole,
         text: payload.text,
         source: "orbit_promote",
         created_at: now
@@ -3339,7 +3323,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
         turn_id: request.params.turnId
       }));
       const followupEvents = hasQueuedFollowup(store.listEvents(request.params.roomId), request.params.turnId)
-        ? createAgentTurnRequestEvents(request.params.roomId, participant.id, "queued_followup", undefined, request.params.turnId).map((nextEvent) => store.appendEvent(nextEvent))
+        ? createAgentTurnRequestEvents(request.params.roomId, participant.id, "queued_followup", request.params.turnId).map((nextEvent) => store.appendEvent(nextEvent))
         : [];
       return [completed, finalMessage, ...followupEvents];
     });
@@ -3369,7 +3353,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
         ...failurePayload
       }));
       const followupEvents = hasQueuedFollowup(store.listEvents(request.params.roomId), request.params.turnId)
-        ? createAgentTurnRequestEvents(request.params.roomId, participant.id, "queued_followup", undefined, request.params.turnId).map((nextEvent) => store.appendEvent(nextEvent))
+        ? createAgentTurnRequestEvents(request.params.roomId, participant.id, "queued_followup", request.params.turnId).map((nextEvent) => store.appendEvent(nextEvent))
         : [];
       return [failed, ...followupEvents];
     });

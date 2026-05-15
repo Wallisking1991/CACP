@@ -17,7 +17,7 @@ function itemIdentity(item: CodexThreadItem, fallbackPrefix: string): string {
 }
 
 function promptForTurn(input: CodexTurnInput): string {
-  return `$$[${input.speakerName}/${input.speakerRole}] ${input.text}$$`;
+  return `${input.speakerName}(${input.speakerRole}): ${input.text}`;
 }
 
 function asUsageRecord(value: unknown): Record<string, unknown> | undefined {
