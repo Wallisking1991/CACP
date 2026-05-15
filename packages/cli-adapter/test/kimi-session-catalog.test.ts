@@ -31,7 +31,7 @@ describe("listKimiSessions", () => {
       updated_at: expect.any(String),
       message_count: 0,
       byte_size: 0,
-      importable: false,
+      importable: true,
       provider: "kimi-cli"
     });
   });

@@ -23,7 +23,7 @@ export async function listKimiSessions(input: KimiSessionCatalogInput): Promise<
     updated_at: new Date(session.updatedAt).toISOString(),
     message_count: 0,
     byte_size: 0,
-    importable: false,
+    importable: true,
     provider: "kimi-cli"
   }));
 
