@@ -11,6 +11,7 @@ export interface PopoverProps {
 export function Popover({ triggerRef, open, onClose, children }: PopoverProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [style, setStyle] = useState<React.CSSProperties>({});
+  const hoverTimerRef = useRef<number>(0);
 
   useEffect(() => {
     if (!open || !triggerRef.current) return;
@@ -56,6 +57,36 @@ export function Popover({ triggerRef, open, onClose, children }: PopoverProps) {
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open, onClose, triggerRef]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function handleMouseEnter() {
+      window.clearTimeout(hoverTimerRef.current);
+    }
+
+    function handleMouseLeave() {
+      hoverTimerRef.current = window.setTimeout(() => {
+        onClose();
+      }, 2000);
+    }
+
+    const panel = panelRef.current;
+    const trigger = triggerRef.current;
+
+    panel?.addEventListener("mouseenter", handleMouseEnter);
+    panel?.addEventListener("mouseleave", handleMouseLeave);
+    trigger?.addEventListener("mouseenter", handleMouseEnter);
+    trigger?.addEventListener("mouseleave", handleMouseLeave);
+
+    return () => {
+      panel?.removeEventListener("mouseenter", handleMouseEnter);
+      panel?.removeEventListener("mouseleave", handleMouseLeave);
+      trigger?.removeEventListener("mouseenter", handleMouseEnter);
+      trigger?.removeEventListener("mouseleave", handleMouseLeave);
+      window.clearTimeout(hoverTimerRef.current);
+    };
   }, [open, onClose, triggerRef]);
 
   if (!open || typeof document === "undefined") return null;
