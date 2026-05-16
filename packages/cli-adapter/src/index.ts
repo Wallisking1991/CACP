@@ -170,6 +170,7 @@ async function main() {
   const HEARTBEAT_TIMEOUT_MS = 10000;
   let heartbeatInterval: ReturnType<typeof setInterval> | undefined;
   let heartbeatTimeout: ReturnType<typeof setTimeout> | undefined;
+  let shutdownInitiated = false;
 
   function nowIso(): string {
     return new Date().toISOString();
@@ -895,18 +896,22 @@ async function main() {
           console.error("Failed to publish Kimi session catalog", error instanceof Error ? error.message : String(error));
         });
     }
-    heartbeatInterval = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.ping();
-        heartbeatTimeout = setTimeout(() => {
-          console.error("Heartbeat timeout: no pong received from server");
-          ws.terminate();
-          gracefulShutdown(1006, "heartbeat_timeout", "heartbeat");
-        }, HEARTBEAT_TIMEOUT_MS);
-      }
-    }, HEARTBEAT_INTERVAL_MS);
+    if (ws.readyState === WebSocket.OPEN) {
+      heartbeatInterval = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.ping();
+          heartbeatTimeout = setTimeout(() => {
+            console.error("Heartbeat timeout: no pong received from server");
+            ws.terminate();
+            gracefulShutdown(1006, "heartbeat_timeout", "heartbeat");
+          }, HEARTBEAT_TIMEOUT_MS);
+        }
+      }, HEARTBEAT_INTERVAL_MS);
+    }
   });
   function gracefulShutdown(code: number, reasonText: string, source: "close" | "error" | "heartbeat"): void {
+    if (shutdownInitiated) return;
+    shutdownInitiated = true;
     if (source === "heartbeat") {
       console.log("Adapter stream closed: connection timed out (heartbeat missed)");
     } else if (source === "error") {
@@ -931,8 +936,9 @@ async function main() {
     });
     if (heartbeatInterval) clearInterval(heartbeatInterval);
     if (heartbeatTimeout) clearTimeout(heartbeatTimeout);
-    process.exitCode = 0;
-    setTimeout(() => process.exit(0), 25).unref();
+    const exitCode = source === "close" ? 0 : 1;
+    process.exitCode = exitCode;
+    setTimeout(() => process.exit(exitCode), 25).unref();
   }
 
   ws.on("close", (code, reason) => {
