@@ -938,6 +938,7 @@ async function main() {
     if (heartbeatTimeout) clearTimeout(heartbeatTimeout);
     const exitCode = source === "close" ? 0 : 1;
     process.exitCode = exitCode;
+    // Allow runtime close() promises a tick to settle before hard exit
     setTimeout(() => process.exit(exitCode), 25).unref();
   }
 
