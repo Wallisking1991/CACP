@@ -127,4 +127,48 @@ describe("connector index source", () => {
     const copilotCatalogBlock = indexSource.slice(copilotCatalogIndex, copilotCatalogIndex + 2000);
     expect(copilotCatalogBlock).toContain(".slice(0, 200)");
   });
+
+  it("has a shared gracefulShutdown function for websocket close and error handlers", () => {
+    expect(indexSource).toContain("function gracefulShutdown(");
+    expect(indexSource).toContain('source: "close" | "error" | "heartbeat"');
+  });
+
+  it("calls gracefulShutdown from the websocket close handler", () => {
+    const closeHandlerIndex = indexSource.indexOf('ws.on("close",');
+    expect(closeHandlerIndex).toBeGreaterThan(-1);
+    const closeHandlerBlock = indexSource.slice(closeHandlerIndex, closeHandlerIndex + 200);
+    expect(closeHandlerBlock).toContain("gracefulShutdown");
+  });
+
+  it("calls gracefulShutdown from the websocket error handler instead of only logging", () => {
+    const errorHandlerIndex = indexSource.indexOf('ws.on("error",');
+    expect(errorHandlerIndex).toBeGreaterThan(-1);
+    const errorHandlerBlock = indexSource.slice(errorHandlerIndex, errorHandlerIndex + 300);
+    expect(errorHandlerBlock).toContain("gracefulShutdown");
+  });
+
+  it("has a heartbeat mechanism with ping interval and pong timeout constants", () => {
+    expect(indexSource).toContain("HEARTBEAT_INTERVAL_MS");
+    expect(indexSource).toContain("HEARTBEAT_TIMEOUT_MS");
+    expect(indexSource).toContain("ws.ping()");
+    expect(indexSource).toContain('ws.on("pong"');
+  });
+
+  it("terminates the websocket and calls gracefulShutdown on heartbeat timeout", () => {
+    expect(indexSource).toContain("ws.terminate()");
+    const terminateIndex = indexSource.indexOf("ws.terminate()");
+    expect(terminateIndex).toBeGreaterThan(-1);
+    const terminateBlock = indexSource.slice(terminateIndex, terminateIndex + 100);
+    expect(terminateBlock).toContain("gracefulShutdown");
+  });
+
+  it("clears heartbeat timers in the websocket close handler", () => {
+    const firstCloseHandlerIndex = indexSource.indexOf('ws.on("close",');
+    expect(firstCloseHandlerIndex).toBeGreaterThan(-1);
+    const secondCloseHandlerIndex = indexSource.indexOf('ws.on("close",', firstCloseHandlerIndex + 1);
+    expect(secondCloseHandlerIndex).toBeGreaterThan(-1);
+    const closeHandlerBlock = indexSource.slice(secondCloseHandlerIndex, secondCloseHandlerIndex + 400);
+    expect(closeHandlerBlock).toContain("heartbeatInterval");
+    expect(closeHandlerBlock).toContain("heartbeatTimeout");
+  });
 });

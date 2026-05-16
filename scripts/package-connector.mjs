@@ -76,9 +76,11 @@ echo.
 echo Starting CACP Local Connector...
 node index.cjs
 
-echo.
-echo CACP Local Connector has exited.
-pause
+if errorlevel 1 (
+  echo.
+  echo CACP Local Connector has exited with an error.
+  pause
+)
 `;
 
 const macCommand = `#!/bin/bash

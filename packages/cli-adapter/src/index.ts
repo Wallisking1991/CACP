@@ -166,6 +166,11 @@ async function main() {
   const ws = new WebSocket(streamUrl, { origin: config.server_url });
   const runningTasks = new Set<string>();
 
+  const HEARTBEAT_INTERVAL_MS = 30000;
+  const HEARTBEAT_TIMEOUT_MS = 10000;
+  let heartbeatInterval: ReturnType<typeof setInterval> | undefined;
+  let heartbeatTimeout: ReturnType<typeof setTimeout> | undefined;
+
   function nowIso(): string {
     return new Date().toISOString();
   }
@@ -890,10 +895,25 @@ async function main() {
           console.error("Failed to publish Kimi session catalog", error instanceof Error ? error.message : String(error));
         });
     }
+    heartbeatInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.ping();
+        heartbeatTimeout = setTimeout(() => {
+          console.error("Heartbeat timeout: no pong received from server");
+          ws.terminate();
+          gracefulShutdown(1006, "heartbeat_timeout", "heartbeat");
+        }, HEARTBEAT_TIMEOUT_MS);
+      }
+    }, HEARTBEAT_INTERVAL_MS);
   });
-  ws.on("close", (code, reason) => {
-    const reasonText = reason.toString();
-    console.log(`Adapter stream closed${reasonText ? `: ${reasonText}` : ""} (code: ${code})`);
+  function gracefulShutdown(code: number, reasonText: string, source: "close" | "error" | "heartbeat"): void {
+    if (source === "heartbeat") {
+      console.log("Adapter stream closed: connection timed out (heartbeat missed)");
+    } else if (source === "error") {
+      console.log(`Adapter stream closed due to error${reasonText ? `: ${reasonText}` : ""} (code: ${code})`);
+    } else {
+      console.log(`Adapter stream closed${reasonText ? `: ${reasonText}` : ""} (code: ${code})`);
+    }
     if (code === 4001 || reasonText === "participant_removed" || reasonText === "disconnected" || reasonText === "owner_disconnected") {
       console.log("This local Agent session was removed from the room.");
     }
@@ -909,13 +929,32 @@ async function main() {
     void kimiRuntime?.close().catch((error) => {
       console.error("Failed to close Kimi runtime", error);
     });
+    if (heartbeatInterval) clearInterval(heartbeatInterval);
+    if (heartbeatTimeout) clearTimeout(heartbeatTimeout);
     process.exitCode = 0;
     setTimeout(() => process.exit(0), 25).unref();
+  }
+
+  ws.on("close", (code, reason) => {
+    gracefulShutdown(code, reason.toString(), "close");
   });
-  ws.on("error", (error) => console.error(error));
+  ws.on("error", (error) => {
+    console.error("WebSocket error:", error);
+    gracefulShutdown(1006, error instanceof Error ? error.message : String(error), "error");
+  });
+  ws.on("pong", () => {
+    if (heartbeatTimeout) {
+      clearTimeout(heartbeatTimeout);
+      heartbeatTimeout = undefined;
+    }
+  });
   // Keep event loop alive
   const keepAlive = setInterval(() => {}, 10000);
-  ws.on("close", () => clearInterval(keepAlive));
+  ws.on("close", () => {
+    clearInterval(keepAlive);
+    if (heartbeatInterval) clearInterval(heartbeatInterval);
+    if (heartbeatTimeout) clearTimeout(heartbeatTimeout);
+  });
 }
 
 void main().catch((error) => handleFatalError(error));
