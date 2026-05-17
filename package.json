@@ -5,7 +5,7 @@
   "type": "module",
   "packageManager": "pnpm@10.33.3",
   "scripts": {
-    "build": "corepack pnpm -r build",
+    "build": "corepack pnpm -r build && corepack pnpm package:connector",
     "test": "corepack pnpm --filter @cacp/protocol build && corepack pnpm -r test",
     "dev:server": "corepack pnpm --filter @cacp/protocol build && corepack pnpm --filter @cacp/server dev",
     "dev:web": "corepack pnpm --filter @cacp/protocol build && corepack pnpm --filter @cacp/web dev",
