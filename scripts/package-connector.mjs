@@ -115,9 +115,11 @@ node index.cjs --detect-cli
 echo "Starting CACP Local Connector..."
 node index.cjs
 
-echo ""
-echo "CACP Local Connector has exited."
-read -p "Press Enter to close..."
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "CACP Local Connector has exited with an error."
+    read -p "Press Enter to close..."
+fi
 `;
 
 const linuxSh = `#!/bin/bash
@@ -152,9 +154,11 @@ node index.cjs --detect-cli
 echo "Starting CACP Local Connector..."
 node index.cjs
 
-echo ""
-echo "CACP Local Connector has exited."
-read -p "Press Enter to close..."
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "CACP Local Connector has exited with an error."
+    read -p "Press Enter to close..."
+fi
 `;
 
 await writeFile(resolve(staging, "Start.bat"), windowsBat);
