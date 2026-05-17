@@ -1,0 +1,13 @@
+{
+  "server_url": "http://127.0.0.1:3737",
+  "room_id": "replace_with_room_id",
+  "token": "replace_with_owner_or_member_token",
+  "agent": {
+    "name": "Kimi CLI Agent",
+    "command": "kimi",
+    "args": [],
+    "working_dir": "D:\\Development\\2",
+    "capabilities": ["kimi-cli", "kimi.persistent_session", "repo.read"],
+    "thinking": true
+  }
+}

@@ -136,6 +136,21 @@ describe("agent pairing profiles", () => {
     expect(fullAccess.capabilities).toContain("manual_flow_control");
   });
 
+  it("enables thinking mode for Kimi CLI profiles", () => {
+    const profile = buildAgentProfile({ agentType: "kimi-cli", permissionLevel: "limited_write", workingDir: "." });
+    expect(profile.thinking).toBe(true);
+  });
+
+  it("does not enable thinking mode for non-Kimi CLI agent types", () => {
+    const claude = buildAgentProfile({ agentType: "claude-code", permissionLevel: "full_access", workingDir: "." });
+    const codex = buildAgentProfile({ agentType: "codex-cli", permissionLevel: "full_access", workingDir: "." });
+    const copilot = buildAgentProfile({ agentType: "github-copilot", permissionLevel: "full_access", workingDir: "." });
+
+    expect(claude).not.toHaveProperty("thinking");
+    expect(codex).not.toHaveProperty("thinking");
+    expect(copilot).not.toHaveProperty("thinking");
+  });
+
   it("keeps permission intent in GitHub Copilot profile capabilities", () => {
     const readOnly = buildAgentProfile({ agentType: "github-copilot", permissionLevel: "read_only", workingDir: "." });
     const limitedWrite = buildAgentProfile({ agentType: "github-copilot", permissionLevel: "limited_write", workingDir: "." });

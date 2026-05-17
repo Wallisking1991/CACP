@@ -11,6 +11,7 @@ export interface AgentPairingProfile {
   args: string[];
   working_dir: string;
   capabilities: string[];
+  thinking?: boolean;
 }
 
 export function buildAgentProfile(input: { agentType: AgentType; permissionLevel: PermissionLevel; workingDir?: string }): AgentPairingProfile {
@@ -58,7 +59,8 @@ export function buildAgentProfile(input: { agentType: AgentType; permissionLevel
         "kimi.persistent_session",
         input.permissionLevel,
         ...(input.permissionLevel === "read_only" ? ["repo.read"] : ["manual_flow_control"])
-      ]
+      ],
+      thinking: true
     };
   }
 
