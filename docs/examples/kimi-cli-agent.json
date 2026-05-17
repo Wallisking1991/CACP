@@ -6,7 +6,7 @@
     "name": "Kimi CLI Agent",
     "command": "kimi",
     "args": [],
-    "working_dir": "D:\\Development\\2",
+    "working_dir": ".",
     "capabilities": ["kimi-cli", "kimi.persistent_session", "repo.read"],
     "thinking": true
   }
