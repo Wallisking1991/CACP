@@ -132,6 +132,7 @@ async function main() {
     workingDir: config.agent.working_dir,
     permissionLevel: config.permission_level ?? "read_only",
     model: config.agent.model,
+    thinking: config.agent.thinking,
     publishDelta: async (turnId, chunk) => {
       await roomClient.publishTurnDelta(turnId, chunk);
     },
@@ -912,6 +913,8 @@ async function main() {
   function gracefulShutdown(code: number, reasonText: string, source: "close" | "error" | "heartbeat"): void {
     if (shutdownInitiated) return;
     shutdownInitiated = true;
+    if (heartbeatInterval) clearInterval(heartbeatInterval);
+    if (heartbeatTimeout) clearTimeout(heartbeatTimeout);
     if (source === "heartbeat") {
       console.log("Adapter stream closed: connection timed out (heartbeat missed)");
     } else if (source === "error") {
@@ -934,8 +937,6 @@ async function main() {
     void kimiRuntime?.close().catch((error) => {
       console.error("Failed to close Kimi runtime", error);
     });
-    if (heartbeatInterval) clearInterval(heartbeatInterval);
-    if (heartbeatTimeout) clearTimeout(heartbeatTimeout);
     const exitCode = source === "close" ? 0 : 1;
     process.exitCode = exitCode;
     // Allow runtime close() promises a tick to settle before hard exit
