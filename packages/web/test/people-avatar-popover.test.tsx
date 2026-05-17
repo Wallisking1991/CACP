@@ -227,4 +227,30 @@ describe("PeopleAvatarPopover", () => {
     const selects = screen.getAllByLabelText(/change role/i);
     expect(selects).toHaveLength(1);
   });
+
+  it("stops mousedown propagation inside the confirmation dialog so parent popover click-outside handlers do not close it", () => {
+    const onUpdateRole = vi.fn();
+    render(
+      <LangProvider>
+        <PeopleAvatarPopover
+          participants={participants}
+          isOwner={true}
+          currentParticipantId="user_1"
+          onUpdateRole={onUpdateRole}
+        />
+      </LangProvider>
+    );
+
+    const selects = screen.getAllByLabelText(/change role/i);
+    fireEvent.change(selects[0], { target: { value: "admin" } });
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toBeInTheDocument();
+
+    const documentMousedownSpy = vi.fn();
+    document.addEventListener("mousedown", documentMousedownSpy);
+    fireEvent.mouseDown(dialog);
+    expect(documentMousedownSpy).not.toHaveBeenCalled();
+    document.removeEventListener("mousedown", documentMousedownSpy);
+  });
 });
