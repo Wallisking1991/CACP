@@ -1,7 +1,8 @@
-import { closeSync, existsSync, mkdirSync, openSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+
 import Fastify, { type FastifyReply } from "fastify";
 import websocket from "@fastify/websocket";
 import { z } from "zod";
@@ -57,6 +58,8 @@ import {
   assertAgentOwnsPayload
 } from "./claude-events.js";
 import { providerForCapabilities } from "./local-agent-events.js";
+
+const connectorVersion = JSON.parse(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "../../../package.json"), "utf8")).version;
 
 const CreateRoomSchema = z.object({ name: z.string().min(1).max(200), display_name: z.string().min(1).max(100).default("Owner") });
 const CreateInviteSchema = z.object({
@@ -2500,7 +2503,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
         permission_level: body.permission_level
       }),
       expires_at: pairing.expiresAt,
-      download_url: "/downloads/CACP-Local-Connector.zip"
+      download_url: `/downloads/CACP-Local-Connector-v${connectorVersion}.zip`
     });
   });
 

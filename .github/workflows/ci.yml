@@ -34,5 +34,10 @@ jobs:
       - name: Run validation
         run: corepack pnpm check
 
-      - name: Build CACP-Local-Connector.zip
+      - name: Build CACP-Local-Connector
         run: node scripts/package-connector.mjs
+
+      - name: Verify CACP-Local-Connector artifact
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          test -s "packages/web/public/downloads/CACP-Local-Connector-v${VERSION}.zip"

@@ -5,7 +5,7 @@ import ConnectionCodeModal from "../src/components/ConnectionCodeModal.js";
 
 const pairing = {
   connection_code: "CACP-CONNECT:v1:full-secret-code",
-  download_url: "/downloads/CACP-Local-Connector.zip",
+  download_url: "/downloads/CACP-Local-Connector-v0.5.0.zip",
   expires_at: "2026-04-28T04:30:00.000Z"
 };
 

@@ -168,7 +168,6 @@ await writeFile(resolve(staging, "start.sh"), linuxSh);
 // 6. Package into ZIP
 const zipName = `CACP-Local-Connector-v${version}.zip`;
 const zipPath = resolve(downloadsDir, zipName);
-const latestZipPath = resolve(downloadsDir, "CACP-Local-Connector.zip");
 
 console.log(`Packing ${zipName}...`);
 
@@ -187,18 +186,7 @@ if (process.platform === "win32") {
   run("zip", ["-r", zipPath, "."], { cwd: staging });
 }
 
-// 7. Create a version-less symlink for web downloads (gitignored)
-try {
-  await rm(latestZipPath, { force: true });
-  await symlink(zipName, latestZipPath, "file");
-  console.log(`Created symlink ${latestZipPath} -> ${zipName}`);
-} catch {
-  // Fallback: copy if symlinks are not supported (e.g. Windows without Developer Mode)
-  await copyFile(zipPath, latestZipPath);
-  console.log(`Copied to ${latestZipPath} (version-less name for web)`);
-}
-
-// 8. Clean up staging
+// 7. Clean up staging
 await rm(staging, { recursive: true, force: true });
 
 console.log(`Built ${zipPath}`);

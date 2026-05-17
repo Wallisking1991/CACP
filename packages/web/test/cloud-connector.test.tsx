@@ -26,7 +26,7 @@ function renderSidebar(writeText = vi.fn(async () => undefined)) {
       cloudMode={true}
       createdPairing={{
         connection_code: fullConnectionCode,
-        download_url: "/downloads/CACP-Local-Connector.zip",
+        download_url: "/downloads/CACP-Local-Connector-v0.5.0.zip",
         expires_at: "2026-04-27T16:30:00.000Z"
       }}
     />

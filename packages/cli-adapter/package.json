@@ -1,6 +1,6 @@
 {
   "name": "@cacp/cli-adapter",
-  "version": "0.1.0",
+  "version": "0.5.0",
   "type": "module",
   "bin": {
     "cacp-cli-adapter": "./dist/index.js"
