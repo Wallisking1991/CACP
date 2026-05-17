@@ -166,4 +166,16 @@ describe("adapter config arguments", () => {
     const config = await loadRuntimeConfigFromArgs(["--connect", code], fetchImpl);
     expect(config.registered_agent?.agent_token).toBe("cacp_agent");
   });
+
+  it("accepts agent thinking flag in pairing claim response", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      room_id: "room_1",
+      agent_id: "agent_1",
+      agent_token: "agent_token",
+      agent: { name: "Kimi Agent", command: "kimi", args: [], working_dir: ".", capabilities: ["kimi-cli"], thinking: true }
+    }), { status: 201, headers: { "content-type": "application/json" } }));
+
+    const config = await loadRuntimeConfigFromArgs(["--server", "http://127.0.0.1:3737", "--pair", "pair_1"], fetchMock as unknown as typeof fetch);
+    expect(config.agent.thinking).toBe(true);
+  });
 });

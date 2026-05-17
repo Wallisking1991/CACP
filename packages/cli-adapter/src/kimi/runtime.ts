@@ -111,6 +111,7 @@ export class KimiRuntime {
     let finalText = "";
     let hasReceivedFirstEvent = false;
     let hasCompleted = false;
+    let reasoningNodeId: string | undefined;
 
     let eventQueue = Promise.resolve();
 
@@ -131,7 +132,8 @@ export class KimiRuntime {
 
     const closeOpenNodes = async () => {
       for (const nodeId of recorder.openNodeIds()) {
-        await recorder.completeNode({ nodeId, summary: recorder.currentTitle(nodeId) ?? "Completed" });
+        const summary = nodeId === reasoningNodeId ? "Thinking complete" : (recorder.currentTitle(nodeId) ?? "Completed");
+        await recorder.completeNode({ nodeId, summary });
       }
     };
 
@@ -141,6 +143,18 @@ export class KimiRuntime {
       if (!key) return;
       countedTools.add(toolCallId);
       metrics[key] += 1;
+    };
+
+    const ensureReasoningNode = async (): Promise<string> => {
+      if (reasoningNodeId) return reasoningNodeId;
+      reasoningNodeId = "kimi_reasoning";
+      await recorder.startNode({
+        nodeId: reasoningNodeId,
+        kind: "reasoning_summary",
+        status: "streaming",
+        title: "Thinking"
+      });
+      return reasoningNodeId;
     };
 
     const handleFirstEvent = async () => {
@@ -192,7 +206,8 @@ export class KimiRuntime {
                     finalText += payload.text;
                     await this.input.publishDelta(input.turnId, payload.text);
                   } else if (payload.type === "think" && typeof payload.think === "string") {
-                    await this.input.publishDelta(input.turnId, payload.think);
+                    const nodeId = await ensureReasoningNode();
+                    await recorder.appendNodeDelta({ nodeId, deltaType: "text", chunk: payload.think });
                   }
                 });
                 break;

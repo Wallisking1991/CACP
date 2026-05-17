@@ -17,7 +17,8 @@ export const AdapterConfigSchema = z.object({
     working_dir: z.string().default(process.cwd()),
     capabilities: z.array(z.string()).default([]),
     system_prompt: z.string().optional(),
-    model: z.string().min(1).optional()
+    model: z.string().min(1).optional(),
+    thinking: z.boolean().optional()
   }),
   permission_level: z.string().optional()
 });
