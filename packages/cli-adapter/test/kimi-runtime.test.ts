@@ -288,17 +288,17 @@ describe("KimiRuntime", () => {
     expect(publishDelta).toHaveBeenCalledWith("t1", "Final answer");
 
     expect(startNode).toHaveBeenCalledWith(expect.objectContaining({
-      node_id: "kimi_reasoning",
+      node_id: "kimi_reasoning_t1",
       kind: "reasoning_summary",
       title: "Thinking"
     }));
     expect(appendNodeDelta).toHaveBeenCalledWith(expect.objectContaining({
-      node_id: "kimi_reasoning",
+      node_id: "kimi_reasoning_t1",
       delta_type: "text",
       chunk: "Let me think..."
     }));
     expect(completeNode).toHaveBeenCalledWith(expect.objectContaining({
-      node_id: "kimi_reasoning",
+      node_id: "kimi_reasoning_t1",
       summary: "Thinking complete"
     }));
   });
@@ -308,5 +308,77 @@ describe("KimiRuntime", () => {
     const runtime = createRuntime(sdk); // no thinking override
     await runtime.selectSession({ mode: "fresh" });
     expect(sdk.createSession).toHaveBeenCalledWith(expect.objectContaining({ thinking: false }));
+  });
+
+  it("handles interleaved think and text content parts", async () => {
+    const turn = mockTurn([
+      { type: "ContentPart", payload: { type: "think", think: "Part 1." } },
+      { type: "ContentPart", payload: { type: "text", text: "Hello " } },
+      { type: "ContentPart", payload: { type: "think", think: " Part 2." } },
+      { type: "ContentPart", payload: { type: "text", text: "world!" } }
+    ]);
+    const sdk = mockSdk(turn);
+    const publishDelta = vi.fn().mockResolvedValue(undefined);
+    const startNode = vi.fn().mockResolvedValue(undefined);
+    const appendNodeDelta = vi.fn().mockResolvedValue(undefined);
+    const completeNode = vi.fn().mockResolvedValue(undefined);
+    const runtime = new KimiRuntime({
+      agentId: "agent_1",
+      agentName: "Kimi",
+      workingDir: "/project",
+      permissionLevel: "full_access",
+      model: "kimi-latest",
+      thinking: true,
+      sdk,
+      turnId: "turn_1",
+      text: "Hello",
+      speakerName: "User",
+      speakerRole: "member",
+      modeLabel: "live",
+      roomName: "Test Room",
+      publishDelta,
+      startNode,
+      appendNodeDelta,
+      updateNode: vi.fn().mockResolvedValue(undefined),
+      completeNode,
+      failNode: vi.fn().mockResolvedValue(undefined),
+      requestApproval: vi.fn().mockResolvedValue({ decision: "allow" as const, resolved_by: "user_1", resolved_at: new Date().toISOString() })
+    });
+    await runtime.selectSession({ mode: "fresh" });
+
+    const result = await runtime.runTurn({
+      turnId: "t1",
+      text: "Say hello",
+      speakerName: "User",
+      speakerRole: "member",
+      modeLabel: "live"
+    });
+
+    expect(result.finalText).toBe("Hello world!");
+
+    expect(publishDelta).toHaveBeenCalledWith("t1", "Hello ");
+    expect(publishDelta).toHaveBeenCalledWith("t1", "world!");
+    expect(publishDelta).not.toHaveBeenCalledWith("t1", "Part 1.");
+    expect(publishDelta).not.toHaveBeenCalledWith("t1", " Part 2.");
+
+    expect(startNode).toHaveBeenCalledWith(expect.objectContaining({
+      node_id: "kimi_reasoning_t1",
+      kind: "reasoning_summary",
+      title: "Thinking"
+    }));
+    expect(appendNodeDelta).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      node_id: "kimi_reasoning_t1",
+      delta_type: "text",
+      chunk: "Part 1."
+    }));
+    expect(appendNodeDelta).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      node_id: "kimi_reasoning_t1",
+      delta_type: "text",
+      chunk: " Part 2."
+    }));
+    expect(completeNode).toHaveBeenCalledWith(expect.objectContaining({
+      node_id: "kimi_reasoning_t1",
+      summary: "Thinking complete"
+    }));
   });
 });

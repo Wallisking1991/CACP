@@ -147,7 +147,7 @@ export class KimiRuntime {
 
     const ensureReasoningNode = async (): Promise<string> => {
       if (reasoningNodeId) return reasoningNodeId;
-      reasoningNodeId = "kimi_reasoning";
+      reasoningNodeId = `kimi_reasoning_${input.turnId}`;
       await recorder.startNode({
         nodeId: reasoningNodeId,
         kind: "reasoning_summary",
