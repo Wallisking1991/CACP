@@ -7,7 +7,9 @@ export interface AgentAvatarPopoverProps {
   agents: AgentView[];
   activeAgentId?: string;
   canManageRoom: boolean;
+  isOwner: boolean;
   onSelectAgent?: (agentId: string) => void;
+  onUpdateAgentThinking?: (agentId: string, enabled: boolean) => void;
   claudeSessionCatalog?: ClaudeSessionCatalogView;
   claudeSessionSelection?: ClaudeSessionSelectionView;
   claudeSessionPreviews: ClaudeSessionPreviewView[];
@@ -29,7 +31,9 @@ export function AgentAvatarPopover({
   agents,
   activeAgentId,
   canManageRoom,
+  isOwner,
   onSelectAgent,
+  onUpdateAgentThinking,
   claudeSessionCatalog,
   claudeSessionSelection,
   claudeSessionPreviews,
@@ -80,6 +84,19 @@ export function AgentAvatarPopover({
           ))}
         </select>
       ) : null}
+
+      {isOwner && activeAgent && onUpdateAgentThinking && (
+        <button
+          type="button"
+          role="switch"
+          aria-checked={activeAgent.thinking_enabled !== false}
+          className="btn btn-ghost"
+          style={{ padding: "4px 8px", fontSize: 11, marginTop: 8 }}
+          onClick={() => onUpdateAgentThinking(activeAgent.agent_id, activeAgent.thinking_enabled === false)}
+        >
+          {activeAgent.thinking_enabled !== false ? t("sidebar.thinkingOn") : t("sidebar.thinkingOff")}
+        </button>
+      )}
 
       {hasGenericCatalog && activeAgentProvider ? (
         <AgentSessionPicker

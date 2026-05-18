@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { randomUUID } from "node:crypto";
 import WebSocket from "ws";
-import { CacpEventSchema, type ConnectorSnapshotRequestedPayload, type ParticipantRole } from "@cacp/protocol";
+import { CacpEventSchema, type AgentUpdatedPayload, type ConnectorSnapshotRequestedPayload, type ParticipantRole } from "@cacp/protocol";
 import { defaultConnectorHomeDir, loadRuntimeConfigFromArgs } from "./config.js";
 import { printConnectedBanner } from "./connected-banner.js";
 import { handleFatalError } from "./fatal-error.js";
@@ -616,6 +616,14 @@ async function main() {
             });
             importClosed = true;
           }
+        }
+        return;
+      }
+
+      if (parsed.data.type === "agent.updated" && kimiRuntime) {
+        const payload = parsed.data.payload as AgentUpdatedPayload;
+        if (payload.agent_id === registered.agent_id && typeof payload.thinking_enabled === "boolean") {
+          kimiRuntime.setThinking(payload.thinking_enabled);
         }
         return;
       }

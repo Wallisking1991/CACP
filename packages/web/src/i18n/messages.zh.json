@@ -208,6 +208,8 @@
   "sidebar.restart": "重启",
   "sidebar.changePermission": "更改权限",
   "sidebar.noCapabilities": "无能力",
+  "sidebar.thinkingOn": "思考: 开启",
+  "sidebar.thinkingOff": "思考: 关闭",
   "sidebar.noActiveAgent": "没有活跃 Agent",
   "sidebar.selectAgent": "选择 Agent",
   "sidebar.peopleLabel": "成员",

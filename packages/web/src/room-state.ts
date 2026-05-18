@@ -16,7 +16,7 @@ import type {
 } from "@cacp/protocol";
 
 export interface ParticipantView { id: string; display_name: string; role: string; type: string }
-export interface AgentView { agent_id: string; name: string; capabilities: string[]; status: "online" | "offline" | "unknown"; last_status_at?: string }
+export interface AgentView { agent_id: string; name: string; capabilities: string[]; status: "online" | "offline" | "unknown"; last_status_at?: string; thinking_enabled?: boolean }
 export interface MessageView {
   message_id?: string;
   turn_id?: string;
@@ -720,8 +720,18 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
         name: event.payload.name,
         capabilities: Array.isArray(event.payload.capabilities) ? event.payload.capabilities.filter((item): item is string => typeof item === "string") : [],
         status: existing?.status ?? "unknown",
-        last_status_at: existing?.last_status_at
+        last_status_at: existing?.last_status_at,
+        thinking_enabled: existing?.thinking_enabled
       });
+    }
+    if (event.type === "agent.updated" && typeof event.payload.agent_id === "string") {
+      const existing = agents.get(event.payload.agent_id);
+      if (existing) {
+        agents.set(event.payload.agent_id, {
+          ...existing,
+          thinking_enabled: event.payload.thinking_enabled === false ? false : true
+        });
+      }
     }
     if ((event.type === "agent.unregistered" || event.type === "agent.disconnected") && typeof event.payload.agent_id === "string") {
       const existing = agents.get(event.payload.agent_id);

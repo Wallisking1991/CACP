@@ -208,6 +208,8 @@
   "sidebar.restart": "Restart",
   "sidebar.changePermission": "Change permission",
   "sidebar.noCapabilities": "No capabilities",
+  "sidebar.thinkingOn": "Thinking: ON",
+  "sidebar.thinkingOff": "Thinking: OFF",
   "sidebar.noActiveAgent": "No active agent",
   "sidebar.selectAgent": "Select agent",
   "sidebar.peopleLabel": "People",

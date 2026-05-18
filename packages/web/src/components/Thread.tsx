@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useT } from "../i18n/useT.js";
-import type { AgentImportView, AgentRunView, ClaudeImportView, MessageView, StreamingTurnView } from "../room-state.js";
+import type { AgentImportView, AgentRunView, AgentView, ClaudeImportView, MessageView, StreamingTurnView } from "../room-state.js";
 import { AgentRunCard } from "./AgentRunCard.js";
 
 export interface ThreadProps {
@@ -8,6 +8,7 @@ export interface ThreadProps {
   messages: MessageView[];
   streamingTurns: StreamingTurnView[];
   agentRuns?: AgentRunView[];
+  agents?: AgentView[];
   actorNames: Map<string, string>;
   claudeImports?: ClaudeImportView[];
   agentImports?: AgentImportView[];
@@ -92,6 +93,7 @@ export default function Thread({
   messages,
   streamingTurns,
   agentRuns = [],
+  agents = [],
   actorNames,
   claudeImports,
   agentImports,
@@ -138,11 +140,13 @@ export default function Thread({
       {threadItems.map((item) => {
         if (item.type === "run") {
           const run = item.data;
+          const agent = agents.find((a) => a.agent_id === run.agent_id);
           return (
             <AgentRunCard
               key={run.run_id}
               run={run}
               agentName={actorNames.get(run.agent_id) ?? run.agent_id}
+              thinkingEnabled={agent?.thinking_enabled !== false}
               onResolveApproval={onResolveApproval}
               onResolveElicitation={onResolveElicitation}
             />
@@ -241,15 +245,19 @@ export default function Thread({
         );
       })}
 
-      {runningRuns.map((run) => (
-        <AgentRunCard
-          key={run.run_id}
-          run={run}
-          agentName={actorNames.get(run.agent_id) ?? run.agent_id}
-          onResolveApproval={onResolveApproval}
-          onResolveElicitation={onResolveElicitation}
-        />
-      ))}
+      {runningRuns.map((run) => {
+        const agent = agents.find((a) => a.agent_id === run.agent_id);
+        return (
+          <AgentRunCard
+            key={run.run_id}
+            run={run}
+            agentName={actorNames.get(run.agent_id) ?? run.agent_id}
+            thinkingEnabled={agent?.thinking_enabled !== false}
+            onResolveApproval={onResolveApproval}
+            onResolveElicitation={onResolveElicitation}
+          />
+        );
+      })}
 
       {visibleStreamingTurns.map((turn) => {
         const agentName = actorNames.get(turn.agent_id) ?? turn.agent_id;

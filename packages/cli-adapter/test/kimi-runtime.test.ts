@@ -31,9 +31,12 @@ function mockSession(turn: KimiSdkTurn): KimiSdkSession {
 }
 
 function mockSdk(turn: KimiSdkTurn): KimiSdk {
-  const session = mockSession(turn);
+  let session = mockSession(turn);
   return {
-    createSession: vi.fn(() => session),
+    createSession: vi.fn((config: Record<string, unknown>) => {
+      session = { ...session, thinking: config.thinking === true };
+      return session;
+    }),
     listSessions: async () => [],
     parseSessionEvents: async () => []
   };
@@ -380,5 +383,32 @@ describe("KimiRuntime", () => {
       node_id: "kimi_reasoning_t1",
       summary: "Thinking complete"
     }));
+  });
+
+  it("setThinking updates session.thinking when session exists", async () => {
+    const sdk = mockSdk(mockTurn([]));
+    const runtime = createRuntime(sdk, { thinking: true });
+    await runtime.selectSession({ mode: "fresh" });
+
+    const session = sdk.createSession.mock.results[0].value as KimiSdkSession;
+    expect(session.thinking).toBe(true);
+
+    runtime.setThinking(false);
+    expect(session.thinking).toBe(false);
+
+    runtime.setThinking(true);
+    expect(session.thinking).toBe(true);
+  });
+
+  it("setThinking stores desired state before session is selected", async () => {
+    const sdk = mockSdk(mockTurn([]));
+    const runtime = createRuntime(sdk, { thinking: true });
+
+    // Toggle before selectSession — should not throw and should remember state
+    runtime.setThinking(false);
+
+    await runtime.selectSession({ mode: "fresh" });
+    const session = sdk.createSession.mock.results[0].value as KimiSdkSession;
+    expect(session.thinking).toBe(false);
   });
 });

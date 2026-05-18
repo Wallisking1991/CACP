@@ -60,6 +60,7 @@ const ESSENTIAL_EVENT_TYPES = [
   "agent.unregistered",
   "agent.disconnected",
   "agent.pairing_created",
+  "agent.updated",
   "invite.created",
   "invite.revoked",
   "join_request.created",

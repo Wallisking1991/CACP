@@ -2602,6 +2602,23 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return reply.code(201).send({ ok: true, agent_id: body.agent_id });
   });
 
+  app.post<{ Params: { roomId: string; agentId: string } }>("/rooms/:roomId/agents/:agentId/thinking", async (request, reply) => {
+    const actor = requireParticipant(store, request.params.roomId, request);
+    if (!actor) return deny(reply, "invalid_token");
+    if (!hasHumanRole(actor, ["owner"])) return deny(reply, "forbidden", 403);
+    const body = z.object({ thinking_enabled: z.boolean() }).parse(request.body);
+    const targetAgent = findParticipant(request.params.roomId, request.params.agentId);
+    if (!targetAgent || targetAgent.type !== "agent" || targetAgent.role !== "agent") return deny(reply, "unknown_agent", 404);
+    const updatedAt = new Date().toISOString();
+    appendAndPublish(event(request.params.roomId, "agent.updated", actor.id, {
+      agent_id: request.params.agentId,
+      thinking_enabled: body.thinking_enabled,
+      updated_by: actor.id,
+      updated_at: updatedAt
+    }));
+    return reply.code(201).send({ ok: true });
+  });
+
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/claude/session-catalog", async (request, reply) => {
     const participant = requireParticipant(store, request.params.roomId, request);
     if (!participant) return deny(reply, "invalid_token");

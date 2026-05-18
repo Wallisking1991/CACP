@@ -60,12 +60,14 @@ export class KimiRuntime {
   private session: KimiSdkSession | undefined;
   private sessionId: string | undefined;
   private activeAbortController: AbortController | undefined;
+  private desiredThinking: boolean;
 
   constructor(private readonly input: KimiRuntimeInput) {
     this.sdkPromise = Promise.resolve(input.sdk ?? loadKimiSdk()).catch((error) => {
       this.sdkLoadError = error instanceof Error ? error : new Error(String(error));
       return undefined;
     });
+    this.desiredThinking = input.thinking ?? false;
   }
 
   async selectSession(selection: { mode: "fresh" } | { mode: "resume"; sessionId: string }): Promise<void> {
@@ -75,7 +77,7 @@ export class KimiRuntime {
     const config = {
       workDir: this.input.workingDir,
       model: this.input.model,
-      thinking: this.input.thinking ?? false,
+      thinking: this.desiredThinking,
       yoloMode: false,
       executable: findKimiCli() ?? "kimi"
     };
@@ -364,6 +366,13 @@ export class KimiRuntime {
         this.activeAbortController = undefined;
       }
     });
+  }
+
+  setThinking(enabled: boolean): void {
+    this.desiredThinking = enabled;
+    if (this.session) {
+      this.session.thinking = enabled;
+    }
   }
 
   async close(): Promise<void> {

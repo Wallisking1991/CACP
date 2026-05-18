@@ -21,6 +21,7 @@ import {
   removeParticipant,
   selectAgent,
   sendMessage,
+  updateAgentThinking,
   updateParticipantRole,
   type LocalAgentLaunch,
   type RoomSession,
@@ -348,6 +349,13 @@ export default function App() {
     });
   }, [currentSession]);
 
+  const handleUpdateAgentThinking = useCallback((agentId: string, enabled: boolean) => {
+    if (!currentSession) return;
+    void run(async () => {
+      await updateAgentThinking(currentSession, agentId, enabled);
+    });
+  }, [currentSession]);
+
   // Redirect to root when on room route but no valid session
   useEffect(() => {
     if (urlRoomId && (!currentSession || sessionValid === false)) {
@@ -383,6 +391,7 @@ export default function App() {
             onRejectJoinRequest={handleRejectJoinRequest}
             onRemoveParticipant={handleRemoveParticipant}
             onUpdateParticipantRole={handleUpdateParticipantRole}
+            onUpdateAgentThinking={handleUpdateAgentThinking}
             createdInvite={createdInvite}
             error={error}
             cloudMode={isCloudMode()}

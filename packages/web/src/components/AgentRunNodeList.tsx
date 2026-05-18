@@ -6,6 +6,7 @@ import { combinedChunks, nodeKindLabel, nodeStatusLabel, shouldRenderNodeSummary
 export interface AgentRunNodeListProps {
   runId: string;
   nodes: AgentRunNodeView[];
+  thinkingEnabled?: boolean;
   onResolveApproval?: (runId: string, nodeId: string, decision: "allow" | "deny", reason?: string) => void;
   onResolveElicitation?: (runId: string, nodeId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => void;
 }
@@ -15,12 +16,17 @@ const LongNodeOutputThreshold = 1000;
 export function AgentRunNodeList({
   runId,
   nodes,
+  thinkingEnabled,
   onResolveApproval,
   onResolveElicitation
 }: AgentRunNodeListProps) {
   const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(() => new Set());
 
-  if (nodes.length === 0) return null;
+  const visibleNodes = thinkingEnabled === false
+    ? nodes.filter((node) => node.kind !== "reasoning_summary")
+    : nodes;
+
+  if (visibleNodes.length === 0) return null;
 
   const toggleExpanded = (nodeId: string) => {
     setExpandedNodeIds((current) => {
@@ -33,7 +39,7 @@ export function AgentRunNodeList({
 
   return (
     <ol className="agent-run-node-list">
-      {nodes.map((node) => {
+      {visibleNodes.map((node) => {
         const chunks = combinedChunks(node);
         const isWaiting = node.status === "waiting_input";
         const isLongOutput = chunks.length > LongNodeOutputThreshold;

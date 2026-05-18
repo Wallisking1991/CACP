@@ -37,7 +37,7 @@ export const EventTypeSchema = z.enum([
   "room.created", "room.configured", "room.agent_selected", "participant.joined", "participant.left", "participant.role_updated", "participant.presence_changed", "participant.typing_started", "participant.typing_stopped", "invite.created", "invite.revoked",
   "message.created",
   "proposal.created", "proposal.vote_cast", "proposal.approved", "proposal.rejected", "proposal.expired",
-  "agent.registered", "agent.unregistered", "agent.disconnected", "agent.pairing_created", "agent.status_changed",
+  "agent.registered", "agent.unregistered", "agent.disconnected", "agent.pairing_created", "agent.status_changed", "agent.updated",
   "agent.turn.requested", "agent.turn.followup_queued", "agent.turn.started", "agent.output.delta", "agent.turn.completed", "agent.turn.failed",
   "agent.session_catalog.updated",
   "agent.session_preview.requested",
@@ -649,6 +649,13 @@ export const ParticipantRoleUpdatedPayloadSchema = z.object({
   updated_at: z.string().datetime()
 });
 
+export const AgentUpdatedPayloadSchema = z.object({
+  agent_id: z.string().min(1),
+  thinking_enabled: z.boolean(),
+  updated_by: z.string().min(1),
+  updated_at: z.string().datetime()
+});
+
 export type MainInputSource = z.infer<typeof MainInputSourceSchema>;
 export type MainInputStatus = z.infer<typeof MainInputStatusSchema>;
 export type MainInputAcceptedPayload = z.infer<typeof MainInputAcceptedPayloadSchema>;
@@ -667,3 +674,4 @@ export type OrbitLikeChangedPayload = z.infer<typeof OrbitLikeChangedPayloadSche
 export type OrbitClearedPayload = z.infer<typeof OrbitClearedPayloadSchema>;
 export type OrbitNotesQuotedPayload = z.infer<typeof OrbitNotesQuotedPayloadSchema>;
 export type ParticipantRoleUpdatedPayload = z.infer<typeof ParticipantRoleUpdatedPayloadSchema>;
+export type AgentUpdatedPayload = z.infer<typeof AgentUpdatedPayloadSchema>;

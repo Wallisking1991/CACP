@@ -74,6 +74,28 @@ describe("room state", () => {
     expect(state.agents[0]).toMatchObject({ agent_id: "agent_1", status: "online" });
   });
 
+  it("toggles agent thinking_enabled via agent.updated", () => {
+    const state1 = deriveRoomState([
+      event("agent.registered", { agent_id: "agent_1", name: "Claude", capabilities: ["repo.read"] }, 1),
+      event("agent.updated", { agent_id: "agent_1", thinking_enabled: false, updated_by: "user_1", updated_at: "2026-04-25T00:00:02.000Z" }, 2, "user_1")
+    ]);
+    expect(state1.agents[0].thinking_enabled).toBe(false);
+
+    const state2 = deriveRoomState([
+      event("agent.registered", { agent_id: "agent_1", name: "Claude", capabilities: ["repo.read"] }, 1),
+      event("agent.updated", { agent_id: "agent_1", thinking_enabled: false, updated_by: "user_1", updated_at: "2026-04-25T00:00:02.000Z" }, 2, "user_1"),
+      event("agent.updated", { agent_id: "agent_1", thinking_enabled: true, updated_by: "user_1", updated_at: "2026-04-25T00:00:03.000Z" }, 3, "user_1")
+    ]);
+    expect(state2.agents[0].thinking_enabled).toBe(true);
+  });
+
+  it("defaults thinking_enabled to true when never updated", () => {
+    const state = deriveRoomState([
+      event("agent.registered", { agent_id: "agent_1", name: "Claude", capabilities: ["repo.read"] }, 1)
+    ]);
+    expect(state.agents[0].thinking_enabled).toBeUndefined();
+  });
+
   it("removes agent from agents map when participant.removed is followed by agent.status_changed", () => {
     const state = deriveRoomState([
       event("participant.joined", { participant: { id: "user_1", display_name: "Alice", role: "owner", type: "human" } }, 1),

@@ -141,6 +141,10 @@ export async function selectAgent(session: RoomSession, agentId: string): Promis
   await postJson(`/rooms/${session.room_id}/agents/select`, session.token, { agent_id: agentId });
 }
 
+export async function updateAgentThinking(session: RoomSession, agentId: string, thinkingEnabled: boolean): Promise<void> {
+  await postJson(`/rooms/${session.room_id}/agents/${agentId}/thinking`, session.token, { thinking_enabled: thinkingEnabled });
+}
+
 export async function selectClaudeSession(input: {
   serverUrl: string;
   roomId: string;

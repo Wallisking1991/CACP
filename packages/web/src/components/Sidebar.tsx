@@ -18,6 +18,7 @@ export interface SidebarProps {
   onApproveJoinRequest: (requestId: string) => void;
   onRejectJoinRequest: (requestId: string) => void;
   onRemoveParticipant: (participantId: string) => void;
+  onUpdateAgentThinking?: (agentId: string, enabled: boolean) => void;
   createdInvite?: { url: string; role: string; ttl: number; max_uses: number };
   invites: InviteView[];
   cloudMode?: boolean;
@@ -115,6 +116,7 @@ export default function Sidebar({
   onApproveJoinRequest,
   onRejectJoinRequest,
   onRemoveParticipant,
+  onUpdateAgentThinking,
   createdInvite,
   cloudMode,
   createdPairing,
@@ -218,6 +220,16 @@ export default function Sidebar({
                     onClick={() => openPlaceholder(t("sidebar.changePermissionTitle"))}
                   >
                     {t("sidebar.changePermission")}
+                  </button>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={activeAgent.thinking_enabled !== false}
+                    className="btn btn-ghost"
+                    style={{ padding: "4px 8px", fontSize: 11 }}
+                    onClick={() => onUpdateAgentThinking?.(activeAgent.agent_id, activeAgent.thinking_enabled === false)}
+                  >
+                    {activeAgent.thinking_enabled !== false ? t("sidebar.thinkingOn") : t("sidebar.thinkingOff")}
                   </button>
                   <button
                     type="button"

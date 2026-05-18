@@ -37,6 +37,7 @@ export interface WorkspaceProps {
   onRejectJoinRequest: (requestId: string) => void;
   onRemoveParticipant: (participantId: string) => void;
   onUpdateParticipantRole?: (participantId: string, role: string) => void;
+  onUpdateAgentThinking?: (agentId: string, enabled: boolean) => void;
   createdInvite?: { url: string; role: string; ttl: number };
   error?: string;
   cloudMode?: boolean;
@@ -54,6 +55,7 @@ export default function Workspace({
   onRejectJoinRequest,
   onRemoveParticipant,
   onUpdateParticipantRole,
+  onUpdateAgentThinking,
   createdInvite,
   error,
   cloudMode,
@@ -484,6 +486,7 @@ export default function Workspace({
             messages={room.messages}
             streamingTurns={room.streamingTurns}
             agentRuns={room.agentRuns}
+            agents={room.agents}
             actorNames={actorNames}
             claudeImports={room.claudeImports}
             agentImports={room.agentImports}
@@ -581,7 +584,9 @@ export default function Workspace({
           agents={room.agents}
           activeAgentId={room.activeAgentId}
           canManageRoom={permissions.canManageControls}
+          isOwner={isOwner}
           onSelectAgent={onSelectAgent}
+          onUpdateAgentThinking={onUpdateAgentThinking}
           claudeSessionCatalog={room.claudeSessionCatalog}
           claudeSessionSelection={room.claudeSessionSelection}
           claudeSessionPreviews={room.claudeSessionPreviews}

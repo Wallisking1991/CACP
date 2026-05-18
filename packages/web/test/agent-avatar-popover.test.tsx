@@ -69,4 +69,49 @@ describe("AgentAvatarPopover", () => {
 
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
   });
+
+  it("shows thinking toggle for owner and calls onUpdateAgentThinking", () => {
+    const onUpdateAgentThinking = vi.fn();
+    render(
+      <LangProvider>
+        <AgentAvatarPopover
+          agents={agents}
+          activeAgentId="agent_1"
+          canManageRoom={true}
+          isOwner={true}
+          onUpdateAgentThinking={onUpdateAgentThinking}
+          claudeSessionPreviews={[]}
+          serverUrl="http://localhost:3737"
+          roomSessionToken="token"
+          roomSessionParticipantId="user_1"
+        />
+      </LangProvider>
+    );
+
+    const toggle = screen.getByRole("switch");
+    expect(toggle).toBeInTheDocument();
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+
+    fireEvent.click(toggle);
+    expect(onUpdateAgentThinking).toHaveBeenCalledWith("agent_1", false);
+  });
+
+  it("does not show thinking toggle when not owner", () => {
+    render(
+      <LangProvider>
+        <AgentAvatarPopover
+          agents={agents}
+          activeAgentId="agent_1"
+          canManageRoom={true}
+          isOwner={false}
+          claudeSessionPreviews={[]}
+          serverUrl="http://localhost:3737"
+          roomSessionToken="token"
+          roomSessionParticipantId="user_1"
+        />
+      </LangProvider>
+    );
+
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+  });
 });

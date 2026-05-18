@@ -5,6 +5,7 @@ import { answerTextFor, metricsSummary, processSummary, providerLabel, runStatus
 export interface AgentRunCardProps {
   run: AgentRunView;
   agentName: string;
+  thinkingEnabled?: boolean;
   onResolveApproval?: (runId: string, nodeId: string, decision: "allow" | "deny", reason?: string) => void;
   onResolveElicitation?: (runId: string, nodeId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => void;
 }
@@ -12,6 +13,7 @@ export interface AgentRunCardProps {
 export function AgentRunCard({
   run,
   agentName,
+  thinkingEnabled,
   onResolveApproval,
   onResolveElicitation
 }: AgentRunCardProps) {
@@ -24,6 +26,7 @@ export function AgentRunCard({
     <AgentRunNodeList
       runId={run.run_id}
       nodes={run.nodes}
+      thinkingEnabled={thinkingEnabled}
       onResolveApproval={onResolveApproval}
       onResolveElicitation={onResolveElicitation}
     />
