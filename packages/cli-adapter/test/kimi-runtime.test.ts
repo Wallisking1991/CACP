@@ -42,12 +42,12 @@ function mockSdk(turn: KimiSdkTurn): KimiSdk {
   };
 }
 
-function createRuntime(sdk: KimiSdk, overrides?: { thinking?: boolean }) {
+function createRuntime(sdk: KimiSdk, overrides?: { thinking?: boolean; permissionLevel?: string }) {
   return new KimiRuntime({
     agentId: "agent_1",
     agentName: "Kimi",
     workingDir: "/project",
-    permissionLevel: "full_access",
+    permissionLevel: overrides?.permissionLevel ?? "full_access",
     model: "kimi-latest",
     thinking: overrides?.thinking,
     sdk,
@@ -145,13 +145,12 @@ describe("KimiRuntime", () => {
     expect(result.finalText).toBe("");
   });
 
-  it("handles ApprovalRequest by requesting approval", async () => {
-    const approvalEvent: KimiSdkStreamEvent = {
-      type: "ApprovalRequest",
-      payload: { id: "req_1", action: "write_file", description: "Write to test.txt" }
-    };
-    const turn = mockTurn([approvalEvent]);
+  it("auto-approves ApprovalRequest when permission level is full_access", async () => {
+    const turn = mockTurn([
+      { type: "ApprovalRequest", payload: { id: "req_1", action: "write_file", description: "Write to test.txt" } }
+    ]);
     const runtime = createRuntime(mockSdk(turn));
+    runtime["input"].requestApproval = vi.fn().mockRejectedValue(new Error("should not be called"));
     await runtime.selectSession({ mode: "fresh" });
 
     const result = await runtime.runTurn({
@@ -162,32 +161,132 @@ describe("KimiRuntime", () => {
       modeLabel: "live"
     });
 
+    expect(runtime["input"].requestApproval).not.toHaveBeenCalled();
     expect(turn.approve).toHaveBeenCalledWith("req_1", "approve");
     expect(result.finalText).toBe("");
   });
 
-  it("rejects approval when denied", async () => {
+  it("auto-denies non-read ApprovalRequest when permission level is read_only", async () => {
     const turn = mockTurn([
-      { type: "ApprovalRequest", payload: { id: "req_1", action: "delete_file", description: "Delete test.txt" } }
+      { type: "ApprovalRequest", payload: { id: "req_1", action: "write_file", description: "Write to test.txt" } }
     ]);
-    const runtime = createRuntime(mockSdk(turn));
-    runtime["input"].requestApproval = vi.fn().mockResolvedValue({
-      decision: "deny" as const,
-      resolved_by: "user_1",
-      resolved_at: new Date().toISOString(),
-      reason: "Too risky"
-    });
+    const runtime = createRuntime(mockSdk(turn), { permissionLevel: "read_only" });
+    runtime["input"].requestApproval = vi.fn().mockRejectedValue(new Error("should not be called"));
     await runtime.selectSession({ mode: "fresh" });
 
-    await runtime.runTurn({
+    const result = await runtime.runTurn({
       turnId: "t1",
-      text: "Delete file",
+      text: "Write file",
       speakerName: "User",
       speakerRole: "member",
       modeLabel: "live"
     });
 
+    expect(runtime["input"].requestApproval).not.toHaveBeenCalled();
     expect(turn.approve).toHaveBeenCalledWith("req_1", "reject");
+    expect(result.finalText).toBe("");
+  });
+
+  it("auto-approves read ApprovalRequest when permission level is read_only", async () => {
+    const turn = mockTurn([
+      { type: "ApprovalRequest", payload: { id: "req_1", action: "read_file", description: "Read test.txt" } }
+    ]);
+    const runtime = createRuntime(mockSdk(turn), { permissionLevel: "read_only" });
+    runtime["input"].requestApproval = vi.fn().mockRejectedValue(new Error("should not be called"));
+    await runtime.selectSession({ mode: "fresh" });
+
+    const result = await runtime.runTurn({
+      turnId: "t1",
+      text: "Read file",
+      speakerName: "User",
+      speakerRole: "member",
+      modeLabel: "live"
+    });
+
+    expect(runtime["input"].requestApproval).not.toHaveBeenCalled();
+    expect(turn.approve).toHaveBeenCalledWith("req_1", "approve");
+    expect(result.finalText).toBe("");
+  });
+
+  it("auto-approves url ApprovalRequest when permission level is limited_write", async () => {
+    const turn = mockTurn([
+      { type: "ApprovalRequest", payload: { id: "req_1", action: "open_url", description: "Open https://example.com" } }
+    ]);
+    const runtime = createRuntime(mockSdk(turn), { permissionLevel: "limited_write" });
+    runtime["input"].requestApproval = vi.fn().mockRejectedValue(new Error("should not be called"));
+    await runtime.selectSession({ mode: "fresh" });
+
+    const result = await runtime.runTurn({
+      turnId: "t1",
+      text: "Open URL",
+      speakerName: "User",
+      speakerRole: "member",
+      modeLabel: "live"
+    });
+
+    expect(runtime["input"].requestApproval).not.toHaveBeenCalled();
+    expect(turn.approve).toHaveBeenCalledWith("req_1", "approve");
+    expect(result.finalText).toBe("");
+  });
+
+  it("auto-denies shell ApprovalRequest when permission level is limited_write", async () => {
+    const turn = mockTurn([
+      { type: "ApprovalRequest", payload: { id: "req_1", action: "bash_command", description: "Run ls" } }
+    ]);
+    const runtime = createRuntime(mockSdk(turn), { permissionLevel: "limited_write" });
+    runtime["input"].requestApproval = vi.fn().mockRejectedValue(new Error("should not be called"));
+    await runtime.selectSession({ mode: "fresh" });
+
+    const result = await runtime.runTurn({
+      turnId: "t1",
+      text: "Run command",
+      speakerName: "User",
+      speakerRole: "member",
+      modeLabel: "live"
+    });
+
+    expect(runtime["input"].requestApproval).not.toHaveBeenCalled();
+    expect(turn.approve).toHaveBeenCalledWith("req_1", "reject");
+    expect(result.finalText).toBe("");
+  });
+
+  it("falls back to read_only when permission level is undefined", async () => {
+    const turn = mockTurn([
+      { type: "ApprovalRequest", payload: { id: "req_1", action: "write_file", description: "Write to test.txt" } }
+    ]);
+    const runtime = new KimiRuntime({
+      agentId: "agent_1",
+      agentName: "Kimi",
+      workingDir: "/project",
+      model: "kimi-latest",
+      sdk: mockSdk(turn),
+      turnId: "turn_1",
+      text: "Hello",
+      speakerName: "User",
+      speakerRole: "member",
+      modeLabel: "live",
+      roomName: "Test Room",
+      publishDelta: vi.fn().mockResolvedValue(undefined),
+      startNode: vi.fn().mockResolvedValue(undefined),
+      appendNodeDelta: vi.fn().mockResolvedValue(undefined),
+      updateNode: vi.fn().mockResolvedValue(undefined),
+      completeNode: vi.fn().mockResolvedValue(undefined),
+      failNode: vi.fn().mockResolvedValue(undefined),
+      requestApproval: vi.fn().mockRejectedValue(new Error("should not be called"))
+    });
+    await runtime.selectSession({ mode: "fresh" });
+
+    const result = await runtime.runTurn({
+      turnId: "t1",
+      text: "Write file",
+      speakerName: "User",
+      speakerRole: "member",
+      modeLabel: "live"
+    });
+
+    expect(runtime["input"].requestApproval).not.toHaveBeenCalled();
+    expect(turn.approve).toHaveBeenCalledWith("req_1", "reject");
+    expect(result.finalText).toBe("");
   });
 
   it("handles SubagentEvent", async () => {

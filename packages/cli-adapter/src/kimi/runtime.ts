@@ -7,21 +7,21 @@ function promptForTurn(input: { text: string; speakerName: string; speakerRole: 
   return `${input.speakerName}(${input.speakerRole}): ${input.text}`;
 }
 
-function permissionHandlerForLevel(level: string): (request: { kind: string }) => { kind: string } {
-  return (request: { kind: string }): { kind: string } => {
-    const kind = request.kind;
-    switch (level) {
-      case "read_only":
-        if (kind === "read") return { kind: "approved" };
-        return { kind: "denied-interactively-by-user" };
-      case "restricted":
-        if (kind === "read" || kind === "url") return { kind: "approved" };
-        return { kind: "denied-interactively-by-user" };
-      case "default":
-      default:
-        return { kind: "approved" };
-    }
-  };
+function permissionPolicy(level: string, action: string): "allow" | "deny" {
+  const normalized = action.toLowerCase();
+  const isRead = normalized.includes("read") || normalized.includes("view") || normalized.includes("cat");
+  const isUrl = normalized.includes("url");
+
+  switch (level) {
+    case "read_only":
+      return isRead ? "allow" : "deny";
+    case "limited_write":
+      return isRead || isUrl ? "allow" : "deny";
+    case "full_access":
+    case "default":
+    default:
+      return "allow";
+  }
 }
 
 const ReadToolNames = new Set(["read_file", "view", "cat", "read", "open"]);
@@ -78,6 +78,10 @@ export class KimiRuntime {
       workDir: this.input.workingDir,
       model: this.input.model,
       thinking: this.desiredThinking,
+      // yoloMode: false ensures Kimi CLI emits ApprovalRequest events for every
+      // tool use. CACP permissionPolicy gates them locally (auto-approve/deny)
+      // so room owners control tool access via permission_level instead of
+      // Kimi CLI's native auto-approval.
       yoloMode: false,
       executable: findKimiCli() ?? "kimi"
     };
@@ -268,6 +272,18 @@ export class KimiRuntime {
                     status: "running",
                     title: `Approval: ${action}`
                   });
+
+                  const policy = permissionPolicy(this.input.permissionLevel ?? "read_only", action);
+                  if (policy === "allow") {
+                    await turn.approve(requestId, "approve");
+                    await recorder.completeNode({ nodeId, summary: "Approved" });
+                    return;
+                  }
+                  if (policy === "deny") {
+                    await turn.approve(requestId, "reject");
+                    await recorder.completeNode({ nodeId, summary: "Denied by CACP permission level" });
+                    return;
+                  }
 
                   try {
                     const decision = await this.input.requestApproval(nodeId, {
