@@ -378,6 +378,39 @@ describe("Copilot runtime", () => {
     ]);
   });
 
+  it("uses limited_write permission handler to approve read/url and deny shell/write", async () => {
+    const permissionRequests: Array<{ kind: string }> = [];
+    const { session } = createMockSession([]);
+
+    const { runtime } = createRuntime({
+      permissionLevel: "limited_write",
+      sdk: {
+        createSession: async (config: { onPermissionRequest?: (req: { kind: string }) => { kind: string } }) => {
+          const handler = config.onPermissionRequest;
+          if (handler) {
+            permissionRequests.push(handler({ kind: "read" }));
+            permissionRequests.push(handler({ kind: "url" }));
+            permissionRequests.push(handler({ kind: "shell" }));
+            permissionRequests.push(handler({ kind: "write" }));
+          }
+          return session;
+        },
+        resumeSession: async () => session,
+        start: () => Promise.resolve(),
+        stop: () => Promise.resolve([])
+      }
+    });
+
+    await runtime.selectSession({ mode: "fresh" });
+
+    expect(permissionRequests).toEqual([
+      { kind: "approved" },
+      { kind: "approved" },
+      { kind: "denied-interactively-by-user" },
+      { kind: "denied-interactively-by-user" }
+    ]);
+  });
+
   it("uses default permission handler to approve all tools", async () => {
     const permissionRequests: Array<{ kind: string }> = [];
     const { session } = createMockSession([]);
@@ -406,6 +439,35 @@ describe("Copilot runtime", () => {
       { kind: "approved" },
       { kind: "approved" },
       { kind: "approved" }
+    ]);
+  });
+
+  it("falls back to read_only when permission level is undefined", async () => {
+    const permissionRequests: Array<{ kind: string }> = [];
+    const { session } = createMockSession([]);
+
+    const { runtime } = createRuntime({
+      permissionLevel: undefined,
+      sdk: {
+        createSession: async (config: { onPermissionRequest?: (req: { kind: string }) => { kind: string } }) => {
+          const handler = config.onPermissionRequest;
+          if (handler) {
+            permissionRequests.push(handler({ kind: "read" }));
+            permissionRequests.push(handler({ kind: "shell" }));
+          }
+          return session;
+        },
+        resumeSession: async () => session,
+        start: () => Promise.resolve(),
+        stop: () => Promise.resolve([])
+      }
+    });
+
+    await runtime.selectSession({ mode: "fresh" });
+
+    expect(permissionRequests).toEqual([
+      { kind: "approved" },
+      { kind: "denied-interactively-by-user" }
     ]);
   });
 

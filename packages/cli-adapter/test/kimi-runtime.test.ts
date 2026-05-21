@@ -11,6 +11,7 @@ function mockTurn(events: KimiSdkStreamEvent[]): KimiSdkTurn {
     },
     interrupt: vi.fn().mockResolvedValue(undefined),
     approve: vi.fn().mockResolvedValue(undefined),
+    respondQuestion: vi.fn().mockResolvedValue(undefined),
     result: Promise.resolve({ status: "finished" as const })
   };
 }
@@ -63,7 +64,8 @@ function createRuntime(sdk: KimiSdk, overrides?: { thinking?: boolean; permissio
     updateNode: vi.fn().mockResolvedValue(undefined),
     completeNode: vi.fn().mockResolvedValue(undefined),
     failNode: vi.fn().mockResolvedValue(undefined),
-    requestApproval: vi.fn().mockResolvedValue({ decision: "allow" as const, resolved_by: "user_1", resolved_at: new Date().toISOString() })
+    requestApproval: vi.fn().mockResolvedValue({ decision: "allow" as const, resolved_by: "user_1", resolved_at: new Date().toISOString() }),
+    requestElicitation: vi.fn().mockResolvedValue({ action: "accept" as const, content: { answers: { "q1": "yes" } }, resolved_by: "user_1", resolved_at: new Date().toISOString() })
   });
 }
 
@@ -509,5 +511,122 @@ describe("KimiRuntime", () => {
     await runtime.selectSession({ mode: "fresh" });
     const session = sdk.createSession.mock.results[0].value as KimiSdkSession;
     expect(session.thinking).toBe(false);
+  });
+
+  it("handles QuestionRequest via elicitation flow", async () => {
+    const questionEvent: KimiSdkStreamEvent = {
+      type: "QuestionRequest",
+      payload: {
+        id: "qreq_1",
+        tool_call_id: "call_1",
+        questions: [
+          {
+            question: "Should I proceed?",
+            options: [
+              { label: "yes", description: "Proceed with the operation" },
+              { label: "no", description: "Cancel the operation" }
+            ]
+          }
+        ]
+      }
+    };
+    const turn = mockTurn([questionEvent]);
+    const requestElicitation = vi.fn().mockResolvedValue({
+      action: "accept" as const,
+      content: { answers: { "0": "yes" } },
+      resolved_by: "user_1",
+      resolved_at: new Date().toISOString()
+    });
+    const runtime = new KimiRuntime({
+      agentId: "agent_1",
+      agentName: "Kimi",
+      workingDir: "/project",
+      permissionLevel: "full_access",
+      model: "kimi-latest",
+      sdk: mockSdk(turn),
+      turnId: "turn_1",
+      text: "Hello",
+      speakerName: "User",
+      speakerRole: "member",
+      modeLabel: "live",
+      roomName: "Test Room",
+      publishDelta: vi.fn().mockResolvedValue(undefined),
+      startNode: vi.fn().mockResolvedValue(undefined),
+      appendNodeDelta: vi.fn().mockResolvedValue(undefined),
+      updateNode: vi.fn().mockResolvedValue(undefined),
+      completeNode: vi.fn().mockResolvedValue(undefined),
+      failNode: vi.fn().mockResolvedValue(undefined),
+      requestApproval: vi.fn().mockResolvedValue({ decision: "allow" as const, resolved_by: "user_1", resolved_at: new Date().toISOString() }),
+      requestElicitation
+    });
+    await runtime.selectSession({ mode: "fresh" });
+
+    const result = await runtime.runTurn({
+      turnId: "t1",
+      text: "Ask a question",
+      speakerName: "User",
+      speakerRole: "member",
+      modeLabel: "live"
+    });
+
+    expect(result.finalText).toBe("");
+    expect(requestElicitation).toHaveBeenCalled();
+    expect(turn.respondQuestion).toHaveBeenCalledWith("qreq_1", "qreq_1", { "0": "yes" });
+  });
+
+  it("rejects QuestionRequest when user declines", async () => {
+    const questionEvent: KimiSdkStreamEvent = {
+      type: "QuestionRequest",
+      payload: {
+        id: "qreq_1",
+        tool_call_id: "call_1",
+        questions: [
+          {
+            question: "Should I proceed?",
+            options: [{ label: "yes" }, { label: "no" }]
+          }
+        ]
+      }
+    };
+    const turn = mockTurn([questionEvent]);
+    const requestElicitation = vi.fn().mockResolvedValue({
+      action: "decline" as const,
+      resolved_by: "user_1",
+      resolved_at: new Date().toISOString()
+    });
+    const runtime = new KimiRuntime({
+      agentId: "agent_1",
+      agentName: "Kimi",
+      workingDir: "/project",
+      permissionLevel: "full_access",
+      model: "kimi-latest",
+      sdk: mockSdk(turn),
+      turnId: "turn_1",
+      text: "Hello",
+      speakerName: "User",
+      speakerRole: "member",
+      modeLabel: "live",
+      roomName: "Test Room",
+      publishDelta: vi.fn().mockResolvedValue(undefined),
+      startNode: vi.fn().mockResolvedValue(undefined),
+      appendNodeDelta: vi.fn().mockResolvedValue(undefined),
+      updateNode: vi.fn().mockResolvedValue(undefined),
+      completeNode: vi.fn().mockResolvedValue(undefined),
+      failNode: vi.fn().mockResolvedValue(undefined),
+      requestApproval: vi.fn().mockResolvedValue({ decision: "allow" as const, resolved_by: "user_1", resolved_at: new Date().toISOString() }),
+      requestElicitation
+    });
+    await runtime.selectSession({ mode: "fresh" });
+
+    await runtime.runTurn({
+      turnId: "t1",
+      text: "Ask a question",
+      speakerName: "User",
+      speakerRole: "member",
+      modeLabel: "live"
+    });
+
+    expect(requestElicitation).toHaveBeenCalled();
+    expect(turn.respondQuestion).toHaveBeenCalledWith("qreq_1", "qreq_1", {});
   });
 });

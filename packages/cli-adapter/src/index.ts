@@ -141,7 +141,8 @@ async function main() {
     updateNode: async (payload) => { await roomClient.updateRunNode(payload.run_id, payload.node_id, payload); },
     completeNode: async (payload) => { await roomClient.completeRunNode(payload.run_id, payload.node_id, payload); },
     failNode: async (payload) => { await roomClient.failRunNode(payload.run_id, payload.node_id, payload); },
-    requestApproval: async (nodeId, payload) => { return await roomClient.requestRunApproval(payload.turn_id, nodeId, payload); }
+    requestApproval: async (nodeId, payload) => { return await roomClient.requestRunApproval(payload.turn_id, nodeId, payload); },
+    requestElicitation: async (nodeId, payload) => { return await roomClient.requestRunElicitation(payload.turn_id, nodeId, payload); }
   }) : undefined;
 
   const isCopilotCli = config.agent.capabilities.includes("github-copilot");

@@ -108,6 +108,7 @@ function wrapTurn(rawTurn: unknown): KimiSdkTurn {
   const turn = rawTurn as Record<string, unknown>;
   const interrupt = turn.interrupt;
   const approve = turn.approve;
+  const respondQuestion = turn.respondQuestion;
   const result = turn.result;
   const iterator = (turn as Record<symbol, unknown>)[Symbol.asyncIterator];
 
@@ -124,6 +125,9 @@ function wrapTurn(rawTurn: unknown): KimiSdkTurn {
     },
     async approve(requestId: string, response: "approve" | "approve_for_session" | "reject"): Promise<void> {
       if (typeof approve === "function") await (approve as (requestId: string, response: string) => Promise<void>).call(turn, requestId, response);
+    },
+    async respondQuestion(rpcRequestId: string, questionRequestId: string, answers: Record<string, string>): Promise<void> {
+      if (typeof respondQuestion === "function") await (respondQuestion as (rpcRequestId: string, questionRequestId: string, answers: Record<string, string>) => Promise<void>).call(turn, rpcRequestId, questionRequestId, answers);
     },
     get result(): Promise<{ status: "finished" | "cancelled" | "max_steps_reached"; steps?: number }> {
       return (result as Promise<{ status: "finished" | "cancelled" | "max_steps_reached"; steps?: number }>) ?? Promise.resolve({ status: "finished" });

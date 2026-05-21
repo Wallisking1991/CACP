@@ -7,22 +7,7 @@ function promptForTurn(input: { text: string; speakerName: string; speakerRole: 
   return `${input.speakerName}(${input.speakerRole}): ${input.text}`;
 }
 
-function permissionPolicy(level: string, action: string): "allow" | "deny" {
-  const normalized = action.toLowerCase();
-  const isRead = normalized.includes("read") || normalized.includes("view") || normalized.includes("cat");
-  const isUrl = normalized.includes("url");
-
-  switch (level) {
-    case "read_only":
-      return isRead ? "allow" : "deny";
-    case "limited_write":
-      return isRead || isUrl ? "allow" : "deny";
-    case "full_access":
-    case "default":
-    default:
-      return "allow";
-  }
-}
+import { permissionPolicy } from "../permission-policy.js";
 
 const ReadToolNames = new Set(["read_file", "view", "cat", "read", "open"]);
 const SearchToolNames = new Set(["search", "grep", "find", "rg", "fd", "glob"]);
@@ -306,6 +291,63 @@ export class KimiRuntime {
                   } catch {
                     await turn.approve(requestId, "reject");
                     await recorder.failNode({ nodeId, error: "Approval request failed" });
+                  }
+                });
+                break;
+              }
+
+              case "QuestionRequest": {
+                const payload = asRecord(kimEvent.payload);
+                const requestId = typeof payload.id === "string" ? payload.id : "unknown";
+                const toolCallId = typeof payload.tool_call_id === "string" ? payload.tool_call_id : "unknown";
+                const questions = Array.isArray(payload.questions) ? payload.questions : [];
+
+                enqueue(async () => {
+                  await handleFirstEvent();
+                  const nodeId = `question_${requestId}`;
+                  await recorder.startNode({
+                    nodeId,
+                    kind: "elicitation",
+                    status: "waiting_input",
+                    title: questions.length > 0 && typeof questions[0].question === "string" ? questions[0].question : "Question"
+                  });
+
+                  if (!this.input.requestElicitation) {
+                    await turn.respondQuestion(requestId, requestId, {});
+                    await recorder.completeNode({ nodeId, summary: "No elicitation handler" });
+                    return;
+                  }
+
+                  try {
+                    const decision = await this.input.requestElicitation(nodeId, {
+                      agent_id: this.input.agentId,
+                      turn_id: input.turnId,
+                      message: questions.map((q: unknown, i: number) => {
+                        const qRecord = asRecord(q);
+                        const opts = Array.isArray(qRecord.options) ? qRecord.options : [];
+                        const optsText = opts.map((o: unknown) => {
+                          const oRecord = asRecord(o);
+                          return `- ${typeof oRecord.label === "string" ? oRecord.label : ""}`;
+                        }).join("\n");
+                        return `${i + 1}. ${typeof qRecord.question === "string" ? qRecord.question : ""}${optsText ? "\n" + optsText : ""}`;
+                      }).join("\n\n"),
+                      ...(questions.length > 0 ? { title: typeof questions[0].question === "string" ? questions[0].question : "Question" } : {}),
+                      requested_at: new Date().toISOString()
+                    });
+
+                    const answers = decision.action === "accept" && decision.content && typeof decision.content.answers === "object" && decision.content.answers !== null
+                      ? decision.content.answers as Record<string, string>
+                      : {};
+                    await turn.respondQuestion(requestId, requestId, answers);
+
+                    if (decision.action === "accept") {
+                      await recorder.completeNode({ nodeId, summary: "Answered" });
+                    } else {
+                      await recorder.completeNode({ nodeId, summary: `Declined` });
+                    }
+                  } catch {
+                    await turn.respondQuestion(requestId, requestId, {});
+                    await recorder.failNode({ nodeId, error: "Question request failed" });
                   }
                 });
                 break;

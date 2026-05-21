@@ -7,20 +7,12 @@ function promptForTurn(input: CopilotTurnInput): string {
   return `${input.speakerName}(${input.speakerRole}): ${input.text}`;
 }
 
-function permissionHandlerForLevel(level: string) {
+import { permissionPolicy } from "../permission-policy.js";
+
+function permissionHandlerForLevel(level: string | undefined) {
   return (request: { kind: string }): { kind: string } => {
-    const kind = request.kind;
-    switch (level) {
-      case "read_only":
-        if (kind === "read") return { kind: "approved" };
-        return { kind: "denied-interactively-by-user" };
-      case "restricted":
-        if (kind === "read" || kind === "url") return { kind: "approved" };
-        return { kind: "denied-interactively-by-user" };
-      case "default":
-      default:
-        return { kind: "approved" };
-    }
+    const policy = permissionPolicy(level ?? "read_only", request.kind);
+    return { kind: policy === "allow" ? "approved" : "denied-interactively-by-user" };
   };
 }
 

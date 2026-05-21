@@ -36,7 +36,7 @@ export interface CopilotRuntimeInput extends CopilotRunTraceSink {
   sdk?: CopilotSdk | Promise<CopilotSdk>;
   agentId: string;
   workingDir: string;
-  permissionLevel: string;
+  permissionLevel?: string;
   model?: string;
 }
 

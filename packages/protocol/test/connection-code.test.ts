@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildConnectionCode, parseConnectionCode } from "../src/connection-code.js";
-import { EventTypeSchema } from "../src/schemas.js";
+import { EventTypeSchema, PermissionLevelSchema } from "../src/schemas.js";
 
 describe("connection code", () => {
   it("round-trips a pairing payload", () => {
@@ -45,5 +45,16 @@ describe("connection code", () => {
     ]) {
       expect(EventTypeSchema.parse(type)).toBe(type);
     }
+  });
+
+  it("accepts valid permission levels", () => {
+    for (const level of ["read_only", "limited_write", "full_access"]) {
+      expect(PermissionLevelSchema.parse(level)).toBe(level);
+    }
+  });
+
+  it("rejects invalid permission levels", () => {
+    expect(() => PermissionLevelSchema.parse("restricted")).toThrow();
+    expect(() => PermissionLevelSchema.parse("")).toThrow();
   });
 });

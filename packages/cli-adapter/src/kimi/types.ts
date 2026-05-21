@@ -1,5 +1,6 @@
 import type {
   AgentRunApprovalRequestBody,
+  AgentRunElicitationRequestBody,
   AgentRunMetrics,
   AgentRunNodeCompletedPayload,
   AgentRunNodeDeltaPayload,
@@ -29,6 +30,7 @@ export interface KimiRuntimeInput {
   completeNode: (payload: AgentRunNodeCompletedPayload) => Promise<void>;
   failNode: (payload: AgentRunNodeFailedPayload) => Promise<void>;
   requestApproval: (nodeId: string, payload: AgentRunApprovalRequestBody) => Promise<{ decision: "allow" | "deny"; resolved_by: string; resolved_at: string; reason?: string }>;
+  requestElicitation?: (nodeId: string, payload: AgentRunElicitationRequestBody) => Promise<{ action: "accept" | "decline" | "cancel"; content?: Record<string, unknown>; resolved_by: string; resolved_at: string; reason?: string }>;
 }
 
 export interface KimiTurnResult {
@@ -68,6 +70,7 @@ export interface KimiSdkTurn {
   [Symbol.asyncIterator](): AsyncIterator<KimiSdkStreamEvent, { status: "finished" | "cancelled" | "max_steps_reached"; steps?: number }, undefined>;
   interrupt(): Promise<void>;
   approve(requestId: string, response: "approve" | "approve_for_session" | "reject"): Promise<void>;
+  respondQuestion(rpcRequestId: string, questionRequestId: string, answers: Record<string, string>): Promise<void>;
   readonly result: Promise<{ status: "finished" | "cancelled" | "max_steps_reached"; steps?: number }>;
 }
 
@@ -91,4 +94,5 @@ export type KimiSdkStreamEvent =
   | { type: "CompactionBegin"; payload: Record<string, never> }
   | { type: "CompactionEnd"; payload: Record<string, never> }
   | { type: "ApprovalRequest"; payload: { id: string; action: string; description: string } }
+  | { type: "QuestionRequest"; payload: { id: string; tool_call_id: string; questions: Array<{ question: string; header?: string; options: Array<{ label: string; description?: string }>; multi_select?: boolean }> } }
   | { type: "SubagentEvent"; payload: { parent_tool_call_id: string; event: unknown } };
