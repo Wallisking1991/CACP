@@ -4,6 +4,8 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+packageExtensionsChecksum: sha256-6XaTrgygAKohF5Tk0B+gUPUzgZHC49rJYvdVfCWlINI=
+
 importers:
 
   .:
@@ -78,7 +80,7 @@ importers:
         version: link:../protocol
       '@fastify/websocket':
         specifier: ^11.0.1
-        version: 11.2.0
+        version: 11.2.0(fastify@5.8.5)
       better-sqlite3:
         specifier: ^12.9.0
         version: 12.9.0
@@ -983,6 +985,8 @@ packages:
 
   '@fastify/websocket@11.2.0':
     resolution: {integrity: sha512-3HrDPbAG1CzUCqnslgJxppvzaAZffieOVbLp1DAy1huCSynUWPifSvfdEDUR8HlJLp3sp1A36uOM2tJogADS8w==}
+    peerDependencies:
+      fastify: '*'
 
   '@github/copilot-darwin-arm64@1.0.43':
     resolution: {integrity: sha512-VMaWfoUwIt19TGzmvTv/In5ITgFWfu91ZILt4Lb77gSmVbwbs+DahP2lbvM1s/GtGwOknwhOJLp4q2WMgK3CoQ==}
@@ -3018,9 +3022,10 @@ snapshots:
       '@fastify/forwarded': 3.0.1
       ipaddr.js: 2.3.0
 
-  '@fastify/websocket@11.2.0':
+  '@fastify/websocket@11.2.0(fastify@5.8.5)':
     dependencies:
       duplexify: 4.1.3
+      fastify: 5.8.5
       fastify-plugin: 5.1.0
       ws: 8.20.0
     transitivePeerDependencies:

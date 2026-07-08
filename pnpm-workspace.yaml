@@ -1,2 +1,7 @@
 packages:
   - "packages/*"
+
+packageExtensions:
+  "@fastify/websocket@*":
+    peerDependencies:
+      fastify: "*"
