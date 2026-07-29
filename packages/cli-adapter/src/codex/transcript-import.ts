@@ -2,12 +2,13 @@ import { readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, normalize } from "node:path";
 import { randomUUID } from "node:crypto";
-import type { ClaudeSessionImportAuthorRoleSchema, ClaudeSessionImportSourceKindSchema } from "@cacp/protocol";
-import type { z } from "zod";
-import type { ClaudeImportResult, ClaudeImportedMessage } from "../claude/types.js";
+import type {
+  ClaudeImportResult,
+  ClaudeImportedMessage,
+} from "../claude/types.js";
 
-type AuthorRole = z.infer<typeof ClaudeSessionImportAuthorRoleSchema>;
-type SourceKind = z.infer<typeof ClaudeSessionImportSourceKindSchema>;
+type AuthorRole = ClaudeImportedMessage["author_role"];
+type SourceKind = ClaudeImportedMessage["source_kind"];
 
 interface CodexRecord {
   timestamp?: string;
@@ -67,18 +68,22 @@ function mapRecordToMessages(
     const text = textFromContent(payload.content);
     if (!text.trim()) return [];
 
-    const authorRole: AuthorRole = role === "user" ? "user" : role === "assistant" ? "assistant" : "system";
-    const sourceKind: SourceKind = role === "user" ? "user" : role === "assistant" ? "assistant" : "system";
+    const authorRole: AuthorRole =
+      role === "user" ? "user" : role === "assistant" ? "assistant" : "system";
+    const sourceKind: SourceKind =
+      role === "user" ? "user" : role === "assistant" ? "assistant" : "system";
 
-    return [{
-      import_id: importId,
-      agent_id: agentId,
-      session_id: sessionId,
-      sequence: sequenceStart,
-      author_role: authorRole,
-      source_kind: sourceKind,
-      text: text.trim()
-    }];
+    return [
+      {
+        import_id: importId,
+        agent_id: agentId,
+        session_id: sessionId,
+        sequence: sequenceStart,
+        author_role: authorRole,
+        source_kind: sourceKind,
+        text: text.trim(),
+      },
+    ];
   }
 
   if (payloadType === "function_call") {
@@ -92,32 +97,40 @@ function mapRecordToMessages(
     } catch {
       // Ignore parse errors
     }
-    const text = name === "shell_command" && args ? `Command: ${args}` : `Tool: ${name}`;
+    const text =
+      name === "shell_command" && args ? `Command: ${args}` : `Tool: ${name}`;
 
-    return [{
-      import_id: importId,
-      agent_id: agentId,
-      session_id: sessionId,
-      sequence: sequenceStart,
-      author_role: "command",
-      source_kind: "command",
-      text
-    }];
+    return [
+      {
+        import_id: importId,
+        agent_id: agentId,
+        session_id: sessionId,
+        sequence: sequenceStart,
+        author_role: "command",
+        source_kind: "command",
+        text,
+      },
+    ];
   }
 
   if (payloadType === "function_call_output") {
-    const output = typeof payload.output === "string" ? payload.output : textFromContent(payload.output);
+    const output =
+      typeof payload.output === "string"
+        ? payload.output
+        : textFromContent(payload.output);
     if (!output.trim()) return [];
 
-    return [{
-      import_id: importId,
-      agent_id: agentId,
-      session_id: sessionId,
-      sequence: sequenceStart,
-      author_role: "tool",
-      source_kind: "tool_result",
-      text: output.trim()
-    }];
+    return [
+      {
+        import_id: importId,
+        agent_id: agentId,
+        session_id: sessionId,
+        sequence: sequenceStart,
+        author_role: "tool",
+        source_kind: "tool_result",
+        text: output.trim(),
+      },
+    ];
   }
 
   return [];
@@ -131,7 +144,10 @@ function chunkText(text: string, size: number): string[] {
   return chunks.length > 0 ? chunks : [text];
 }
 
-function chunkImportedMessage(message: ClaudeImportedMessage, sequenceStart: number): ClaudeImportedMessage[] {
+function chunkImportedMessage(
+  message: ClaudeImportedMessage,
+  sequenceStart: number
+): ClaudeImportedMessage[] {
   const chunks = chunkText(message.text, 20000);
   if (chunks.length === 1) return [{ ...message, sequence: sequenceStart }];
   return chunks.map((text, index) => ({
@@ -139,7 +155,7 @@ function chunkImportedMessage(message: ClaudeImportedMessage, sequenceStart: num
     sequence: sequenceStart + index,
     text,
     part_index: index,
-    part_count: chunks.length
+    part_count: chunks.length,
   }));
 }
 
@@ -156,17 +172,23 @@ function readSessionMeta(filePath: string): CodexSessionMeta | undefined {
     const payload = record.payload ?? {};
     return {
       id: typeof payload.id === "string" ? payload.id : undefined,
-      cwd: typeof payload.cwd === "string" ? payload.cwd : undefined
+      cwd: typeof payload.cwd === "string" ? payload.cwd : undefined,
     };
   } catch {
     return undefined;
   }
 }
 
-function sessionMetaMatches(input: { sessionId: string; workingDir?: string }, meta: CodexSessionMeta | undefined): boolean {
+function sessionMetaMatches(
+  input: { sessionId: string; workingDir?: string },
+  meta: CodexSessionMeta | undefined
+): boolean {
   if (!meta || meta.id !== input.sessionId) return false;
   if (!input.workingDir) return true;
-  return typeof meta.cwd === "string" && normalizeWorkingDir(meta.cwd) === normalizeWorkingDir(input.workingDir);
+  return (
+    typeof meta.cwd === "string" &&
+    normalizeWorkingDir(meta.cwd) === normalizeWorkingDir(input.workingDir)
+  );
 }
 
 export async function buildCodexImportFromSessionFile(input: {
@@ -181,7 +203,13 @@ export async function buildCodexImportFromSessionFile(input: {
   const messages: ClaudeImportedMessage[] = [];
 
   for (const record of records) {
-    const mapped = mapRecordToMessages(record, importId, input.agentId, input.sessionId, messages.length);
+    const mapped = mapRecordToMessages(
+      record,
+      importId,
+      input.agentId,
+      input.sessionId,
+      messages.length
+    );
     for (const message of mapped) {
       messages.push(...chunkImportedMessage(message, messages.length));
     }
@@ -195,7 +223,8 @@ export async function findCodexSessionFile(input: {
   workingDir?: string;
   codexHome?: string;
 }): Promise<string | undefined> {
-  const root = input.codexHome ?? process.env.CODEX_HOME ?? join(homedir(), ".codex");
+  const root =
+    input.codexHome ?? process.env.CODEX_HOME ?? join(homedir(), ".codex");
   const sessionsDir = join(root, "sessions");
 
   function scan(dir: string): string | undefined {
@@ -227,7 +256,10 @@ export async function findCodexSessionFile(input: {
   return scan(sessionsDir);
 }
 
-export function chunkCodexImportMessages(messages: ClaudeImportedMessage[], size = 50): ClaudeImportedMessage[][] {
+export function chunkCodexImportMessages(
+  messages: ClaudeImportedMessage[],
+  size = 50
+): ClaudeImportedMessage[][] {
   const chunks: ClaudeImportedMessage[][] = [];
   for (let index = 0; index < messages.length; index += size) {
     chunks.push(messages.slice(index, index + size));

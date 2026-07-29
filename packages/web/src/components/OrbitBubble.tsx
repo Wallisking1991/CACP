@@ -9,7 +9,12 @@ export interface OrbitBubbleProps {
   avatarId?: string;
 }
 
-export function OrbitBubble({ text, durationMs = 3500, onDismiss, avatarId }: OrbitBubbleProps) {
+export function OrbitBubble({
+  text,
+  durationMs = 3500,
+  onDismiss,
+  avatarId,
+}: OrbitBubbleProps) {
   const [phase, setPhase] = useState<"enter" | "exit">("enter");
   const bubbleRef = useRef<HTMLDivElement | null>(null);
   const phaseRef = useRef(phase);
@@ -42,13 +47,15 @@ export function OrbitBubble({ text, durationMs = 3500, onDismiss, avatarId }: Or
     if (!avatarId) return;
 
     function updatePosition() {
-      const anchor = document.querySelector(`[data-avatar-id="${avatarId}"]`) as HTMLElement | null;
+      const anchor = document.querySelector(
+        `[data-avatar-id="${avatarId}"]`
+      ) as HTMLElement | null;
       if (!anchor) return;
       const rect = anchor.getBoundingClientRect();
       setStyle({
         position: "fixed",
         top: rect.bottom + 8,
-        left: rect.left + rect.width / 2
+        left: rect.left + rect.width / 2,
       });
     }
 

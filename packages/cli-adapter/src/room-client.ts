@@ -31,7 +31,7 @@ import type {
   ConnectorLedgerEntry,
   ConnectorSnapshotCompletedPayload,
   ConnectorSnapshotFailedPayload,
-  ConnectorSnapshotStartedPayload
+  ConnectorSnapshotStartedPayload,
 } from "@cacp/protocol";
 
 export interface RoomClientInput {
@@ -40,7 +40,8 @@ export interface RoomClientInput {
   agentToken: string;
 }
 
-export type RuntimePhase = "reading_files" | "searching" | "running_command" | "thinking";
+export type RuntimePhase =
+  "reading_files" | "searching" | "running_command" | "thinking";
 
 export class RoomClient {
   constructor(private readonly input: RoomClientInput) {}
@@ -48,171 +49,384 @@ export class RoomClient {
   async postJson<T>(path: string, body: unknown): Promise<T> {
     const response = await fetch(`${this.input.serverUrl}${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${this.input.agentToken}` },
-      body: JSON.stringify(body)
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${this.input.agentToken}`,
+      },
+      body: JSON.stringify(body),
     });
-    if (!response.ok) throw new Error(`${response.status} ${response.statusText}: ${await response.text()}`);
-    return await response.json() as T;
+    if (!response.ok)
+      throw new Error(
+        `${response.status} ${response.statusText}: ${await response.text()}`
+      );
+    return (await response.json()) as T;
   }
 
   publishCatalog(payload: ClaudeCatalogPayload): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/claude/session-catalog`, payload);
+    return this.postJson(
+      `/rooms/${this.input.roomId}/claude/session-catalog`,
+      payload
+    );
   }
 
-  publishAgentSessionCatalog(payload: AgentSessionCatalogUpdatedPayload): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/agent-sessions/catalog`, payload);
+  publishAgentSessionCatalog(
+    payload: AgentSessionCatalogUpdatedPayload
+  ): Promise<{ ok: true }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/agent-sessions/catalog`,
+      payload
+    );
   }
 
   publishSessionReady(payload: ClaudeReadyPayload): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/claude/session-ready`, payload);
+    return this.postJson(
+      `/rooms/${this.input.roomId}/claude/session-ready`,
+      payload
+    );
   }
 
-  publishAgentSessionReady(payload: AgentSessionReadyPayload): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/agent-sessions/ready`, payload);
+  publishAgentSessionReady(
+    payload: AgentSessionReadyPayload
+  ): Promise<{ ok: true }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/agent-sessions/ready`,
+      payload
+    );
   }
 
   startImport(payload: ClaudeImportStartedPayload): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/claude/session-imports/start`, payload);
+    return this.postJson(
+      `/rooms/${this.input.roomId}/claude/session-imports/start`,
+      payload
+    );
   }
 
-  uploadImportMessages(importId: string, messages: ClaudeImportMessagePayload[]): Promise<{ ok: true; imported: number }> {
-    return this.postJson(`/rooms/${this.input.roomId}/claude/session-imports/${importId}/messages`, messages);
+  uploadImportMessages(
+    importId: string,
+    messages: ClaudeImportMessagePayload[]
+  ): Promise<{ ok: true; imported: number }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/claude/session-imports/${importId}/messages`,
+      messages
+    );
   }
 
-  completeImport(importId: string, payload: ClaudeImportCompletedPayload): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/claude/session-imports/${importId}/complete`, payload);
+  completeImport(
+    importId: string,
+    payload: ClaudeImportCompletedPayload
+  ): Promise<{ ok: true }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/claude/session-imports/${importId}/complete`,
+      payload
+    );
   }
 
-  failImport(importId: string, payload: ClaudeImportFailedPayload): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/claude/session-imports/${importId}/fail`, payload);
+  failImport(
+    importId: string,
+    payload: ClaudeImportFailedPayload
+  ): Promise<{ ok: true }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/claude/session-imports/${importId}/fail`,
+      payload
+    );
   }
 
-  uploadPreviewMessages(previewId: string, messages: ClaudePreviewMessagePayload[]): Promise<{ ok: true; previewed: number }> {
-    return this.postJson(`/rooms/${this.input.roomId}/claude/session-previews/${previewId}/messages`, messages);
+  uploadPreviewMessages(
+    previewId: string,
+    messages: ClaudePreviewMessagePayload[]
+  ): Promise<{ ok: true; previewed: number }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/claude/session-previews/${previewId}/messages`,
+      messages
+    );
   }
 
-  completePreview(previewId: string, payload: ClaudePreviewCompletedPayload): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/claude/session-previews/${previewId}/complete`, payload);
+  completePreview(
+    previewId: string,
+    payload: ClaudePreviewCompletedPayload
+  ): Promise<{ ok: true }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/claude/session-previews/${previewId}/complete`,
+      payload
+    );
   }
 
-  failPreview(previewId: string, payload: ClaudePreviewFailedPayload): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/claude/session-previews/${previewId}/fail`, payload);
+  failPreview(
+    previewId: string,
+    payload: ClaudePreviewFailedPayload
+  ): Promise<{ ok: true }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/claude/session-previews/${previewId}/fail`,
+      payload
+    );
   }
 
-  startAgentImport(payload: AgentSessionImportStartedPayload): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/agent-sessions/imports/start`, payload);
+  startAgentImport(
+    payload: AgentSessionImportStartedPayload
+  ): Promise<{ ok: true }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/agent-sessions/imports/start`,
+      payload
+    );
   }
 
-  uploadAgentImportMessages(importId: string, messages: AgentSessionImportMessagePayload[]): Promise<{ ok: true; imported: number }> {
-    return this.postJson(`/rooms/${this.input.roomId}/agent-sessions/imports/${importId}/messages`, messages);
+  uploadAgentImportMessages(
+    importId: string,
+    messages: AgentSessionImportMessagePayload[]
+  ): Promise<{ ok: true; imported: number }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/agent-sessions/imports/${importId}/messages`,
+      messages
+    );
   }
 
-  completeAgentImport(importId: string, payload: AgentSessionImportCompletedPayload): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/agent-sessions/imports/${importId}/complete`, payload);
+  completeAgentImport(
+    importId: string,
+    payload: AgentSessionImportCompletedPayload
+  ): Promise<{ ok: true }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/agent-sessions/imports/${importId}/complete`,
+      payload
+    );
   }
 
-  failAgentImport(importId: string, payload: AgentSessionImportFailedPayload): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/agent-sessions/imports/${importId}/fail`, payload);
+  failAgentImport(
+    importId: string,
+    payload: AgentSessionImportFailedPayload
+  ): Promise<{ ok: true }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/agent-sessions/imports/${importId}/fail`,
+      payload
+    );
   }
 
-  uploadAgentPreviewMessages(previewId: string, messages: AgentSessionPreviewMessagePayload[]): Promise<{ ok: true; previewed: number }> {
-    return this.postJson(`/rooms/${this.input.roomId}/agent-sessions/previews/${previewId}/messages`, messages);
+  uploadAgentPreviewMessages(
+    previewId: string,
+    messages: AgentSessionPreviewMessagePayload[]
+  ): Promise<{ ok: true; previewed: number }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/agent-sessions/previews/${previewId}/messages`,
+      messages
+    );
   }
 
-  completeAgentPreview(previewId: string, payload: AgentSessionPreviewCompletedPayload): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/agent-sessions/previews/${previewId}/complete`, payload);
+  completeAgentPreview(
+    previewId: string,
+    payload: AgentSessionPreviewCompletedPayload
+  ): Promise<{ ok: true }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/agent-sessions/previews/${previewId}/complete`,
+      payload
+    );
   }
 
-  failAgentPreview(previewId: string, payload: AgentSessionPreviewFailedPayload): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/agent-sessions/previews/${previewId}/fail`, payload);
+  failAgentPreview(
+    previewId: string,
+    payload: AgentSessionPreviewFailedPayload
+  ): Promise<{ ok: true }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/agent-sessions/previews/${previewId}/fail`,
+      payload
+    );
   }
 
-  startRun(runId: string, payload: AgentRunStartedPayload): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/agent-runs/${runId}/start`, payload);
+  startRun(
+    runId: string,
+    payload: AgentRunStartedPayload
+  ): Promise<{ ok: true }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/agent-runs/${runId}/start`,
+      payload
+    );
   }
 
-  completeRun(runId: string, payload: AgentRunCompletedPayload): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/agent-runs/${runId}/complete`, payload);
+  completeRun(
+    runId: string,
+    payload: AgentRunCompletedPayload
+  ): Promise<{ ok: true }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/agent-runs/${runId}/complete`,
+      payload
+    );
   }
 
-  failRun(runId: string, payload: AgentRunFailedPayload): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/agent-runs/${runId}/fail`, payload);
+  failRun(
+    runId: string,
+    payload: AgentRunFailedPayload
+  ): Promise<{ ok: true }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/agent-runs/${runId}/fail`,
+      payload
+    );
   }
 
-  startRunNode(runId: string, payload: AgentRunNodeStartedPayload): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/agent-runs/${runId}/nodes/start`, payload);
+  startRunNode(
+    runId: string,
+    payload: AgentRunNodeStartedPayload
+  ): Promise<{ ok: true }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/agent-runs/${runId}/nodes/start`,
+      payload
+    );
   }
 
-  appendRunNodeDelta(runId: string, nodeId: string, payload: AgentRunNodeDeltaPayload): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/agent-runs/${runId}/nodes/${nodeId}/delta`, payload);
+  appendRunNodeDelta(
+    runId: string,
+    nodeId: string,
+    payload: AgentRunNodeDeltaPayload
+  ): Promise<{ ok: true }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/agent-runs/${runId}/nodes/${nodeId}/delta`,
+      payload
+    );
   }
 
-  updateRunNode(runId: string, nodeId: string, payload: AgentRunNodeUpdatedPayload): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/agent-runs/${runId}/nodes/${nodeId}/update`, payload);
+  updateRunNode(
+    runId: string,
+    nodeId: string,
+    payload: AgentRunNodeUpdatedPayload
+  ): Promise<{ ok: true }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/agent-runs/${runId}/nodes/${nodeId}/update`,
+      payload
+    );
   }
 
-  completeRunNode(runId: string, nodeId: string, payload: AgentRunNodeCompletedPayload): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/agent-runs/${runId}/nodes/${nodeId}/complete`, payload);
+  completeRunNode(
+    runId: string,
+    nodeId: string,
+    payload: AgentRunNodeCompletedPayload
+  ): Promise<{ ok: true }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/agent-runs/${runId}/nodes/${nodeId}/complete`,
+      payload
+    );
   }
 
-  failRunNode(runId: string, nodeId: string, payload: AgentRunNodeFailedPayload): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/agent-runs/${runId}/nodes/${nodeId}/fail`, payload);
+  failRunNode(
+    runId: string,
+    nodeId: string,
+    payload: AgentRunNodeFailedPayload
+  ): Promise<{ ok: true }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/agent-runs/${runId}/nodes/${nodeId}/fail`,
+      payload
+    );
   }
 
   requestRunApproval(
     runId: string,
     nodeId: string,
     payload: AgentRunApprovalRequestBody
-  ): Promise<{ decision: "allow" | "deny"; resolved_by: string; resolved_at: string; reason?: string }> {
-    return this.postJson(`/rooms/${this.input.roomId}/agent-runs/${runId}/approvals/${nodeId}/request`, payload);
+  ): Promise<{
+    decision: "allow" | "deny";
+    resolved_by: string;
+    resolved_at: string;
+    reason?: string;
+  }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/agent-runs/${runId}/approvals/${nodeId}/request`,
+      payload
+    );
   }
 
   requestRunElicitation(
     runId: string,
     nodeId: string,
     payload: AgentRunElicitationRequestBody
-  ): Promise<{ action: "accept" | "decline" | "cancel"; content?: Record<string, unknown>; resolved_by: string; resolved_at: string; reason?: string }> {
-    return this.postJson(`/rooms/${this.input.roomId}/agent-runs/${runId}/elicitations/${nodeId}/request`, payload);
+  ): Promise<{
+    action: "accept" | "decline" | "cancel";
+    content?: Record<string, unknown>;
+    resolved_by: string;
+    resolved_at: string;
+    reason?: string;
+  }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/agent-runs/${runId}/elicitations/${nodeId}/request`,
+      payload
+    );
   }
 
   startTurn(turnId: string): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/agent-turns/${turnId}/start`, {});
+    return this.postJson(
+      `/rooms/${this.input.roomId}/agent-turns/${turnId}/start`,
+      {}
+    );
   }
 
   publishTurnDelta(turnId: string, chunk: string): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/agent-turns/${turnId}/delta`, { chunk });
+    return this.postJson(
+      `/rooms/${this.input.roomId}/agent-turns/${turnId}/delta`,
+      { chunk }
+    );
   }
 
-  completeTurn(turnId: string, finalText: string): Promise<{ ok: true; message_id: string }> {
-    return this.postJson(`/rooms/${this.input.roomId}/agent-turns/${turnId}/complete`, { final_text: finalText, exit_code: 0 });
+  completeTurn(
+    turnId: string,
+    finalText: string
+  ): Promise<{ ok: true; message_id: string }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/agent-turns/${turnId}/complete`,
+      { final_text: finalText, exit_code: 0 }
+    );
   }
 
   failTurn(turnId: string, error: string): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/agent-turns/${turnId}/fail`, { error });
+    return this.postJson(
+      `/rooms/${this.input.roomId}/agent-turns/${turnId}/fail`,
+      { error }
+    );
   }
 
-  startSnapshot(requestId: string, payload: ConnectorSnapshotStartedPayload): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/connector-snapshots/${requestId}/start`, payload);
+  startSnapshot(
+    requestId: string,
+    payload: ConnectorSnapshotStartedPayload
+  ): Promise<{ ok: true }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/connector-snapshots/${requestId}/start`,
+      payload
+    );
   }
 
-  uploadSnapshotEntry(requestId: string, entry: ConnectorLedgerEntry): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/connector-snapshots/${requestId}/entries`, { entry });
+  uploadSnapshotEntry(
+    requestId: string,
+    entry: ConnectorLedgerEntry
+  ): Promise<{ ok: true }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/connector-snapshots/${requestId}/entries`,
+      { entry }
+    );
   }
 
-  completeSnapshot(requestId: string, payload: ConnectorSnapshotCompletedPayload): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/connector-snapshots/${requestId}/complete`, payload);
+  completeSnapshot(
+    requestId: string,
+    payload: ConnectorSnapshotCompletedPayload
+  ): Promise<{ ok: true }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/connector-snapshots/${requestId}/complete`,
+      payload
+    );
   }
 
-  failSnapshot(requestId: string, payload: ConnectorSnapshotFailedPayload): Promise<{ ok: true }> {
-    return this.postJson(`/rooms/${this.input.roomId}/connector-snapshots/${requestId}/fail`, payload);
+  failSnapshot(
+    requestId: string,
+    payload: ConnectorSnapshotFailedPayload
+  ): Promise<{ ok: true }> {
+    return this.postJson(
+      `/rooms/${this.input.roomId}/connector-snapshots/${requestId}/fail`,
+      payload
+    );
   }
 }
 
 export function statusSummary(input: { metrics: AgentRunMetrics }): string {
   const parts: string[] = [];
-  if (input.metrics.files_read) parts.push(`read ${input.metrics.files_read} files`);
-  if (input.metrics.searches) parts.push(`searched ${input.metrics.searches} times`);
-  if (input.metrics.commands) parts.push(`ran ${input.metrics.commands} commands`);
+  if (input.metrics.files_read)
+    parts.push(`read ${input.metrics.files_read} files`);
+  if (input.metrics.searches)
+    parts.push(`searched ${input.metrics.searches} times`);
+  if (input.metrics.commands)
+    parts.push(`ran ${input.metrics.commands} commands`);
   return parts.join(" · ") || "Completed";
 }
 

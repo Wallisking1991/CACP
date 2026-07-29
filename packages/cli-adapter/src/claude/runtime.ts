@@ -1,5 +1,7 @@
+import { readFile } from "node:fs/promises";
 import type { AgentRunMetrics, AgentRunSourceRefs } from "@cacp/protocol";
 import { RunTraceRecorder } from "../run-trace.js";
+import type { MaterializedAttachment } from "../connector/attachment-materializer.js";
 import { loadClaudeSdk } from "./claude-sdk.js";
 import type {
   ClaudeApprovalDecision,
@@ -7,7 +9,7 @@ import type {
   ClaudeElicitationResult,
   ClaudePermissionResult,
   ClaudeRunTraceSink,
-  ClaudeSdk
+  ClaudeSdk,
 } from "./types.js";
 
 export interface ClaudeTurnInput {
@@ -17,6 +19,7 @@ export interface ClaudeTurnInput {
   speakerRole: string;
   modeLabel: string;
   text: string;
+  attachments?: MaterializedAttachment[];
 }
 
 export interface ClaudeRuntimeInput extends ClaudeRunTraceSink {
@@ -35,30 +38,44 @@ export interface ClaudeTurnResult {
 }
 
 const ReadOnlyTools = new Set(["Read", "LS", "Glob", "Grep"]);
-const LimitedWriteTools = new Set(["Read", "LS", "Glob", "Grep", "Edit", "MultiEdit", "Write"]);
+const LimitedWriteTools = new Set([
+  "Read",
+  "LS",
+  "Glob",
+  "Grep",
+  "Edit",
+  "MultiEdit",
+  "Write",
+]);
 
 function nowIso(): string {
   return new Date().toISOString();
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" ? value as Record<string, unknown> : {};
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function extractTextFromMessageContent(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
-    return content.map((item) => {
-      const record = asRecord(item);
-      if (typeof record.text === "string") return record.text;
-      if (typeof record.content === "string") return record.content;
-      return "";
-    }).filter(Boolean).join("");
+    return content
+      .map((item) => {
+        const record = asRecord(item);
+        if (typeof record.text === "string") return record.text;
+        if (typeof record.content === "string") return record.content;
+        return "";
+      })
+      .filter(Boolean)
+      .join("");
   }
   const record = asRecord(content);
   if (typeof record.text === "string") return record.text;
   if (typeof record.content === "string") return record.content;
-  if (Array.isArray(record.content)) return extractTextFromMessageContent(record.content);
+  if (Array.isArray(record.content))
+    return extractTextFromMessageContent(record.content);
   return "";
 }
 
@@ -68,7 +85,9 @@ function extractTextFromStreamMessage(raw: unknown): string {
   return extractTextFromMessageContent(message);
 }
 
-function contentBlocksFromStreamMessage(raw: unknown): Record<string, unknown>[] {
+function contentBlocksFromStreamMessage(
+  raw: unknown
+): Record<string, unknown>[] {
   const record = asRecord(raw);
   const message = asRecord(record.message);
   const content = message.content ?? record.content;
@@ -79,31 +98,45 @@ function contentBlocksFromStreamMessage(raw: unknown): Record<string, unknown>[]
 function textFromToolResultContent(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
-    return content.map((item) => {
-      if (typeof item === "string") return item;
-      const record = asRecord(item);
-      if (typeof record.text === "string") return record.text;
-      if (typeof record.content === "string") return record.content;
-      if (Array.isArray(record.content)) return textFromToolResultContent(record.content);
-      return Object.keys(record).length > 0 ? JSON.stringify(record) : "";
-    }).filter(Boolean).join("\n");
+    return content
+      .map((item) => {
+        if (typeof item === "string") return item;
+        const record = asRecord(item);
+        if (typeof record.text === "string") return record.text;
+        if (typeof record.content === "string") return record.content;
+        if (Array.isArray(record.content))
+          return textFromToolResultContent(record.content);
+        return Object.keys(record).length > 0 ? JSON.stringify(record) : "";
+      })
+      .filter(Boolean)
+      .join("\n");
   }
   const record = asRecord(content);
   if (typeof record.text === "string") return record.text;
   if (typeof record.content === "string") return record.content;
-  if (Array.isArray(record.content)) return textFromToolResultContent(record.content);
+  if (Array.isArray(record.content))
+    return textFromToolResultContent(record.content);
   return Object.keys(record).length > 0 ? JSON.stringify(record) : "";
 }
 
 function describeToolTarget(tool: Record<string, unknown>): string {
   const input = asRecord(tool.input);
-  const filePath = typeof input.file_path === "string" ? input.file_path : typeof input.path === "string" ? input.path : "";
+  const filePath =
+    typeof input.file_path === "string"
+      ? input.file_path
+      : typeof input.path === "string"
+        ? input.path
+        : "";
   const pattern = typeof input.pattern === "string" ? input.pattern : "";
   const command = typeof input.command === "string" ? input.command : "";
   return filePath || pattern || command;
 }
 
-function toolTitle(toolName: string, input: Record<string, unknown>, fallbackTitle?: string): string {
+function toolTitle(
+  toolName: string,
+  input: Record<string, unknown>,
+  fallbackTitle?: string
+): string {
   if (fallbackTitle) return fallbackTitle;
   const target = describeToolTarget({ input });
   if (toolName && target) return `${toolName} ${target}`;
@@ -112,8 +145,58 @@ function toolTitle(toolName: string, input: Record<string, unknown>, fallbackTit
   return "Tool";
 }
 
-function promptForTurn(input: ClaudeTurnInput): string {
-  return `${input.speakerName}(${input.speakerRole}): ${input.text}`;
+async function promptForTurn(
+  input: ClaudeTurnInput
+): Promise<string | AsyncIterable<import("./types.js").ClaudeSdkUserMessage>> {
+  const baseText = `${input.speakerName}(${input.speakerRole}): ${input.text}`;
+  if (!input.attachments?.length) return baseText;
+  const native = input.attachments.filter(
+    (attachment) =>
+      attachment.media_type === "application/pdf" ||
+      ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(
+        attachment.media_type
+      )
+  );
+  const filePaths = input.attachments.filter(
+    (attachment) => !native.includes(attachment)
+  );
+  const text = [
+    baseText,
+    ...filePaths.map(
+      (attachment) =>
+        `Attached file "${attachment.name}" is available at: ${attachment.path}`
+    ),
+  ].join("\n");
+  const content: unknown[] = [{ type: "text", text }];
+  for (const attachment of native) {
+    const data = (await readFile(attachment.path)).toString("base64");
+    content.push(
+      attachment.media_type === "application/pdf"
+        ? {
+            type: "document",
+            source: {
+              type: "base64",
+              media_type: "application/pdf",
+              data,
+            },
+          }
+        : {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: attachment.media_type,
+              data,
+            },
+          }
+    );
+  }
+  return (async function* () {
+    yield {
+      type: "user" as const,
+      message: { role: "user" as const, content },
+      parent_tool_use_id: null,
+    };
+  })();
 }
 
 function computeTextDelta(previous: string, next: string): string {
@@ -140,7 +223,9 @@ interface ToolBlockState {
 function parseJsonObject(text: string): Record<string, unknown> | undefined {
   try {
     const parsed = JSON.parse(text) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : undefined;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : undefined;
   } catch {
     return undefined;
   }
@@ -154,7 +239,11 @@ function firstString(input: Record<string, unknown>, keys: string[]): string {
   return "";
 }
 
-function readableToolTitle(toolName: string, input: Record<string, unknown>, fallbackTitle?: string): string {
+function readableToolTitle(
+  toolName: string,
+  input: Record<string, unknown>,
+  fallbackTitle?: string
+): string {
   if (fallbackTitle) return fallbackTitle;
   if (Object.keys(input).length === 0) return toolTitle(toolName, input);
   if (toolName === "Glob") {
@@ -184,26 +273,45 @@ function readableToolTitle(toolName: string, input: Record<string, unknown>, fal
   return toolTitle(toolName, input);
 }
 
-function toolDetail(toolName: string, input: Record<string, unknown>, extra: Record<string, unknown> = {}): Record<string, unknown> {
+function toolDetail(
+  toolName: string,
+  input: Record<string, unknown>,
+  extra: Record<string, unknown> = {}
+): Record<string, unknown> {
   return {
     ...extra,
     tool_name: toolName,
-    ...(Object.keys(input).length > 0 ? { input } : {})
+    ...(Object.keys(input).length > 0 ? { input } : {}),
   };
 }
 
-function resultUsage(record: Record<string, unknown>): Record<string, unknown> | undefined {
+function resultUsage(
+  record: Record<string, unknown>
+): Record<string, unknown> | undefined {
   const usage = asRecord(record.usage);
   const merged: Record<string, unknown> = { ...usage };
-  for (const key of ["duration_ms", "duration_api_ms", "num_turns", "total_cost_usd", "stop_reason", "terminal_reason"] as const) {
-    if (record[key] !== undefined && record[key] !== null) merged[key] = record[key];
+  for (const key of [
+    "duration_ms",
+    "duration_api_ms",
+    "num_turns",
+    "total_cost_usd",
+    "stop_reason",
+    "terminal_reason",
+  ] as const) {
+    if (record[key] !== undefined && record[key] !== null)
+      merged[key] = record[key];
   }
-  if (record.modelUsage && typeof record.modelUsage === "object") merged.model_usage = record.modelUsage;
-  if (Array.isArray(record.permission_denials)) merged.permission_denials = record.permission_denials;
+  if (record.modelUsage && typeof record.modelUsage === "object")
+    merged.model_usage = record.modelUsage;
+  if (Array.isArray(record.permission_denials))
+    merged.permission_denials = record.permission_denials;
   return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
-function permissionPolicy(permissionLevel: string, toolName: string): "allow" | "ask" | "deny" {
+function permissionPolicy(
+  permissionLevel: string,
+  toolName: string
+): "allow" | "ask" | "deny" {
   if (permissionLevel === "read_only") {
     return ReadOnlyTools.has(toolName) ? "allow" : "deny";
   }
@@ -218,30 +326,49 @@ function permissionPolicy(permissionLevel: string, toolName: string): "allow" | 
   return toolName === "Bash" ? "ask" : "allow";
 }
 
-function reusableApprovalScope(permissionLevel: string, toolName: string): string | undefined {
-  if (permissionLevel === "limited_write" && toolName === "Bash") return `${permissionLevel}:${toolName}`;
+function reusableApprovalScope(
+  permissionLevel: string,
+  toolName: string
+): string | undefined {
+  if (permissionLevel === "limited_write" && toolName === "Bash")
+    return `${permissionLevel}:${toolName}`;
   return undefined;
 }
 
-function allowPermissionResult(toolUseId: string, toolInput: Record<string, unknown>): ClaudePermissionResult {
+function allowPermissionResult(
+  toolUseId: string,
+  toolInput: Record<string, unknown>
+): ClaudePermissionResult {
   return { behavior: "allow", updatedInput: toolInput, toolUseID: toolUseId };
 }
 
-function approvalToPermissionResult(toolUseId: string, toolInput: Record<string, unknown>, decision: ClaudeApprovalDecision, toolName: string): ClaudePermissionResult {
+function approvalToPermissionResult(
+  toolUseId: string,
+  toolInput: Record<string, unknown>,
+  decision: ClaudeApprovalDecision,
+  toolName: string
+): ClaudePermissionResult {
   if (decision.decision === "allow") {
     return allowPermissionResult(toolUseId, toolInput);
   }
   return {
     behavior: "deny",
     message: decision.reason ?? `Tool ${toolName} was denied by the room`,
-    toolUseID: toolUseId
+    toolUseID: toolUseId,
   };
 }
 
-function elicitationToResult(decision: ClaudeElicitationDecision): ClaudeElicitationResult {
+function elicitationToResult(
+  decision: ClaudeElicitationDecision
+): ClaudeElicitationResult {
   if (decision.action === "accept") {
     return decision.content
-      ? { action: "accept", content: decision.content as { [key: string]: string | number | boolean | string[] } }
+      ? {
+          action: "accept",
+          content: decision.content as {
+            [key: string]: string | number | boolean | string[];
+          },
+        }
       : { action: "accept" };
   }
   if (decision.action === "decline") return { action: "decline" };
@@ -255,20 +382,30 @@ export class ClaudeRuntime {
   private selectedSessionId: string | undefined;
   private activeQuery: { close(): void } | undefined;
   private readonly approvedPermissionScopes = new Set<string>();
-  private readonly pendingPermissionScopeDecisions = new Map<string, Promise<ClaudeApprovalDecision>>();
+  private readonly pendingPermissionScopeDecisions = new Map<
+    string,
+    Promise<ClaudeApprovalDecision>
+  >();
 
   constructor(private readonly input: ClaudeRuntimeInput) {
-    this.sdkPromise = Promise.resolve(input.sdk ?? loadClaudeSdk()).catch((error) => {
-      this.sdkLoadError = error instanceof Error ? error : new Error(String(error));
-      return undefined;
-    });
+    this.sdkPromise = Promise.resolve(input.sdk ?? loadClaudeSdk()).catch(
+      (error) => {
+        this.sdkLoadError =
+          error instanceof Error ? error : new Error(String(error));
+        return undefined;
+      }
+    );
   }
 
-  async selectSession(selection: { mode: "fresh" } | { mode: "resume"; sessionId: string }): Promise<string | undefined> {
+  async selectSession(
+    selection: { mode: "fresh" } | { mode: "resume"; sessionId: string }
+  ): Promise<string | undefined> {
     const sdk = await this.sdkPromise;
-    if (!sdk) throw this.sdkLoadError ?? new Error("Claude SDK is not available");
+    if (!sdk)
+      throw this.sdkLoadError ?? new Error("Claude SDK is not available");
     this.hasSelectedSession = true;
-    this.selectedSessionId = selection.mode === "resume" ? selection.sessionId : undefined;
+    this.selectedSessionId =
+      selection.mode === "resume" ? selection.sessionId : undefined;
     this.approvedPermissionScopes.clear();
     this.pendingPermissionScopeDecisions.clear();
     return this.selectedSessionId;
@@ -280,22 +417,30 @@ export class ClaudeRuntime {
     }
 
     const sdk = await this.sdkPromise;
-    if (!sdk) throw this.sdkLoadError ?? new Error("Claude SDK is not available");
+    if (!sdk)
+      throw this.sdkLoadError ?? new Error("Claude SDK is not available");
 
-    const metrics: AgentRunMetrics = { files_read: 0, searches: 0, commands: 0 };
+    const metrics: AgentRunMetrics = {
+      files_read: 0,
+      searches: 0,
+      commands: 0,
+    };
     const countedToolMetrics = new Set<string>();
     const toolUseToTaskNodeId = new Map<string, string>();
-    const recorder = new RunTraceRecorder({
-      turnId: turn.turnId,
-      agentId: this.input.agentId,
-      provider: "claude-code"
-    }, {
-      startNode: this.input.startNode,
-      appendNodeDelta: this.input.appendNodeDelta,
-      updateNode: this.input.updateNode,
-      completeNode: this.input.completeNode,
-      failNode: this.input.failNode
-    });
+    const recorder = new RunTraceRecorder(
+      {
+        turnId: turn.turnId,
+        agentId: this.input.agentId,
+        provider: "claude-code",
+      },
+      {
+        startNode: this.input.startNode,
+        appendNodeDelta: this.input.appendNodeDelta,
+        updateNode: this.input.updateNode,
+        completeNode: this.input.completeNode,
+        failNode: this.input.failNode,
+      }
+    );
 
     let sessionId = this.selectedSessionId;
     let finalText = "";
@@ -307,7 +452,8 @@ export class ClaudeRuntime {
     const toolBlocksByIndex = new Map<number, ToolBlockState>();
     const toolInputsByNodeId = new Map<string, Record<string, unknown>>();
 
-    const nextTransientNodeId = (prefix: string) => `${prefix}_${++transientNodeCounter}`;
+    const nextTransientNodeId = (prefix: string) =>
+      `${prefix}_${++transientNodeCounter}`;
 
     const thinkingNodeIdFor = (blockIndex: number | undefined): string => {
       if (blockIndex === undefined) return "thinking";
@@ -318,26 +464,33 @@ export class ClaudeRuntime {
       return nodeId;
     };
 
-    const ensureThinkingNode = async (blockIndex: number | undefined): Promise<string> => {
+    const ensureThinkingNode = async (
+      blockIndex: number | undefined
+    ): Promise<string> => {
       const nodeId = thinkingNodeIdFor(blockIndex);
       await recorder.startNode({
         nodeId,
         kind: "reasoning_summary",
         status: "streaming",
         title: "Thinking",
-        detail: { signal: "claude_thinking", display: "summarized" }
+        detail: { signal: "claude_thinking", display: "summarized" },
       });
       return nodeId;
     };
 
-    const appendThinkingDelta = async (blockIndex: number | undefined, chunk: string): Promise<void> => {
+    const appendThinkingDelta = async (
+      blockIndex: number | undefined,
+      chunk: string
+    ): Promise<void> => {
       const nodeId = await ensureThinkingNode(blockIndex);
       if (chunk) {
         await recorder.appendNodeDelta({ nodeId, deltaType: "text", chunk });
       }
     };
 
-    const completeThinkingNode = async (blockIndex: number | undefined): Promise<void> => {
+    const completeThinkingNode = async (
+      blockIndex: number | undefined
+    ): Promise<void> => {
       const nodeId = thinkingNodeIdFor(blockIndex);
       if (recorder.hasNode(nodeId) && !recorder.isTerminal(nodeId)) {
         await recorder.completeNode({ nodeId });
@@ -377,9 +530,14 @@ export class ClaudeRuntime {
       }
     };
 
-    const toolSourceRefs = (toolUseId: string, parentToolUseId?: string | null): AgentRunSourceRefs => ({
+    const toolSourceRefs = (
+      toolUseId: string,
+      parentToolUseId?: string | null
+    ): AgentRunSourceRefs => ({
       tool_use_id: toolUseId,
-      ...(parentToolUseId !== undefined ? { parent_tool_use_id: parentToolUseId } : {})
+      ...(parentToolUseId !== undefined
+        ? { parent_tool_use_id: parentToolUseId }
+        : {}),
     });
 
     const ensureToolNode = async (input: {
@@ -397,22 +555,28 @@ export class ClaudeRuntime {
       }
       await recorder.startNode({
         nodeId: input.nodeId,
-        parentNodeId: input.parentToolUseId ? (toolUseToTaskNodeId.get(input.parentToolUseId) ?? input.parentToolUseId) : undefined,
+        parentNodeId: input.parentToolUseId
+          ? (toolUseToTaskNodeId.get(input.parentToolUseId) ??
+            input.parentToolUseId)
+          : undefined,
         kind: "tool",
         status: input.status ?? "running",
         title: readableToolTitle(input.toolName, input.toolInput, input.title),
         detail: toolDetail(input.toolName, input.toolInput, input.detail),
-        sourceRefs: toolSourceRefs(input.nodeId, input.parentToolUseId)
+        sourceRefs: toolSourceRefs(input.nodeId, input.parentToolUseId),
       });
     };
 
-    const updateToolNodeFromInput = async (state: ToolBlockState, extra: Record<string, unknown> = {}) => {
+    const updateToolNodeFromInput = async (
+      state: ToolBlockState,
+      extra: Record<string, unknown> = {}
+    ) => {
       toolInputsByNodeId.set(state.nodeId, state.input);
       await recorder.updateNode({
         nodeId: state.nodeId,
         title: readableToolTitle(state.toolName, state.input),
         detail: toolDetail(state.toolName, state.input, extra),
-        sourceRefs: toolSourceRefs(state.nodeId, state.parentToolUseId)
+        sourceRefs: toolSourceRefs(state.nodeId, state.parentToolUseId),
       });
     };
 
@@ -424,7 +588,10 @@ export class ClaudeRuntime {
 
     const closeOpenNodes = async () => {
       for (const nodeId of recorder.openNodeIds()) {
-        await recorder.completeNode({ nodeId, summary: recorder.currentTitle(nodeId) ?? "Completed" });
+        await recorder.completeNode({
+          nodeId,
+          summary: recorder.currentTitle(nodeId) ?? "Completed",
+        });
       }
     };
 
@@ -448,9 +615,13 @@ export class ClaudeRuntime {
         status: "waiting_input",
         title: toolOptions.title,
         detail: {
-          ...(toolOptions.displayName ? { display_name: toolOptions.displayName } : {}),
-          ...(toolOptions.description ? { description: toolOptions.description } : {})
-        }
+          ...(toolOptions.displayName
+            ? { display_name: toolOptions.displayName }
+            : {}),
+          ...(toolOptions.description
+            ? { description: toolOptions.description }
+            : {}),
+        },
       });
 
       const policy = permissionPolicy(this.input.permissionLevel, toolName);
@@ -464,7 +635,10 @@ export class ClaudeRuntime {
         return { behavior: "deny", message, toolUseID: nodeId };
       }
 
-      const approvalScope = reusableApprovalScope(this.input.permissionLevel, toolName);
+      const approvalScope = reusableApprovalScope(
+        this.input.permissionLevel,
+        toolName
+      );
       if (approvalScope && this.approvedPermissionScopes.has(approvalScope)) {
         await recorder.updateNode({ nodeId, status: "running" });
         return allowPermissionResult(nodeId, toolInput);
@@ -477,25 +651,46 @@ export class ClaudeRuntime {
         tool_use_id: nodeId,
         tool_name: toolName,
         ...(toolOptions.title ? { title: toolOptions.title } : {}),
-        ...(toolOptions.displayName ? { display_name: toolOptions.displayName } : {}),
-        ...(toolOptions.description ? { description: toolOptions.description } : {}),
-        ...(toolOptions.decisionReason ? { decision_reason: toolOptions.decisionReason } : {}),
-        ...(toolOptions.blockedPath ? { blocked_path: toolOptions.blockedPath } : {}),
+        ...(toolOptions.displayName
+          ? { display_name: toolOptions.displayName }
+          : {}),
+        ...(toolOptions.description
+          ? { description: toolOptions.description }
+          : {}),
+        ...(toolOptions.decisionReason
+          ? { decision_reason: toolOptions.decisionReason }
+          : {}),
+        ...(toolOptions.blockedPath
+          ? { blocked_path: toolOptions.blockedPath }
+          : {}),
         ...(Object.keys(toolInput).length > 0 ? { input: toolInput } : {}),
-        requested_at: nowIso()
+        requested_at: nowIso(),
       };
 
       let decision: ClaudeApprovalDecision;
-      const pendingScopeDecision = approvalScope ? this.pendingPermissionScopeDecisions.get(approvalScope) : undefined;
+      const pendingScopeDecision = approvalScope
+        ? this.pendingPermissionScopeDecisions.get(approvalScope)
+        : undefined;
       if (pendingScopeDecision) {
         decision = await pendingScopeDecision;
       } else {
-        const decisionPromise = this.input.requestApproval(`approval_${nodeId}`, approvalPayload);
-        if (approvalScope) this.pendingPermissionScopeDecisions.set(approvalScope, decisionPromise);
+        const decisionPromise = this.input.requestApproval(
+          `approval_${nodeId}`,
+          approvalPayload
+        );
+        if (approvalScope)
+          this.pendingPermissionScopeDecisions.set(
+            approvalScope,
+            decisionPromise
+          );
         try {
           decision = await decisionPromise;
         } finally {
-          if (approvalScope && this.pendingPermissionScopeDecisions.get(approvalScope) === decisionPromise) {
+          if (
+            approvalScope &&
+            this.pendingPermissionScopeDecisions.get(approvalScope) ===
+              decisionPromise
+          ) {
             this.pendingPermissionScopeDecisions.delete(approvalScope);
           }
         }
@@ -504,7 +699,12 @@ export class ClaudeRuntime {
         this.approvedPermissionScopes.add(approvalScope);
       }
 
-      const permissionResult = approvalToPermissionResult(nodeId, toolInput, decision, toolName);
+      const permissionResult = approvalToPermissionResult(
+        nodeId,
+        toolInput,
+        decision,
+        toolName
+      );
       if (permissionResult.behavior === "allow") {
         await recorder.updateNode({ nodeId, status: "running" });
       } else {
@@ -515,8 +715,8 @@ export class ClaudeRuntime {
             decision: decision.decision,
             resolved_by: decision.resolved_by,
             resolved_at: decision.resolved_at,
-            ...(decision.reason ? { reason: decision.reason } : {})
-          }
+            ...(decision.reason ? { reason: decision.reason } : {}),
+          },
         });
       }
       return permissionResult;
@@ -533,7 +733,8 @@ export class ClaudeRuntime {
       displayName?: string;
       description?: string;
     }): Promise<ClaudeElicitationResult> => {
-      const nodeId = request.elicitationId ?? nextTransientNodeId("elicitation");
+      const nodeId =
+        request.elicitationId ?? nextTransientNodeId("elicitation");
       const decision = await this.input.requestElicitation(nodeId, {
         agent_id: this.input.agentId,
         turn_id: turn.turnId,
@@ -543,8 +744,10 @@ export class ClaudeRuntime {
         message: request.message,
         ...(request.mode ? { mode: request.mode } : {}),
         ...(request.url ? { url: request.url } : {}),
-        ...(request.requestedSchema ? { requested_schema: request.requestedSchema } : {}),
-        requested_at: nowIso()
+        ...(request.requestedSchema
+          ? { requested_schema: request.requestedSchema }
+          : {}),
+        requested_at: nowIso(),
       });
       return elicitationToResult(decision);
     };
@@ -553,11 +756,11 @@ export class ClaudeRuntime {
       nodeId: "connecting",
       kind: "status",
       status: "running",
-      title: "Connecting"
+      title: "Connecting",
     });
 
     const query = sdk.query({
-      prompt: promptForTurn(turn),
+      prompt: await promptForTurn(turn),
       options: {
         cwd: this.input.workingDir,
         model: this.input.model,
@@ -569,8 +772,8 @@ export class ClaudeRuntime {
         toolConfig: { askUserQuestion: { previewFormat: "html" } },
         ...(this.selectedSessionId ? { resume: this.selectedSessionId } : {}),
         canUseTool,
-        onElicitation
-      }
+        onElicitation,
+      },
     });
 
     this.activeQuery = query;
@@ -579,43 +782,62 @@ export class ClaudeRuntime {
       let firstMessage = true;
       for await (const rawMessage of query) {
         if (firstMessage) {
-          await recorder.completeNode({ nodeId: "connecting", summary: "Connected" });
+          await recorder.completeNode({
+            nodeId: "connecting",
+            summary: "Connected",
+          });
           firstMessage = false;
         }
         captureSessionId(rawMessage);
         const record = asRecord(rawMessage);
         const msgType = typeof record.type === "string" ? record.type : "";
-        const subtype = typeof record.subtype === "string" ? record.subtype : "";
+        const subtype =
+          typeof record.subtype === "string" ? record.subtype : "";
 
         if (msgType === "assistant") {
-          const parentToolUseId = typeof record.parent_tool_use_id === "string" ? record.parent_tool_use_id : undefined;
+          const parentToolUseId =
+            typeof record.parent_tool_use_id === "string"
+              ? record.parent_tool_use_id
+              : undefined;
           const text = extractTextFromStreamMessage(rawMessage);
           if (parentToolUseId) {
             const nodeId = nextTransientNodeId("subagent_message");
             await recorder.startNode({
               nodeId,
-              parentNodeId: toolUseToTaskNodeId.get(parentToolUseId) ?? parentToolUseId,
+              parentNodeId:
+                toolUseToTaskNodeId.get(parentToolUseId) ?? parentToolUseId,
               kind: "subagent_message",
               status: "streaming",
               title: "Subagent message",
               role: "assistant",
               contentFormat: "text",
-              sourceRefs: { parent_tool_use_id: parentToolUseId }
+              sourceRefs: { parent_tool_use_id: parentToolUseId },
             });
-            if (text) await recorder.appendNodeDelta({ nodeId, deltaType: "text", chunk: text });
-            await recorder.completeNode({ nodeId, ...(text ? { summary: text } : {}) });
+            if (text)
+              await recorder.appendNodeDelta({
+                nodeId,
+                deltaType: "text",
+                chunk: text,
+              });
+            await recorder.completeNode({
+              nodeId,
+              ...(text ? { summary: text } : {}),
+            });
           } else {
             await syncAssistantText(text);
           }
 
           for (const block of contentBlocksFromStreamMessage(rawMessage)) {
             if (block.type === "tool_use") {
-              const nodeId = typeof block.id === "string" && block.id ? block.id : nextTransientNodeId("tool");
+              const nodeId =
+                typeof block.id === "string" && block.id
+                  ? block.id
+                  : nextTransientNodeId("tool");
               await ensureToolNode({
                 nodeId,
                 toolName: typeof block.name === "string" ? block.name : "Tool",
                 toolInput: asRecord(block.input),
-                parentToolUseId: parentToolUseId ?? null
+                parentToolUseId: parentToolUseId ?? null,
               });
             }
           }
@@ -625,9 +847,15 @@ export class ClaudeRuntime {
         if (msgType === "user") {
           for (const block of contentBlocksFromStreamMessage(rawMessage)) {
             if (block.type !== "tool_result") continue;
-            const nodeId = typeof block.tool_use_id === "string" && block.tool_use_id ? block.tool_use_id : undefined;
+            const nodeId =
+              typeof block.tool_use_id === "string" && block.tool_use_id
+                ? block.tool_use_id
+                : undefined;
             if (!nodeId) continue;
-            const parentToolUseId = typeof record.parent_tool_use_id === "string" ? record.parent_tool_use_id : null;
+            const parentToolUseId =
+              typeof record.parent_tool_use_id === "string"
+                ? record.parent_tool_use_id
+                : null;
             const toolInput = toolInputsByNodeId.get(nodeId) ?? {};
             if (!recorder.hasNode(nodeId)) {
               await ensureToolNode({
@@ -635,15 +863,26 @@ export class ClaudeRuntime {
                 toolName: "Tool",
                 toolInput,
                 parentToolUseId,
-                status: "running"
+                status: "running",
               });
             }
             const output = textFromToolResultContent(block.content);
-            if (output) await recorder.appendNodeDelta({ nodeId, deltaType: block.is_error === true ? "stderr" : "text", chunk: output });
+            if (output)
+              await recorder.appendNodeDelta({
+                nodeId,
+                deltaType: block.is_error === true ? "stderr" : "text",
+                chunk: output,
+              });
             if (block.is_error === true) {
-              await recorder.failNode({ nodeId, error: output || "Tool failed" });
+              await recorder.failNode({
+                nodeId,
+                error: output || "Tool failed",
+              });
             } else {
-              await recorder.completeNode({ nodeId, summary: recorder.currentTitle(nodeId) ?? "Tool completed" });
+              await recorder.completeNode({
+                nodeId,
+                summary: recorder.currentTitle(nodeId) ?? "Tool completed",
+              });
             }
           }
           continue;
@@ -652,30 +891,44 @@ export class ClaudeRuntime {
         if (msgType === "stream_event") {
           const event = asRecord(record.event);
           const eventType = typeof event.type === "string" ? event.type : "";
-          const blockIndex = typeof event.index === "number" ? event.index : undefined;
+          const blockIndex =
+            typeof event.index === "number" ? event.index : undefined;
           if (eventType === "content_block_start") {
             const contentBlock = asRecord(event.content_block);
-            const blockType = typeof contentBlock.type === "string" ? contentBlock.type : "";
+            const blockType =
+              typeof contentBlock.type === "string" ? contentBlock.type : "";
             if (blockType === "thinking") {
               await ensureThinkingNode(blockIndex);
             } else if (blockType === "tool_use") {
-              const nodeId = typeof contentBlock.id === "string" && contentBlock.id ? contentBlock.id : nextTransientNodeId("tool");
-              const parentToolUseId = typeof record.parent_tool_use_id === "string" ? record.parent_tool_use_id : null;
-              const toolName = typeof contentBlock.name === "string" ? contentBlock.name : "Tool";
+              const nodeId =
+                typeof contentBlock.id === "string" && contentBlock.id
+                  ? contentBlock.id
+                  : nextTransientNodeId("tool");
+              const parentToolUseId =
+                typeof record.parent_tool_use_id === "string"
+                  ? record.parent_tool_use_id
+                  : null;
+              const toolName =
+                typeof contentBlock.name === "string"
+                  ? contentBlock.name
+                  : "Tool";
               const toolInput = asRecord(contentBlock.input);
               await ensureToolNode({
                 nodeId,
                 toolName,
                 toolInput,
-                parentToolUseId
+                parentToolUseId,
               });
               if (blockIndex !== undefined) {
                 toolBlocksByIndex.set(blockIndex, {
                   nodeId,
                   toolName,
                   parentToolUseId,
-                  inputJson: Object.keys(toolInput).length > 0 ? JSON.stringify(toolInput) : "",
-                  input: toolInput
+                  inputJson:
+                    Object.keys(toolInput).length > 0
+                      ? JSON.stringify(toolInput)
+                      : "",
+                  input: toolInput,
                 });
               }
             }
@@ -683,9 +936,16 @@ export class ClaudeRuntime {
             const delta = asRecord(event.delta);
             if (delta.type === "text_delta" && typeof delta.text === "string") {
               await appendAssistantDelta(delta.text);
-            } else if (delta.type === "thinking_delta" && typeof delta.thinking === "string") {
+            } else if (
+              delta.type === "thinking_delta" &&
+              typeof delta.thinking === "string"
+            ) {
               await appendThinkingDelta(blockIndex, delta.thinking);
-            } else if (delta.type === "input_json_delta" && typeof delta.partial_json === "string" && blockIndex !== undefined) {
+            } else if (
+              delta.type === "input_json_delta" &&
+              typeof delta.partial_json === "string" &&
+              blockIndex !== undefined
+            ) {
               const state = toolBlocksByIndex.get(blockIndex);
               if (state) {
                 state.inputJson += delta.partial_json;
@@ -700,7 +960,9 @@ export class ClaudeRuntime {
             if (blockIndex !== undefined) {
               const state = toolBlocksByIndex.get(blockIndex);
               if (state) {
-                const parsed = state.inputJson ? parseJsonObject(state.inputJson) : undefined;
+                const parsed = state.inputJson
+                  ? parseJsonObject(state.inputJson)
+                  : undefined;
                 if (parsed) {
                   state.input = parsed;
                   await updateToolNodeFromInput(state);
@@ -714,171 +976,332 @@ export class ClaudeRuntime {
         }
 
         if (msgType === "tool_progress") {
-          const nodeId = typeof record.tool_use_id === "string" && record.tool_use_id ? record.tool_use_id : nextTransientNodeId("tool");
-          const toolName = typeof record.tool_name === "string" ? record.tool_name : "Tool";
-          const elapsedTime = typeof record.elapsed_time_seconds === "number" ? record.elapsed_time_seconds : 0;
+          const nodeId =
+            typeof record.tool_use_id === "string" && record.tool_use_id
+              ? record.tool_use_id
+              : nextTransientNodeId("tool");
+          const toolName =
+            typeof record.tool_name === "string" ? record.tool_name : "Tool";
+          const elapsedTime =
+            typeof record.elapsed_time_seconds === "number"
+              ? record.elapsed_time_seconds
+              : 0;
           const toolInput = toolInputsByNodeId.get(nodeId) ?? {};
           await ensureToolNode({
             nodeId,
             toolName,
             toolInput: {},
-            parentToolUseId: typeof record.parent_tool_use_id === "string" ? record.parent_tool_use_id : null
+            parentToolUseId:
+              typeof record.parent_tool_use_id === "string"
+                ? record.parent_tool_use_id
+                : null,
           });
           await recorder.updateNode({
             nodeId,
             status: "running",
-            detail: toolDetail(toolName, toolInput, { elapsed_time_seconds: elapsedTime }),
-            sourceRefs: toolSourceRefs(nodeId, typeof record.parent_tool_use_id === "string" ? record.parent_tool_use_id : null)
+            detail: toolDetail(toolName, toolInput, {
+              elapsed_time_seconds: elapsedTime,
+            }),
+            sourceRefs: toolSourceRefs(
+              nodeId,
+              typeof record.parent_tool_use_id === "string"
+                ? record.parent_tool_use_id
+                : null
+            ),
           });
           continue;
         }
 
         if (msgType === "tool_use_summary") {
-          const summary = typeof record.summary === "string" ? record.summary : undefined;
-          const preceding = Array.isArray(record.preceding_tool_use_ids) ? record.preceding_tool_use_ids.filter((value): value is string => typeof value === "string") : [];
+          const summary =
+            typeof record.summary === "string" ? record.summary : undefined;
+          const preceding = Array.isArray(record.preceding_tool_use_ids)
+            ? record.preceding_tool_use_ids.filter(
+                (value): value is string => typeof value === "string"
+              )
+            : [];
           for (const nodeId of preceding) {
-            if (summary) await recorder.appendNodeDelta({ nodeId, deltaType: "text", chunk: summary });
-            await recorder.completeNode({ nodeId, ...(summary ? { summary } : {}) });
+            if (summary)
+              await recorder.appendNodeDelta({
+                nodeId,
+                deltaType: "text",
+                chunk: summary,
+              });
+            await recorder.completeNode({
+              nodeId,
+              ...(summary ? { summary } : {}),
+            });
           }
           continue;
         }
 
         if (msgType === "system") {
           if (subtype === "memory_recall") {
-            const nodeId = typeof record.uuid === "string" ? `memory_${record.uuid}` : nextTransientNodeId("memory");
-            const memories = Array.isArray(record.memories) ? record.memories : [];
+            const nodeId =
+              typeof record.uuid === "string"
+                ? `memory_${record.uuid}`
+                : nextTransientNodeId("memory");
+            const memories = Array.isArray(record.memories)
+              ? record.memories
+              : [];
             await recorder.startNode({
               nodeId,
               kind: "memory",
               title: "Memory recall",
               detail: {
-                ...(typeof record.mode === "string" ? { mode: record.mode } : {}),
+                ...(typeof record.mode === "string"
+                  ? { mode: record.mode }
+                  : {}),
                 memory_count: memories.length,
-                memories
+                memories,
               },
-              status: "running"
+              status: "running",
             });
-            await recorder.completeNode({ nodeId, summary: `Recalled ${memories.length} memories` });
+            await recorder.completeNode({
+              nodeId,
+              summary: `Recalled ${memories.length} memories`,
+            });
           } else if (subtype === "task_started") {
-            const taskId = typeof record.task_id === "string" ? record.task_id : nextTransientNodeId("task");
-            const toolUseId = typeof record.tool_use_id === "string" ? record.tool_use_id : undefined;
+            const taskId =
+              typeof record.task_id === "string"
+                ? record.task_id
+                : nextTransientNodeId("task");
+            const toolUseId =
+              typeof record.tool_use_id === "string"
+                ? record.tool_use_id
+                : undefined;
             if (toolUseId) toolUseToTaskNodeId.set(toolUseId, taskId);
             await recorder.startNode({
               nodeId: taskId,
               kind: "subagent",
-              title: typeof record.description === "string" && record.description ? record.description : "Subagent task",
+              title:
+                typeof record.description === "string" && record.description
+                  ? record.description
+                  : "Subagent task",
               status: "running",
               detail: {
-                ...(typeof record.description === "string" ? { description: record.description } : {}),
-                ...(typeof record.output_file === "string" ? { output_file: record.output_file } : {})
+                ...(typeof record.description === "string"
+                  ? { description: record.description }
+                  : {}),
+                ...(typeof record.output_file === "string"
+                  ? { output_file: record.output_file }
+                  : {}),
               },
               sourceRefs: {
                 task_id: taskId,
-                ...(toolUseId ? { tool_use_id: toolUseId } : {})
-              }
+                ...(toolUseId ? { tool_use_id: toolUseId } : {}),
+              },
             });
-          } else if (subtype === "task_progress" || subtype === "task_updated") {
-            const taskId = typeof record.task_id === "string" ? record.task_id : undefined;
+          } else if (
+            subtype === "task_progress" ||
+            subtype === "task_updated"
+          ) {
+            const taskId =
+              typeof record.task_id === "string" ? record.task_id : undefined;
             if (taskId) {
               await recorder.updateNode({
                 nodeId: taskId,
                 status: "running",
                 detail: {
-                  ...(typeof record.description === "string" ? { description: record.description } : {}),
-                  ...(typeof record.status === "string" ? { status: record.status } : {}),
-                  ...(record.patch && typeof record.patch === "object" ? { patch: record.patch } : {})
-                }
+                  ...(typeof record.description === "string"
+                    ? { description: record.description }
+                    : {}),
+                  ...(typeof record.status === "string"
+                    ? { status: record.status }
+                    : {}),
+                  ...(record.patch && typeof record.patch === "object"
+                    ? { patch: record.patch }
+                    : {}),
+                },
               });
             }
           } else if (subtype === "task_notification") {
-            const taskId = typeof record.task_id === "string" ? record.task_id : undefined;
+            const taskId =
+              typeof record.task_id === "string" ? record.task_id : undefined;
             if (taskId) {
-              const status = typeof record.status === "string" ? record.status : "completed";
-              const summary = typeof record.summary === "string" ? record.summary : undefined;
-              if (summary) await recorder.appendNodeDelta({ nodeId: taskId, deltaType: "text", chunk: summary });
+              const status =
+                typeof record.status === "string" ? record.status : "completed";
+              const summary =
+                typeof record.summary === "string" ? record.summary : undefined;
+              if (summary)
+                await recorder.appendNodeDelta({
+                  nodeId: taskId,
+                  deltaType: "text",
+                  chunk: summary,
+                });
               if (status === "completed") {
-                await recorder.completeNode({ nodeId: taskId, ...(summary ? { summary } : {}) });
+                await recorder.completeNode({
+                  nodeId: taskId,
+                  ...(summary ? { summary } : {}),
+                });
               } else {
-                await recorder.failNode({ nodeId: taskId, error: summary ?? status });
+                await recorder.failNode({
+                  nodeId: taskId,
+                  error: summary ?? status,
+                });
               }
             }
           } else if (subtype === "hook_started") {
-            const hookId = typeof record.hook_id === "string" ? record.hook_id : nextTransientNodeId("hook");
+            const hookId =
+              typeof record.hook_id === "string"
+                ? record.hook_id
+                : nextTransientNodeId("hook");
             await recorder.startNode({
               nodeId: hookId,
               kind: "hook",
-              title: typeof record.hook_name === "string" && record.hook_name ? record.hook_name : "Hook",
+              title:
+                typeof record.hook_name === "string" && record.hook_name
+                  ? record.hook_name
+                  : "Hook",
               status: "running",
               detail: {
-                ...(typeof record.hook_event === "string" ? { hook_event: record.hook_event } : {})
+                ...(typeof record.hook_event === "string"
+                  ? { hook_event: record.hook_event }
+                  : {}),
               },
-              sourceRefs: { hook_id: hookId }
+              sourceRefs: { hook_id: hookId },
             });
           } else if (subtype === "hook_progress") {
-            const hookId = typeof record.hook_id === "string" ? record.hook_id : undefined;
+            const hookId =
+              typeof record.hook_id === "string" ? record.hook_id : undefined;
             if (hookId) {
-              const stdout = typeof record.stdout === "string" ? record.stdout : "";
-              const stderr = typeof record.stderr === "string" ? record.stderr : "";
-              const output = typeof record.output === "string" ? record.output : "";
-              if (stdout) await recorder.appendNodeDelta({ nodeId: hookId, deltaType: "stdout", chunk: stdout });
-              if (stderr) await recorder.appendNodeDelta({ nodeId: hookId, deltaType: "stderr", chunk: stderr });
-              if (!stdout && !stderr && output) await recorder.appendNodeDelta({ nodeId: hookId, deltaType: "text", chunk: output });
+              const stdout =
+                typeof record.stdout === "string" ? record.stdout : "";
+              const stderr =
+                typeof record.stderr === "string" ? record.stderr : "";
+              const output =
+                typeof record.output === "string" ? record.output : "";
+              if (stdout)
+                await recorder.appendNodeDelta({
+                  nodeId: hookId,
+                  deltaType: "stdout",
+                  chunk: stdout,
+                });
+              if (stderr)
+                await recorder.appendNodeDelta({
+                  nodeId: hookId,
+                  deltaType: "stderr",
+                  chunk: stderr,
+                });
+              if (!stdout && !stderr && output)
+                await recorder.appendNodeDelta({
+                  nodeId: hookId,
+                  deltaType: "text",
+                  chunk: output,
+                });
             }
           } else if (subtype === "hook_response") {
-            const hookId = typeof record.hook_id === "string" ? record.hook_id : undefined;
+            const hookId =
+              typeof record.hook_id === "string" ? record.hook_id : undefined;
             if (hookId) {
-              const outcome = typeof record.outcome === "string" ? record.outcome : "success";
-              const stdout = typeof record.stdout === "string" ? record.stdout : "";
-              const stderr = typeof record.stderr === "string" ? record.stderr : "";
-              const output = typeof record.output === "string" ? record.output : "";
-              if (stdout) await recorder.appendNodeDelta({ nodeId: hookId, deltaType: "stdout", chunk: stdout });
-              if (stderr) await recorder.appendNodeDelta({ nodeId: hookId, deltaType: "stderr", chunk: stderr });
-              if (!stdout && !stderr && output) await recorder.appendNodeDelta({ nodeId: hookId, deltaType: "text", chunk: output });
+              const outcome =
+                typeof record.outcome === "string" ? record.outcome : "success";
+              const stdout =
+                typeof record.stdout === "string" ? record.stdout : "";
+              const stderr =
+                typeof record.stderr === "string" ? record.stderr : "";
+              const output =
+                typeof record.output === "string" ? record.output : "";
+              if (stdout)
+                await recorder.appendNodeDelta({
+                  nodeId: hookId,
+                  deltaType: "stdout",
+                  chunk: stdout,
+                });
+              if (stderr)
+                await recorder.appendNodeDelta({
+                  nodeId: hookId,
+                  deltaType: "stderr",
+                  chunk: stderr,
+                });
+              if (!stdout && !stderr && output)
+                await recorder.appendNodeDelta({
+                  nodeId: hookId,
+                  deltaType: "text",
+                  chunk: output,
+                });
               if (outcome === "success") {
-                await recorder.completeNode({ nodeId: hookId, summary: output || "Hook completed" });
+                await recorder.completeNode({
+                  nodeId: hookId,
+                  summary: output || "Hook completed",
+                });
               } else {
-                await recorder.failNode({ nodeId: hookId, error: output || outcome });
+                await recorder.failNode({
+                  nodeId: hookId,
+                  error: output || outcome,
+                });
               }
             }
           } else if (subtype === "api_retry") {
-            const nodeId = typeof record.uuid === "string" ? `api_retry_${record.uuid}` : nextTransientNodeId("api_retry");
+            const nodeId =
+              typeof record.uuid === "string"
+                ? `api_retry_${record.uuid}`
+                : nextTransientNodeId("api_retry");
             const detail = {
-              ...(typeof record.attempt === "number" ? { attempt: record.attempt } : {}),
-              ...(typeof record.max_retries === "number" ? { max_retries: record.max_retries } : {}),
-              ...(typeof record.retry_delay_ms === "number" ? { retry_delay_ms: record.retry_delay_ms } : {}),
-              ...(record.error_status !== undefined ? { error_status: record.error_status } : {})
+              ...(typeof record.attempt === "number"
+                ? { attempt: record.attempt }
+                : {}),
+              ...(typeof record.max_retries === "number"
+                ? { max_retries: record.max_retries }
+                : {}),
+              ...(typeof record.retry_delay_ms === "number"
+                ? { retry_delay_ms: record.retry_delay_ms }
+                : {}),
+              ...(record.error_status !== undefined
+                ? { error_status: record.error_status }
+                : {}),
             };
             await recorder.startNode({
               nodeId,
               kind: "api_retry",
               title: "Retrying Claude API request",
               status: "running",
-              detail
+              detail,
             });
-            await recorder.completeNode({ nodeId, summary: "Retry scheduled", detail });
+            await recorder.completeNode({
+              nodeId,
+              summary: "Retry scheduled",
+              detail,
+            });
           } else if (subtype === "status" && record.status === "compacting") {
-            activeCompactionNodeId = activeCompactionNodeId ?? (typeof record.uuid === "string" ? `compaction_${record.uuid}` : nextTransientNodeId("compaction"));
+            activeCompactionNodeId =
+              activeCompactionNodeId ??
+              (typeof record.uuid === "string"
+                ? `compaction_${record.uuid}`
+                : nextTransientNodeId("compaction"));
             await recorder.startNode({
               nodeId: activeCompactionNodeId,
               kind: "compaction",
               title: "Compacting context",
-              status: "running"
+              status: "running",
             });
           } else if (subtype === "compact_boundary") {
             const compactMetadata = asRecord(record.compact_metadata);
-            const nodeId = activeCompactionNodeId ?? (typeof record.uuid === "string" ? `compaction_${record.uuid}` : nextTransientNodeId("compaction"));
+            const nodeId =
+              activeCompactionNodeId ??
+              (typeof record.uuid === "string"
+                ? `compaction_${record.uuid}`
+                : nextTransientNodeId("compaction"));
             activeCompactionNodeId = nodeId;
             await recorder.startNode({
               nodeId,
               kind: "compaction",
               title: "Compacting context",
-              status: "running"
+              status: "running",
             });
             const detail = {
-              ...(typeof compactMetadata.trigger === "string" ? { trigger: compactMetadata.trigger } : {}),
-              ...(typeof compactMetadata.pre_tokens === "number" ? { pre_tokens: compactMetadata.pre_tokens } : {}),
-              ...(typeof compactMetadata.post_tokens === "number" ? { post_tokens: compactMetadata.post_tokens } : {}),
-              ...(typeof compactMetadata.duration_ms === "number" ? { duration_ms: compactMetadata.duration_ms } : {})
+              ...(typeof compactMetadata.trigger === "string"
+                ? { trigger: compactMetadata.trigger }
+                : {}),
+              ...(typeof compactMetadata.pre_tokens === "number"
+                ? { pre_tokens: compactMetadata.pre_tokens }
+                : {}),
+              ...(typeof compactMetadata.post_tokens === "number"
+                ? { post_tokens: compactMetadata.post_tokens }
+                : {}),
+              ...(typeof compactMetadata.duration_ms === "number"
+                ? { duration_ms: compactMetadata.duration_ms }
+                : {}),
             };
             await recorder.updateNode({ nodeId, detail });
           }
@@ -886,16 +1309,25 @@ export class ClaudeRuntime {
         }
 
         if (msgType === "result") {
-          const resultSubtype = typeof record.subtype === "string" ? record.subtype : "";
+          const resultSubtype =
+            typeof record.subtype === "string" ? record.subtype : "";
           if (resultSubtype === "success") {
             usage = resultUsage(record);
-            if (!finalText && typeof record.result === "string" && record.result) {
+            if (
+              !finalText &&
+              typeof record.result === "string" &&
+              record.result
+            ) {
               await syncAssistantText(record.result);
             }
-          } else if (resultSubtype.startsWith("error") || record.is_error === true) {
-            const errorMessage = typeof record.result === "string" && record.result
-              ? record.result
-              : "Claude Code encountered an error";
+          } else if (
+            resultSubtype.startsWith("error") ||
+            record.is_error === true
+          ) {
+            const errorMessage =
+              typeof record.result === "string" && record.result
+                ? record.result
+                : "Claude Code encountered an error";
             await failOpenNodes(errorMessage);
             throw new Error(errorMessage);
           }
@@ -903,11 +1335,12 @@ export class ClaudeRuntime {
         }
 
         if (msgType === "error" || msgType === "failed") {
-          const errorMessage = typeof record.message === "string"
-            ? record.message
-            : typeof record.error === "string"
-              ? record.error
-              : "Claude Code encountered an error";
+          const errorMessage =
+            typeof record.message === "string"
+              ? record.message
+              : typeof record.error === "string"
+                ? record.error
+                : "Claude Code encountered an error";
           await failOpenNodes(errorMessage);
           throw new Error(errorMessage);
         }

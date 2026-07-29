@@ -1,58 +1,121 @@
+import { testConnectorCompatibility } from "./test-compatibility.js";
 import { describe, expect, it } from "vitest";
 import { buildServer } from "../src/server.js";
 
 async function createRoomAndAgent(options?: Parameters<typeof buildServer>[0]) {
   const app = await buildServer({ dbPath: ":memory:", ...options });
-  const room = (await app.inject({ method: "POST", url: "/rooms", payload: { name: "Run Trace Room", display_name: "Owner" } })).json();
+  const room = (
+    await app.inject({
+      method: "POST",
+      url: "/rooms",
+      payload: { name: "Run Trace Room", display_name: "Owner" },
+    })
+  ).json();
   const ownerAuth = { authorization: `Bearer ${room.owner_token}` };
-  const agent = (await app.inject({
+  const agent = (
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agents/register`,
+      headers: ownerAuth,
+      payload: {
+        compatibility: testConnectorCompatibility,
+        name: "Claude Code Agent",
+        capabilities: ["claude-code", "claude.persistent_session"],
+      },
+    })
+  ).json();
+  await app.inject({
     method: "POST",
-    url: `/rooms/${room.room_id}/agents/register`,
+    url: `/rooms/${room.room_id}/agents/select`,
     headers: ownerAuth,
-    payload: { name: "Claude Code Agent", capabilities: ["claude-code", "claude.persistent_session"] }
-  })).json();
-  await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/select`, headers: ownerAuth, payload: { agent_id: agent.agent_id } });
-  await app.inject({ method: "POST", url: `/rooms/${room.room_id}/claude/session-selection`, headers: ownerAuth, payload: { agent_id: agent.agent_id, mode: "fresh" } });
+    payload: { agent_id: agent.agent_id },
+  });
+  await app.inject({
+    method: "POST",
+    url: `/rooms/${room.room_id}/claude/session-selection`,
+    headers: ownerAuth,
+    payload: { agent_id: agent.agent_id, mode: "fresh" },
+  });
   await app.inject({
     method: "POST",
     url: `/rooms/${room.room_id}/claude/session-ready`,
     headers: { authorization: `Bearer ${agent.agent_token}` },
-    payload: { agent_id: agent.agent_id, mode: "fresh", session_id: "session_1", ready_at: "2026-05-05T00:00:00.000Z" }
+    payload: {
+      agent_id: agent.agent_id,
+      mode: "fresh",
+      session_id: "session_1",
+      ready_at: "2026-05-05T00:00:00.000Z",
+    },
   });
-  await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "Run now" } });
+  await app.inject({
+    method: "POST",
+    url: `/rooms/${room.room_id}/messages`,
+    headers: ownerAuth,
+    payload: { text: "Run now" },
+  });
   return { app, room, ownerAuth, agent };
 }
 
-async function joinApprovedMember(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerToken: string, displayName: string) {
-  const invite = (await app.inject({
-    method: "POST",
-    url: `/rooms/${roomId}/invites`,
-    headers: { authorization: `Bearer ${ownerToken}` },
-    payload: { role: "member" }
-  })).json() as { invite_token: string };
-  const pending = (await app.inject({
-    method: "POST",
-    url: `/rooms/${roomId}/join-requests`,
-    payload: { invite_token: invite.invite_token, display_name: displayName }
-  })).json() as { request_id: string; request_token: string };
+async function joinApprovedMember(
+  app: Awaited<ReturnType<typeof buildServer>>,
+  roomId: string,
+  ownerToken: string,
+  displayName: string
+) {
+  const invite = (
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${roomId}/invites`,
+      headers: { authorization: `Bearer ${ownerToken}` },
+      payload: { role: "member" },
+    })
+  ).json() as { invite_token: string };
+  const pending = (
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${roomId}/join-requests`,
+      payload: { invite_token: invite.invite_token, display_name: displayName },
+    })
+  ).json() as { request_id: string; request_token: string };
   await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/join-requests/${pending.request_id}/approve`,
     headers: { authorization: `Bearer ${ownerToken}` },
-    payload: {}
+    payload: {},
   });
-  return (await app.inject({
-    method: "GET",
-    url: `/rooms/${roomId}/join-requests/${pending.request_id}?request_token=${encodeURIComponent(pending.request_token)}`
-  })).json() as { participant_id: string; participant_token: string };
+  return (
+    await app.inject({
+      method: "GET",
+      url: `/rooms/${roomId}/join-requests/${pending.request_id}?request_token=${encodeURIComponent(pending.request_token)}`,
+    })
+  ).json() as { participant_id: string; participant_token: string };
 }
 
-async function currentTurnId(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerAuth: { authorization: string }) {
-  const events = (await app.inject({ method: "GET", url: `/rooms/${roomId}/events`, headers: ownerAuth })).json().events;
-  return events.find((event: { type: string }) => event.type === "agent.turn.requested").payload.turn_id as string;
+async function currentTurnId(
+  app: Awaited<ReturnType<typeof buildServer>>,
+  roomId: string,
+  ownerAuth: { authorization: string }
+) {
+  const events = (
+    await app.inject({
+      method: "GET",
+      url: `/rooms/${roomId}/events`,
+      headers: ownerAuth,
+    })
+  ).json().events;
+  return events.find(
+    (event: { type: string }) => event.type === "agent.turn.requested"
+  ).payload.turn_id as string;
 }
 
-async function startRun(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, agentToken: string, agentId: string, turnId: string, overrides: Record<string, unknown> = {}) {
+async function startRun(
+  app: Awaited<ReturnType<typeof buildServer>>,
+  roomId: string,
+  agentToken: string,
+  agentId: string,
+  turnId: string,
+  overrides: Record<string, unknown> = {}
+) {
   return app.inject({
     method: "POST",
     url: `/rooms/${roomId}/agent-runs/${turnId}/start`,
@@ -63,12 +126,20 @@ async function startRun(app: Awaited<ReturnType<typeof buildServer>>, roomId: st
       agent_id: agentId,
       provider: "claude-code",
       started_at: "2026-05-05T00:00:01.000Z",
-      ...overrides
-    }
+      ...overrides,
+    },
   });
 }
 
-async function startNode(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, agentToken: string, agentId: string, turnId: string, nodeId: string, overrides: Record<string, unknown> = {}) {
+async function startNode(
+  app: Awaited<ReturnType<typeof buildServer>>,
+  roomId: string,
+  agentToken: string,
+  agentId: string,
+  turnId: string,
+  nodeId: string,
+  overrides: Record<string, unknown> = {}
+) {
   return app.inject({
     method: "POST",
     url: `/rooms/${roomId}/agent-runs/${turnId}/nodes/start`,
@@ -84,8 +155,8 @@ async function startNode(app: Awaited<ReturnType<typeof buildServer>>, roomId: s
       title: `Tool ${nodeId}`,
       started_at: "2026-05-05T00:00:02.000Z",
       updated_at: "2026-05-05T00:00:02.000Z",
-      ...overrides
-    }
+      ...overrides,
+    },
   });
 }
 
@@ -94,22 +165,38 @@ describe("agent run routes", () => {
     const { app, room, ownerAuth, agent } = await createRoomAndAgent();
     const turnId = await currentTurnId(app, room.room_id, ownerAuth);
 
-    expect((await app.inject({
-      method: "POST",
-      url: `/rooms/${room.room_id}/agent-turns/${turnId}/start`,
-      headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: {}
-    })).statusCode).toBe(201);
-    expect((await startRun(app, room.room_id, agent.agent_token, agent.agent_id, turnId)).statusCode).toBe(201);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/rooms/${room.room_id}/agent-turns/${turnId}/start`,
+          headers: { authorization: `Bearer ${agent.agent_token}` },
+          payload: {},
+        })
+      ).statusCode
+    ).toBe(201);
+    expect(
+      (
+        await startRun(
+          app,
+          room.room_id,
+          agent.agent_token,
+          agent.agent_id,
+          turnId
+        )
+      ).statusCode
+    ).toBe(201);
 
     const turnComplete = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/agent-turns/${turnId}/complete`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: { final_text: "The answer is ready.", exit_code: 0 }
+      payload: { final_text: "The answer is ready.", exit_code: 0 },
     });
     expect(turnComplete.statusCode).toBe(201);
-    const { message_id: messageId } = turnComplete.json() as { message_id: string };
+    const { message_id: messageId } = turnComplete.json() as {
+      message_id: string;
+    };
 
     const runComplete = await app.inject({
       method: "POST",
@@ -123,19 +210,30 @@ describe("agent run routes", () => {
         message_id: messageId,
         summary: "Run complete",
         metrics: { files_read: 0, searches: 0, commands: 0 },
-        completed_at: "2026-05-05T00:00:04.000Z"
-      }
+        completed_at: "2026-05-05T00:00:04.000Z",
+      },
     });
     expect(runComplete.statusCode).toBe(201);
 
-    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
-    expect(events.find((event) => event.type === "agent.run.completed")).toMatchObject({
+    const events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events as Array<{
+      type: string;
+      payload: Record<string, unknown>;
+    }>;
+    expect(
+      events.find((event) => event.type === "agent.run.completed")
+    ).toMatchObject({
       payload: {
         run_id: turnId,
         turn_id: turnId,
         message_id: messageId,
-        provider: "claude-code"
-      }
+        provider: "claude-code",
+      },
     });
 
     await app.close();
@@ -146,20 +244,34 @@ describe("agent run routes", () => {
     const turnA = await currentTurnId(app, room.room_id, ownerAuth);
 
     // Agent starts turn A and its run
-    expect((await app.inject({
-      method: "POST",
-      url: `/rooms/${room.room_id}/agent-turns/${turnA}/start`,
-      headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: {}
-    })).statusCode).toBe(201);
-    expect((await startRun(app, room.room_id, agent.agent_token, agent.agent_id, turnA)).statusCode).toBe(201);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/rooms/${room.room_id}/agent-turns/${turnA}/start`,
+          headers: { authorization: `Bearer ${agent.agent_token}` },
+          payload: {},
+        })
+      ).statusCode
+    ).toBe(201);
+    expect(
+      (
+        await startRun(
+          app,
+          room.room_id,
+          agent.agent_token,
+          agent.agent_id,
+          turnA
+        )
+      ).statusCode
+    ).toBe(201);
 
     // Owner queues a second message while turn A is still open
     const queued = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/main-inputs`,
       headers: ownerAuth,
-      payload: { text: "Follow-up question" }
+      payload: { text: "Follow-up question" },
     });
     expect(queued.statusCode).toBe(201);
     expect(queued.json()).toMatchObject({ status: "queued" });
@@ -169,14 +281,27 @@ describe("agent run routes", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/agent-turns/${turnA}/complete`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: { final_text: "Answer to first question.", exit_code: 0 }
+      payload: { final_text: "Answer to first question.", exit_code: 0 },
     });
     expect(turnComplete.statusCode).toBe(201);
-    const { message_id: messageId } = turnComplete.json() as { message_id: string };
+    const { message_id: messageId } = turnComplete.json() as {
+      message_id: string;
+    };
 
     // Verify a new turn B was indeed created
-    const eventsAfterComplete = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
-    const turnBEvent = eventsAfterComplete.find((e) => e.type === "agent.turn.requested" && e.payload.turn_id !== turnA);
+    const eventsAfterComplete = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events as Array<{
+      type: string;
+      payload: Record<string, unknown>;
+    }>;
+    const turnBEvent = eventsAfterComplete.find(
+      (e) => e.type === "agent.turn.requested" && e.payload.turn_id !== turnA
+    );
     expect(turnBEvent).toBeDefined();
 
     // Agent now tries to completeRun for turn A — this must succeed even though turn B is open
@@ -192,19 +317,30 @@ describe("agent run routes", () => {
         message_id: messageId,
         summary: "Run complete",
         metrics: { files_read: 0, searches: 0, commands: 0 },
-        completed_at: "2026-05-05T00:00:04.000Z"
-      }
+        completed_at: "2026-05-05T00:00:04.000Z",
+      },
     });
     expect(runComplete.statusCode).toBe(201);
 
-    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
-    expect(events.find((event) => event.type === "agent.run.completed")).toMatchObject({
+    const events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events as Array<{
+      type: string;
+      payload: Record<string, unknown>;
+    }>;
+    expect(
+      events.find((event) => event.type === "agent.run.completed")
+    ).toMatchObject({
       payload: {
         run_id: turnA,
         turn_id: turnA,
         message_id: messageId,
-        provider: "claude-code"
-      }
+        provider: "claude-code",
+      },
     });
 
     await app.close();
@@ -214,11 +350,33 @@ describe("agent run routes", () => {
     const { app, room, ownerAuth, agent } = await createRoomAndAgent();
     const turnId = await currentTurnId(app, room.room_id, ownerAuth);
 
-    expect((await startRun(app, room.room_id, agent.agent_token, agent.agent_id, turnId)).statusCode).toBe(201);
+    expect(
+      (
+        await startRun(
+          app,
+          room.room_id,
+          agent.agent_token,
+          agent.agent_id,
+          turnId
+        )
+      ).statusCode
+    ).toBe(201);
 
-    expect((await startNode(app, room.room_id, agent.agent_token, agent.agent_id, turnId, "toolu_1", {
-      title: "Read README.md"
-    })).statusCode).toBe(201);
+    expect(
+      (
+        await startNode(
+          app,
+          room.room_id,
+          agent.agent_token,
+          agent.agent_id,
+          turnId,
+          "toolu_1",
+          {
+            title: "Read README.md",
+          }
+        )
+      ).statusCode
+    ).toBe(201);
 
     await app.close();
   });
@@ -227,11 +385,30 @@ describe("agent run routes", () => {
     const { app, room, ownerAuth, agent } = await createRoomAndAgent();
     const turnId = await currentTurnId(app, room.room_id, ownerAuth);
 
-    const first = await startRun(app, room.room_id, agent.agent_token, agent.agent_id, turnId);
-    const replay = await startRun(app, room.room_id, agent.agent_token, agent.agent_id, turnId);
-    const conflict = await startRun(app, room.room_id, agent.agent_token, agent.agent_id, turnId, {
-      started_at: "2026-05-05T00:00:09.000Z"
-    });
+    const first = await startRun(
+      app,
+      room.room_id,
+      agent.agent_token,
+      agent.agent_id,
+      turnId
+    );
+    const replay = await startRun(
+      app,
+      room.room_id,
+      agent.agent_token,
+      agent.agent_id,
+      turnId
+    );
+    const conflict = await startRun(
+      app,
+      room.room_id,
+      agent.agent_token,
+      agent.agent_id,
+      turnId,
+      {
+        started_at: "2026-05-05T00:00:09.000Z",
+      }
+    );
 
     expect(first.statusCode).toBe(201);
     expect(replay.statusCode).toBe(201);
@@ -245,13 +422,28 @@ describe("agent run routes", () => {
     const { app, room, ownerAuth, agent } = await createRoomAndAgent();
     const turnId = await currentTurnId(app, room.room_id, ownerAuth);
 
-    const mismatchedStart = await startRun(app, room.room_id, agent.agent_token, agent.agent_id, turnId, {
-      provider: "codex-cli"
-    });
+    const mismatchedStart = await startRun(
+      app,
+      room.room_id,
+      agent.agent_token,
+      agent.agent_id,
+      turnId,
+      {
+        provider: "codex-cli",
+      }
+    );
     expect(mismatchedStart.statusCode).toBe(403);
-    expect(mismatchedStart.json()).toMatchObject({ error: "provider_mismatch" });
+    expect(mismatchedStart.json()).toMatchObject({
+      error: "provider_mismatch",
+    });
 
-    await startRun(app, room.room_id, agent.agent_token, agent.agent_id, turnId);
+    await startRun(
+      app,
+      room.room_id,
+      agent.agent_token,
+      agent.agent_id,
+      turnId
+    );
 
     const complete = await app.inject({
       method: "POST",
@@ -265,8 +457,8 @@ describe("agent run routes", () => {
         message_id: "msg_1",
         summary: "Run complete",
         metrics: { files_read: 0, searches: 0, commands: 0 },
-        completed_at: "2026-05-05T00:00:04.000Z"
-      }
+        completed_at: "2026-05-05T00:00:04.000Z",
+      },
     });
     expect(complete.statusCode).toBe(403);
     expect(complete.json()).toMatchObject({ error: "provider_mismatch" });
@@ -281,8 +473,8 @@ describe("agent run routes", () => {
         agent_id: agent.agent_id,
         provider: "codex-cli",
         error: "run_failed",
-        failed_at: "2026-05-05T00:00:04.000Z"
-      }
+        failed_at: "2026-05-05T00:00:04.000Z",
+      },
     });
     expect(fail.statusCode).toBe(403);
     expect(fail.json()).toMatchObject({ error: "provider_mismatch" });
@@ -294,13 +486,41 @@ describe("agent run routes", () => {
     const { app, room, ownerAuth, agent } = await createRoomAndAgent();
     const turnId = await currentTurnId(app, room.room_id, ownerAuth);
 
-    await startRun(app, room.room_id, agent.agent_token, agent.agent_id, turnId);
+    await startRun(
+      app,
+      room.room_id,
+      agent.agent_token,
+      agent.agent_id,
+      turnId
+    );
 
-    const first = await startNode(app, room.room_id, agent.agent_token, agent.agent_id, turnId, "toolu_1");
-    const replay = await startNode(app, room.room_id, agent.agent_token, agent.agent_id, turnId, "toolu_1");
-    const conflict = await startNode(app, room.room_id, agent.agent_token, agent.agent_id, turnId, "toolu_1", {
-      title: "Updated Tool"
-    });
+    const first = await startNode(
+      app,
+      room.room_id,
+      agent.agent_token,
+      agent.agent_id,
+      turnId,
+      "toolu_1"
+    );
+    const replay = await startNode(
+      app,
+      room.room_id,
+      agent.agent_token,
+      agent.agent_id,
+      turnId,
+      "toolu_1"
+    );
+    const conflict = await startNode(
+      app,
+      room.room_id,
+      agent.agent_token,
+      agent.agent_id,
+      turnId,
+      "toolu_1",
+      {
+        title: "Updated Tool",
+      }
+    );
 
     expect(first.statusCode).toBe(201);
     expect(replay.statusCode).toBe(201);
@@ -314,15 +534,38 @@ describe("agent run routes", () => {
     const { app, room, ownerAuth, agent } = await createRoomAndAgent();
     const turnId = await currentTurnId(app, room.room_id, ownerAuth);
 
-    await startRun(app, room.room_id, agent.agent_token, agent.agent_id, turnId);
+    await startRun(
+      app,
+      room.room_id,
+      agent.agent_token,
+      agent.agent_id,
+      turnId
+    );
 
-    const mismatchedStart = await startNode(app, room.room_id, agent.agent_token, agent.agent_id, turnId, "toolu_1", {
-      provider: "codex-cli"
-    });
+    const mismatchedStart = await startNode(
+      app,
+      room.room_id,
+      agent.agent_token,
+      agent.agent_id,
+      turnId,
+      "toolu_1",
+      {
+        provider: "codex-cli",
+      }
+    );
     expect(mismatchedStart.statusCode).toBe(403);
-    expect(mismatchedStart.json()).toMatchObject({ error: "provider_mismatch" });
+    expect(mismatchedStart.json()).toMatchObject({
+      error: "provider_mismatch",
+    });
 
-    await startNode(app, room.room_id, agent.agent_token, agent.agent_id, turnId, "toolu_1");
+    await startNode(
+      app,
+      room.room_id,
+      agent.agent_token,
+      agent.agent_id,
+      turnId,
+      "toolu_1"
+    );
 
     const responses = await Promise.all([
       app.inject({
@@ -337,8 +580,8 @@ describe("agent run routes", () => {
           node_id: "toolu_1",
           delta_type: "text",
           chunk: "hello",
-          updated_at: "2026-05-05T00:00:05.000Z"
-        }
+          updated_at: "2026-05-05T00:00:05.000Z",
+        },
       }),
       app.inject({
         method: "POST",
@@ -351,8 +594,8 @@ describe("agent run routes", () => {
           provider: "codex-cli",
           node_id: "toolu_1",
           status: "running",
-          updated_at: "2026-05-05T00:00:05.000Z"
-        }
+          updated_at: "2026-05-05T00:00:05.000Z",
+        },
       }),
       app.inject({
         method: "POST",
@@ -365,8 +608,8 @@ describe("agent run routes", () => {
           provider: "codex-cli",
           node_id: "toolu_1",
           summary: "done",
-          completed_at: "2026-05-05T00:00:05.000Z"
-        }
+          completed_at: "2026-05-05T00:00:05.000Z",
+        },
       }),
       app.inject({
         method: "POST",
@@ -379,9 +622,9 @@ describe("agent run routes", () => {
           provider: "codex-cli",
           node_id: "toolu_1",
           error: "node_failed",
-          failed_at: "2026-05-05T00:00:05.000Z"
-        }
-      })
+          failed_at: "2026-05-05T00:00:05.000Z",
+        },
+      }),
     ]);
 
     for (const response of responses) {
@@ -396,8 +639,21 @@ describe("agent run routes", () => {
     const { app, room, ownerAuth, agent } = await createRoomAndAgent();
     const turnId = await currentTurnId(app, room.room_id, ownerAuth);
 
-    await startRun(app, room.room_id, agent.agent_token, agent.agent_id, turnId);
-    await startNode(app, room.room_id, agent.agent_token, agent.agent_id, turnId, "toolu_1");
+    await startRun(
+      app,
+      room.room_id,
+      agent.agent_token,
+      agent.agent_id,
+      turnId
+    );
+    await startNode(
+      app,
+      room.room_id,
+      agent.agent_token,
+      agent.agent_id,
+      turnId,
+      "toolu_1"
+    );
 
     const completed = await app.inject({
       method: "POST",
@@ -411,8 +667,8 @@ describe("agent run routes", () => {
         message_id: "msg_1",
         summary: "Run complete",
         metrics: { files_read: 0, searches: 0, commands: 0 },
-        completed_at: "2026-05-05T00:00:04.000Z"
-      }
+        completed_at: "2026-05-05T00:00:04.000Z",
+      },
     });
     expect(completed.statusCode).toBe(201);
 
@@ -430,8 +686,8 @@ describe("agent run routes", () => {
           message_id: "msg_2",
           summary: "Run complete again",
           metrics: { files_read: 0, searches: 0, commands: 0 },
-          completed_at: "2026-05-05T00:00:05.000Z"
-        }
+          completed_at: "2026-05-05T00:00:05.000Z",
+        },
       }),
       app.inject({
         method: "POST",
@@ -443,10 +699,17 @@ describe("agent run routes", () => {
           agent_id: agent.agent_id,
           provider: "claude-code",
           error: "run_failed",
-          failed_at: "2026-05-05T00:00:05.000Z"
-        }
+          failed_at: "2026-05-05T00:00:05.000Z",
+        },
       }),
-      startNode(app, room.room_id, agent.agent_token, agent.agent_id, turnId, "toolu_2"),
+      startNode(
+        app,
+        room.room_id,
+        agent.agent_token,
+        agent.agent_id,
+        turnId,
+        "toolu_2"
+      ),
       app.inject({
         method: "POST",
         url: `/rooms/${room.room_id}/agent-runs/${turnId}/nodes/toolu_1/delta`,
@@ -459,8 +722,8 @@ describe("agent run routes", () => {
           node_id: "toolu_1",
           delta_type: "text",
           chunk: "hello",
-          updated_at: "2026-05-05T00:00:05.000Z"
-        }
+          updated_at: "2026-05-05T00:00:05.000Z",
+        },
       }),
       app.inject({
         method: "POST",
@@ -473,8 +736,8 @@ describe("agent run routes", () => {
           provider: "claude-code",
           node_id: "toolu_1",
           status: "running",
-          updated_at: "2026-05-05T00:00:05.000Z"
-        }
+          updated_at: "2026-05-05T00:00:05.000Z",
+        },
       }),
       app.inject({
         method: "POST",
@@ -487,8 +750,8 @@ describe("agent run routes", () => {
           provider: "claude-code",
           node_id: "toolu_1",
           summary: "done",
-          completed_at: "2026-05-05T00:00:05.000Z"
-        }
+          completed_at: "2026-05-05T00:00:05.000Z",
+        },
       }),
       app.inject({
         method: "POST",
@@ -501,9 +764,9 @@ describe("agent run routes", () => {
           provider: "claude-code",
           node_id: "toolu_1",
           error: "node_failed",
-          failed_at: "2026-05-05T00:00:05.000Z"
-        }
-      })
+          failed_at: "2026-05-05T00:00:05.000Z",
+        },
+      }),
     ]);
 
     for (const response of responses) {
@@ -518,8 +781,21 @@ describe("agent run routes", () => {
     const { app, room, ownerAuth, agent } = await createRoomAndAgent();
     const turnId = await currentTurnId(app, room.room_id, ownerAuth);
 
-    await startRun(app, room.room_id, agent.agent_token, agent.agent_id, turnId);
-    await startNode(app, room.room_id, agent.agent_token, agent.agent_id, turnId, "toolu_1");
+    await startRun(
+      app,
+      room.room_id,
+      agent.agent_token,
+      agent.agent_id,
+      turnId
+    );
+    await startNode(
+      app,
+      room.room_id,
+      agent.agent_token,
+      agent.agent_id,
+      turnId,
+      "toolu_1"
+    );
 
     const completed = await app.inject({
       method: "POST",
@@ -532,8 +808,8 @@ describe("agent run routes", () => {
         provider: "claude-code",
         node_id: "toolu_1",
         summary: "done",
-        completed_at: "2026-05-05T00:00:04.000Z"
-      }
+        completed_at: "2026-05-05T00:00:04.000Z",
+      },
     });
     expect(completed.statusCode).toBe(201);
 
@@ -550,8 +826,8 @@ describe("agent run routes", () => {
           node_id: "toolu_1",
           delta_type: "text",
           chunk: "hello",
-          updated_at: "2026-05-05T00:00:05.000Z"
-        }
+          updated_at: "2026-05-05T00:00:05.000Z",
+        },
       }),
       app.inject({
         method: "POST",
@@ -564,8 +840,8 @@ describe("agent run routes", () => {
           provider: "claude-code",
           node_id: "toolu_1",
           status: "running",
-          updated_at: "2026-05-05T00:00:05.000Z"
-        }
+          updated_at: "2026-05-05T00:00:05.000Z",
+        },
       }),
       app.inject({
         method: "POST",
@@ -578,8 +854,8 @@ describe("agent run routes", () => {
           provider: "claude-code",
           node_id: "toolu_1",
           summary: "done again",
-          completed_at: "2026-05-05T00:00:05.000Z"
-        }
+          completed_at: "2026-05-05T00:00:05.000Z",
+        },
       }),
       app.inject({
         method: "POST",
@@ -592,9 +868,9 @@ describe("agent run routes", () => {
           provider: "claude-code",
           node_id: "toolu_1",
           error: "node_failed",
-          failed_at: "2026-05-05T00:00:05.000Z"
-        }
-      })
+          failed_at: "2026-05-05T00:00:05.000Z",
+        },
+      }),
     ]);
 
     for (const response of responses) {
@@ -607,8 +883,16 @@ describe("agent run routes", () => {
 
   it("reuses pending approval requests, nests the approval under the tool node, and replays the stored decision", async () => {
     const { app, room, ownerAuth, agent } = await createRoomAndAgent();
-    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
-    const turnId = events.find((event: { type: string }) => event.type === "agent.turn.requested").payload.turn_id;
+    const events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events;
+    const turnId = events.find(
+      (event: { type: string }) => event.type === "agent.turn.requested"
+    ).payload.turn_id;
 
     await app.inject({
       method: "POST",
@@ -624,8 +908,8 @@ describe("agent run routes", () => {
         status: "running",
         title: "Bash npm install",
         started_at: "2026-05-05T00:00:02.000Z",
-        updated_at: "2026-05-05T00:00:02.000Z"
-      }
+        updated_at: "2026-05-05T00:00:02.000Z",
+      },
     });
 
     const approvalPayload = {
@@ -635,20 +919,20 @@ describe("agent run routes", () => {
       tool_use_id: "toolu_1",
       tool_name: "Bash",
       title: "Claude wants to run Bash",
-      requested_at: "2026-05-05T00:00:03.000Z"
+      requested_at: "2026-05-05T00:00:03.000Z",
     };
 
     const approvalPromise = app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/agent-runs/${turnId}/approvals/approval_1/request`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: approvalPayload
+      payload: approvalPayload,
     });
     const duplicateApprovalPromise = app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/agent-runs/${turnId}/approvals/approval_1/request`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: approvalPayload
+      payload: approvalPayload,
     });
     void approvalPromise.catch(() => undefined);
     void duplicateApprovalPromise.catch(() => undefined);
@@ -659,47 +943,64 @@ describe("agent run routes", () => {
       url: `/rooms/${room.room_id}/agent-runs/${turnId}/approvals/approval_1/resolve`,
       headers: ownerAuth,
       payload: {
-        decision: "allow"
-      }
+        decision: "allow",
+      },
     });
 
     expect(resolved.statusCode).toBe(201);
     expect((await approvalPromise).json()).toMatchObject({ decision: "allow" });
-    expect((await duplicateApprovalPromise).json()).toMatchObject({ decision: "allow" });
+    expect((await duplicateApprovalPromise).json()).toMatchObject({
+      decision: "allow",
+    });
 
     const replayed = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/agent-runs/${turnId}/approvals/approval_1/request`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: approvalPayload
+      payload: approvalPayload,
     });
     expect(replayed.statusCode).toBe(201);
     expect(replayed.json()).toMatchObject({ decision: "allow" });
 
-    const publishedEvents = (await app.inject({
-      method: "GET",
-      url: `/rooms/${room.room_id}/events`,
-      headers: ownerAuth
-    })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
-    const approvalStartedEvents = publishedEvents.filter((event) => event.type === "agent.run.node.started" && event.payload.node_id === "approval_1");
+    const publishedEvents = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events as Array<{
+      type: string;
+      payload: Record<string, unknown>;
+    }>;
+    const approvalStartedEvents = publishedEvents.filter(
+      (event) =>
+        event.type === "agent.run.node.started" &&
+        event.payload.node_id === "approval_1"
+    );
     expect(approvalStartedEvents).toHaveLength(1);
     expect(approvalStartedEvents[0]?.payload).toMatchObject({
       node_id: "approval_1",
       kind: "approval",
       parent_node_id: "toolu_1",
       source_refs: {
-        tool_use_id: "toolu_1"
-      }
+        tool_use_id: "toolu_1",
+      },
     });
-    expect(approvalStartedEvents[0]?.payload).not.toHaveProperty("source_refs.parent_tool_use_id");
+    expect(approvalStartedEvents[0]?.payload).not.toHaveProperty(
+      "source_refs.parent_tool_use_id"
+    );
 
-    const approvalCompletedEvent = publishedEvents.find((event) => event.type === "agent.run.node.completed" && event.payload.node_id === "approval_1");
+    const approvalCompletedEvent = publishedEvents.find(
+      (event) =>
+        event.type === "agent.run.node.completed" &&
+        event.payload.node_id === "approval_1"
+    );
     expect(approvalCompletedEvent?.payload).toMatchObject({
       node_id: "approval_1",
       summary: "Approved",
       detail: expect.objectContaining({
-        decision: "allow"
-      })
+        decision: "allow",
+      }),
     });
     expect(approvalCompletedEvent?.payload).not.toHaveProperty("status");
     expect(approvalCompletedEvent?.payload).not.toHaveProperty("updated_at");
@@ -709,17 +1010,35 @@ describe("agent run routes", () => {
 
   it("lets only owner or admin resolve a pending approval", async () => {
     const { app, room, ownerAuth, agent } = await createRoomAndAgent();
-    const member = await joinApprovedMember(app, room.room_id, room.owner_token, "Member");
-    const admin = await joinApprovedMember(app, room.room_id, room.owner_token, "Admin");
+    const member = await joinApprovedMember(
+      app,
+      room.room_id,
+      room.owner_token,
+      "Member"
+    );
+    const admin = await joinApprovedMember(
+      app,
+      room.room_id,
+      room.owner_token,
+      "Admin"
+    );
     await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/participants/${admin.participant_id}/role`,
       headers: ownerAuth,
-      payload: { role: "admin" }
+      payload: { role: "admin" },
     });
 
-    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
-    const turnId = events.find((event: { type: string }) => event.type === "agent.turn.requested").payload.turn_id;
+    const events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events;
+    const turnId = events.find(
+      (event: { type: string }) => event.type === "agent.turn.requested"
+    ).payload.turn_id;
 
     await app.inject({
       method: "POST",
@@ -735,8 +1054,8 @@ describe("agent run routes", () => {
         status: "running",
         title: "Bash npm install",
         started_at: "2026-05-05T00:00:02.000Z",
-        updated_at: "2026-05-05T00:00:02.000Z"
-      }
+        updated_at: "2026-05-05T00:00:02.000Z",
+      },
     });
 
     const approvalPromise = app.inject({
@@ -750,8 +1069,8 @@ describe("agent run routes", () => {
         tool_use_id: "toolu_admin",
         tool_name: "Bash",
         title: "Claude wants to run Bash",
-        requested_at: "2026-05-05T00:00:03.000Z"
-      }
+        requested_at: "2026-05-05T00:00:03.000Z",
+      },
     });
     void approvalPromise.catch(() => undefined);
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -760,7 +1079,7 @@ describe("agent run routes", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/agent-runs/${turnId}/approvals/approval_admin/resolve`,
       headers: { authorization: `Bearer ${member.participant_token}` },
-      payload: { decision: "deny" }
+      payload: { decision: "deny" },
     });
     expect(memberResolve.statusCode).toBe(403);
     expect(memberResolve.json()).toMatchObject({ error: "forbidden" });
@@ -769,7 +1088,7 @@ describe("agent run routes", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/agent-runs/${turnId}/approvals/approval_admin/resolve`,
       headers: { authorization: `Bearer ${admin.participant_token}` },
-      payload: { decision: "allow" }
+      payload: { decision: "allow" },
     });
     expect(adminResolve.statusCode).toBe(201);
     expect((await approvalPromise).json()).toMatchObject({ decision: "allow" });
@@ -779,8 +1098,16 @@ describe("agent run routes", () => {
 
   it("rejects approval retries when the same node id changes the original request payload", async () => {
     const { app, room, ownerAuth, agent } = await createRoomAndAgent();
-    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
-    const turnId = events.find((event: { type: string }) => event.type === "agent.turn.requested").payload.turn_id;
+    const events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events;
+    const turnId = events.find(
+      (event: { type: string }) => event.type === "agent.turn.requested"
+    ).payload.turn_id;
 
     await app.inject({
       method: "POST",
@@ -796,8 +1123,8 @@ describe("agent run routes", () => {
         status: "running",
         title: "Bash npm install",
         started_at: "2026-05-05T00:00:02.000Z",
-        updated_at: "2026-05-05T00:00:02.000Z"
-      }
+        updated_at: "2026-05-05T00:00:02.000Z",
+      },
     });
 
     const approvalPayload = {
@@ -808,14 +1135,14 @@ describe("agent run routes", () => {
       tool_name: "Bash",
       title: "Claude wants to run Bash",
       description: "Execute npm install",
-      requested_at: "2026-05-05T00:00:03.000Z"
+      requested_at: "2026-05-05T00:00:03.000Z",
     };
 
     const approvalPromise = app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/agent-runs/${turnId}/approvals/approval_1/request`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: approvalPayload
+      payload: approvalPayload,
     });
     void approvalPromise.catch(() => undefined);
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -826,8 +1153,8 @@ describe("agent run routes", () => {
       headers: { authorization: `Bearer ${agent.agent_token}` },
       payload: {
         ...approvalPayload,
-        description: "Execute pnpm install"
-      }
+        description: "Execute pnpm install",
+      },
     });
     expect(conflict.statusCode).toBe(409);
     expect(conflict.json()).toMatchObject({ error: "node_id_conflict" });
@@ -836,7 +1163,7 @@ describe("agent run routes", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/agent-runs/${turnId}/approvals/approval_1/resolve`,
       headers: ownerAuth,
-      payload: { decision: "allow" }
+      payload: { decision: "allow" },
     });
     expect((await approvalPromise).json()).toMatchObject({ decision: "allow" });
 
@@ -845,8 +1172,16 @@ describe("agent run routes", () => {
 
   it("rejects conflicting interaction node ids instead of aliasing them", async () => {
     const { app, room, ownerAuth, agent } = await createRoomAndAgent();
-    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
-    const turnId = events.find((event: { type: string }) => event.type === "agent.turn.requested").payload.turn_id;
+    const events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events;
+    const turnId = events.find(
+      (event: { type: string }) => event.type === "agent.turn.requested"
+    ).payload.turn_id;
 
     for (const node_id of ["toolu_1", "approval_1", "elicit_1"]) {
       const response = await app.inject({
@@ -863,8 +1198,8 @@ describe("agent run routes", () => {
           status: "running",
           title: `Tool ${node_id}`,
           started_at: "2026-05-05T00:00:02.000Z",
-          updated_at: "2026-05-05T00:00:02.000Z"
-        }
+          updated_at: "2026-05-05T00:00:02.000Z",
+        },
       });
       expect(response.statusCode).toBe(201);
     }
@@ -880,11 +1215,13 @@ describe("agent run routes", () => {
         tool_use_id: "toolu_1",
         tool_name: "Bash",
         title: "Claude wants to run Bash",
-        requested_at: "2026-05-05T00:00:03.000Z"
-      }
+        requested_at: "2026-05-05T00:00:03.000Z",
+      },
     });
     expect(approvalConflict.statusCode).toBe(409);
-    expect(approvalConflict.json()).toMatchObject({ error: "node_id_conflict" });
+    expect(approvalConflict.json()).toMatchObject({
+      error: "node_id_conflict",
+    });
 
     const elicitationConflict = await app.inject({
       method: "POST",
@@ -894,19 +1231,29 @@ describe("agent run routes", () => {
         agent_id: agent.agent_id,
         turn_id: turnId,
         message: "Need more input",
-        requested_at: "2026-05-05T00:00:03.000Z"
-      }
+        requested_at: "2026-05-05T00:00:03.000Z",
+      },
     });
     expect(elicitationConflict.statusCode).toBe(409);
-    expect(elicitationConflict.json()).toMatchObject({ error: "node_id_conflict" });
+    expect(elicitationConflict.json()).toMatchObject({
+      error: "node_id_conflict",
+    });
 
     await app.close();
   });
 
   it("rejects elicitation retries when the same node id changes the original request payload", async () => {
     const { app, room, ownerAuth, agent } = await createRoomAndAgent();
-    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
-    const turnId = events.find((event: { type: string }) => event.type === "agent.turn.requested").payload.turn_id;
+    const events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events;
+    const turnId = events.find(
+      (event: { type: string }) => event.type === "agent.turn.requested"
+    ).payload.turn_id;
 
     const elicitationPayload = {
       agent_id: agent.agent_id,
@@ -916,15 +1263,18 @@ describe("agent run routes", () => {
       message: "Open the auth URL and continue",
       mode: "url",
       url: "https://example.com/auth",
-      requested_schema: { type: "object", properties: { confirmed: { type: "boolean" } } },
-      requested_at: "2026-05-05T00:00:03.000Z"
+      requested_schema: {
+        type: "object",
+        properties: { confirmed: { type: "boolean" } },
+      },
+      requested_at: "2026-05-05T00:00:03.000Z",
     };
 
     const elicitationPromise = app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/agent-runs/${turnId}/elicitations/elicit_1/request`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: elicitationPayload
+      payload: elicitationPayload,
     });
     void elicitationPromise.catch(() => undefined);
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -935,8 +1285,8 @@ describe("agent run routes", () => {
       headers: { authorization: `Bearer ${agent.agent_token}` },
       payload: {
         ...elicitationPayload,
-        message: "Open the updated auth URL and continue"
-      }
+        message: "Open the updated auth URL and continue",
+      },
     });
     expect(conflict.statusCode).toBe(409);
     expect(conflict.json()).toMatchObject({ error: "node_id_conflict" });
@@ -945,17 +1295,27 @@ describe("agent run routes", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/agent-runs/${turnId}/elicitations/elicit_1/resolve`,
       headers: ownerAuth,
-      payload: { action: "accept", content: { confirmed: true } }
+      payload: { action: "accept", content: { confirmed: true } },
     });
-    expect((await elicitationPromise).json()).toMatchObject({ action: "accept" });
+    expect((await elicitationPromise).json()).toMatchObject({
+      action: "accept",
+    });
 
     await app.close();
   });
 
   it("auto-closes pending interactions when the run fails", async () => {
     const { app, room, ownerAuth, agent } = await createRoomAndAgent();
-    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
-    const turnId = events.find((event: { type: string }) => event.type === "agent.turn.requested").payload.turn_id;
+    const events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events;
+    const turnId = events.find(
+      (event: { type: string }) => event.type === "agent.turn.requested"
+    ).payload.turn_id;
 
     const elicitationPayload = {
       agent_id: agent.agent_id,
@@ -963,14 +1323,14 @@ describe("agent run routes", () => {
       message: "Open the auth URL and continue",
       mode: "url",
       url: "https://example.com/auth",
-      requested_at: "2026-05-05T00:00:03.000Z"
+      requested_at: "2026-05-05T00:00:03.000Z",
     };
 
     const elicitationPromise = app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/agent-runs/${turnId}/elicitations/elicit_1/request`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: elicitationPayload
+      payload: elicitationPayload,
     });
     void elicitationPromise.catch(() => undefined);
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -986,33 +1346,48 @@ describe("agent run routes", () => {
         provider: "claude-code",
         error: "run_failed",
         metrics: { files_read: 0, searches: 0, commands: 0 },
-        failed_at: "2026-05-05T00:00:04.000Z"
-      }
+        failed_at: "2026-05-05T00:00:04.000Z",
+      },
     });
 
-    expect((await elicitationPromise).json()).toMatchObject({ action: "cancel", reason: "run_closed" });
+    expect((await elicitationPromise).json()).toMatchObject({
+      action: "cancel",
+      reason: "run_closed",
+    });
 
     const replayed = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/agent-runs/${turnId}/elicitations/elicit_1/request`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: elicitationPayload
+      payload: elicitationPayload,
     });
     expect(replayed.statusCode).toBe(201);
-    expect(replayed.json()).toMatchObject({ action: "cancel", reason: "run_closed" });
+    expect(replayed.json()).toMatchObject({
+      action: "cancel",
+      reason: "run_closed",
+    });
 
-    const publishedEvents = (await app.inject({
-      method: "GET",
-      url: `/rooms/${room.room_id}/events`,
-      headers: ownerAuth
-    })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
-    const elicitationCompletedEvent = publishedEvents.find((event) => event.type === "agent.run.node.completed" && event.payload.node_id === "elicit_1");
+    const publishedEvents = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events as Array<{
+      type: string;
+      payload: Record<string, unknown>;
+    }>;
+    const elicitationCompletedEvent = publishedEvents.find(
+      (event) =>
+        event.type === "agent.run.node.completed" &&
+        event.payload.node_id === "elicit_1"
+    );
     expect(elicitationCompletedEvent?.payload).toMatchObject({
       node_id: "elicit_1",
       detail: expect.objectContaining({
         action: "cancel",
-        reason: "run_closed"
-      })
+        reason: "run_closed",
+      }),
     });
     expect(elicitationCompletedEvent?.payload).not.toHaveProperty("status");
     expect(elicitationCompletedEvent?.payload).not.toHaveProperty("updated_at");
@@ -1030,14 +1405,14 @@ describe("agent run routes", () => {
       message: "Open the auth URL and continue",
       mode: "url",
       url: "https://example.com/auth",
-      requested_at: "2026-05-05T00:00:03.000Z"
+      requested_at: "2026-05-05T00:00:03.000Z",
     };
 
     const elicitationPromise = app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/agent-runs/${turnId}/elicitations/elicit_1/request`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: elicitationPayload
+      payload: elicitationPayload,
     });
     void elicitationPromise.catch(() => undefined);
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -1054,20 +1429,26 @@ describe("agent run routes", () => {
         message_id: "msg_1",
         summary: "Run complete",
         metrics: { files_read: 0, searches: 0, commands: 0 },
-        completed_at: "2026-05-05T00:00:04.000Z"
-      }
+        completed_at: "2026-05-05T00:00:04.000Z",
+      },
     });
 
-    expect((await elicitationPromise).json()).toMatchObject({ action: "cancel", reason: "run_closed" });
+    expect((await elicitationPromise).json()).toMatchObject({
+      action: "cancel",
+      reason: "run_closed",
+    });
 
     const replayed = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/agent-runs/${turnId}/elicitations/elicit_1/request`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: elicitationPayload
+      payload: elicitationPayload,
     });
     expect(replayed.statusCode).toBe(201);
-    expect(replayed.json()).toMatchObject({ action: "cancel", reason: "run_closed" });
+    expect(replayed.json()).toMatchObject({
+      action: "cancel",
+      reason: "run_closed",
+    });
 
     await app.close();
   });
@@ -1082,14 +1463,14 @@ describe("agent run routes", () => {
       message: "Open the auth URL and continue",
       mode: "url",
       url: "https://example.com/auth",
-      requested_at: "2026-05-05T00:00:03.000Z"
+      requested_at: "2026-05-05T00:00:03.000Z",
     };
 
     const elicitationPromise = app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/agent-runs/${turnId}/elicitations/elicit_legacy_complete/request`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: elicitationPayload
+      payload: elicitationPayload,
     });
     void elicitationPromise.catch(() => undefined);
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -1098,7 +1479,7 @@ describe("agent run routes", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/agent-turns/${turnId}/start`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: {}
+      payload: {},
     });
     await app.inject({
       method: "POST",
@@ -1106,11 +1487,14 @@ describe("agent run routes", () => {
       headers: { authorization: `Bearer ${agent.agent_token}` },
       payload: {
         final_text: "Done",
-        exit_code: 0
-      }
+        exit_code: 0,
+      },
     });
 
-    expect((await elicitationPromise).json()).toMatchObject({ action: "cancel", reason: "run_closed" });
+    expect((await elicitationPromise).json()).toMatchObject({
+      action: "cancel",
+      reason: "run_closed",
+    });
 
     await app.close();
   });
@@ -1119,7 +1503,14 @@ describe("agent run routes", () => {
     const { app, room, ownerAuth, agent } = await createRoomAndAgent();
     const turnId = await currentTurnId(app, room.room_id, ownerAuth);
 
-    await startNode(app, room.room_id, agent.agent_token, agent.agent_id, turnId, "toolu_1");
+    await startNode(
+      app,
+      room.room_id,
+      agent.agent_token,
+      agent.agent_id,
+      turnId,
+      "toolu_1"
+    );
 
     const approvalPromise = app.inject({
       method: "POST",
@@ -1131,8 +1522,8 @@ describe("agent run routes", () => {
         tool_node_id: "toolu_1",
         tool_use_id: "toolu_1",
         tool_name: "Bash",
-        requested_at: "2026-05-05T00:00:03.000Z"
-      }
+        requested_at: "2026-05-05T00:00:03.000Z",
+      },
     });
     void approvalPromise.catch(() => undefined);
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -1141,26 +1532,39 @@ describe("agent run routes", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/agent-turns/${turnId}/start`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: {}
+      payload: {},
     });
     await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/agent-turns/${turnId}/fail`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
       payload: {
-        error: "turn_failed"
-      }
+        error: "turn_failed",
+      },
     });
 
-    expect((await approvalPromise).json()).toMatchObject({ decision: "deny", reason: "run_closed" });
+    expect((await approvalPromise).json()).toMatchObject({
+      decision: "deny",
+      reason: "run_closed",
+    });
 
     await app.close();
   });
 
   it("times out approval requests with approval_timeout", async () => {
-    const { app, room, ownerAuth, agent } = await createRoomAndAgent({ approvalTimeoutMs: 25 });
-    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
-    const turnId = events.find((event: { type: string }) => event.type === "agent.turn.requested").payload.turn_id;
+    const { app, room, ownerAuth, agent } = await createRoomAndAgent({
+      approvalTimeoutMs: 25,
+    });
+    const events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events;
+    const turnId = events.find(
+      (event: { type: string }) => event.type === "agent.turn.requested"
+    ).payload.turn_id;
 
     await app.inject({
       method: "POST",
@@ -1176,8 +1580,8 @@ describe("agent run routes", () => {
         status: "running",
         title: "Bash npm install",
         started_at: "2026-05-05T00:00:02.000Z",
-        updated_at: "2026-05-05T00:00:02.000Z"
-      }
+        updated_at: "2026-05-05T00:00:02.000Z",
+      },
     });
 
     const response = await app.inject({
@@ -1190,33 +1594,56 @@ describe("agent run routes", () => {
         tool_node_id: "toolu_1",
         tool_use_id: "toolu_1",
         tool_name: "Bash",
-        requested_at: "2026-05-05T00:00:03.000Z"
-      }
+        requested_at: "2026-05-05T00:00:03.000Z",
+      },
     });
     expect(response.statusCode).toBe(201);
-    expect(response.json()).toMatchObject({ decision: "deny", reason: "approval_timeout", resolved_by: "system" });
+    expect(response.json()).toMatchObject({
+      decision: "deny",
+      reason: "approval_timeout",
+      resolved_by: "system",
+    });
 
-    const publishedEvents = (await app.inject({
-      method: "GET",
-      url: `/rooms/${room.room_id}/events`,
-      headers: ownerAuth
-    })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
-    const completed = publishedEvents.find((event) => event.type === "agent.run.node.completed" && event.payload.node_id === "approval_timeout");
+    const publishedEvents = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events as Array<{
+      type: string;
+      payload: Record<string, unknown>;
+    }>;
+    const completed = publishedEvents.find(
+      (event) =>
+        event.type === "agent.run.node.completed" &&
+        event.payload.node_id === "approval_timeout"
+    );
     expect(completed?.payload).toMatchObject({
       detail: expect.objectContaining({
         decision: "deny",
         reason: "approval_timeout",
-        resolved_by: "system"
-      })
+        resolved_by: "system",
+      }),
     });
 
     await app.close();
   });
 
   it("times out elicitation requests with elicitation_timeout", async () => {
-    const { app, room, ownerAuth, agent } = await createRoomAndAgent({ elicitationTimeoutMs: 25 });
-    const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
-    const turnId = events.find((event: { type: string }) => event.type === "agent.turn.requested").payload.turn_id;
+    const { app, room, ownerAuth, agent } = await createRoomAndAgent({
+      elicitationTimeoutMs: 25,
+    });
+    const events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events;
+    const turnId = events.find(
+      (event: { type: string }) => event.type === "agent.turn.requested"
+    ).payload.turn_id;
 
     const response = await app.inject({
       method: "POST",
@@ -1228,24 +1655,37 @@ describe("agent run routes", () => {
         message: "Open the auth URL and continue",
         mode: "url",
         url: "https://example.com/auth",
-        requested_at: "2026-05-05T00:00:03.000Z"
-      }
+        requested_at: "2026-05-05T00:00:03.000Z",
+      },
     });
     expect(response.statusCode).toBe(201);
-    expect(response.json()).toMatchObject({ action: "cancel", reason: "elicitation_timeout", resolved_by: "system" });
+    expect(response.json()).toMatchObject({
+      action: "cancel",
+      reason: "elicitation_timeout",
+      resolved_by: "system",
+    });
 
-    const publishedEvents = (await app.inject({
-      method: "GET",
-      url: `/rooms/${room.room_id}/events`,
-      headers: ownerAuth
-    })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
-    const completed = publishedEvents.find((event) => event.type === "agent.run.node.completed" && event.payload.node_id === "elicit_timeout");
+    const publishedEvents = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events as Array<{
+      type: string;
+      payload: Record<string, unknown>;
+    }>;
+    const completed = publishedEvents.find(
+      (event) =>
+        event.type === "agent.run.node.completed" &&
+        event.payload.node_id === "elicit_timeout"
+    );
     expect(completed?.payload).toMatchObject({
       detail: expect.objectContaining({
         action: "cancel",
         reason: "elicitation_timeout",
-        resolved_by: "system"
-      })
+        resolved_by: "system",
+      }),
     });
 
     await app.close();

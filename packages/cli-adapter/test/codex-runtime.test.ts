@@ -18,35 +18,61 @@ function createRuntime(overrides: Record<string, unknown> = {}) {
     agentId: "agent_1",
     workingDir: "D:\\Development\\2",
     permissionLevel: "read_only",
-    publishDelta: async (_turnId: string, chunk: string) => { publishedDeltas.push(chunk); },
-    startNode: async (payload: Record<string, unknown>) => { started.push(payload); },
-    appendNodeDelta: async (payload: Record<string, unknown>) => { nodeDeltas.push(payload); },
-    updateNode: async (payload: Record<string, unknown>) => { updated.push(payload); },
-    completeNode: async (payload: Record<string, unknown>) => { completed.push(payload); },
-    failNode: async (payload: Record<string, unknown>) => { failed.push(payload); },
-    ...overrides
+    publishDelta: async (_turnId: string, chunk: string) => {
+      publishedDeltas.push(chunk);
+    },
+    startNode: async (payload: Record<string, unknown>) => {
+      started.push(payload);
+    },
+    appendNodeDelta: async (payload: Record<string, unknown>) => {
+      nodeDeltas.push(payload);
+    },
+    updateNode: async (payload: Record<string, unknown>) => {
+      updated.push(payload);
+    },
+    completeNode: async (payload: Record<string, unknown>) => {
+      completed.push(payload);
+    },
+    failNode: async (payload: Record<string, unknown>) => {
+      failed.push(payload);
+    },
+    ...overrides,
   });
 
-  return { runtime, publishedDeltas, started, nodeDeltas, updated, completed, failed };
+  return {
+    runtime,
+    publishedDeltas,
+    started,
+    nodeDeltas,
+    updated,
+    completed,
+    failed,
+  };
 }
 
 describe("Codex runtime", () => {
   it("requires explicit session selection before running a turn", async () => {
     const { runtime } = createRuntime({
       sdk: {
-        startThread: () => { throw new Error("unexpected"); },
-        resumeThread: () => { throw new Error("unexpected"); }
-      }
+        startThread: () => {
+          throw new Error("unexpected");
+        },
+        resumeThread: () => {
+          throw new Error("unexpected");
+        },
+      },
     });
 
-    await expect(runtime.runTurn({
-      turnId: "turn_1",
-      roomName: "Room",
-      speakerName: "Owner",
-      speakerRole: "owner",
-      modeLabel: "normal",
-      text: "hello"
-    })).rejects.toThrow("codex_session_not_selected");
+    await expect(
+      runtime.runTurn({
+        turnId: "turn_1",
+        roomName: "Room",
+        speakerName: "Owner",
+        speakerRole: "owner",
+        modeLabel: "normal",
+        text: "hello",
+      })
+    ).rejects.toThrow("codex_session_not_selected");
   });
 
   it("absorbs sdk load failure so the process does not crash from an unhandled rejection", async () => {
@@ -54,40 +80,98 @@ describe("Codex runtime", () => {
       sdk: Promise.reject(new Error("Codex SDK not installed")) as unknown as {
         startThread: () => never;
         resumeThread: () => never;
-      }
+      },
     });
 
-    await expect(runtime.selectSession({ mode: "fresh" })).rejects.toThrow("Codex SDK not installed");
+    await expect(runtime.selectSession({ mode: "fresh" })).rejects.toThrow(
+      "Codex SDK not installed"
+    );
   });
 
   it("maps command execution, web search, and agent message updates into run-trace nodes", async () => {
-    const { runtime, publishedDeltas, started, nodeDeltas, completed } = createRuntime({
-      sdk: {
-        startThread: (options: Record<string, unknown>) => ({
-          id: null,
-          runStreamed: async (prompt: string) => {
-            expect(prompt).toBe("Owner(owner): list files");
-            expect(options.sandboxMode).toBe("read-only");
-            return {
-              events: events([
-                { type: "thread.started", thread_id: "thread_123" },
-                { type: "turn.started" },
-                { type: "item.started", item: { id: "reason_1", type: "reasoning" } },
-                { type: "item.started", item: { id: "cmd_1", type: "command_execution", command: "Get-ChildItem", aggregated_output: "", status: "in_progress" } },
-                { type: "item.completed", item: { id: "cmd_1", type: "command_execution", command: "Get-ChildItem", aggregated_output: "file.txt", exit_code: 0, status: "completed" } },
-                { type: "item.started", item: { id: "search_1", type: "web_search", status: "in_progress" } },
-                { type: "item.completed", item: { id: "search_1", type: "web_search", status: "completed" } },
-                { type: "item.updated", item: { id: "msg_1", type: "agent_message", text: "Hel" } },
-                { type: "item.updated", item: { id: "msg_1", type: "agent_message", text: "Hello" } },
-                { type: "item.completed", item: { id: "msg_1", type: "agent_message", text: "Hello" } },
-                { type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1, reasoning_output_tokens: 0 } }
-              ])
-            };
-          }
-        }),
-        resumeThread: () => { throw new Error("unexpected"); }
-      }
-    });
+    const { runtime, publishedDeltas, started, nodeDeltas, completed } =
+      createRuntime({
+        sdk: {
+          startThread: (options: Record<string, unknown>) => ({
+            id: null,
+            runStreamed: async (prompt: string) => {
+              expect(prompt).toBe("Owner(owner): list files");
+              expect(options.sandboxMode).toBe("read-only");
+              return {
+                events: events([
+                  { type: "thread.started", thread_id: "thread_123" },
+                  { type: "turn.started" },
+                  {
+                    type: "item.started",
+                    item: { id: "reason_1", type: "reasoning" },
+                  },
+                  {
+                    type: "item.started",
+                    item: {
+                      id: "cmd_1",
+                      type: "command_execution",
+                      command: "Get-ChildItem",
+                      aggregated_output: "",
+                      status: "in_progress",
+                    },
+                  },
+                  {
+                    type: "item.completed",
+                    item: {
+                      id: "cmd_1",
+                      type: "command_execution",
+                      command: "Get-ChildItem",
+                      aggregated_output: "file.txt",
+                      exit_code: 0,
+                      status: "completed",
+                    },
+                  },
+                  {
+                    type: "item.started",
+                    item: {
+                      id: "search_1",
+                      type: "web_search",
+                      status: "in_progress",
+                    },
+                  },
+                  {
+                    type: "item.completed",
+                    item: {
+                      id: "search_1",
+                      type: "web_search",
+                      status: "completed",
+                    },
+                  },
+                  {
+                    type: "item.updated",
+                    item: { id: "msg_1", type: "agent_message", text: "Hel" },
+                  },
+                  {
+                    type: "item.updated",
+                    item: { id: "msg_1", type: "agent_message", text: "Hello" },
+                  },
+                  {
+                    type: "item.completed",
+                    item: { id: "msg_1", type: "agent_message", text: "Hello" },
+                  },
+                  {
+                    type: "turn.completed",
+                    usage: {
+                      input_tokens: 1,
+                      cached_input_tokens: 0,
+                      output_tokens: 1,
+                      reasoning_output_tokens: 0,
+                    },
+                  },
+                ]),
+              };
+            },
+          }),
+          resumeThread: () => {
+            throw new Error("unexpected");
+          },
+        },
+      });
 
     await runtime.selectSession({ mode: "fresh" });
     const result = await runtime.runTurn({
@@ -96,18 +180,115 @@ describe("Codex runtime", () => {
       speakerName: "Owner",
       speakerRole: "owner",
       modeLabel: "normal",
-      text: "list files"
+      text: "list files",
     });
 
     expect(result.finalText).toBe("Hello");
     expect(result.sessionId).toBe("thread_123");
     expect(result.metrics.commands).toBe(1);
     expect(result.metrics.searches).toBe(1);
-    expect(started.some((node) => node.node_id === "cmd_1" && node.kind === "tool" && String(node.title).includes("Get-ChildItem"))).toBe(true);
-    expect(started.some((node) => node.node_id === "search_1" && node.kind === "tool")).toBe(true);
-    expect(nodeDeltas.some((delta) => delta.node_id === "cmd_1" && delta.chunk === "file.txt")).toBe(true);
-    expect(completed.some((node) => node.node_id === "cmd_1" && (node.detail as Record<string, unknown> | undefined)?.exit_code === 0)).toBe(true);
+    expect(
+      started.some(
+        (node) =>
+          node.node_id === "cmd_1" &&
+          node.kind === "tool" &&
+          String(node.title).includes("Get-ChildItem")
+      )
+    ).toBe(true);
+    expect(
+      started.some(
+        (node) => node.node_id === "search_1" && node.kind === "tool"
+      )
+    ).toBe(true);
+    expect(
+      nodeDeltas.some(
+        (delta) => delta.node_id === "cmd_1" && delta.chunk === "file.txt"
+      )
+    ).toBe(true);
+    expect(
+      completed.some(
+        (node) =>
+          node.node_id === "cmd_1" &&
+          (node.detail as Record<string, unknown> | undefined)?.exit_code === 0
+      )
+    ).toBe(true);
     expect(publishedDeltas).toEqual(["Hel", "lo"]);
+  });
+
+  it("uses local_image for raster images and absolute paths for other files", async () => {
+    let capturedPrompt: unknown;
+    const { runtime } = createRuntime({
+      sdk: {
+        startThread: () => ({
+          id: null,
+          runStreamed: async (prompt: unknown) => {
+            capturedPrompt = prompt;
+            return {
+              events: events([
+                { type: "thread.started", thread_id: "thread_attachments" },
+                { type: "turn.started" },
+                {
+                  type: "turn.completed",
+                  usage: {
+                    input_tokens: 1,
+                    cached_input_tokens: 0,
+                    output_tokens: 0,
+                    reasoning_output_tokens: 0,
+                  },
+                },
+              ]),
+            };
+          },
+        }),
+        resumeThread: () => {
+          throw new Error("unexpected");
+        },
+      },
+    });
+    await runtime.selectSession({ mode: "fresh" });
+    await runtime.runTurn({
+      turnId: "turn_attachments",
+      roomName: "Room",
+      speakerName: "Owner",
+      speakerRole: "owner",
+      modeLabel: "normal",
+      text: "Inspect the inputs.",
+      attachments: [
+        {
+          attachment_id: "att_image",
+          name: "image.png",
+          media_type: "image/png",
+          size_bytes: 10,
+          sha256: "0".repeat(64),
+          kind: "image",
+          disposition: "inline",
+          path: "D:\\repo\\.cacp\\rooms\\room_1\\attachments\\att_image",
+        },
+        {
+          attachment_id: "att_pdf",
+          name: "brief.pdf",
+          media_type: "application/pdf",
+          size_bytes: 10,
+          sha256: "1".repeat(64),
+          kind: "pdf",
+          disposition: "inline",
+          path: "D:\\repo\\.cacp\\rooms\\room_1\\attachments\\att_pdf",
+        },
+      ],
+    });
+
+    expect(capturedPrompt).toEqual([
+      {
+        type: "text",
+        text: expect.stringContaining(
+          "D:\\repo\\.cacp\\rooms\\room_1\\attachments\\att_pdf"
+        ),
+      },
+      {
+        type: "local_image",
+        path: "D:\\repo\\.cacp\\rooms\\room_1\\attachments\\att_image",
+      },
+    ]);
   });
 
   it("fails the turn when the Codex stream ends before turn.completed", async () => {
@@ -119,26 +300,48 @@ describe("Codex runtime", () => {
             events: events([
               { type: "thread.started", thread_id: "thread_123" },
               { type: "turn.started" },
-              { type: "item.started", item: { id: "cmd_1", type: "command_execution", command: "Get-ChildItem", aggregated_output: "", status: "in_progress" } },
-              { type: "item.completed", item: { id: "msg_1", type: "agent_message", text: "Partial answer" } }
-            ])
-          })
+              {
+                type: "item.started",
+                item: {
+                  id: "cmd_1",
+                  type: "command_execution",
+                  command: "Get-ChildItem",
+                  aggregated_output: "",
+                  status: "in_progress",
+                },
+              },
+              {
+                type: "item.completed",
+                item: {
+                  id: "msg_1",
+                  type: "agent_message",
+                  text: "Partial answer",
+                },
+              },
+            ]),
+          }),
         }),
-        resumeThread: () => { throw new Error("unexpected"); }
-      }
+        resumeThread: () => {
+          throw new Error("unexpected");
+        },
+      },
     });
 
     await runtime.selectSession({ mode: "fresh" });
 
-    await expect(runtime.runTurn({
-      turnId: "turn_1",
-      roomName: "Room",
-      speakerName: "Owner",
-      speakerRole: "owner",
-      modeLabel: "normal",
-      text: "list files"
-    })).rejects.toThrow("codex_turn_incomplete");
-    expect(failed.some((node) => node.error === "codex_turn_incomplete")).toBe(true);
+    await expect(
+      runtime.runTurn({
+        turnId: "turn_1",
+        roomName: "Room",
+        speakerName: "Owner",
+        speakerRole: "owner",
+        modeLabel: "normal",
+        text: "list files",
+      })
+    ).rejects.toThrow("codex_turn_incomplete");
+    expect(failed.some((node) => node.error === "codex_turn_incomplete")).toBe(
+      true
+    );
   });
 
   it("aborts the active Codex turn when the runtime closes", async () => {
@@ -155,13 +358,18 @@ describe("Codex runtime", () => {
       sdk: {
         startThread: () => ({
           id: null,
-          runStreamed: async (_prompt: string, options?: { signal?: AbortSignal }) => {
+          runStreamed: async (
+            _prompt: string,
+            options?: { signal?: AbortSignal }
+          ) => {
             turnSignal = options?.signal;
             return { events: abortableEvents() };
-          }
+          },
         }),
-        resumeThread: () => { throw new Error("unexpected"); }
-      }
+        resumeThread: () => {
+          throw new Error("unexpected");
+        },
+      },
     });
 
     await runtime.selectSession({ mode: "fresh" });
@@ -171,7 +379,7 @@ describe("Codex runtime", () => {
       speakerName: "Owner",
       speakerRole: "owner",
       modeLabel: "normal",
-      text: "keep running"
+      text: "keep running",
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -191,14 +399,25 @@ describe("Codex runtime", () => {
             events: events([
               { type: "thread.started", thread_id: "thread_123" },
               { type: "turn.started" },
-              { type: "item.started", item: { id: "msg_1", type: "agent_message", text: "Hello" } },
-              { type: "item.completed", item: { id: "msg_1", type: "agent_message", text: "Hello" } },
-              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
-            ])
-          })
+              {
+                type: "item.started",
+                item: { id: "msg_1", type: "agent_message", text: "Hello" },
+              },
+              {
+                type: "item.completed",
+                item: { id: "msg_1", type: "agent_message", text: "Hello" },
+              },
+              {
+                type: "turn.completed",
+                usage: { input_tokens: 1, output_tokens: 1 },
+              },
+            ]),
+          }),
         }),
-        resumeThread: () => { throw new Error("unexpected"); }
-      }
+        resumeThread: () => {
+          throw new Error("unexpected");
+        },
+      },
     });
 
     await runtime.selectSession({ mode: "fresh" });
@@ -208,20 +427,24 @@ describe("Codex runtime", () => {
       speakerName: "Owner",
       speakerRole: "owner",
       modeLabel: "normal",
-      text: "hello"
+      text: "hello",
     });
 
     const connectingStart = started.find((n) => n.node_id === "connecting");
-    const connectingComplete = completed.find((n) => n.node_id === "connecting");
+    const connectingComplete = completed.find(
+      (n) => n.node_id === "connecting"
+    );
     expect(connectingStart).toMatchObject({
       node_id: "connecting",
       kind: "status",
       title: "Connecting",
-      status: "running"
+      status: "running",
     });
     expect(connectingComplete).toBeDefined();
 
-    const connectingStartIndex = started.findIndex((n) => n.node_id === "connecting");
+    const connectingStartIndex = started.findIndex(
+      (n) => n.node_id === "connecting"
+    );
     expect(connectingStartIndex).toBeGreaterThanOrEqual(0);
   });
 
@@ -233,14 +456,34 @@ describe("Codex runtime", () => {
           runStreamed: async () => ({
             events: events([
               { type: "thread.started", thread_id: "thread_123" },
-              { type: "item.started", item: { id: "cmd_1", type: "command_execution", command: "cat package.json" } },
-              { type: "item.completed", item: { id: "cmd_1", type: "command_execution", command: "cat package.json", exit_code: 0 } },
-              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
-            ])
-          })
+              {
+                type: "item.started",
+                item: {
+                  id: "cmd_1",
+                  type: "command_execution",
+                  command: "cat package.json",
+                },
+              },
+              {
+                type: "item.completed",
+                item: {
+                  id: "cmd_1",
+                  type: "command_execution",
+                  command: "cat package.json",
+                  exit_code: 0,
+                },
+              },
+              {
+                type: "turn.completed",
+                usage: { input_tokens: 1, output_tokens: 1 },
+              },
+            ]),
+          }),
         }),
-        resumeThread: () => { throw new Error("unexpected"); }
-      }
+        resumeThread: () => {
+          throw new Error("unexpected");
+        },
+      },
     });
 
     await runtime.selectSession({ mode: "fresh" });
@@ -250,7 +493,7 @@ describe("Codex runtime", () => {
       speakerName: "Owner",
       speakerRole: "owner",
       modeLabel: "normal",
-      text: "hello"
+      text: "hello",
     });
 
     const cmdNode = started.find((n) => n.node_id === "cmd_1");
@@ -265,14 +508,34 @@ describe("Codex runtime", () => {
           runStreamed: async () => ({
             events: events([
               { type: "thread.started", thread_id: "thread_123" },
-              { type: "item.started", item: { id: "cmd_1", type: "command_execution", command: "ls src/" } },
-              { type: "item.completed", item: { id: "cmd_1", type: "command_execution", command: "ls src/", exit_code: 0 } },
-              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
-            ])
-          })
+              {
+                type: "item.started",
+                item: {
+                  id: "cmd_1",
+                  type: "command_execution",
+                  command: "ls src/",
+                },
+              },
+              {
+                type: "item.completed",
+                item: {
+                  id: "cmd_1",
+                  type: "command_execution",
+                  command: "ls src/",
+                  exit_code: 0,
+                },
+              },
+              {
+                type: "turn.completed",
+                usage: { input_tokens: 1, output_tokens: 1 },
+              },
+            ]),
+          }),
         }),
-        resumeThread: () => { throw new Error("unexpected"); }
-      }
+        resumeThread: () => {
+          throw new Error("unexpected");
+        },
+      },
     });
 
     await runtime.selectSession({ mode: "fresh" });
@@ -282,7 +545,7 @@ describe("Codex runtime", () => {
       speakerName: "Owner",
       speakerRole: "owner",
       modeLabel: "normal",
-      text: "hello"
+      text: "hello",
     });
 
     const cmdNode = started.find((n) => n.node_id === "cmd_1");
@@ -297,14 +560,34 @@ describe("Codex runtime", () => {
           runStreamed: async () => ({
             events: events([
               { type: "thread.started", thread_id: "thread_123" },
-              { type: "item.started", item: { id: "cmd_1", type: "command_execution", command: "grep -r 'foo' ." } },
-              { type: "item.completed", item: { id: "cmd_1", type: "command_execution", command: "grep -r 'foo' .", exit_code: 0 } },
-              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
-            ])
-          })
+              {
+                type: "item.started",
+                item: {
+                  id: "cmd_1",
+                  type: "command_execution",
+                  command: "grep -r 'foo' .",
+                },
+              },
+              {
+                type: "item.completed",
+                item: {
+                  id: "cmd_1",
+                  type: "command_execution",
+                  command: "grep -r 'foo' .",
+                  exit_code: 0,
+                },
+              },
+              {
+                type: "turn.completed",
+                usage: { input_tokens: 1, output_tokens: 1 },
+              },
+            ]),
+          }),
         }),
-        resumeThread: () => { throw new Error("unexpected"); }
-      }
+        resumeThread: () => {
+          throw new Error("unexpected");
+        },
+      },
     });
 
     await runtime.selectSession({ mode: "fresh" });
@@ -314,7 +597,7 @@ describe("Codex runtime", () => {
       speakerName: "Owner",
       speakerRole: "owner",
       modeLabel: "normal",
-      text: "hello"
+      text: "hello",
     });
 
     const cmdNode = started.find((n) => n.node_id === "cmd_1");
@@ -329,14 +612,34 @@ describe("Codex runtime", () => {
           runStreamed: async () => ({
             events: events([
               { type: "thread.started", thread_id: "thread_123" },
-              { type: "item.started", item: { id: "cmd_1", type: "command_execution", command: "npm install" } },
-              { type: "item.completed", item: { id: "cmd_1", type: "command_execution", command: "npm install", exit_code: 0 } },
-              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
-            ])
-          })
+              {
+                type: "item.started",
+                item: {
+                  id: "cmd_1",
+                  type: "command_execution",
+                  command: "npm install",
+                },
+              },
+              {
+                type: "item.completed",
+                item: {
+                  id: "cmd_1",
+                  type: "command_execution",
+                  command: "npm install",
+                  exit_code: 0,
+                },
+              },
+              {
+                type: "turn.completed",
+                usage: { input_tokens: 1, output_tokens: 1 },
+              },
+            ]),
+          }),
         }),
-        resumeThread: () => { throw new Error("unexpected"); }
-      }
+        resumeThread: () => {
+          throw new Error("unexpected");
+        },
+      },
     });
 
     await runtime.selectSession({ mode: "fresh" });
@@ -346,7 +649,7 @@ describe("Codex runtime", () => {
       speakerName: "Owner",
       speakerRole: "owner",
       modeLabel: "normal",
-      text: "hello"
+      text: "hello",
     });
 
     const cmdNode = started.find((n) => n.node_id === "cmd_1");
@@ -361,16 +664,51 @@ describe("Codex runtime", () => {
           runStreamed: async () => ({
             events: events([
               { type: "thread.started", thread_id: "thread_123" },
-              { type: "item.started", item: { id: "cmd_1", type: "command_execution", command: "cat package.json" } },
-              { type: "item.completed", item: { id: "cmd_1", type: "command_execution", command: "cat package.json", exit_code: 0 } },
-              { type: "item.started", item: { id: "cmd_2", type: "command_execution", command: "head -20 src/index.ts" } },
-              { type: "item.completed", item: { id: "cmd_2", type: "command_execution", command: "head -20 src/index.ts", exit_code: 0 } },
-              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
-            ])
-          })
+              {
+                type: "item.started",
+                item: {
+                  id: "cmd_1",
+                  type: "command_execution",
+                  command: "cat package.json",
+                },
+              },
+              {
+                type: "item.completed",
+                item: {
+                  id: "cmd_1",
+                  type: "command_execution",
+                  command: "cat package.json",
+                  exit_code: 0,
+                },
+              },
+              {
+                type: "item.started",
+                item: {
+                  id: "cmd_2",
+                  type: "command_execution",
+                  command: "head -20 src/index.ts",
+                },
+              },
+              {
+                type: "item.completed",
+                item: {
+                  id: "cmd_2",
+                  type: "command_execution",
+                  command: "head -20 src/index.ts",
+                  exit_code: 0,
+                },
+              },
+              {
+                type: "turn.completed",
+                usage: { input_tokens: 1, output_tokens: 1 },
+              },
+            ]),
+          }),
         }),
-        resumeThread: () => { throw new Error("unexpected"); }
-      }
+        resumeThread: () => {
+          throw new Error("unexpected");
+        },
+      },
     });
 
     await runtime.selectSession({ mode: "fresh" });
@@ -380,7 +718,7 @@ describe("Codex runtime", () => {
       speakerName: "Owner",
       speakerRole: "owner",
       modeLabel: "normal",
-      text: "hello"
+      text: "hello",
     });
 
     expect(result.metrics.files_read).toBe(2);
@@ -396,14 +734,34 @@ describe("Codex runtime", () => {
           runStreamed: async () => ({
             events: events([
               { type: "thread.started", thread_id: "thread_123" },
-              { type: "item.started", item: { id: "cmd_1", type: "command_execution", command: "ls src/" } },
-              { type: "item.completed", item: { id: "cmd_1", type: "command_execution", command: "ls src/", exit_code: 0 } },
-              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
-            ])
-          })
+              {
+                type: "item.started",
+                item: {
+                  id: "cmd_1",
+                  type: "command_execution",
+                  command: "ls src/",
+                },
+              },
+              {
+                type: "item.completed",
+                item: {
+                  id: "cmd_1",
+                  type: "command_execution",
+                  command: "ls src/",
+                  exit_code: 0,
+                },
+              },
+              {
+                type: "turn.completed",
+                usage: { input_tokens: 1, output_tokens: 1 },
+              },
+            ]),
+          }),
         }),
-        resumeThread: () => { throw new Error("unexpected"); }
-      }
+        resumeThread: () => {
+          throw new Error("unexpected");
+        },
+      },
     });
 
     await runtime.selectSession({ mode: "fresh" });
@@ -413,7 +771,7 @@ describe("Codex runtime", () => {
       speakerName: "Owner",
       speakerRole: "owner",
       modeLabel: "normal",
-      text: "hello"
+      text: "hello",
     });
 
     expect(result.metrics.files_read).toBe(1);
@@ -427,16 +785,51 @@ describe("Codex runtime", () => {
           runStreamed: async () => ({
             events: events([
               { type: "thread.started", thread_id: "thread_123" },
-              { type: "item.started", item: { id: "cmd_1", type: "command_execution", command: "grep 'foo' *.ts" } },
-              { type: "item.completed", item: { id: "cmd_1", type: "command_execution", command: "grep 'foo' *.ts", exit_code: 0 } },
-              { type: "item.started", item: { id: "cmd_2", type: "command_execution", command: "find . -name '*.ts'" } },
-              { type: "item.completed", item: { id: "cmd_2", type: "command_execution", command: "find . -name '*.ts'", exit_code: 0 } },
-              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
-            ])
-          })
+              {
+                type: "item.started",
+                item: {
+                  id: "cmd_1",
+                  type: "command_execution",
+                  command: "grep 'foo' *.ts",
+                },
+              },
+              {
+                type: "item.completed",
+                item: {
+                  id: "cmd_1",
+                  type: "command_execution",
+                  command: "grep 'foo' *.ts",
+                  exit_code: 0,
+                },
+              },
+              {
+                type: "item.started",
+                item: {
+                  id: "cmd_2",
+                  type: "command_execution",
+                  command: "find . -name '*.ts'",
+                },
+              },
+              {
+                type: "item.completed",
+                item: {
+                  id: "cmd_2",
+                  type: "command_execution",
+                  command: "find . -name '*.ts'",
+                  exit_code: 0,
+                },
+              },
+              {
+                type: "turn.completed",
+                usage: { input_tokens: 1, output_tokens: 1 },
+              },
+            ]),
+          }),
         }),
-        resumeThread: () => { throw new Error("unexpected"); }
-      }
+        resumeThread: () => {
+          throw new Error("unexpected");
+        },
+      },
     });
 
     await runtime.selectSession({ mode: "fresh" });
@@ -446,7 +839,7 @@ describe("Codex runtime", () => {
       speakerName: "Owner",
       speakerRole: "owner",
       modeLabel: "normal",
-      text: "hello"
+      text: "hello",
     });
 
     expect(result.metrics.searches).toBe(2);
@@ -460,16 +853,51 @@ describe("Codex runtime", () => {
           runStreamed: async () => ({
             events: events([
               { type: "thread.started", thread_id: "thread_123" },
-              { type: "item.started", item: { id: "cmd_1", type: "command_execution", command: "npm install" } },
-              { type: "item.completed", item: { id: "cmd_1", type: "command_execution", command: "npm install", exit_code: 0 } },
-              { type: "item.started", item: { id: "cmd_2", type: "command_execution", command: "git status" } },
-              { type: "item.completed", item: { id: "cmd_2", type: "command_execution", command: "git status", exit_code: 0 } },
-              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
-            ])
-          })
+              {
+                type: "item.started",
+                item: {
+                  id: "cmd_1",
+                  type: "command_execution",
+                  command: "npm install",
+                },
+              },
+              {
+                type: "item.completed",
+                item: {
+                  id: "cmd_1",
+                  type: "command_execution",
+                  command: "npm install",
+                  exit_code: 0,
+                },
+              },
+              {
+                type: "item.started",
+                item: {
+                  id: "cmd_2",
+                  type: "command_execution",
+                  command: "git status",
+                },
+              },
+              {
+                type: "item.completed",
+                item: {
+                  id: "cmd_2",
+                  type: "command_execution",
+                  command: "git status",
+                  exit_code: 0,
+                },
+              },
+              {
+                type: "turn.completed",
+                usage: { input_tokens: 1, output_tokens: 1 },
+              },
+            ]),
+          }),
         }),
-        resumeThread: () => { throw new Error("unexpected"); }
-      }
+        resumeThread: () => {
+          throw new Error("unexpected");
+        },
+      },
     });
 
     await runtime.selectSession({ mode: "fresh" });
@@ -479,7 +907,7 @@ describe("Codex runtime", () => {
       speakerName: "Owner",
       speakerRole: "owner",
       modeLabel: "normal",
-      text: "hello"
+      text: "hello",
     });
 
     expect(result.metrics.commands).toBe(2);
@@ -493,15 +921,42 @@ describe("Codex runtime", () => {
           runStreamed: async () => ({
             events: events([
               { type: "thread.started", thread_id: "thread_123" },
-              { type: "item.started", item: { id: "cmd_1", type: "command_execution", command: "cat file.txt" } },
-              { type: "item.updated", item: { id: "cmd_1", type: "command_execution", command: "cat file.txt" } },
-              { type: "item.completed", item: { id: "cmd_1", type: "command_execution", command: "cat file.txt", exit_code: 0 } },
-              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
-            ])
-          })
+              {
+                type: "item.started",
+                item: {
+                  id: "cmd_1",
+                  type: "command_execution",
+                  command: "cat file.txt",
+                },
+              },
+              {
+                type: "item.updated",
+                item: {
+                  id: "cmd_1",
+                  type: "command_execution",
+                  command: "cat file.txt",
+                },
+              },
+              {
+                type: "item.completed",
+                item: {
+                  id: "cmd_1",
+                  type: "command_execution",
+                  command: "cat file.txt",
+                  exit_code: 0,
+                },
+              },
+              {
+                type: "turn.completed",
+                usage: { input_tokens: 1, output_tokens: 1 },
+              },
+            ]),
+          }),
         }),
-        resumeThread: () => { throw new Error("unexpected"); }
-      }
+        resumeThread: () => {
+          throw new Error("unexpected");
+        },
+      },
     });
 
     await runtime.selectSession({ mode: "fresh" });
@@ -511,7 +966,7 @@ describe("Codex runtime", () => {
       speakerName: "Owner",
       speakerRole: "owner",
       modeLabel: "normal",
-      text: "hello"
+      text: "hello",
     });
 
     expect(result.metrics.files_read).toBe(1);
@@ -525,12 +980,22 @@ describe("Codex runtime", () => {
           runStreamed: async () => ({
             events: events([
               { type: "thread.started", thread_id: "thread_123" },
-              { type: "turn.completed", usage: { input_tokens: 500, cached_input_tokens: 200, output_tokens: 300, reasoning_output_tokens: 150 } }
-            ])
-          })
+              {
+                type: "turn.completed",
+                usage: {
+                  input_tokens: 500,
+                  cached_input_tokens: 200,
+                  output_tokens: 300,
+                  reasoning_output_tokens: 150,
+                },
+              },
+            ]),
+          }),
         }),
-        resumeThread: () => { throw new Error("unexpected"); }
-      }
+        resumeThread: () => {
+          throw new Error("unexpected");
+        },
+      },
     });
 
     await runtime.selectSession({ mode: "fresh" });
@@ -540,14 +1005,14 @@ describe("Codex runtime", () => {
       speakerName: "Owner",
       speakerRole: "owner",
       modeLabel: "normal",
-      text: "hello"
+      text: "hello",
     });
 
     expect(result.usage).toEqual({
       input_tokens: 500,
       cached_input_tokens: 200,
       output_tokens: 300,
-      reasoning_output_tokens: 150
+      reasoning_output_tokens: 150,
     });
   });
 
@@ -559,14 +1024,35 @@ describe("Codex runtime", () => {
           runStreamed: async () => ({
             events: events([
               { type: "thread.started", thread_id: "thread_123" },
-              { type: "item.started", item: { id: "fc_1", type: "file_change", file_path: "src/index.ts", change_type: "edit" } },
-              { type: "item.completed", item: { id: "fc_1", type: "file_change", file_path: "src/index.ts", change_type: "edit" } },
-              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
-            ])
-          })
+              {
+                type: "item.started",
+                item: {
+                  id: "fc_1",
+                  type: "file_change",
+                  file_path: "src/index.ts",
+                  change_type: "edit",
+                },
+              },
+              {
+                type: "item.completed",
+                item: {
+                  id: "fc_1",
+                  type: "file_change",
+                  file_path: "src/index.ts",
+                  change_type: "edit",
+                },
+              },
+              {
+                type: "turn.completed",
+                usage: { input_tokens: 1, output_tokens: 1 },
+              },
+            ]),
+          }),
         }),
-        resumeThread: () => { throw new Error("unexpected"); }
-      }
+        resumeThread: () => {
+          throw new Error("unexpected");
+        },
+      },
     });
 
     await runtime.selectSession({ mode: "fresh" });
@@ -576,7 +1062,7 @@ describe("Codex runtime", () => {
       speakerName: "Owner",
       speakerRole: "owner",
       modeLabel: "normal",
-      text: "hello"
+      text: "hello",
     });
 
     const fileChangeNode = started.find((n) => n.node_id === "fc_1");
@@ -591,14 +1077,25 @@ describe("Codex runtime", () => {
           runStreamed: async () => ({
             events: events([
               { type: "thread.started", thread_id: "thread_123" },
-              { type: "item.started", item: { id: "fc_1", type: "file_change" } },
-              { type: "item.completed", item: { id: "fc_1", type: "file_change" } },
-              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
-            ])
-          })
+              {
+                type: "item.started",
+                item: { id: "fc_1", type: "file_change" },
+              },
+              {
+                type: "item.completed",
+                item: { id: "fc_1", type: "file_change" },
+              },
+              {
+                type: "turn.completed",
+                usage: { input_tokens: 1, output_tokens: 1 },
+              },
+            ]),
+          }),
         }),
-        resumeThread: () => { throw new Error("unexpected"); }
-      }
+        resumeThread: () => {
+          throw new Error("unexpected");
+        },
+      },
     });
 
     await runtime.selectSession({ mode: "fresh" });
@@ -608,7 +1105,7 @@ describe("Codex runtime", () => {
       speakerName: "Owner",
       speakerRole: "owner",
       modeLabel: "normal",
-      text: "hello"
+      text: "hello",
     });
 
     const fileChangeNode = started.find((n) => n.node_id === "fc_1");
@@ -623,14 +1120,30 @@ describe("Codex runtime", () => {
           runStreamed: async () => ({
             events: events([
               { type: "thread.started", thread_id: "thread_123" },
-              { type: "item.started", item: { id: "td_1", type: "todo_list", title: "Fix bugs" } },
-              { type: "item.completed", item: { id: "td_1", type: "todo_list", title: "Fix bugs", items: [{ text: "Fix bug A", done: true }] } },
-              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
-            ])
-          })
+              {
+                type: "item.started",
+                item: { id: "td_1", type: "todo_list", title: "Fix bugs" },
+              },
+              {
+                type: "item.completed",
+                item: {
+                  id: "td_1",
+                  type: "todo_list",
+                  title: "Fix bugs",
+                  items: [{ text: "Fix bug A", done: true }],
+                },
+              },
+              {
+                type: "turn.completed",
+                usage: { input_tokens: 1, output_tokens: 1 },
+              },
+            ]),
+          }),
         }),
-        resumeThread: () => { throw new Error("unexpected"); }
-      }
+        resumeThread: () => {
+          throw new Error("unexpected");
+        },
+      },
     });
 
     await runtime.selectSession({ mode: "fresh" });
@@ -640,7 +1153,7 @@ describe("Codex runtime", () => {
       speakerName: "Owner",
       speakerRole: "owner",
       modeLabel: "normal",
-      text: "hello"
+      text: "hello",
     });
 
     const todoNode = started.find((n) => n.node_id === "td_1");
@@ -656,13 +1169,21 @@ describe("Codex runtime", () => {
             events: events([
               { type: "thread.started", thread_id: "thread_123" },
               { type: "item.started", item: { id: "td_1", type: "todo_list" } },
-              { type: "item.completed", item: { id: "td_1", type: "todo_list" } },
-              { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
-            ])
-          })
+              {
+                type: "item.completed",
+                item: { id: "td_1", type: "todo_list" },
+              },
+              {
+                type: "turn.completed",
+                usage: { input_tokens: 1, output_tokens: 1 },
+              },
+            ]),
+          }),
         }),
-        resumeThread: () => { throw new Error("unexpected"); }
-      }
+        resumeThread: () => {
+          throw new Error("unexpected");
+        },
+      },
     });
 
     await runtime.selectSession({ mode: "fresh" });
@@ -672,7 +1193,7 @@ describe("Codex runtime", () => {
       speakerName: "Owner",
       speakerRole: "owner",
       modeLabel: "normal",
-      text: "hello"
+      text: "hello",
     });
 
     const todoNode = started.find((n) => n.node_id === "td_1");

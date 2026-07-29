@@ -1,6 +1,12 @@
-export function permissionPolicy(level: string, action: string): "allow" | "deny" {
+export function permissionPolicy(
+  level: string,
+  action: string
+): "allow" | "deny" {
   const normalized = action.toLowerCase();
-  const isRead = normalized.includes("read") || normalized.includes("view") || normalized.includes("cat");
+  const isRead =
+    normalized.includes("read") ||
+    normalized.includes("view") ||
+    normalized.includes("cat");
   const isUrl = normalized.includes("url");
 
   switch (level) {

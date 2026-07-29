@@ -5,8 +5,18 @@ import { LangProvider } from "../src/i18n/LangProvider.js";
 import { AgentAvatarPopover } from "../src/components/AgentAvatarPopover.js";
 
 const agents = [
-  { agent_id: "agent_1", name: "Claude Code", capabilities: ["repo.read"], status: "online" as const },
-  { agent_id: "agent_2", name: "GPT-4", capabilities: ["chat"], status: "idle" as const },
+  {
+    agent_id: "agent_1",
+    name: "Claude Code",
+    capabilities: ["repo.read"],
+    status: "online" as const,
+  },
+  {
+    agent_id: "agent_2",
+    name: "Kimi CLI",
+    capabilities: ["kimi-cli"],
+    status: "offline" as const,
+  },
 ];
 
 describe("AgentAvatarPopover", () => {

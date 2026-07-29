@@ -6,13 +6,16 @@ import ConnectionCodeModal from "../src/components/ConnectionCodeModal.js";
 const pairing = {
   connection_code: "CACP-CONNECT:v1:full-secret-code",
   download_url: "/downloads/CACP-Local-Connector-v0.5.0.zip",
-  expires_at: "2026-04-28T04:30:00.000Z"
+  expires_at: "2026-04-28T04:30:00.000Z",
 };
 
-function renderModal(writeText = vi.fn(async () => undefined), onClose = vi.fn()) {
+function renderModal(
+  writeText = vi.fn(async () => undefined),
+  onClose = vi.fn()
+) {
   Object.defineProperty(navigator, "clipboard", {
     value: { writeText },
-    configurable: true
+    configurable: true,
   });
 
   render(
@@ -28,9 +31,15 @@ describe("ConnectionCodeModal", () => {
   it("renders download and copy actions for a generated connection code", () => {
     renderModal();
 
-    expect(screen.getByRole("dialog", { name: "Connect local Agent" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Download CACP-Local-Connector.zip" })).toHaveAttribute("href", pairing.download_url);
-    expect(screen.getByRole("button", { name: "Copy connection code" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("dialog", { name: "Connect local Agent" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Download CACP-Local-Connector.zip" })
+    ).toHaveAttribute("href", pairing.download_url);
+    expect(
+      screen.getByRole("button", { name: "Copy connection code" })
+    ).toBeInTheDocument();
     expect(screen.getByText(/Connection code expires at/)).toBeInTheDocument();
   });
 
@@ -38,10 +47,14 @@ describe("ConnectionCodeModal", () => {
     const writeText = vi.fn(async () => undefined);
     renderModal(writeText);
 
-    fireEvent.click(screen.getByRole("button", { name: "Copy connection code" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Copy connection code" })
+    );
 
     expect(writeText).toHaveBeenCalledWith(pairing.connection_code);
-    expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "Copied" })
+    ).toBeInTheDocument();
   });
 
   it("shows a manual copy field when clipboard copy fails", async () => {
@@ -50,16 +63,24 @@ describe("ConnectionCodeModal", () => {
     });
     renderModal(writeText);
 
-    fireEvent.click(screen.getByRole("button", { name: "Copy connection code" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Copy connection code" })
+    );
 
-    expect(await screen.findByLabelText("Connection code for manual copy")).toHaveValue(pairing.connection_code);
-    expect(screen.getByText("Copy failed. Select the code below and copy it manually.")).toBeInTheDocument();
+    expect(
+      await screen.findByLabelText("Connection code for manual copy")
+    ).toHaveValue(pairing.connection_code);
+    expect(
+      screen.getByText(
+        "Copy failed. Select the code below and copy it manually."
+      )
+    ).toBeInTheDocument();
   });
 
   it("shows a manual copy field when clipboard API is unavailable", async () => {
     Object.defineProperty(navigator, "clipboard", {
       value: undefined,
-      configurable: true
+      configurable: true,
     });
     render(
       <LangProvider>
@@ -67,10 +88,18 @@ describe("ConnectionCodeModal", () => {
       </LangProvider>
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Copy connection code" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Copy connection code" })
+    );
 
-    expect(await screen.findByLabelText("Connection code for manual copy")).toHaveValue(pairing.connection_code);
-    expect(screen.getByText("Copy failed. Select the code below and copy it manually.")).toBeInTheDocument();
+    expect(
+      await screen.findByLabelText("Connection code for manual copy")
+    ).toHaveValue(pairing.connection_code);
+    expect(
+      screen.getByText(
+        "Copy failed. Select the code below and copy it manually."
+      )
+    ).toBeInTheDocument();
   });
 
   it("calls onClose from the close button", () => {

@@ -18,17 +18,26 @@ describe("OrbitBubble", () => {
 
   it("has fade-in animation class on mount", () => {
     const { container } = render(<OrbitBubble text="Hi" />);
-    expect(container.querySelector(".orbit-bubble")).toHaveClass("orbit-bubble--enter");
+    expect(container.querySelector(".orbit-bubble")).toHaveClass(
+      "orbit-bubble--enter"
+    );
   });
 
   it("calls onDismiss after exit animation", async () => {
     const onDismiss = vi.fn();
-    const { container } = render(<OrbitBubble text="Bye" onDismiss={onDismiss} durationMs={50} />);
+    const { container } = render(
+      <OrbitBubble text="Bye" onDismiss={onDismiss} durationMs={50} />
+    );
 
     // wait for exit phase (duration + small buffer)
-    await waitFor(() => {
-      expect(container.querySelector(".orbit-bubble")).toHaveClass("orbit-bubble--exit");
-    }, { timeout: 200 });
+    await waitFor(
+      () => {
+        expect(container.querySelector(".orbit-bubble")).toHaveClass(
+          "orbit-bubble--exit"
+        );
+      },
+      { timeout: 200 }
+    );
 
     // simulate animationend
     const bubble = container.querySelector(".orbit-bubble") as HTMLElement;

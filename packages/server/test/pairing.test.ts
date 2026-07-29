@@ -7,7 +7,7 @@ describe("agent pairing profiles", () => {
       "claude-code",
       "codex-cli",
       "github-copilot",
-      "kimi-cli"
+      "kimi-cli",
     ]);
   });
 
@@ -21,7 +21,7 @@ describe("agent pairing profiles", () => {
     const profile = buildAgentProfile({
       agentType: "claude-code",
       permissionLevel: "limited_write",
-      workingDir: "D:\\Development\\2"
+      workingDir: "D:\\Development\\2",
     });
 
     expect(profile.name).toBe("Claude Code Agent");
@@ -31,7 +31,7 @@ describe("agent pairing profiles", () => {
       "claude-code",
       "claude.persistent_session",
       "limited_write",
-      "manual_flow_control"
+      "manual_flow_control",
     ]);
     expect(profile).not.toHaveProperty("system_prompt");
   });
@@ -40,7 +40,7 @@ describe("agent pairing profiles", () => {
     const profile = buildAgentProfile({
       agentType: "claude-code",
       permissionLevel: "read_only",
-      workingDir: "D:\\Development\\2"
+      workingDir: "D:\\Development\\2",
     });
 
     expect(profile.args).not.toContain("-p");
@@ -50,9 +50,21 @@ describe("agent pairing profiles", () => {
   });
 
   it("keeps permission intent in Claude profile capabilities", () => {
-    const readOnly = buildAgentProfile({ agentType: "claude-code", permissionLevel: "read_only", workingDir: "." });
-    const limitedWrite = buildAgentProfile({ agentType: "claude-code", permissionLevel: "limited_write", workingDir: "." });
-    const fullAccess = buildAgentProfile({ agentType: "claude-code", permissionLevel: "full_access", workingDir: "." });
+    const readOnly = buildAgentProfile({
+      agentType: "claude-code",
+      permissionLevel: "read_only",
+      workingDir: ".",
+    });
+    const limitedWrite = buildAgentProfile({
+      agentType: "claude-code",
+      permissionLevel: "limited_write",
+      workingDir: ".",
+    });
+    const fullAccess = buildAgentProfile({
+      agentType: "claude-code",
+      permissionLevel: "full_access",
+      workingDir: ".",
+    });
 
     expect(readOnly.capabilities).toContain("read_only");
     expect(readOnly.capabilities).toContain("repo.read");
@@ -66,7 +78,7 @@ describe("agent pairing profiles", () => {
     const profile = buildAgentProfile({
       agentType: "codex-cli",
       permissionLevel: "limited_write",
-      workingDir: "D:\\Development\\2"
+      workingDir: "D:\\Development\\2",
     });
 
     expect(profile.name).toBe("Codex CLI Agent");
@@ -78,7 +90,7 @@ describe("agent pairing profiles", () => {
       "code-agent.persistent_session",
       "code-agent.local_execution",
       "limited_write",
-      "manual_flow_control"
+      "manual_flow_control",
     ]);
     expect(profile).not.toHaveProperty("system_prompt");
   });
@@ -87,7 +99,7 @@ describe("agent pairing profiles", () => {
     const profile = buildAgentProfile({
       agentType: "github-copilot",
       permissionLevel: "limited_write",
-      workingDir: "D:\\Development\\2"
+      workingDir: "D:\\Development\\2",
     });
 
     expect(profile.name).toBe("GitHub Copilot Agent");
@@ -98,7 +110,7 @@ describe("agent pairing profiles", () => {
       "github-copilot",
       "copilot.persistent_session",
       "limited_write",
-      "manual_flow_control"
+      "manual_flow_control",
     ]);
     expect(profile).not.toHaveProperty("system_prompt");
   });
@@ -107,7 +119,7 @@ describe("agent pairing profiles", () => {
     const profile = buildAgentProfile({
       agentType: "kimi-cli",
       permissionLevel: "limited_write",
-      workingDir: "D:\\Development\\2"
+      workingDir: "D:\\Development\\2",
     });
 
     expect(profile.name).toBe("Kimi CLI Agent");
@@ -118,15 +130,27 @@ describe("agent pairing profiles", () => {
       "kimi-cli",
       "kimi.persistent_session",
       "limited_write",
-      "manual_flow_control"
+      "manual_flow_control",
     ]);
     expect(profile).not.toHaveProperty("system_prompt");
   });
 
   it("keeps permission intent in Kimi CLI profile capabilities", () => {
-    const readOnly = buildAgentProfile({ agentType: "kimi-cli", permissionLevel: "read_only", workingDir: "." });
-    const limitedWrite = buildAgentProfile({ agentType: "kimi-cli", permissionLevel: "limited_write", workingDir: "." });
-    const fullAccess = buildAgentProfile({ agentType: "kimi-cli", permissionLevel: "full_access", workingDir: "." });
+    const readOnly = buildAgentProfile({
+      agentType: "kimi-cli",
+      permissionLevel: "read_only",
+      workingDir: ".",
+    });
+    const limitedWrite = buildAgentProfile({
+      agentType: "kimi-cli",
+      permissionLevel: "limited_write",
+      workingDir: ".",
+    });
+    const fullAccess = buildAgentProfile({
+      agentType: "kimi-cli",
+      permissionLevel: "full_access",
+      workingDir: ".",
+    });
 
     expect(readOnly.capabilities).toContain("read_only");
     expect(readOnly.capabilities).toContain("repo.read");
@@ -137,14 +161,30 @@ describe("agent pairing profiles", () => {
   });
 
   it("enables thinking mode for Kimi CLI profiles", () => {
-    const profile = buildAgentProfile({ agentType: "kimi-cli", permissionLevel: "limited_write", workingDir: "." });
+    const profile = buildAgentProfile({
+      agentType: "kimi-cli",
+      permissionLevel: "limited_write",
+      workingDir: ".",
+    });
     expect(profile.thinking).toBe(true);
   });
 
   it("does not enable thinking mode for non-Kimi CLI agent types", () => {
-    const claude = buildAgentProfile({ agentType: "claude-code", permissionLevel: "full_access", workingDir: "." });
-    const codex = buildAgentProfile({ agentType: "codex-cli", permissionLevel: "full_access", workingDir: "." });
-    const copilot = buildAgentProfile({ agentType: "github-copilot", permissionLevel: "full_access", workingDir: "." });
+    const claude = buildAgentProfile({
+      agentType: "claude-code",
+      permissionLevel: "full_access",
+      workingDir: ".",
+    });
+    const codex = buildAgentProfile({
+      agentType: "codex-cli",
+      permissionLevel: "full_access",
+      workingDir: ".",
+    });
+    const copilot = buildAgentProfile({
+      agentType: "github-copilot",
+      permissionLevel: "full_access",
+      workingDir: ".",
+    });
 
     expect(claude).not.toHaveProperty("thinking");
     expect(codex).not.toHaveProperty("thinking");
@@ -152,9 +192,21 @@ describe("agent pairing profiles", () => {
   });
 
   it("keeps permission intent in GitHub Copilot profile capabilities", () => {
-    const readOnly = buildAgentProfile({ agentType: "github-copilot", permissionLevel: "read_only", workingDir: "." });
-    const limitedWrite = buildAgentProfile({ agentType: "github-copilot", permissionLevel: "limited_write", workingDir: "." });
-    const fullAccess = buildAgentProfile({ agentType: "github-copilot", permissionLevel: "full_access", workingDir: "." });
+    const readOnly = buildAgentProfile({
+      agentType: "github-copilot",
+      permissionLevel: "read_only",
+      workingDir: ".",
+    });
+    const limitedWrite = buildAgentProfile({
+      agentType: "github-copilot",
+      permissionLevel: "limited_write",
+      workingDir: ".",
+    });
+    const fullAccess = buildAgentProfile({
+      agentType: "github-copilot",
+      permissionLevel: "full_access",
+      workingDir: ".",
+    });
 
     expect(readOnly.capabilities).toContain("read_only");
     expect(readOnly.capabilities).toContain("repo.read");

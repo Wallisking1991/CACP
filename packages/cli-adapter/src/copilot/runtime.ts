@@ -1,7 +1,13 @@
 import type { AgentRunMetrics } from "@cacp/protocol";
 import { RunTraceRecorder } from "../run-trace.js";
 import { loadCopilotSdk } from "./copilot-sdk.js";
-import type { CopilotRuntimeInput, CopilotSdk, CopilotSdkSession, CopilotTurnInput, CopilotTurnResult } from "./types.js";
+import type {
+  CopilotRuntimeInput,
+  CopilotSdk,
+  CopilotSdkSession,
+  CopilotTurnInput,
+  CopilotTurnResult,
+} from "./types.js";
 
 function promptForTurn(input: CopilotTurnInput): string {
   return `${input.speakerName}(${input.speakerRole}): ${input.text}`;
@@ -12,18 +18,40 @@ import { permissionPolicy } from "../permission-policy.js";
 function permissionHandlerForLevel(level: string | undefined) {
   return (request: { kind: string }): { kind: string } => {
     const policy = permissionPolicy(level ?? "read_only", request.kind);
-    return { kind: policy === "allow" ? "approved" : "denied-interactively-by-user" };
+    return {
+      kind: policy === "allow" ? "approved" : "denied-interactively-by-user",
+    };
   };
 }
 
 const ReadToolNames = new Set(["read_file", "view", "cat", "read", "open"]);
 const SearchToolNames = new Set(["search", "grep", "find", "rg", "fd", "glob"]);
 
-function metricKeyForToolName(toolName: string): keyof AgentRunMetrics | undefined {
+function metricKeyForToolName(
+  toolName: string
+): keyof AgentRunMetrics | undefined {
   const normalized = toolName.toLowerCase().replace(/[-_]/g, "");
-  if (ReadToolNames.has(normalized) || normalized.includes("read") || normalized.includes("view") || normalized.includes("cat")) return "files_read";
-  if (SearchToolNames.has(normalized) || normalized.includes("search") || normalized.includes("grep") || normalized.includes("find")) return "searches";
-  if (normalized.includes("command") || normalized.includes("shell") || normalized.includes("bash") || normalized.includes("exec")) return "commands";
+  if (
+    ReadToolNames.has(normalized) ||
+    normalized.includes("read") ||
+    normalized.includes("view") ||
+    normalized.includes("cat")
+  )
+    return "files_read";
+  if (
+    SearchToolNames.has(normalized) ||
+    normalized.includes("search") ||
+    normalized.includes("grep") ||
+    normalized.includes("find")
+  )
+    return "searches";
+  if (
+    normalized.includes("command") ||
+    normalized.includes("shell") ||
+    normalized.includes("bash") ||
+    normalized.includes("exec")
+  )
+    return "commands";
   return undefined;
 }
 
@@ -32,7 +60,9 @@ function toolTitle(toolName: string): string {
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" ? value as Record<string, unknown> : {};
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function textFromToolResult(result: unknown): string {
@@ -54,31 +84,41 @@ export class CopilotRuntime {
   private activeAbortController: AbortController | undefined;
 
   constructor(private readonly input: CopilotRuntimeInput) {
-    this.sdkPromise = Promise.resolve(input.sdk ?? loadCopilotSdk()).catch((error) => {
-      this.sdkLoadError = error instanceof Error ? error : new Error(String(error));
-      return undefined;
-    });
+    this.sdkPromise = Promise.resolve(input.sdk ?? loadCopilotSdk()).catch(
+      (error) => {
+        this.sdkLoadError =
+          error instanceof Error ? error : new Error(String(error));
+        return undefined;
+      }
+    );
   }
 
-  async selectSession(selection: { mode: "fresh" } | { mode: "resume"; sessionId: string }): Promise<void> {
+  async selectSession(
+    selection: { mode: "fresh" } | { mode: "resume"; sessionId: string }
+  ): Promise<void> {
     const sdk = await this.sdkPromise;
-    if (!sdk) throw this.sdkLoadError ?? new Error("Copilot SDK is not available");
+    if (!sdk)
+      throw this.sdkLoadError ?? new Error("Copilot SDK is not available");
 
     await sdk.start();
 
-    const permissionHandler = permissionHandlerForLevel(this.input.permissionLevel);
+    const permissionHandler = permissionHandlerForLevel(
+      this.input.permissionLevel
+    );
     const config = {
       model: this.input.model,
       onPermissionRequest: permissionHandler,
       streaming: true,
-      workingDirectory: this.input.workingDir
+      workingDirectory: this.input.workingDir,
     };
 
     if (selection.mode === "fresh") {
       this.session = await sdk.createSession(config);
       this.sessionId = this.session.sessionId;
     } else {
-      this.session = await sdk.resumeSession(selection.sessionId, { onPermissionRequest: permissionHandler });
+      this.session = await sdk.resumeSession(selection.sessionId, {
+        onPermissionRequest: permissionHandler,
+      });
       this.sessionId = selection.sessionId;
     }
   }
@@ -88,19 +128,26 @@ export class CopilotRuntime {
       throw new Error("copilot_session_not_selected");
     }
 
-    const metrics: AgentRunMetrics = { files_read: 0, searches: 0, commands: 0 };
+    const metrics: AgentRunMetrics = {
+      files_read: 0,
+      searches: 0,
+      commands: 0,
+    };
     const countedTools = new Set<string>();
-    const recorder = new RunTraceRecorder({
-      turnId: input.turnId,
-      agentId: this.input.agentId,
-      provider: "github-copilot"
-    }, {
-      startNode: this.input.startNode,
-      appendNodeDelta: this.input.appendNodeDelta,
-      updateNode: this.input.updateNode,
-      completeNode: this.input.completeNode,
-      failNode: this.input.failNode
-    });
+    const recorder = new RunTraceRecorder(
+      {
+        turnId: input.turnId,
+        agentId: this.input.agentId,
+        provider: "github-copilot",
+      },
+      {
+        startNode: this.input.startNode,
+        appendNodeDelta: this.input.appendNodeDelta,
+        updateNode: this.input.updateNode,
+        completeNode: this.input.completeNode,
+        failNode: this.input.failNode,
+      }
+    );
 
     let finalText = "";
     let previousText = "";
@@ -112,23 +159,36 @@ export class CopilotRuntime {
     let eventQueue = Promise.resolve();
 
     const enqueue = (fn: () => Promise<void>): void => {
-      eventQueue = eventQueue.then(() => fn()).catch(() => { /* ignore */ });
+      eventQueue = eventQueue
+        .then(() => fn())
+        .catch(() => {
+          /* ignore */
+        });
     };
 
     const failOpenNodes = async (error: string) => {
       const openNodeIds = recorder.openNodeIds();
       if (openNodeIds.length === 0) {
         const nodeId = "copilot_error";
-        await recorder.startNode({ nodeId, kind: "status", status: "running", title: "Copilot run failed" });
+        await recorder.startNode({
+          nodeId,
+          kind: "status",
+          status: "running",
+          title: "Copilot run failed",
+        });
         await recorder.failNode({ nodeId, error });
         return;
       }
-      for (const nodeId of openNodeIds) await recorder.failNode({ nodeId, error });
+      for (const nodeId of openNodeIds)
+        await recorder.failNode({ nodeId, error });
     };
 
     const closeOpenNodes = async () => {
       for (const nodeId of recorder.openNodeIds()) {
-        await recorder.completeNode({ nodeId, summary: recorder.currentTitle(nodeId) ?? "Completed" });
+        await recorder.completeNode({
+          nodeId,
+          summary: recorder.currentTitle(nodeId) ?? "Completed",
+        });
       }
     };
 
@@ -142,7 +202,10 @@ export class CopilotRuntime {
 
     const handleFirstEvent = async () => {
       if (!hasReceivedFirstEvent) {
-        await recorder.completeNode({ nodeId: "connecting", summary: "Connected" });
+        await recorder.completeNode({
+          nodeId: "connecting",
+          summary: "Connected",
+        });
         hasReceivedFirstEvent = true;
       }
     };
@@ -151,7 +214,7 @@ export class CopilotRuntime {
       nodeId: "connecting",
       kind: "status",
       status: "running",
-      title: "Connecting"
+      title: "Connecting",
     });
 
     const abortController = new AbortController();
@@ -165,7 +228,11 @@ export class CopilotRuntime {
 
       const cleanup = () => {
         for (const unsub of unsubscribers) {
-          try { unsub(); } catch { /* ignore */ }
+          try {
+            unsub();
+          } catch {
+            /* ignore */
+          }
         }
       };
 
@@ -173,114 +240,170 @@ export class CopilotRuntime {
         if (hasCompleted) return;
         hasCompleted = true;
         cleanup();
-        session.abort().catch(() => { /* ignore */ });
-        eventQueue.then(() => closeOpenNodes()).then(() => {
-          resolve({ finalText, sessionId, metrics });
-        }).catch(reject);
+        session.abort().catch(() => {
+          /* ignore */
+        });
+        eventQueue
+          .then(() => closeOpenNodes())
+          .then(() => {
+            resolve({ finalText, sessionId, metrics });
+          })
+          .catch(reject);
       };
 
       abortController.signal.addEventListener("abort", onAbort, { once: true });
 
-      unsubscribers.push(session.on("assistant.message_delta", (event: unknown) => {
-        enqueue(async () => {
-          await handleFirstEvent();
-          const record = asRecord(event);
-          const data = asRecord(record.data);
-          const delta = typeof data.deltaContent === "string" ? data.deltaContent : "";
-          if (delta) {
-            finalText += delta;
-            await this.input.publishDelta(input.turnId, delta);
-          }
-        });
-      }));
-
-      unsubscribers.push(session.on("assistant.message", (event: unknown) => {
-        enqueue(async () => {
-          await handleFirstEvent();
-          const record = asRecord(event);
-          const data = asRecord(record.data);
-          const content = typeof data.content === "string" ? data.content : "";
-          if (content) {
-            const delta = previousText && content.startsWith(previousText)
-              ? content.slice(previousText.length)
-              : content;
-            previousText = content;
-            if (delta && !finalText.endsWith(delta)) {
-              finalText = content;
+      unsubscribers.push(
+        session.on("assistant.message_delta", (event: unknown) => {
+          enqueue(async () => {
+            await handleFirstEvent();
+            const record = asRecord(event);
+            const data = asRecord(record.data);
+            const delta =
+              typeof data.deltaContent === "string" ? data.deltaContent : "";
+            if (delta) {
+              finalText += delta;
               await this.input.publishDelta(input.turnId, delta);
-            } else {
-              finalText = content;
             }
-          }
-        });
-      }));
-
-      unsubscribers.push(session.on("tool.execution_start", (event: unknown) => {
-        enqueue(async () => {
-          await handleFirstEvent();
-          const record = asRecord(event);
-          const data = asRecord(record.data);
-          const toolCallId = typeof data.toolCallId === "string" ? data.toolCallId : "unknown";
-          const toolName = typeof data.toolName === "string" ? data.toolName : "unknown";
-
-          countToolMetric(toolCallId, toolName);
-          await recorder.startNode({
-            nodeId: toolCallId,
-            kind: "tool",
-            status: "running",
-            title: toolTitle(toolName)
           });
-        });
-      }));
+        })
+      );
 
-      unsubscribers.push(session.on("tool.execution_complete", (event: unknown) => {
-        enqueue(async () => {
-          await handleFirstEvent();
+      unsubscribers.push(
+        session.on("assistant.message", (event: unknown) => {
+          enqueue(async () => {
+            await handleFirstEvent();
+            const record = asRecord(event);
+            const data = asRecord(record.data);
+            const content =
+              typeof data.content === "string" ? data.content : "";
+            if (content) {
+              const delta =
+                previousText && content.startsWith(previousText)
+                  ? content.slice(previousText.length)
+                  : content;
+              previousText = content;
+              if (delta && !finalText.endsWith(delta)) {
+                finalText = content;
+                await this.input.publishDelta(input.turnId, delta);
+              } else {
+                finalText = content;
+              }
+            }
+          });
+        })
+      );
+
+      unsubscribers.push(
+        session.on("tool.execution_start", (event: unknown) => {
+          enqueue(async () => {
+            await handleFirstEvent();
+            const record = asRecord(event);
+            const data = asRecord(record.data);
+            const toolCallId =
+              typeof data.toolCallId === "string" ? data.toolCallId : "unknown";
+            const toolName =
+              typeof data.toolName === "string" ? data.toolName : "unknown";
+
+            countToolMetric(toolCallId, toolName);
+            await recorder.startNode({
+              nodeId: toolCallId,
+              kind: "tool",
+              status: "running",
+              title: toolTitle(toolName),
+            });
+          });
+        })
+      );
+
+      unsubscribers.push(
+        session.on("tool.execution_complete", (event: unknown) => {
+          enqueue(async () => {
+            await handleFirstEvent();
+            const record = asRecord(event);
+            const data = asRecord(record.data);
+            const toolCallId =
+              typeof data.toolCallId === "string" ? data.toolCallId : "unknown";
+            const result = data.result;
+
+            const output = textFromToolResult(result);
+            if (output) {
+              await recorder.appendNodeDelta({
+                nodeId: toolCallId,
+                deltaType: "stdout",
+                chunk: output,
+              });
+            }
+
+            await recorder.completeNode({
+              nodeId: toolCallId,
+              summary: output || "Tool completed",
+            });
+          });
+        })
+      );
+
+      unsubscribers.push(
+        session.on("session.idle", () => {
+          if (hasCompleted) return;
+          hasCompleted = true;
+          cleanup();
+          eventQueue
+            .then(() => closeOpenNodes())
+            .then(() => {
+              resolve({ finalText, sessionId, metrics });
+            })
+            .catch(reject);
+        })
+      );
+
+      unsubscribers.push(
+        session.on("session.error", (event: unknown) => {
+          if (hasCompleted) return;
+          hasCompleted = true;
+          cleanup();
           const record = asRecord(event);
           const data = asRecord(record.data);
-          const toolCallId = typeof data.toolCallId === "string" ? data.toolCallId : "unknown";
-          const result = data.result;
-
-          const output = textFromToolResult(result);
-          if (output) {
-            await recorder.appendNodeDelta({ nodeId: toolCallId, deltaType: "stdout", chunk: output });
-          }
-
-          await recorder.completeNode({ nodeId: toolCallId, summary: output || "Tool completed" });
-        });
-      }));
-
-      unsubscribers.push(session.on("session.idle", () => {
-        if (hasCompleted) return;
-        hasCompleted = true;
-        cleanup();
-        eventQueue.then(() => closeOpenNodes()).then(() => {
-          resolve({ finalText, sessionId, metrics });
-        }).catch(reject);
-      }));
-
-      unsubscribers.push(session.on("session.error", (event: unknown) => {
-        if (hasCompleted) return;
-        hasCompleted = true;
-        cleanup();
-        const record = asRecord(event);
-        const data = asRecord(record.data);
-        const message = typeof data.message === "string" ? data.message : "Copilot session error";
-        eventQueue.then(() => failOpenNodes(message)).then(() => {
-          reject(new Error(message));
-        }).catch(reject);
-      }));
+          const message =
+            typeof data.message === "string"
+              ? data.message
+              : "Copilot session error";
+          eventQueue
+            .then(() => failOpenNodes(message))
+            .then(() => {
+              reject(new Error(message));
+            })
+            .catch(reject);
+        })
+      );
 
       // Send the prompt after setting up all listeners
-      session.send({ prompt }).catch((error: unknown) => {
-        if (hasCompleted) return;
-        hasCompleted = true;
-        cleanup();
-        const message = error instanceof Error ? error.message : String(error);
-        eventQueue.then(() => failOpenNodes(message)).then(() => {
-          reject(new Error(message));
-        }).catch(reject);
-      });
+      session
+        .send({
+          prompt,
+          ...(input.attachments?.length
+            ? {
+                attachments: input.attachments.map((attachment) => ({
+                  type: "file" as const,
+                  path: attachment.path,
+                  displayName: attachment.name,
+                })),
+              }
+            : {}),
+        })
+        .catch((error: unknown) => {
+          if (hasCompleted) return;
+          hasCompleted = true;
+          cleanup();
+          const message =
+            error instanceof Error ? error.message : String(error);
+          eventQueue
+            .then(() => failOpenNodes(message))
+            .then(() => {
+              reject(new Error(message));
+            })
+            .catch(reject);
+        });
     }).finally(() => {
       if (this.activeAbortController === abortController) {
         this.activeAbortController = undefined;

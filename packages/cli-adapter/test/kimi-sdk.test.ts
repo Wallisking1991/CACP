@@ -1,5 +1,9 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { findKimiCli, createKimiSdkFromModule, loadKimiSdk } from "../src/kimi/kimi-sdk.js";
+import {
+  findKimiCli,
+  createKimiSdkFromModule,
+  loadKimiSdk,
+} from "../src/kimi/kimi-sdk.js";
 import type { KimiSdk } from "../src/kimi/types.js";
 
 describe("findKimiCli", () => {
@@ -42,11 +46,15 @@ describe("findKimiCli", () => {
 
 describe("createKimiSdkFromModule", () => {
   it("throws when module lacks createSession", () => {
-    expect(() => createKimiSdkFromModule({})).toThrow("Kimi SDK createSession was not found");
+    expect(() => createKimiSdkFromModule({})).toThrow(
+      "Kimi SDK createSession was not found"
+    );
   });
 
   it("throws when module lacks listSessions", () => {
-    expect(() => createKimiSdkFromModule({ createSession: () => ({}) })).toThrow("Kimi SDK listSessions was not found");
+    expect(() =>
+      createKimiSdkFromModule({ createSession: () => ({}) })
+    ).toThrow("Kimi SDK listSessions was not found");
   });
 
   it("wraps createSession and returns a KimiSdkSession", () => {
@@ -60,16 +68,18 @@ describe("createKimiSdkFromModule", () => {
       executable: "kimi",
       env: {},
       prompt: () => ({
-        [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve({ done: true, value: undefined }) }),
+        [Symbol.asyncIterator]: () => ({
+          next: () => Promise.resolve({ done: true, value: undefined }),
+        }),
         interrupt: () => Promise.resolve(),
         approve: () => Promise.resolve(),
-        result: Promise.resolve({ status: "finished" as const })
-      })
+        result: Promise.resolve({ status: "finished" as const }),
+      }),
     };
     const sdk = createKimiSdkFromModule({
       createSession: () => mockSession,
       listSessions: () => Promise.resolve([]),
-      parseSessionEvents: () => Promise.resolve([])
+      parseSessionEvents: () => Promise.resolve([]),
     });
 
     const session = sdk.createSession({ workDir: "/project" });
@@ -90,15 +100,24 @@ describe("createKimiSdkFromModule", () => {
         workDir: "/p",
         state: "idle",
         prompt: () => ({
-          [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve({ done: true, value: undefined }) }),
+          [Symbol.asyncIterator]: () => ({
+            next: () => Promise.resolve({ done: true, value: undefined }),
+          }),
           interrupt: () => Promise.resolve(),
           approve: () => Promise.resolve(),
-          result: Promise.resolve({ status: "finished" as const })
-        })
+          result: Promise.resolve({ status: "finished" as const }),
+        }),
       }),
-      listSessions: () => Promise.resolve([
-        { id: "s1", workDir: "/p", contextFile: "ctx.toml", updatedAt: 1700000000000, brief: "Hello" }
-      ])
+      listSessions: () =>
+        Promise.resolve([
+          {
+            id: "s1",
+            workDir: "/p",
+            contextFile: "ctx.toml",
+            updatedAt: 1700000000000,
+            brief: "Hello",
+          },
+        ]),
     });
 
     const sessions = await sdk.listSessions("/p");
@@ -108,7 +127,7 @@ describe("createKimiSdkFromModule", () => {
       workDir: "/p",
       contextFile: "ctx.toml",
       updatedAt: 1700000000000,
-      brief: "Hello"
+      brief: "Hello",
     });
   });
 
@@ -119,13 +138,15 @@ describe("createKimiSdkFromModule", () => {
         workDir: "/p",
         state: "idle",
         prompt: () => ({
-          [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve({ done: true, value: undefined }) }),
+          [Symbol.asyncIterator]: () => ({
+            next: () => Promise.resolve({ done: true, value: undefined }),
+          }),
           interrupt: () => Promise.resolve(),
           approve: () => Promise.resolve(),
-          result: Promise.resolve({ status: "finished" as const })
-        })
+          result: Promise.resolve({ status: "finished" as const }),
+        }),
       }),
-      listSessions: () => Promise.resolve(null)
+      listSessions: () => Promise.resolve(null),
     });
 
     const sessions = await sdk.listSessions("/p");
@@ -139,14 +160,17 @@ describe("createKimiSdkFromModule", () => {
         workDir: "/p",
         state: "idle",
         prompt: () => ({
-          [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve({ done: true, value: undefined }) }),
+          [Symbol.asyncIterator]: () => ({
+            next: () => Promise.resolve({ done: true, value: undefined }),
+          }),
           interrupt: () => Promise.resolve(),
           approve: () => Promise.resolve(),
-          result: Promise.resolve({ status: "finished" as const })
-        })
+          result: Promise.resolve({ status: "finished" as const }),
+        }),
       }),
       listSessions: () => Promise.resolve([]),
-      parseSessionEvents: () => Promise.resolve([{ type: "TurnBegin", payload: {} }])
+      parseSessionEvents: () =>
+        Promise.resolve([{ type: "TurnBegin", payload: {} }]),
     });
 
     const events = await sdk.parseSessionEvents("/p", "s1");
@@ -161,13 +185,15 @@ describe("createKimiSdkFromModule", () => {
         workDir: "/p",
         state: "idle",
         prompt: () => ({
-          [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve({ done: true, value: undefined }) }),
+          [Symbol.asyncIterator]: () => ({
+            next: () => Promise.resolve({ done: true, value: undefined }),
+          }),
           interrupt: () => Promise.resolve(),
           approve: () => Promise.resolve(),
-          result: Promise.resolve({ status: "finished" as const })
-        })
+          result: Promise.resolve({ status: "finished" as const }),
+        }),
       }),
-      listSessions: () => Promise.resolve([])
+      listSessions: () => Promise.resolve([]),
     });
 
     const events = await sdk.parseSessionEvents("/p", "s1");

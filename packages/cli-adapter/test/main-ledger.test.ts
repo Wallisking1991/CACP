@@ -15,7 +15,7 @@ describe("MainThreadLedger", () => {
       roomId: "room_1",
       connectorId: "conn_1",
       agentId: "agent_1",
-      ledgerDir: tempDir
+      ledgerDir: tempDir,
     });
   });
 
@@ -31,7 +31,7 @@ describe("MainThreadLedger", () => {
       actor_role: "owner",
       text: "Hello",
       source: "composer",
-      created_at: "2026-05-01T00:00:00.000Z"
+      created_at: "2026-05-01T00:00:00.000Z",
     });
     const entry2 = ledger.append({
       entry_type: "agent_final",
@@ -41,7 +41,7 @@ describe("MainThreadLedger", () => {
       text: "Hi there",
       source: "composer",
       created_at: "2026-05-01T00:00:01.000Z",
-      turn_id: "turn_1"
+      turn_id: "turn_1",
     });
 
     expect(entry1.sequence).toBe(0);
@@ -56,7 +56,7 @@ describe("MainThreadLedger", () => {
       actor_role: "owner",
       text: "Hello",
       source: "composer",
-      created_at: "2026-05-01T00:00:00.000Z"
+      created_at: "2026-05-01T00:00:00.000Z",
     });
 
     const ledgerPath = join(tempDir, "main-thread.jsonl");
@@ -75,7 +75,7 @@ describe("MainThreadLedger", () => {
       actor_role: "owner",
       text: "First",
       source: "composer",
-      created_at: "2026-05-01T00:00:00.000Z"
+      created_at: "2026-05-01T00:00:00.000Z",
     });
     ledger.append({
       entry_type: "human_input",
@@ -84,7 +84,7 @@ describe("MainThreadLedger", () => {
       actor_role: "member",
       text: "Second",
       source: "composer",
-      created_at: "2026-05-01T00:00:01.000Z"
+      created_at: "2026-05-01T00:00:01.000Z",
     });
     ledger.append({
       entry_type: "agent_final",
@@ -94,7 +94,7 @@ describe("MainThreadLedger", () => {
       text: "Third",
       source: "composer",
       created_at: "2026-05-01T00:00:02.000Z",
-      turn_id: "turn_1"
+      turn_id: "turn_1",
     });
 
     const snapshot = ledger.snapshotSince(1);
@@ -111,7 +111,7 @@ describe("MainThreadLedger", () => {
       actor_role: "owner",
       text: "Only",
       source: "composer",
-      created_at: "2026-05-01T00:00:00.000Z"
+      created_at: "2026-05-01T00:00:00.000Z",
     });
 
     const snapshot = ledger.snapshotSince(0);
@@ -126,7 +126,7 @@ describe("MainThreadLedger", () => {
       actor_role: "owner",
       text: "Only",
       source: "composer",
-      created_at: "2026-05-01T00:00:00.000Z"
+      created_at: "2026-05-01T00:00:00.000Z",
     });
 
     const snapshot = ledger.snapshotSince(5);
@@ -142,7 +142,7 @@ describe("MainThreadLedger", () => {
       actor_role: "owner",
       text: `My key is ${tokenLike}`,
       source: "composer",
-      created_at: "2026-05-01T00:00:00.000Z"
+      created_at: "2026-05-01T00:00:00.000Z",
     });
 
     const ledgerPath = join(tempDir, "main-thread.jsonl");
@@ -159,14 +159,14 @@ describe("MainThreadLedger", () => {
       actor_role: "owner",
       text: "Existing",
       source: "composer",
-      created_at: "2026-05-01T00:00:00.000Z"
+      created_at: "2026-05-01T00:00:00.000Z",
     });
 
     const ledger2 = new MainThreadLedger({
       roomId: "room_1",
       connectorId: "conn_1",
       agentId: "agent_1",
-      ledgerDir: tempDir
+      ledgerDir: tempDir,
     });
 
     const snapshot = ledger2.snapshotSince(0);
@@ -182,14 +182,14 @@ describe("MainThreadLedger", () => {
       actor_role: "owner",
       text: "Existing",
       source: "composer",
-      created_at: "2026-05-01T00:00:00.000Z"
+      created_at: "2026-05-01T00:00:00.000Z",
     });
 
     const ledger2 = new MainThreadLedger({
       roomId: "room_1",
       connectorId: "conn_1",
       agentId: "agent_1",
-      ledgerDir: tempDir
+      ledgerDir: tempDir,
     });
 
     const next = ledger2.append({
@@ -199,7 +199,7 @@ describe("MainThreadLedger", () => {
       actor_role: "agent",
       text: "Next",
       source: "composer",
-      created_at: "2026-05-01T00:00:01.000Z"
+      created_at: "2026-05-01T00:00:01.000Z",
     });
 
     expect(next.sequence).toBe(1);

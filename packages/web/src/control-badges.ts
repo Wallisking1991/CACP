@@ -21,10 +21,18 @@ export function badgeChangesForCollapsedControls(input: {
   if (!input.collapsed) return zeroBadges();
 
   return {
-    agent: input.existing.agent + positiveDelta(input.current.agents, input.previous.agents),
-    invite: input.existing.invite + positiveDelta(input.current.invites, input.previous.invites),
-    participants: input.existing.participants + positiveDelta(input.current.participants, input.previous.participants),
-    flow: input.existing.flow + positiveDelta(input.current.flow, input.previous.flow)
+    agent:
+      input.existing.agent +
+      positiveDelta(input.current.agents, input.previous.agents),
+    invite:
+      input.existing.invite +
+      positiveDelta(input.current.invites, input.previous.invites),
+    participants:
+      input.existing.participants +
+      positiveDelta(input.current.participants, input.previous.participants),
+    flow:
+      input.existing.flow +
+      positiveDelta(input.current.flow, input.previous.flow),
   };
 }
 

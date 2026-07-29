@@ -6,7 +6,7 @@
     "moduleResolution": "Bundler",
     "types": ["vite/client", "node"]
   },
-  "include": ["src", "test", "vite.config.ts"],
+  "include": ["src", "test", "vite.config.ts", "vitest.config.ts"],
   "ts-node": {
     "compilerOptions": {
       "module": "CommonJS"

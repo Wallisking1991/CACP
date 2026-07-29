@@ -21,7 +21,9 @@ describe("RoomIdentity", () => {
 
     expect(screen.getByText("CACP AI Room")).toBeInTheDocument();
     expect(screen.getByText("Wei · Owner")).toBeInTheDocument();
-    expect(document.querySelector(".room-identity-avatar")).not.toBeInTheDocument();
+    expect(
+      document.querySelector(".room-identity-avatar")
+    ).not.toBeInTheDocument();
     expect(document.querySelector(".role-badge")).not.toBeInTheDocument();
   });
 
@@ -40,7 +42,9 @@ describe("RoomIdentity", () => {
     );
 
     expect(screen.getByText("John Doe · Member")).toBeInTheDocument();
-    expect(document.querySelector(".room-identity-avatar")).not.toBeInTheDocument();
+    expect(
+      document.querySelector(".room-identity-avatar")
+    ).not.toBeInTheDocument();
     expect(document.querySelector(".role-badge")).not.toBeInTheDocument();
   });
 
@@ -61,9 +65,15 @@ describe("RoomIdentity", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Share/i }));
-    expect(screen.getByRole("button", { name: /Create room invite/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Copy room connection code/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Copy room ID/i })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Create room invite/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Copy room connection code/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Copy room ID/i })
+    ).not.toBeInTheDocument();
   });
 
   it("does not show share button for non-owner", () => {
@@ -80,7 +90,9 @@ describe("RoomIdentity", () => {
       </LangProvider>
     );
 
-    expect(screen.queryByRole("button", { name: /Share/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Share/i })
+    ).not.toBeInTheDocument();
   });
 
   it("shows invite panel with maxUses selector via share menu", () => {
@@ -97,7 +109,9 @@ describe("RoomIdentity", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Share/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Create room invite/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Create room invite/i })
+    );
     expect(screen.getByLabelText(/Invite size/i)).toBeInTheDocument();
   });
 
@@ -110,16 +124,31 @@ describe("RoomIdentity", () => {
           isOwner={true}
           onCopyRoomId={vi.fn()}
           onCreateInvite={vi.fn(async () => "http://localhost/invite")}
-          createdInvite={{ url: "http://localhost/invite?token=abc", role: "member", ttl: 3600, max_uses: 5 }}
+          createdInvite={{
+            url: "http://localhost/invite?token=abc",
+            role: "member",
+            ttl: 3600,
+            max_uses: 5,
+          }}
           invites={[
-            { invite_id: "inv_1", role: "member", expires_at: "2026-04-26T00:00:00.000Z", max_uses: 5, used_count: 2, remaining: 3, revoked: false }
+            {
+              invite_id: "inv_1",
+              role: "member",
+              expires_at: "2026-04-26T00:00:00.000Z",
+              max_uses: 5,
+              used_count: 2,
+              remaining: 3,
+              revoked: false,
+            },
           ]}
         />
       </LangProvider>
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Share/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Create room invite/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Create room invite/i })
+    );
     expect(screen.getByText(/member — 3\/5 left/i)).toBeInTheDocument();
   });
 });

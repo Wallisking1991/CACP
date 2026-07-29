@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { protocolSafeErrorMessage, reportTurnFailure } from "../src/error-reporting.js";
+import {
+  protocolSafeErrorMessage,
+  reportTurnFailure,
+} from "../src/error-reporting.js";
 
 describe("adapter error reporting", () => {
   it("truncates runtime-status errors to the protocol limit", () => {
@@ -22,10 +25,13 @@ describe("adapter error reporting", () => {
       displayError: "Codex failed",
       reportRunFailure,
       failTurn,
-      now: () => "2026-05-01T00:00:00.000Z"
+      now: () => "2026-05-01T00:00:00.000Z",
     });
 
-    expect(reportRunFailure).toHaveBeenCalledWith("Codex failed", "2026-05-01T00:00:00.000Z");
+    expect(reportRunFailure).toHaveBeenCalledWith(
+      "Codex failed",
+      "2026-05-01T00:00:00.000Z"
+    );
     expect(failTurn).toHaveBeenCalledWith("Codex failed");
     expect(steps).toEqual(["run", "turn"]);
   });
@@ -42,17 +48,23 @@ describe("adapter error reporting", () => {
       reportRunFailure,
       failTurn,
       now: () => "2026-05-01T00:00:00.000Z",
-      log
+      log,
     });
 
-    expect(reportRunFailure).toHaveBeenCalledWith("Codex failed", "2026-05-01T00:00:00.000Z");
+    expect(reportRunFailure).toHaveBeenCalledWith(
+      "Codex failed",
+      "2026-05-01T00:00:00.000Z"
+    );
     expect(failTurn).toHaveBeenCalledWith("Codex failed");
-    expect(log).toHaveBeenCalledWith("Adapter failed to report run failure", expect.any(Error));
+    expect(log).toHaveBeenCalledWith(
+      "Adapter failed to report run failure",
+      expect.any(Error)
+    );
   });
 
   it("does not log when run-failure reporting fails with 401 Unauthorized (token expired)", async () => {
     const reportRunFailure = vi.fn(async () => {
-      throw new Error("401 Unauthorized: {\"error\":\"invalid_token\"}");
+      throw new Error('401 Unauthorized: {"error":"invalid_token"}');
     });
     const failTurn = vi.fn(async () => undefined);
     const log = vi.fn();
@@ -62,10 +74,13 @@ describe("adapter error reporting", () => {
       reportRunFailure,
       failTurn,
       now: () => "2026-05-01T00:00:00.000Z",
-      log
+      log,
     });
 
-    expect(reportRunFailure).toHaveBeenCalledWith("Codex failed", "2026-05-01T00:00:00.000Z");
+    expect(reportRunFailure).toHaveBeenCalledWith(
+      "Codex failed",
+      "2026-05-01T00:00:00.000Z"
+    );
     expect(failTurn).toHaveBeenCalledWith("Codex failed");
     expect(log).not.toHaveBeenCalled();
   });
@@ -73,7 +88,7 @@ describe("adapter error reporting", () => {
   it("does not log when failTurn fails with 401 Unauthorized (token expired)", async () => {
     const reportRunFailure = vi.fn(async () => undefined);
     const failTurn = vi.fn(async () => {
-      throw new Error("401 Unauthorized: {\"error\":\"invalid_token\"}");
+      throw new Error('401 Unauthorized: {"error":"invalid_token"}');
     });
     const log = vi.fn();
 
@@ -82,10 +97,13 @@ describe("adapter error reporting", () => {
       reportRunFailure,
       failTurn,
       now: () => "2026-05-01T00:00:00.000Z",
-      log
+      log,
     });
 
-    expect(reportRunFailure).toHaveBeenCalledWith("Codex failed", "2026-05-01T00:00:00.000Z");
+    expect(reportRunFailure).toHaveBeenCalledWith(
+      "Codex failed",
+      "2026-05-01T00:00:00.000Z"
+    );
     expect(failTurn).toHaveBeenCalledWith("Codex failed");
     expect(log).not.toHaveBeenCalled();
   });

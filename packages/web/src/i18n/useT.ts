@@ -15,7 +15,6 @@ export function useT() {
     if (text === undefined) {
       text = fallback[key];
       if (import.meta.env.DEV && text === undefined) {
-        // eslint-disable-next-line no-console
         console.warn(`[i18n] Missing translation key: "${key}"`);
       }
     }

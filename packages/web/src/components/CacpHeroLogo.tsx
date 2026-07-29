@@ -2,16 +2,20 @@ import { useLayoutEffect, useRef } from "react";
 import gsap from "gsap";
 
 function prefersReducedMotion(): boolean {
-  return typeof window !== "undefined" &&
+  return (
+    typeof window !== "undefined" &&
     typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
 }
 
 interface CacpHeroLogoProps {
   ariaLabel?: string;
 }
 
-export default function CacpHeroLogo({ ariaLabel = "CACP protocol room logo" }: CacpHeroLogoProps) {
+export default function CacpHeroLogo({
+  ariaLabel = "CACP protocol room logo",
+}: CacpHeroLogoProps) {
   const rootRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
@@ -33,11 +37,27 @@ export default function CacpHeroLogo({ ariaLabel = "CACP protocol room logo" }: 
 
       const intro = gsap.timeline({ defaults: { ease: "power3.out" } });
       intro
-        .to(".logo-draw", { strokeDashoffset: 0, duration: 1.05, stagger: 0.08 })
+        .to(".logo-draw", {
+          strokeDashoffset: 0,
+          duration: 1.05,
+          stagger: 0.08,
+        })
         .to(".logo-core", { opacity: 1, scale: 1, duration: 0.45 }, "-=0.45")
-        .to(".logo-node", { opacity: 1, scale: 1, duration: 0.36, stagger: 0.1 }, "-=0.2")
-        .to(".logo-orbit-dot", { opacity: 1, scale: 1, duration: 0.28 }, "-=0.16")
-        .to(".logo-wordmark", { opacity: 1, scale: 1, y: 0, duration: 0.42 }, "-=0.22");
+        .to(
+          ".logo-node",
+          { opacity: 1, scale: 1, duration: 0.36, stagger: 0.1 },
+          "-=0.2"
+        )
+        .to(
+          ".logo-orbit-dot",
+          { opacity: 1, scale: 1, duration: 0.28 },
+          "-=0.16"
+        )
+        .to(
+          ".logo-wordmark",
+          { opacity: 1, scale: 1, y: 0, duration: 0.42 },
+          "-=0.22"
+        );
 
       gsap.to(".logo-core", {
         opacity: 0.9,
@@ -68,8 +88,18 @@ export default function CacpHeroLogo({ ariaLabel = "CACP protocol room logo" }: 
   }, []);
 
   return (
-    <div ref={rootRef} className="cacp-hero-logo" aria-label={ariaLabel} role="img">
-      <svg className="cacp-hero-logo__mark" viewBox="0 0 200 200" role="img" aria-hidden="true">
+    <div
+      ref={rootRef}
+      className="cacp-hero-logo"
+      aria-label={ariaLabel}
+      role="img"
+    >
+      <svg
+        className="cacp-hero-logo__mark"
+        viewBox="0 0 200 200"
+        role="img"
+        aria-hidden="true"
+      >
         <defs>
           <radialGradient id="cacp-core-glow" cx="50%" cy="50%" r="50%">
             <stop offset="0%" stopColor="#f97316" stopOpacity="0.95" />
@@ -83,7 +113,14 @@ export default function CacpHeroLogo({ ariaLabel = "CACP protocol room logo" }: 
           </linearGradient>
         </defs>
 
-        <rect className="logo-draw logo-frame" x="33" y="33" width="134" height="134" rx="36" />
+        <rect
+          className="logo-draw logo-frame"
+          x="33"
+          y="33"
+          width="134"
+          height="134"
+          rx="36"
+        />
         <path className="logo-draw logo-orbit" d="M57 111c18 42 77 48 104 12" />
         <path className="logo-draw logo-orbit" d="M143 89C125 47 66 41 39 77" />
         <path className="logo-draw logo-link" d="M100 100 68 66" />
@@ -91,7 +128,12 @@ export default function CacpHeroLogo({ ariaLabel = "CACP protocol room logo" }: 
         <path className="logo-draw logo-link" d="M100 100 90 151" />
 
         <circle className="logo-core logo-core-glow" cx="100" cy="100" r="36" />
-        <circle className="logo-core logo-core-solid" cx="100" cy="100" r="13" />
+        <circle
+          className="logo-core logo-core-solid"
+          cx="100"
+          cy="100"
+          r="13"
+        />
         <circle className="logo-node" cx="68" cy="66" r="8" />
         <circle className="logo-node" cx="144" cy="84" r="8" />
         <circle className="logo-node" cx="90" cy="151" r="8" />

@@ -78,7 +78,12 @@ describe("Popover", () => {
       const triggerRef = useRef<HTMLButtonElement>(null);
       return (
         <>
-          <button ref={triggerRef} style={{ position: "fixed", top: 100, left: 200 }}>Trigger</button>
+          <button
+            ref={triggerRef}
+            style={{ position: "fixed", top: 100, left: 200 }}
+          >
+            Trigger
+          </button>
           <Popover triggerRef={triggerRef} open={true} onClose={vi.fn()}>
             <div data-testid="popover-content">Content</div>
           </Popover>
@@ -86,7 +91,9 @@ describe("Popover", () => {
       );
     }
     render(<TestComponent />);
-    const content = screen.getByTestId("popover-content").closest("[data-popover='true']") as HTMLElement;
+    const content = screen
+      .getByTestId("popover-content")
+      .closest("[data-popover='true']") as HTMLElement;
     expect(content).toBeInTheDocument();
     // Position should be computed based on trigger rect
     expect(content.style.position).toBe("fixed");
@@ -107,7 +114,9 @@ describe("Popover", () => {
       );
     }
     render(<TestComponent />);
-    const panel = screen.getByTestId("popover-content").closest("[data-popover='true']") as HTMLElement;
+    const panel = screen
+      .getByTestId("popover-content")
+      .closest("[data-popover='true']") as HTMLElement;
 
     fireEvent.mouseLeave(panel);
     expect(onClose).not.toHaveBeenCalled();
@@ -128,7 +137,9 @@ describe("Popover", () => {
       const triggerRef = useRef<HTMLButtonElement>(null);
       return (
         <>
-          <button ref={triggerRef} data-testid="trigger">Trigger</button>
+          <button ref={triggerRef} data-testid="trigger">
+            Trigger
+          </button>
           <Popover triggerRef={triggerRef} open={true} onClose={onClose}>
             <div data-testid="popover-content">Content</div>
           </Popover>
@@ -160,7 +171,9 @@ describe("Popover", () => {
       );
     }
     render(<TestComponent />);
-    const panel = screen.getByTestId("popover-content").closest("[data-popover='true']") as HTMLElement;
+    const panel = screen
+      .getByTestId("popover-content")
+      .closest("[data-popover='true']") as HTMLElement;
 
     fireEvent.mouseLeave(panel);
     vi.advanceTimersByTime(1000);

@@ -8,7 +8,11 @@ export interface OrbitClearConfirmDialogProps {
   onCancel: () => void;
 }
 
-export function OrbitClearConfirmDialog({ open, onConfirm, onCancel }: OrbitClearConfirmDialogProps) {
+export function OrbitClearConfirmDialog({
+  open,
+  onConfirm,
+  onCancel,
+}: OrbitClearConfirmDialogProps) {
   const t = useT();
   const titleId = useId();
   const bodyId = useId();
@@ -42,10 +46,14 @@ export function OrbitClearConfirmDialog({ open, onConfirm, onCancel }: OrbitClea
         onClick={(e) => e.stopPropagation()}
       >
         <div className="orbit-promote-modal-header">
-          <h2 id={titleId} className="orbit-promote-modal-title">{titleLabel}</h2>
+          <h2 id={titleId} className="orbit-promote-modal-title">
+            {titleLabel}
+          </h2>
         </div>
         <div className="orbit-promote-modal-body">
-          <p id={bodyId} className="orbit-clear-confirm-body">{bodyLabel}</p>
+          <p id={bodyId} className="orbit-clear-confirm-body">
+            {bodyLabel}
+          </p>
         </div>
         <div className="orbit-promote-modal-footer">
           <button

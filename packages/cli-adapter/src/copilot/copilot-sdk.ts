@@ -7,7 +7,9 @@ import type { CopilotSdk, CopilotSdkSession } from "./types.js";
 type UnknownSdkModule = Record<string | symbol, unknown>;
 
 function asRecord(value: unknown): Record<string | symbol, unknown> {
-  return value && typeof value === "object" ? value as Record<string | symbol, unknown> : {};
+  return value && typeof value === "object"
+    ? (value as Record<string | symbol, unknown>)
+    : {};
 }
 
 function binaryName(): string {
@@ -16,11 +18,16 @@ function binaryName(): string {
 
 function execWhich(command: string): string | undefined {
   try {
-    const result = execSync(command, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }).trim();
+    const result = execSync(command, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
+    }).trim();
     if (result) {
       const first = result.split(/\r?\n/)[0].trim();
       // On Windows, reject .cmd/.bat shims
-      if (process.platform === "win32" && /\.(cmd|bat)$/i.test(first)) return undefined;
+      if (process.platform === "win32" && /\.(cmd|bat)$/i.test(first))
+        return undefined;
       if (existsSync(first)) return first;
     }
   } catch {
@@ -81,7 +88,9 @@ export function findCopilotCli(): string | undefined {
   return undefined;
 }
 
-function scanPnpmVirtualStoreForCopilot(baseDirs: string[]): string | undefined {
+function scanPnpmVirtualStoreForCopilot(
+  baseDirs: string[]
+): string | undefined {
   for (const base of baseDirs) {
     const pnpmDir = join(base, "node_modules", ".pnpm");
     if (!existsSync(pnpmDir)) continue;
@@ -89,7 +98,14 @@ function scanPnpmVirtualStoreForCopilot(baseDirs: string[]): string | undefined 
       const entries = readdirSync(pnpmDir, { withFileTypes: true });
       for (const entry of entries) {
         if (entry.isDirectory() && entry.name.startsWith("@github+copilot@")) {
-          const candidate = join(pnpmDir, entry.name, "node_modules", "@github", "copilot", "index.js");
+          const candidate = join(
+            pnpmDir,
+            entry.name,
+            "node_modules",
+            "@github",
+            "copilot",
+            "index.js"
+          );
           if (existsSync(candidate)) return candidate;
         }
       }
@@ -102,7 +118,13 @@ function scanPnpmVirtualStoreForCopilot(baseDirs: string[]): string | undefined 
 
 function scanNpmLocalForCopilot(baseDirs: string[]): string | undefined {
   for (const base of baseDirs) {
-    const candidate = join(base, "node_modules", "@github", "copilot", "index.js");
+    const candidate = join(
+      base,
+      "node_modules",
+      "@github",
+      "copilot",
+      "index.js"
+    );
     if (existsSync(candidate)) return candidate;
   }
   return undefined;
@@ -110,7 +132,10 @@ function scanNpmLocalForCopilot(baseDirs: string[]): string | undefined {
 
 function resolveNpmGlobalRoot(): string | undefined {
   try {
-    const result = execSync("npm root -g", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    const result = execSync("npm root -g", {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
     if (result && existsSync(result)) return result;
   } catch {
     // ignore
@@ -120,7 +145,10 @@ function resolveNpmGlobalRoot(): string | undefined {
 
 function resolvePnpmGlobalRoot(): string | undefined {
   try {
-    const result = execSync("pnpm root -g", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    const result = execSync("pnpm root -g", {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
     if (result && existsSync(result)) return result;
   } catch {
     // ignore
@@ -130,7 +158,10 @@ function resolvePnpmGlobalRoot(): string | undefined {
 
 function resolveYarnGlobalRoot(): string | undefined {
   try {
-    const globalDir = execSync("yarn global dir", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    const globalDir = execSync("yarn global dir", {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
     if (globalDir) {
       const candidate = join(globalDir, "node_modules");
       if (existsSync(candidate)) return candidate;
@@ -157,7 +188,8 @@ function scanNpmGlobalForCopilot(): string | undefined {
     const appData = process.env.APPDATA;
     if (appData) globalRoots.push(join(appData, "npm", "node_modules"));
     const localAppData = process.env.LOCALAPPDATA;
-    if (localAppData) globalRoots.push(join(localAppData, "npm", "node_modules"));
+    if (localAppData)
+      globalRoots.push(join(localAppData, "npm", "node_modules"));
   } else {
     globalRoots.push(join(homedir(), ".npm", "lib", "node_modules"));
     globalRoots.push("/usr/local/lib/node_modules");
@@ -173,7 +205,6 @@ function scanNpmGlobalForCopilot(): string | undefined {
 
 function resolveCopilotViaRequire(): string | undefined {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const resolved = require.resolve("@github/copilot");
     if (existsSync(resolved)) return resolved;
   } catch {
@@ -198,7 +229,9 @@ export function findCopilotPackage(): string | undefined {
   const baseDirs: string[] = [];
   try {
     baseDirs.push(...collectAncestorDirs(process.cwd()));
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   // 1. pnpm virtual store (walk up from cwd so monorepo subdirs work)
   const fromPnpm = scanPnpmVirtualStoreForCopilot(baseDirs);
@@ -239,7 +272,7 @@ function wrapSession(rawSession: unknown): CopilotSdkSession {
       return typeof sessionId === "string" ? sessionId : "";
     },
     async send(options: { prompt: string }): Promise<string> {
-      return await send.call(rawSession, options) as string;
+      return (await send.call(rawSession, options)) as string;
     },
     async abort(): Promise<void> {
       if (typeof abort === "function") await abort.call(rawSession);
@@ -249,27 +282,48 @@ function wrapSession(rawSession: unknown): CopilotSdkSession {
     },
     on(event: string, handler: (event: unknown) => void): () => void {
       const unsubscribe = on.call(rawSession, event, handler);
-      return typeof unsubscribe === "function" ? unsubscribe : () => { /* no-op */ };
-    }
+      return typeof unsubscribe === "function"
+        ? unsubscribe
+        : () => {
+            /* no-op */
+          };
+    },
   };
 }
 
-export function createCopilotSdkFromModule(module: UnknownSdkModule, options: { cliPath?: string } = {}): CopilotSdk {
+export function createCopilotSdkFromModule(
+  module: UnknownSdkModule,
+  options: { cliPath?: string } = {}
+): CopilotSdk {
   const CopilotClient = module.CopilotClient;
   if (typeof CopilotClient !== "function") {
-    throw new Error("Copilot SDK CopilotClient constructor was not found. Install @github/copilot-sdk.");
+    throw new Error(
+      "Copilot SDK CopilotClient constructor was not found. Install @github/copilot-sdk."
+    );
   }
 
-  const client = new (CopilotClient as new (options?: { cliPath?: string; useStdio?: boolean; autoStart?: boolean }) => {
-    createSession(config: unknown): Promise<unknown>;
-    resumeSession(sessionId: string, config: unknown): Promise<unknown>;
-    listSessions(): Promise<unknown>;
-    start(): Promise<unknown>;
-    stop(): Promise<unknown>;
-  })({
-    ...(options.cliPath ? { cliPath: options.cliPath } : {}),
-    useStdio: true,
-    autoStart: true
+  const runtimeConnection = asRecord(module.RuntimeConnection);
+  const forStdio = runtimeConnection.forStdio;
+  if (options.cliPath && typeof forStdio !== "function") {
+    throw new Error(
+      "Copilot SDK RuntimeConnection.forStdio() was not found. Install a compatible @github/copilot-sdk version."
+    );
+  }
+  const connection =
+    options.cliPath && typeof forStdio === "function"
+      ? forStdio.call(module.RuntimeConnection, { path: options.cliPath })
+      : undefined;
+
+  const client = new (
+    CopilotClient as new (options?: { connection?: unknown }) => {
+      createSession(config: unknown): Promise<unknown>;
+      resumeSession(sessionId: string, config: unknown): Promise<unknown>;
+      listSessions(): Promise<unknown>;
+      start(): Promise<unknown>;
+      stop(): Promise<unknown>;
+    }
+  )({
+    ...(connection ? { connection } : {}),
   });
 
   return {
@@ -287,10 +341,18 @@ export function createCopilotSdkFromModule(module: UnknownSdkModule, options: { 
       return result.map((item) => {
         const record = asRecord(item);
         return {
-          sessionId: typeof record.sessionId === "string" ? record.sessionId : String(record.sessionId ?? ""),
-          startTime: record.startTime instanceof Date ? record.startTime : new Date(),
-          modifiedTime: record.modifiedTime instanceof Date ? record.modifiedTime : new Date(),
-          summary: typeof record.summary === "string" ? record.summary : undefined
+          sessionId:
+            typeof record.sessionId === "string"
+              ? record.sessionId
+              : String(record.sessionId ?? ""),
+          startTime:
+            record.startTime instanceof Date ? record.startTime : new Date(),
+          modifiedTime:
+            record.modifiedTime instanceof Date
+              ? record.modifiedTime
+              : new Date(),
+          summary:
+            typeof record.summary === "string" ? record.summary : undefined,
         };
       });
     },
@@ -299,22 +361,26 @@ export function createCopilotSdkFromModule(module: UnknownSdkModule, options: { 
     },
     async stop(): Promise<Error[]> {
       const result = await client.stop();
-      if (Array.isArray(result)) return result.filter((e): e is Error => e instanceof Error);
+      if (Array.isArray(result))
+        return result.filter((e): e is Error => e instanceof Error);
       return [];
-    }
+    },
   };
 }
 
-export async function loadCopilotSdk(options: { cliPath?: string } = {}): Promise<CopilotSdk> {
+export async function loadCopilotSdk(
+  options: { cliPath?: string } = {}
+): Promise<CopilotSdk> {
   // Suppress Node.js experimental SQLite warnings from gh CLI copilot subprocess
   process.env.NODE_NO_WARNINGS = "1";
 
   // @ts-ignore — optional dependency, resolved at runtime when @github/copilot-sdk is installed
-  const module = await import("@github/copilot-sdk") as UnknownSdkModule;
+  const module = (await import("@github/copilot-sdk")) as UnknownSdkModule;
 
-  const cliPath = options.cliPath
-    ?? findCopilotPackage()
-    ?? findCopilotCli()
-    ?? process.env.CACP_COPILOT_PATH;
+  const cliPath =
+    options.cliPath ??
+    findCopilotPackage() ??
+    findCopilotCli() ??
+    process.env.CACP_COPILOT_PATH;
   return createCopilotSdkFromModule(module, cliPath ? { cliPath } : {});
 }

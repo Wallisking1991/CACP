@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { useT } from "../i18n/useT.js";
 import type { ParticipantView } from "../room-state.js";
-import { RoleChangeConfirmDialog, type ParticipantRole } from "./RoleChangeConfirmDialog.js";
+import {
+  RoleChangeConfirmDialog,
+  type ParticipantRole,
+} from "./RoleChangeConfirmDialog.js";
 
 export interface PeopleAvatarPopoverProps {
   participants: ParticipantView[];
@@ -46,7 +49,10 @@ export function PeopleAvatarPopover({
             <span className="popover-list-item-meta">
               {roleLabel(participant.role as ParticipantRole)}
             </span>
-            {isOwner && participant.id !== currentParticipantId && onUpdateRole && participant.role !== "owner" ? (
+            {isOwner &&
+            participant.id !== currentParticipantId &&
+            onUpdateRole &&
+            participant.role !== "owner" ? (
               <select
                 className="role-select"
                 value={participant.role}
@@ -58,19 +64,27 @@ export function PeopleAvatarPopover({
                     newRole: e.target.value as ParticipantRole,
                   });
                 }}
-                aria-label={t("sidebar.changeRole", { name: participant.display_name })}
+                aria-label={t("sidebar.changeRole", {
+                  name: participant.display_name,
+                })}
               >
                 <option value="admin">{t("role.admin")}</option>
                 <option value="member">{t("role.member")}</option>
                 <option value="observer">{t("role.observer")}</option>
               </select>
             ) : null}
-            {(isOwner || canRemoveParticipants) && participant.id !== currentParticipantId && onRemoveParticipant && participant.role !== "owner" && (!canRemoveParticipants || participant.role !== "admin") ? (
+            {(isOwner || canRemoveParticipants) &&
+            participant.id !== currentParticipantId &&
+            onRemoveParticipant &&
+            participant.role !== "owner" &&
+            (!canRemoveParticipants || participant.role !== "admin") ? (
               <button
                 type="button"
                 className="btn btn-ghost btn-sm"
                 onClick={() => onRemoveParticipant(participant.id)}
-                aria-label={t("sidebar.removeAvatar", { name: participant.display_name })}
+                aria-label={t("sidebar.removeAvatar", {
+                  name: participant.display_name,
+                })}
               >
                 {t("sidebar.removeParticipant")}
               </button>

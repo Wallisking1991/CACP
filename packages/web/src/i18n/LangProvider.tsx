@@ -1,4 +1,10 @@
-import { createContext, useCallback, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import enMessages from "./messages.en.json";
 import zhMessages from "./messages.zh.json";
 
@@ -13,7 +19,10 @@ export const LangContext = createContext<LangContextValue | null>(null);
 
 const STORAGE_KEY = "cacp.web.lang";
 
-export function resolveLang(storageValue: string | null, navigatorLang: string): Lang {
+export function resolveLang(
+  storageValue: string | null,
+  navigatorLang: string
+): Lang {
   if (storageValue === "zh" || storageValue === "en") {
     return storageValue;
   }
@@ -24,8 +33,12 @@ export function resolveLang(storageValue: string | null, navigatorLang: string):
 }
 
 function getInitialLang(): Lang {
-  const stored = typeof localStorage !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null;
-  const navigatorLang = typeof navigator !== "undefined" ? navigator.language : "en";
+  const stored =
+    typeof localStorage !== "undefined"
+      ? localStorage.getItem(STORAGE_KEY)
+      : null;
+  const navigatorLang =
+    typeof navigator !== "undefined" ? navigator.language : "en";
   const resolved = resolveLang(stored, navigatorLang);
   if (typeof localStorage !== "undefined" && stored !== resolved) {
     localStorage.setItem(STORAGE_KEY, resolved);
@@ -56,5 +69,5 @@ export type Messages = typeof enMessages;
 
 export const messageCatalog: Record<Lang, Messages> = {
   en: enMessages,
-  zh: zhMessages
+  zh: zhMessages,
 };

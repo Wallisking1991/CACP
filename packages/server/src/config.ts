@@ -7,6 +7,10 @@ export interface ServerConfig {
   tokenSecret: string;
   bodyLimitBytes: number;
   maxMessageLength: number;
+  maxAttachmentBytes: number;
+  maxAttachmentsPerMessage: number;
+  maxRoomAttachmentBytes: number;
+  attachmentAbandonMs: number;
   maxParticipantsPerRoom: number;
   maxAgentsPerRoom: number;
   maxSocketsPerRoom: number;
@@ -41,22 +45,51 @@ function cleanOrigin(value: string | undefined): string | undefined {
   return url.toString().replace(/\/$/, "");
 }
 
-export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
+export function loadServerConfig(
+  env: NodeJS.ProcessEnv = process.env
+): ServerConfig {
   const deploymentModeValue = env.CACP_DEPLOYMENT_MODE;
-  if (deploymentModeValue && deploymentModeValue !== "local" && deploymentModeValue !== "cloud") throw new Error("CACP_DEPLOYMENT_MODE must be local or cloud");
-  const deploymentMode: DeploymentMode = deploymentModeValue === "cloud" ? "cloud" : "local";
+  if (
+    deploymentModeValue &&
+    deploymentModeValue !== "local" &&
+    deploymentModeValue !== "cloud"
+  )
+    throw new Error("CACP_DEPLOYMENT_MODE must be local or cloud");
+  const deploymentMode: DeploymentMode =
+    deploymentModeValue === "cloud" ? "cloud" : "local";
   const publicOrigin = cleanOrigin(env.CACP_PUBLIC_ORIGIN);
   const tokenSecret = env.CACP_TOKEN_SECRET?.trim() || "local-dev-token-secret";
-  if (deploymentMode === "cloud" && !publicOrigin) throw new Error("CACP_PUBLIC_ORIGIN is required in cloud mode");
-  if (deploymentMode === "cloud" && tokenSecret === "local-dev-token-secret") throw new Error("CACP_TOKEN_SECRET is required in cloud mode");
-  if (deploymentMode === "cloud" && tokenSecret.length < 32) throw new Error("CACP_TOKEN_SECRET must be at least 32 characters in cloud mode");
+  if (deploymentMode === "cloud" && !publicOrigin)
+    throw new Error("CACP_PUBLIC_ORIGIN is required in cloud mode");
+  if (deploymentMode === "cloud" && tokenSecret === "local-dev-token-secret")
+    throw new Error("CACP_TOKEN_SECRET is required in cloud mode");
+  if (deploymentMode === "cloud" && tokenSecret.length < 32)
+    throw new Error(
+      "CACP_TOKEN_SECRET must be at least 32 characters in cloud mode"
+    );
   return {
     deploymentMode,
-    enableLocalLaunch: deploymentMode === "cloud" ? false : boolValue(env.CACP_ENABLE_LOCAL_LAUNCH, true),
+    enableLocalLaunch:
+      deploymentMode === "cloud"
+        ? false
+        : boolValue(env.CACP_ENABLE_LOCAL_LAUNCH, true),
     publicOrigin,
     tokenSecret,
     bodyLimitBytes: intValue(env.CACP_BODY_LIMIT_BYTES, 1024 * 1024),
     maxMessageLength: intValue(env.CACP_MAX_MESSAGE_LENGTH, 4000),
+    maxAttachmentBytes: intValue(
+      env.CACP_MAX_ATTACHMENT_BYTES,
+      10 * 1024 * 1024
+    ),
+    maxAttachmentsPerMessage: intValue(env.CACP_MAX_ATTACHMENTS_PER_MESSAGE, 5),
+    maxRoomAttachmentBytes: intValue(
+      env.CACP_MAX_ROOM_ATTACHMENT_BYTES,
+      50 * 1024 * 1024
+    ),
+    attachmentAbandonMs: intValue(
+      env.CACP_ATTACHMENT_ABANDON_MS,
+      15 * 60 * 1000
+    ),
     maxParticipantsPerRoom: intValue(env.CACP_MAX_PARTICIPANTS_PER_ROOM, 20),
     maxAgentsPerRoom: intValue(env.CACP_MAX_AGENTS_PER_ROOM, 3),
     maxSocketsPerRoom: intValue(env.CACP_MAX_SOCKETS_PER_ROOM, 50),
@@ -68,11 +101,14 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     messageCreateLimit: intValue(env.CACP_MESSAGE_CREATE_LIMIT, 120),
     presenceChangeLimit: intValue(env.CACP_PRESENCE_CHANGE_LIMIT, 30),
     typingEventLimit: intValue(env.CACP_TYPING_EVENT_LIMIT, 60),
-    orbitEventLimit: intValue(env.CACP_ORBIT_EVENT_LIMIT, 120)
+    orbitEventLimit: intValue(env.CACP_ORBIT_EVENT_LIMIT, 120),
   };
 }
 
-export function hasAllowedOrigin(config: ServerConfig, origin: string | undefined): boolean {
+export function hasAllowedOrigin(
+  config: ServerConfig,
+  origin: string | undefined
+): boolean {
   if (config.deploymentMode !== "cloud") return true;
   if (!origin || !config.publicOrigin) return false;
   try {

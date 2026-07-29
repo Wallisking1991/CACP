@@ -1,3 +1,7 @@
+import {
+  markTestAgentReady,
+  testConnectorCompatibility,
+} from "./test-compatibility.js";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildServer } from "../src/server.js";
@@ -7,9 +11,13 @@ async function ownerAndRoom(app: FastifyInstance) {
   const created = await app.inject({
     method: "POST",
     url: "/rooms",
-    payload: { name: "Room", display_name: "Owner" }
+    payload: { name: "Room", display_name: "Owner" },
   });
-  return created.json() as { room_id: string; owner_token: string; owner_id: string };
+  return created.json() as {
+    room_id: string;
+    owner_token: string;
+    owner_id: string;
+  };
 }
 
 async function setupRoomWithAgent(app: FastifyInstance) {
@@ -18,28 +26,44 @@ async function setupRoomWithAgent(app: FastifyInstance) {
     method: "POST",
     url: `/rooms/${room.room_id}/agents/register`,
     headers: { authorization: `Bearer ${room.owner_token}` },
-    payload: { name: "TestAgent", capabilities: ["llm-api"] }
+    payload: {
+      compatibility: testConnectorCompatibility,
+      name: "TestAgent",
+      capabilities: ["kimi-cli"],
+    },
   });
   const agent = agentReg.json() as { agent_id: string; agent_token: string };
   await app.inject({
     method: "POST",
     url: `/rooms/${room.room_id}/agents/select`,
     headers: { authorization: `Bearer ${room.owner_token}` },
-    payload: { agent_id: agent.agent_id }
+    payload: { agent_id: agent.agent_id },
   });
+  await markTestAgentReady(
+    app,
+    room.room_id,
+    room.owner_token,
+    agent.agent_id,
+    agent.agent_token
+  );
   return { room, agent };
 }
 
 function addressOf(app: Awaited<ReturnType<typeof buildServer>>): string {
   const address = app.server.address();
-  if (!address || typeof address === "string") throw new Error("server did not bind to a TCP port");
+  if (!address || typeof address === "string")
+    throw new Error("server did not bind to a TCP port");
   return `127.0.0.1:${address.port}`;
 }
 
 function waitForOpen(socket: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {
     socket.addEventListener("open", () => resolve(), { once: true });
-    socket.addEventListener("error", () => reject(new Error("websocket failed to open")), { once: true });
+    socket.addEventListener(
+      "error",
+      () => reject(new Error("websocket failed to open")),
+      { once: true }
+    );
   });
 }
 
@@ -47,14 +71,21 @@ async function listEvents(app: FastifyInstance, roomId: string, token: string) {
   const res = await app.inject({
     method: "GET",
     url: `/rooms/${roomId}/events`,
-    headers: { authorization: `Bearer ${token}` }
+    headers: { authorization: `Bearer ${token}` },
   });
-  return (res.json() as { events: Array<{ type: string; payload: Record<string, unknown> }> }).events;
+  return (
+    res.json() as {
+      events: Array<{ type: string; payload: Record<string, unknown> }>;
+    }
+  ).events;
 }
 
 describe("main_input.* events are persisted to durable storage", () => {
   let app: FastifyInstance | undefined;
-  afterEach(async () => { await app?.close(); app = undefined; });
+  afterEach(async () => {
+    await app?.close();
+    app = undefined;
+  });
 
   it("POST /rooms/:roomId/main-inputs persists main_input.accepted in /events", async () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
@@ -64,7 +95,7 @@ describe("main_input.* events are persisted to durable storage", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/main-inputs`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "hello agent" }
+      payload: { text: "hello agent" },
     });
     expect(res.statusCode).toBe(201);
 
@@ -81,11 +112,13 @@ describe("main_input.* events are persisted to durable storage", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/main-inputs`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "persistent body" }
+      payload: { text: "persistent body" },
     });
     expect(res.statusCode).toBe(201);
 
-    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws);
     const replay: Array<{ type: string }> = [];
     await new Promise<void>((resolve) => {
@@ -105,9 +138,14 @@ describe("main_input.* events are persisted to durable storage", () => {
     await app.listen({ host: "127.0.0.1", port: 0 });
     const { room } = await setupRoomWithAgent(app);
 
-    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws);
-    const liveEvents: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const liveEvents: Array<{
+      type: string;
+      payload: Record<string, unknown>;
+    }> = [];
     ws.addEventListener("message", (msg) => {
       liveEvents.push(JSON.parse(msg.data as string));
     });
@@ -117,7 +155,7 @@ describe("main_input.* events are persisted to durable storage", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/main-inputs`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "first" }
+      payload: { text: "first" },
     });
     expect(first.statusCode).toBe(201);
 
@@ -126,7 +164,7 @@ describe("main_input.* events are persisted to durable storage", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/main-inputs`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "second" }
+      payload: { text: "second" },
     });
     expect(second.statusCode).toBe(201);
 
@@ -136,7 +174,9 @@ describe("main_input.* events are persisted to durable storage", () => {
 
     // Live wire should carry both queued and triggered for the first input
     const queuedLive = liveEvents.filter((e) => e.type === "main_input.queued");
-    const triggeredLive = liveEvents.filter((e) => e.type === "main_input.triggered");
+    const triggeredLive = liveEvents.filter(
+      (e) => e.type === "main_input.triggered"
+    );
     expect(queuedLive.length).toBeGreaterThanOrEqual(2);
     expect(triggeredLive.length).toBeGreaterThanOrEqual(1);
 
@@ -157,21 +197,26 @@ describe("main_input.* events are persisted to durable storage", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/main-inputs`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "first" }
+      payload: { text: "first" },
     });
     expect(first.statusCode).toBe(201);
     const second = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/main-inputs`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "queued" }
+      payload: { text: "queued" },
     });
     expect(second.statusCode).toBe(201);
     const queuedInputId = (second.json() as { input_id: string }).input_id;
 
-    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws);
-    const liveEvents: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const liveEvents: Array<{
+      type: string;
+      payload: Record<string, unknown>;
+    }> = [];
     const cancelledLive = new Promise<void>((resolve) => {
       ws.addEventListener("message", (msg) => {
         const parsed = JSON.parse(msg.data as string);
@@ -184,14 +229,16 @@ describe("main_input.* events are persisted to durable storage", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/main-inputs/${queuedInputId}/cancel`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: {}
+      payload: {},
     });
     expect(cancelRes.statusCode).toBe(201);
 
     await cancelledLive;
     ws.close();
 
-    expect(liveEvents.some((e) => e.type === "main_input.cancelled")).toBe(true);
+    expect(liveEvents.some((e) => e.type === "main_input.cancelled")).toBe(
+      true
+    );
 
     const events = await listEvents(app, room.room_id, room.owner_token);
     expect(events.some((e) => e.type === "main_input.cancelled")).toBe(true);
@@ -202,7 +249,9 @@ describe("main_input.* events are persisted to durable storage", () => {
     await app.listen({ host: "127.0.0.1", port: 0 });
     const { room } = await setupRoomWithAgent(app);
 
-    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws);
     const liveEvents: Array<{ type: string }> = [];
     const noteLive = new Promise<void>((resolve) => {
@@ -217,7 +266,7 @@ describe("main_input.* events are persisted to durable storage", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/orbit/notes`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "ephemeral note" }
+      payload: { text: "ephemeral note" },
     });
     expect(res.statusCode).toBe(201);
 
@@ -233,7 +282,10 @@ describe("main_input.* events are persisted to durable storage", () => {
 
 describe("connector.snapshot.entry validates entry shape", () => {
   let app: FastifyInstance | undefined;
-  afterEach(async () => { await app?.close(); app = undefined; });
+  afterEach(async () => {
+    await app?.close();
+    app = undefined;
+  });
 
   it("rejects malformed entry body with 400", async () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
@@ -244,13 +296,15 @@ describe("connector.snapshot.entry validates entry shape", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/connector-snapshots`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { since_sequence: 0 }
+      payload: { since_sequence: 0 },
     });
     expect(reqRes.statusCode).toBe(201);
     const { request_id: requestId } = reqRes.json() as { request_id: string };
 
     // Subscribe as the requester to verify nothing is broadcast
-    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws);
     const liveEvents: Array<{ type: string }> = [];
     ws.addEventListener("message", (msg) => {
@@ -261,7 +315,7 @@ describe("connector.snapshot.entry validates entry shape", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/connector-snapshots/${requestId}/entries`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: { entry: { foo: "bar" } }
+      payload: { entry: { foo: "bar" } },
     });
 
     expect([400, 422]).toContain(res.statusCode);
@@ -270,7 +324,9 @@ describe("connector.snapshot.entry validates entry shape", () => {
     await new Promise((r) => setTimeout(r, 80));
     ws.close();
 
-    expect(liveEvents.some((e) => e.type === "connector.snapshot.entry")).toBe(false);
+    expect(liveEvents.some((e) => e.type === "connector.snapshot.entry")).toBe(
+      false
+    );
   });
 
   it("accepts a well-formed ConnectorLedgerEntry and broadcasts to the requester", async () => {
@@ -282,13 +338,18 @@ describe("connector.snapshot.entry validates entry shape", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/connector-snapshots`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { since_sequence: 0 }
+      payload: { since_sequence: 0 },
     });
     const { request_id: requestId } = reqRes.json() as { request_id: string };
 
-    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws);
-    const liveEvents: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const liveEvents: Array<{
+      type: string;
+      payload: Record<string, unknown>;
+    }> = [];
     const entryLive = new Promise<void>((resolve) => {
       ws.addEventListener("message", (msg) => {
         const parsed = JSON.parse(msg.data as string);
@@ -310,20 +371,22 @@ describe("connector.snapshot.entry validates entry shape", () => {
       actor_role: "owner" as const,
       text: "hello",
       source: "composer" as const,
-      created_at: "2026-05-02T00:00:00.000Z"
+      created_at: "2026-05-02T00:00:00.000Z",
     };
 
     const res = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/connector-snapshots/${requestId}/entries`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: { entry: goodEntry }
+      payload: { entry: goodEntry },
     });
     expect(res.statusCode).toBe(201);
 
     await entryLive;
     ws.close();
 
-    expect(liveEvents.some((e) => e.type === "connector.snapshot.entry")).toBe(true);
+    expect(liveEvents.some((e) => e.type === "connector.snapshot.entry")).toBe(
+      true
+    );
   });
 });

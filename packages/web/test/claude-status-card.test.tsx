@@ -15,12 +15,14 @@ describe("ClaudeStatusCard", () => {
           recent: Array.from({ length: 12 }, (_, index) => `step ${index}`),
           metrics: { files_read: 3, searches: 1, commands: 0 },
           started_at: "2026-04-29T00:00:00.000Z",
-          updated_at: "2026-04-29T00:00:10.000Z"
+          updated_at: "2026-04-29T00:00:10.000Z",
         }}
       />
     );
 
-    expect(screen.getByText(/Reading packages\/server\/src\/pairing.ts/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Reading packages\/server\/src\/pairing.ts/)
+    ).toBeInTheDocument();
     expect(screen.getByText(/read 3 files/)).toBeInTheDocument();
     expect(screen.getByText(/10s elapsed/)).toBeInTheDocument();
     expect(screen.queryByText("step 0")).not.toBeInTheDocument();
@@ -39,13 +41,16 @@ describe("ClaudeStatusCard", () => {
           recent: ["Waiting for approval"],
           metrics: { files_read: 0, searches: 0, commands: 0 },
           started_at: "2026-04-29T00:00:00.000Z",
-          updated_at: "2026-04-29T00:00:02.000Z"
+          updated_at: "2026-04-29T00:00:02.000Z",
         }}
       />
     );
 
-    expect(screen.getByText(/waiting for a local tool approval/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /approve/i })).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/waiting for a local tool approval/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /approve/i })
+    ).not.toBeInTheDocument();
   });
-
 });

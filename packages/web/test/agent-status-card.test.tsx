@@ -16,7 +16,7 @@ describe("AgentStatusCard", () => {
           recent: ["Codex running command: Get-ChildItem -Force"],
           metrics: { files_read: 0, searches: 0, commands: 1 },
           started_at: "2026-05-01T00:00:00.000Z",
-          updated_at: "2026-05-01T00:00:01.000Z"
+          updated_at: "2026-05-01T00:00:01.000Z",
         }}
       />
     );
@@ -38,7 +38,7 @@ describe("AgentStatusCard", () => {
           recent: ["Reading README.md"],
           metrics: { files_read: 1, searches: 0, commands: 0 },
           started_at: "2026-04-29T00:00:00.000Z",
-          updated_at: "2026-04-29T00:00:10.000Z"
+          updated_at: "2026-04-29T00:00:10.000Z",
         }}
       />
     );

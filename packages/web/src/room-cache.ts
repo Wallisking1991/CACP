@@ -36,13 +36,20 @@ export async function getCachedRoomIds(db: IDBDatabase): Promise<string[]> {
     const store = transaction.objectStore(STORE_NAME);
     const request = store.getAllKeys();
     request.onsuccess = () => {
-      resolve((request.result as string[]).filter((k): k is string => typeof k === "string"));
+      resolve(
+        (request.result as string[]).filter(
+          (k): k is string => typeof k === "string"
+        )
+      );
     };
     request.onerror = () => reject(request.error);
   });
 }
 
-export async function getRoomEvents(db: IDBDatabase, roomId: string): Promise<unknown[] | undefined> {
+export async function getRoomEvents(
+  db: IDBDatabase,
+  roomId: string
+): Promise<unknown[] | undefined> {
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(STORE_NAME, "readonly");
     const store = transaction.objectStore(STORE_NAME);
@@ -55,17 +62,28 @@ export async function getRoomEvents(db: IDBDatabase, roomId: string): Promise<un
   });
 }
 
-export async function setRoomEvents(db: IDBDatabase, roomId: string, events: unknown[]): Promise<void> {
+export async function setRoomEvents(
+  db: IDBDatabase,
+  roomId: string,
+  events: unknown[]
+): Promise<void> {
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(STORE_NAME, "readwrite");
     const store = transaction.objectStore(STORE_NAME);
-    const request = store.put({ room_id: roomId, events, cached_at: new Date().toISOString() });
+    const request = store.put({
+      room_id: roomId,
+      events,
+      cached_at: new Date().toISOString(),
+    });
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
 }
 
-export async function deleteRoomCache(db: IDBDatabase, roomId: string): Promise<void> {
+export async function deleteRoomCache(
+  db: IDBDatabase,
+  roomId: string
+): Promise<void> {
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(STORE_NAME, "readwrite");
     const store = transaction.objectStore(STORE_NAME);

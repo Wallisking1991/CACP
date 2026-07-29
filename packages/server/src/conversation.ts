@@ -11,6 +11,13 @@ export interface ConversationMessage {
   kind: string;
 }
 
+function messageText(event: CacpEvent): string | undefined {
+  const content = event.payload.content;
+  if (!content || typeof content !== "object") return undefined;
+  const text = (content as Record<string, unknown>).text;
+  return typeof text === "string" ? text : undefined;
+}
+
 export interface PromptMessage {
   actorName: string;
   kind: string;
@@ -21,27 +28,48 @@ export function findActiveAgentId(events: CacpEvent[]): string | undefined {
   for (const storedEvent of [...events].reverse()) {
     if (storedEvent.type !== "room.agent_selected") continue;
     if (typeof storedEvent.payload.agent_id === "string") {
-      if (storedEvent.payload.agent_id.length > 0) return storedEvent.payload.agent_id;
+      if (storedEvent.payload.agent_id.length > 0)
+        return storedEvent.payload.agent_id;
       return undefined; // explicit deselection (empty agent_id)
     }
   }
   return undefined;
 }
 
-export function findOpenTurn(events: CacpEvent[], agentId: string): OpenTurn | undefined {
+export function findOpenTurn(
+  events: CacpEvent[],
+  agentId: string
+): OpenTurn | undefined {
   const turns = new Map<string, OpenTurn & { closed: boolean }>();
   for (const storedEvent of events) {
-    const turnId = typeof storedEvent.payload.turn_id === "string" ? storedEvent.payload.turn_id : undefined;
-    const eventAgentId = typeof storedEvent.payload.agent_id === "string" ? storedEvent.payload.agent_id : undefined;
+    const turnId =
+      typeof storedEvent.payload.turn_id === "string"
+        ? storedEvent.payload.turn_id
+        : undefined;
+    const eventAgentId =
+      typeof storedEvent.payload.agent_id === "string"
+        ? storedEvent.payload.agent_id
+        : undefined;
     if (!turnId || eventAgentId !== agentId) continue;
-    if (storedEvent.type === "agent.turn.requested" || storedEvent.type === "agent.turn.started") {
+    if (
+      storedEvent.type === "agent.turn.requested" ||
+      storedEvent.type === "agent.turn.started"
+    ) {
       const existing = turns.get(turnId);
-      turns.set(turnId, { turn_id: turnId, agent_id: agentId, closed: existing?.closed ?? false });
+      turns.set(turnId, {
+        turn_id: turnId,
+        agent_id: agentId,
+        closed: existing?.closed ?? false,
+      });
     }
-    if (storedEvent.type === "agent.turn.completed" || storedEvent.type === "agent.turn.failed") {
+    if (
+      storedEvent.type === "agent.turn.completed" ||
+      storedEvent.type === "agent.turn.failed"
+    ) {
       const existing = turns.get(turnId);
       turns.set(turnId, { turn_id: turnId, agent_id: agentId, closed: true });
-      if (!existing) turns.set(turnId, { turn_id: turnId, agent_id: agentId, closed: true });
+      if (!existing)
+        turns.set(turnId, { turn_id: turnId, agent_id: agentId, closed: true });
     }
   }
   const open = [...turns.values()].find((turn) => !turn.closed);
@@ -51,65 +79,133 @@ export function findOpenTurn(events: CacpEvent[], agentId: string): OpenTurn | u
 export function findAnyOpenTurn(events: CacpEvent[]): OpenTurn | undefined {
   const turns = new Map<string, OpenTurn & { closed: boolean }>();
   for (const storedEvent of events) {
-    const turnId = typeof storedEvent.payload.turn_id === "string" ? storedEvent.payload.turn_id : undefined;
-    const eventAgentId = typeof storedEvent.payload.agent_id === "string" ? storedEvent.payload.agent_id : undefined;
+    const turnId =
+      typeof storedEvent.payload.turn_id === "string"
+        ? storedEvent.payload.turn_id
+        : undefined;
+    const eventAgentId =
+      typeof storedEvent.payload.agent_id === "string"
+        ? storedEvent.payload.agent_id
+        : undefined;
     if (!turnId || !eventAgentId) continue;
-    if (storedEvent.type === "agent.turn.requested" || storedEvent.type === "agent.turn.started") {
+    if (
+      storedEvent.type === "agent.turn.requested" ||
+      storedEvent.type === "agent.turn.started"
+    ) {
       const existing = turns.get(turnId);
-      turns.set(turnId, { turn_id: turnId, agent_id: eventAgentId, closed: existing?.closed ?? false });
+      turns.set(turnId, {
+        turn_id: turnId,
+        agent_id: eventAgentId,
+        closed: existing?.closed ?? false,
+      });
     }
-    if (storedEvent.type === "agent.turn.completed" || storedEvent.type === "agent.turn.failed") {
+    if (
+      storedEvent.type === "agent.turn.completed" ||
+      storedEvent.type === "agent.turn.failed"
+    ) {
       const existing = turns.get(turnId);
-      turns.set(turnId, { turn_id: turnId, agent_id: eventAgentId, closed: true });
-      if (!existing) turns.set(turnId, { turn_id: turnId, agent_id: eventAgentId, closed: true });
+      turns.set(turnId, {
+        turn_id: turnId,
+        agent_id: eventAgentId,
+        closed: true,
+      });
+      if (!existing)
+        turns.set(turnId, {
+          turn_id: turnId,
+          agent_id: eventAgentId,
+          closed: true,
+        });
     }
   }
   const open = [...turns.values()].find((turn) => !turn.closed);
   return open ? { turn_id: open.turn_id, agent_id: open.agent_id } : undefined;
 }
 
-export function hasQueuedFollowup(events: CacpEvent[], turnId: string): boolean {
-  return events.some((storedEvent) => storedEvent.type === "agent.turn.followup_queued" && storedEvent.payload.turn_id === turnId);
+export function hasQueuedFollowup(
+  events: CacpEvent[],
+  turnId: string
+): boolean {
+  return events.some(
+    (storedEvent) =>
+      storedEvent.type === "agent.turn.followup_queued" &&
+      storedEvent.payload.turn_id === turnId
+  );
 }
 
-export function findQueuedFollowupMessage(events: CacpEvent[], turnId: string): ConversationMessage | undefined {
-  const followupIndex = events.findIndex((storedEvent) => storedEvent.type === "agent.turn.followup_queued" && storedEvent.payload.turn_id === turnId);
+export function findQueuedFollowupMessage(
+  events: CacpEvent[],
+  turnId: string
+): ConversationMessage | undefined {
+  const followupIndex = events.findIndex(
+    (storedEvent) =>
+      storedEvent.type === "agent.turn.followup_queued" &&
+      storedEvent.payload.turn_id === turnId
+  );
   if (followupIndex < 0) return undefined;
   for (let index = followupIndex - 1; index >= 0; index -= 1) {
     const storedEvent = events[index];
-    if (storedEvent.type === "message.created" && typeof storedEvent.payload.text === "string" && storedEvent.payload.kind === "human") {
+    if (
+      storedEvent.type === "message.created" &&
+      typeof messageText(storedEvent) === "string" &&
+      storedEvent.payload.kind === "human"
+    ) {
       return {
         actor_id: storedEvent.actor_id,
-        text: String(storedEvent.payload.text),
-        kind: "human"
+        text: messageText(storedEvent)!,
+        kind: "human",
       };
     }
   }
   return undefined;
 }
 
-export function findQueuedFollowupMessages(events: CacpEvent[], turnId: string): ConversationMessage[] {
-  const turnIndex = events.findIndex((storedEvent) => storedEvent.type === "agent.turn.requested" && storedEvent.payload.turn_id === turnId);
-  const followupIndex = events.findIndex((storedEvent) => storedEvent.type === "agent.turn.followup_queued" && storedEvent.payload.turn_id === turnId);
+export function findQueuedFollowupMessages(
+  events: CacpEvent[],
+  turnId: string
+): ConversationMessage[] {
+  const turnIndex = events.findIndex(
+    (storedEvent) =>
+      storedEvent.type === "agent.turn.requested" &&
+      storedEvent.payload.turn_id === turnId
+  );
+  const followupIndex = events.findIndex(
+    (storedEvent) =>
+      storedEvent.type === "agent.turn.followup_queued" &&
+      storedEvent.payload.turn_id === turnId
+  );
   if (turnIndex < 0 || followupIndex < 0) return [];
-  const terminalIndex = events.findIndex((storedEvent, index) =>
-    index > turnIndex &&
-    (storedEvent.type === "agent.turn.completed" || storedEvent.type === "agent.turn.failed") &&
-    storedEvent.payload.turn_id === turnId
+  const terminalIndex = events.findIndex(
+    (storedEvent, index) =>
+      index > turnIndex &&
+      (storedEvent.type === "agent.turn.completed" ||
+        storedEvent.type === "agent.turn.failed") &&
+      storedEvent.payload.turn_id === turnId
   );
   const endIndex = terminalIndex >= 0 ? terminalIndex : events.length;
-  return events.slice(turnIndex + 1, endIndex)
-    .filter((storedEvent) => storedEvent.type === "message.created" && typeof storedEvent.payload.text === "string" && storedEvent.payload.kind === "human")
+  return events
+    .slice(turnIndex + 1, endIndex)
+    .filter(
+      (storedEvent) =>
+        storedEvent.type === "message.created" &&
+        typeof messageText(storedEvent) === "string" &&
+        storedEvent.payload.kind === "human"
+    )
     .map((storedEvent) => ({
       actor_id: storedEvent.actor_id,
-      text: String(storedEvent.payload.text),
-      kind: "human"
+      text: messageText(storedEvent)!,
+      kind: "human",
     }));
 }
 
-export function findAgentCapabilities(events: CacpEvent[], agentId: string): string[] {
+export function findAgentCapabilities(
+  events: CacpEvent[],
+  agentId: string
+): string[] {
   for (const storedEvent of [...events].reverse()) {
-    if (storedEvent.type === "agent.registered" && storedEvent.payload.agent_id === agentId) {
+    if (
+      storedEvent.type === "agent.registered" &&
+      storedEvent.payload.agent_id === agentId
+    ) {
       const capabilities = storedEvent.payload.capabilities;
       return Array.isArray(capabilities) ? capabilities.map(String) : [];
     }
@@ -117,14 +213,23 @@ export function findAgentCapabilities(events: CacpEvent[], agentId: string): str
   return [];
 }
 
-export function recentConversationMessages(events: CacpEvent[], limit = 20): ConversationMessage[] {
+export function recentConversationMessages(
+  events: CacpEvent[],
+  limit = 20
+): ConversationMessage[] {
   return events
-    .filter((storedEvent) => storedEvent.type === "message.created" && typeof storedEvent.payload.text === "string")
+    .filter(
+      (storedEvent) =>
+        storedEvent.type === "message.created" &&
+        typeof messageText(storedEvent) === "string"
+    )
     .slice(-limit)
     .map((storedEvent) => ({
       actor_id: storedEvent.actor_id,
-      text: String(storedEvent.payload.text),
-      kind: typeof storedEvent.payload.kind === "string" ? storedEvent.payload.kind : "human"
+      text: messageText(storedEvent)!,
+      kind:
+        typeof storedEvent.payload.kind === "string"
+          ? storedEvent.payload.kind
+          : "human",
     }));
 }
-

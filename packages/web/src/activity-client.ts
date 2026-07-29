@@ -13,7 +13,7 @@ export interface TypingActivityControllerOptions {
 export function createTypingActivityController({
   startTyping,
   stopTyping,
-  stopDelayMs = 2500
+  stopDelayMs = 2500,
 }: TypingActivityControllerOptions): TypingActivityController {
   let typing = false;
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -51,6 +51,6 @@ export function createTypingActivityController({
     stopNow: emitStop,
     dispose(): void {
       emitStop();
-    }
+    },
   };
 }

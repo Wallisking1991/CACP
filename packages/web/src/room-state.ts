@@ -12,16 +12,50 @@ import type {
   ClaudeSessionPreviewMessagePayload,
   ClaudeSessionReadyPayload,
   ClaudeSessionSummary,
-  ConnectorLedgerEntry
+  ConnectorLedgerEntry,
+  AgentInputCapabilities,
+  AttachmentRef,
+} from "@cacp/protocol";
+import {
+  AgentInputCapabilitiesSchema,
+  StructuredMessageContentSchema,
 } from "@cacp/protocol";
 
-export interface ParticipantView { id: string; display_name: string; role: string; type: string }
-export interface AgentView { agent_id: string; name: string; capabilities: string[]; status: "online" | "offline" | "unknown"; last_status_at?: string; thinking_enabled?: boolean }
+export type LegacyRuntimeEventType =
+  | "claude.output.thinking_delta"
+  | "claude.runtime.status_changed"
+  | "claude.runtime.status_completed"
+  | "claude.runtime.status_failed"
+  | "agent.runtime.status_changed"
+  | "agent.runtime.status_completed"
+  | "agent.runtime.status_failed";
+
+export type RoomStateEvent = Omit<CacpEvent, "type" | "payload"> & {
+  type: CacpEvent["type"] | LegacyRuntimeEventType;
+  payload: Record<string, unknown>;
+};
+
+export interface ParticipantView {
+  id: string;
+  display_name: string;
+  role: string;
+  type: string;
+}
+export interface AgentView {
+  agent_id: string;
+  name: string;
+  capabilities: string[];
+  status: "online" | "offline" | "unknown";
+  last_status_at?: string;
+  thinking_enabled?: boolean;
+  input_capabilities?: AgentInputCapabilities;
+}
 export interface MessageView {
   message_id?: string;
   turn_id?: string;
   actor_id: string;
   text: string;
+  attachments?: AttachmentRef[];
   kind: string;
   created_at: string;
   claudeImportId?: string;
@@ -78,7 +112,8 @@ export interface OrbitNoteView {
   reply_to?: string;
 }
 
-export type MainInputStatus = "accepted" | "queued" | "triggered" | "cancelled" | "failed";
+export type MainInputStatus =
+  "accepted" | "queued" | "triggered" | "cancelled" | "failed";
 
 export interface MainInputQueueItemView {
   input_id: string;
@@ -103,7 +138,12 @@ export interface ClaudeSessionCatalogView {
 
 export type ClaudeSessionSelectionView =
   | { agent_id: string; mode: "fresh"; selected_by: string }
-  | { agent_id: string; mode: "resume"; session_id: string; selected_by: string };
+  | {
+      agent_id: string;
+      mode: "resume";
+      session_id: string;
+      selected_by: string;
+    };
 
 export type ClaudeSessionReadyView = ClaudeSessionReadyPayload;
 
@@ -154,7 +194,13 @@ export interface AgentSessionCatalogView {
 
 export type AgentSessionSelectionView =
   | { agent_id: string; provider: string; mode: "fresh"; selected_by: string }
-  | { agent_id: string; provider: string; mode: "resume"; session_id: string; selected_by: string };
+  | {
+      agent_id: string;
+      provider: string;
+      mode: "resume";
+      session_id: string;
+      selected_by: string;
+    };
 
 export type AgentSessionReadyView = AgentSessionReadyPayload;
 
@@ -248,7 +294,8 @@ export interface AgentRunView {
 }
 
 export type ParticipantPresenceView = "online" | "idle" | "offline";
-export type AvatarStatusKind = "working" | "typing" | "online" | "idle" | "offline";
+export type AvatarStatusKind =
+  "working" | "typing" | "online" | "idle" | "offline";
 export type AvatarStatusGroup = "humans" | "agents";
 
 export interface ParticipantActivityView {
@@ -307,17 +354,29 @@ export interface RoomViewState {
   connectorSyncCursor?: ConnectorSyncCursor;
 }
 
-function failedTurnMessage(event: CacpEvent, streamedText: string | undefined): MessageView | undefined {
+function failedTurnMessage(
+  event: CacpEvent,
+  streamedText: string | undefined
+): MessageView | undefined {
   if (typeof event.payload.turn_id !== "string") return undefined;
-  const error = typeof event.payload.error === "string" ? event.payload.error : "unknown error";
-  const exitCode = typeof event.payload.exit_code === "number" ? ` (exit code ${event.payload.exit_code})` : "";
+  const error =
+    typeof event.payload.error === "string"
+      ? event.payload.error
+      : "unknown error";
+  const exitCode =
+    typeof event.payload.exit_code === "number"
+      ? ` (exit code ${event.payload.exit_code})`
+      : "";
   const output = streamedText?.trim();
   return {
     message_id: `failed-${event.payload.turn_id}`,
-    actor_id: typeof event.payload.agent_id === "string" ? event.payload.agent_id : event.actor_id,
+    actor_id:
+      typeof event.payload.agent_id === "string"
+        ? event.payload.agent_id
+        : event.actor_id,
     text: `Agent turn failed${exitCode}: ${error}${output ? `\n\nOutput before failure:\n${output}` : ""}`,
     kind: "system",
-    created_at: event.created_at
+    created_at: event.created_at,
   };
 }
 
@@ -329,7 +388,10 @@ function formatElapsedSeconds(startedAt: string, endedAt: string): string {
   if (elapsedSeconds < 60) return `${elapsedSeconds}s`;
   const minutes = Math.floor(elapsedSeconds / 60);
   const remainingSeconds = elapsedSeconds % 60;
-  if (minutes < 60) return remainingSeconds ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+  if (minutes < 60)
+    return remainingSeconds
+      ? `${minutes}m ${remainingSeconds}s`
+      : `${minutes}m`;
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
   return remainingMinutes ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
@@ -338,36 +400,64 @@ function formatElapsedSeconds(startedAt: string, endedAt: string): string {
 function orderImportedMessages(messages: MessageView[]): MessageView[] {
   const importMessages = new Map<string, MessageView[]>();
   for (const message of messages) {
-    if (message.kind !== "claude_import_banner" && message.kind.startsWith("claude_import_") && message.claudeImportId) {
+    if (
+      message.kind !== "claude_import_banner" &&
+      message.kind.startsWith("claude_import_") &&
+      message.claudeImportId
+    ) {
       const current = importMessages.get(message.claudeImportId) ?? [];
       current.push(message);
       importMessages.set(message.claudeImportId, current);
     }
-    if (message.kind !== "agent_import_banner" && message.kind.startsWith("agent_import_") && message.agentImportId) {
+    if (
+      message.kind !== "agent_import_banner" &&
+      message.kind.startsWith("agent_import_") &&
+      message.agentImportId
+    ) {
       const current = importMessages.get(message.agentImportId) ?? [];
       current.push(message);
       importMessages.set(message.agentImportId, current);
     }
   }
   for (const grouped of importMessages.values()) {
-    grouped.sort((a, b) => (a.claudeImportSequence ?? a.agentImportSequence ?? 0) - (b.claudeImportSequence ?? b.agentImportSequence ?? 0));
+    grouped.sort(
+      (a, b) =>
+        (a.claudeImportSequence ?? a.agentImportSequence ?? 0) -
+        (b.claudeImportSequence ?? b.agentImportSequence ?? 0)
+    );
   }
 
   const emittedImports = new Set<string>();
   const ordered: MessageView[] = [];
   for (const message of messages) {
-    if (message.kind !== "claude_import_banner" && message.kind.startsWith("claude_import_") && message.claudeImportId) {
+    if (
+      message.kind !== "claude_import_banner" &&
+      message.kind.startsWith("claude_import_") &&
+      message.claudeImportId
+    ) {
       continue;
     }
-    if (message.kind !== "agent_import_banner" && message.kind.startsWith("agent_import_") && message.agentImportId) {
+    if (
+      message.kind !== "agent_import_banner" &&
+      message.kind.startsWith("agent_import_") &&
+      message.agentImportId
+    ) {
       continue;
     }
     ordered.push(message);
-    if (message.kind === "claude_import_banner" && message.claudeImportId && !emittedImports.has(message.claudeImportId)) {
+    if (
+      message.kind === "claude_import_banner" &&
+      message.claudeImportId &&
+      !emittedImports.has(message.claudeImportId)
+    ) {
       ordered.push(...(importMessages.get(message.claudeImportId) ?? []));
       emittedImports.add(message.claudeImportId);
     }
-    if (message.kind === "agent_import_banner" && message.agentImportId && !emittedImports.has(message.agentImportId)) {
+    if (
+      message.kind === "agent_import_banner" &&
+      message.agentImportId &&
+      !emittedImports.has(message.agentImportId)
+    ) {
       ordered.push(...(importMessages.get(message.agentImportId) ?? []));
       emittedImports.add(message.agentImportId);
     }
@@ -381,29 +471,47 @@ function orderImportedMessages(messages: MessageView[]): MessageView[] {
 function isParticipant(value: unknown): value is ParticipantView {
   if (!value || typeof value !== "object") return false;
   const participant = value as Partial<ParticipantView>;
-  return typeof participant.id === "string" && typeof participant.display_name === "string" && typeof participant.role === "string" && typeof participant.type === "string";
+  return (
+    typeof participant.id === "string" &&
+    typeof participant.display_name === "string" &&
+    typeof participant.role === "string" &&
+    typeof participant.type === "string"
+  );
 }
 
 function isConnectorLedgerEntry(value: unknown): value is ConnectorLedgerEntry {
   if (!value || typeof value !== "object") return false;
   const entry = value as Partial<ConnectorLedgerEntry>;
-  return entry.ledger_version === 1
-    && typeof entry.entry_id === "string"
-    && typeof entry.entry_type === "string"
-    && typeof entry.actor_id === "string"
-    && typeof entry.text === "string"
-    && typeof entry.created_at === "string";
+  return (
+    entry.ledger_version === 1 &&
+    typeof entry.entry_id === "string" &&
+    typeof entry.entry_type === "string" &&
+    typeof entry.actor_id === "string" &&
+    typeof entry.text === "string" &&
+    typeof entry.created_at === "string"
+  );
 }
 
 function connectorLedgerMessageKind(entry: ConnectorLedgerEntry): string {
   if (entry.entry_type === "agent_final") return "agent";
   if (entry.entry_type === "system_marker") return "system";
-  if (entry.entry_type === "imported_session_message" && entry.actor_role === "agent") return "agent";
+  if (
+    entry.entry_type === "imported_session_message" &&
+    entry.actor_role === "agent"
+  )
+    return "agent";
   return "human";
 }
 
-export function isLocalAgentProvider(value: unknown): value is AgentSessionReadyView["provider"] {
-  return value === "claude-code" || value === "codex-cli" || value === "github-copilot" || value === "kimi-cli";
+export function isLocalAgentProvider(
+  value: unknown
+): value is AgentSessionReadyView["provider"] {
+  return (
+    value === "claude-code" ||
+    value === "codex-cli" ||
+    value === "github-copilot" ||
+    value === "kimi-cli"
+  );
 }
 
 export function claudeSelectionIsReady(
@@ -412,23 +520,33 @@ export function claudeSelectionIsReady(
   ready: ClaudeSessionReadyView | undefined
 ): boolean {
   if (!activeAgentId || !selection || !ready) return false;
-  if (selection.agent_id !== activeAgentId || ready.agent_id !== activeAgentId) return false;
+  if (selection.agent_id !== activeAgentId || ready.agent_id !== activeAgentId)
+    return false;
   if (selection.mode !== ready.mode) return false;
-  if (selection.mode === "resume") return ready.mode === "resume" && ready.session_id === selection.session_id;
+  if (selection.mode === "resume")
+    return ready.mode === "resume" && ready.session_id === selection.session_id;
   return ready.mode === "fresh";
 }
 
 export function agentSelectionIsReady(
   activeAgentId: string | undefined,
-  activeAgentProvider: "claude-code" | "codex-cli" | "github-copilot" | "kimi-cli" | undefined,
+  activeAgentProvider:
+    "claude-code" | "codex-cli" | "github-copilot" | "kimi-cli" | undefined,
   selection: AgentSessionSelectionView | undefined,
   ready: AgentSessionReadyView | undefined
 ): boolean {
-  if (!activeAgentId || !activeAgentProvider || !selection || !ready) return false;
-  if (selection.agent_id !== activeAgentId || ready.agent_id !== activeAgentId) return false;
-  if (selection.provider !== activeAgentProvider || ready.provider !== activeAgentProvider) return false;
+  if (!activeAgentId || !activeAgentProvider || !selection || !ready)
+    return false;
+  if (selection.agent_id !== activeAgentId || ready.agent_id !== activeAgentId)
+    return false;
+  if (
+    selection.provider !== activeAgentProvider ||
+    ready.provider !== activeAgentProvider
+  )
+    return false;
   if (selection.mode !== ready.mode) return false;
-  if (selection.mode === "resume") return ready.mode === "resume" && ready.session_id === selection.session_id;
+  if (selection.mode === "resume")
+    return ready.mode === "resume" && ready.session_id === selection.session_id;
   return ready.mode === "fresh";
 }
 
@@ -436,20 +554,42 @@ export type AgentReadinessStatus = "no_agent" | "selecting_session" | "ready";
 
 export function computeAgentReadiness(
   room: RoomViewState,
-  activeAgentProvider?: "claude-code" | "codex-cli" | "github-copilot" | "kimi-cli"
+  activeAgentProvider?:
+    "claude-code" | "codex-cli" | "github-copilot" | "kimi-cli"
 ): AgentReadinessStatus {
   if (!room.activeAgentId) return "no_agent";
 
   // Claude-specific session flow
-  if (room.claudeSessionCatalog && room.claudeSessionCatalog.agent_id === room.activeAgentId) {
-    if (!claudeSelectionIsReady(room.activeAgentId, room.claudeSessionSelection, room.claudeSessionReady)) {
+  if (
+    room.claudeSessionCatalog &&
+    room.claudeSessionCatalog.agent_id === room.activeAgentId
+  ) {
+    if (
+      !claudeSelectionIsReady(
+        room.activeAgentId,
+        room.claudeSessionSelection,
+        room.claudeSessionReady
+      )
+    ) {
       return "selecting_session";
     }
   }
 
   // Generic agent session flow
-  if (activeAgentProvider && room.agentSessionCatalog && room.agentSessionCatalog.agent_id === room.activeAgentId && room.agentSessionCatalog.provider === activeAgentProvider) {
-    if (!agentSelectionIsReady(room.activeAgentId, activeAgentProvider, room.agentSessionSelection, room.agentSessionReady)) {
+  if (
+    activeAgentProvider &&
+    room.agentSessionCatalog &&
+    room.agentSessionCatalog.agent_id === room.activeAgentId &&
+    room.agentSessionCatalog.provider === activeAgentProvider
+  ) {
+    if (
+      !agentSelectionIsReady(
+        room.activeAgentId,
+        activeAgentProvider,
+        room.agentSessionSelection,
+        room.agentSessionReady
+      )
+    ) {
       return "selecting_session";
     }
   }
@@ -457,19 +597,37 @@ export function computeAgentReadiness(
   return "ready";
 }
 
-function isValidJoinRequestStatus(value: unknown): value is JoinRequestView["status"] {
-  return value === "pending" || value === "approved" || value === "rejected" || value === "expired";
+function isValidJoinRequestStatus(
+  value: unknown
+): value is JoinRequestView["status"] {
+  return (
+    value === "pending" ||
+    value === "approved" ||
+    value === "rejected" ||
+    value === "expired"
+  );
 }
 
-function activityFor(activity: Map<string, ParticipantActivityView>, participantId: string): ParticipantActivityView {
+function activityFor(
+  activity: Map<string, ParticipantActivityView>,
+  participantId: string
+): ParticipantActivityView {
   const existing = activity.get(participantId);
   if (existing) return existing;
-  const next: ParticipantActivityView = { participant_id: participantId, presence: "online", typing: false };
+  const next: ParticipantActivityView = {
+    participant_id: participantId,
+    presence: "online",
+    typing: false,
+  };
   activity.set(participantId, next);
   return next;
 }
 
-function typingIsFresh(typingAt: string | undefined, nowMs: number, ttlMs: number): boolean {
+function typingIsFresh(
+  typingAt: string | undefined,
+  nowMs: number,
+  ttlMs: number
+): boolean {
   if (!typingAt) return false;
   const started = Date.parse(typingAt);
   if (Number.isNaN(started)) return false;
@@ -477,10 +635,15 @@ function typingIsFresh(typingAt: string | undefined, nowMs: number, ttlMs: numbe
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
-function stringField(payload: Record<string, unknown>, key: string): string | undefined {
+function stringField(
+  payload: Record<string, unknown>,
+  key: string
+): string | undefined {
   const value = payload[key];
   return typeof value === "string" ? value : undefined;
 }
@@ -490,20 +653,34 @@ function agentRunSortKey(run: AgentRunView): string {
 }
 
 function agentRunNodeSortKey(node: AgentRunNodeView): string {
-  return node.started_at || node.updated_at || node.completed_at || node.failed_at || "";
+  return (
+    node.started_at ||
+    node.updated_at ||
+    node.completed_at ||
+    node.failed_at ||
+    ""
+  );
 }
 
 function avatarPriority(status: AvatarStatusKind): number {
   switch (status) {
-    case "working": return 0;
-    case "typing": return 1;
-    case "online": return 2;
-    case "idle": return 3;
-    case "offline": return 4;
+    case "working":
+      return 0;
+    case "typing":
+      return 1;
+    case "online":
+      return 2;
+    case "idle":
+      return 3;
+    case "offline":
+      return 4;
   }
 }
 
-export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOptions = {}): RoomViewState {
+export function deriveRoomState(
+  events: RoomStateEvent[],
+  options: DeriveRoomStateOptions = {}
+): RoomViewState {
   const participants = new Map<string, ParticipantView>();
   const agents = new Map<string, AgentView>();
   let messages: MessageView[] = [];
@@ -547,9 +724,23 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     error?: string;
   }
   const turnStatusById = new Map<string, TurnRuntimeStatus>();
-  const turnMessageStatus = new Map<string, Pick<MessageView, "agentPhase" | "agentSummary" | "agentMetrics" | "agentElapsed" | "turnFailed" | "turnError">>();
+  const turnMessageStatus = new Map<
+    string,
+    Pick<
+      MessageView,
+      | "agentPhase"
+      | "agentSummary"
+      | "agentMetrics"
+      | "agentElapsed"
+      | "turnFailed"
+      | "turnError"
+    >
+  >();
 
-  function ensureAgentRun(payload: Record<string, unknown>, startedAt: string): AgentRunView | undefined {
+  function ensureAgentRun(
+    payload: Record<string, unknown>,
+    startedAt: string
+  ): AgentRunView | undefined {
     const runId = stringField(payload, "run_id");
     const turnId = stringField(payload, "turn_id");
     const agentId = stringField(payload, "agent_id");
@@ -563,13 +754,16 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
       provider,
       status: "running",
       started_at: startedAt,
-      nodes: []
+      nodes: [],
     };
     if (!existing) agentRuns.set(runId, run);
     return run;
   }
 
-  function findRunNode(run: AgentRunView, nodeId: string): AgentRunNodeView | undefined {
+  function findRunNode(
+    run: AgentRunView,
+    nodeId: string
+  ): AgentRunNodeView | undefined {
     return run.nodes.find((node) => node.node_id === nodeId);
   }
 
@@ -577,61 +771,129 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
   const typingTtlMs = options.typingTtlMs ?? 5000;
 
   for (const event of events) {
-    if (event.type === "room.created" && typeof event.payload.name === "string") roomName = event.payload.name;
-    if (event.type === "participant.joined" && isParticipant(event.payload.participant)) participants.set(event.payload.participant.id, event.payload.participant);
-    if (event.type === "participant.left" && typeof event.payload.participant_id === "string") participants.delete(event.payload.participant_id);
-    if (event.type === "participant.removed" && typeof event.payload.participant_id === "string") {
+    if (event.type === "room.created" && typeof event.payload.name === "string")
+      roomName = event.payload.name;
+    if (
+      event.type === "participant.joined" &&
+      isParticipant(event.payload.participant)
+    )
+      participants.set(event.payload.participant.id, event.payload.participant);
+    if (
+      event.type === "participant.left" &&
+      typeof event.payload.participant_id === "string"
+    )
+      participants.delete(event.payload.participant_id);
+    if (
+      event.type === "participant.removed" &&
+      typeof event.payload.participant_id === "string"
+    ) {
       const removed = participants.get(event.payload.participant_id);
-      if (removed?.type === "agent") agents.delete(event.payload.participant_id);
+      if (removed?.type === "agent")
+        agents.delete(event.payload.participant_id);
       participants.delete(event.payload.participant_id);
     }
-    if (event.type === "participant.role_updated" && typeof event.payload.participant_id === "string" && typeof event.payload.new_role === "string") {
+    if (
+      event.type === "participant.role_updated" &&
+      typeof event.payload.participant_id === "string" &&
+      typeof event.payload.new_role === "string"
+    ) {
       const participant = participants.get(event.payload.participant_id);
-      if (participant) participants.set(participant.id, { ...participant, role: event.payload.new_role });
+      if (participant)
+        participants.set(participant.id, {
+          ...participant,
+          role: event.payload.new_role,
+        });
     }
     if (event.type === "invite.created") {
       inviteCount += 1;
-      if (typeof event.payload.invite_id === "string" && typeof event.payload.max_uses === "number") {
+      if (
+        typeof event.payload.invite_id === "string" &&
+        typeof event.payload.max_uses === "number"
+      ) {
         invites.set(event.payload.invite_id, {
           invite_id: event.payload.invite_id,
-          role: typeof event.payload.role === "string" ? event.payload.role : "member",
-          expires_at: typeof event.payload.expires_at === "string" ? event.payload.expires_at : "",
+          role:
+            typeof event.payload.role === "string"
+              ? event.payload.role
+              : "member",
+          expires_at:
+            typeof event.payload.expires_at === "string"
+              ? event.payload.expires_at
+              : "",
           max_uses: event.payload.max_uses,
           used_count: 0,
           remaining: event.payload.max_uses,
-          revoked: false
+          revoked: false,
         });
       }
     }
-    if (event.type === "invite.revoked" && typeof event.payload.invite_id === "string") {
+    if (
+      event.type === "invite.revoked" &&
+      typeof event.payload.invite_id === "string"
+    ) {
       const invite = invites.get(event.payload.invite_id);
-      if (invite) invites.set(event.payload.invite_id, { ...invite, revoked: true });
+      if (invite)
+        invites.set(event.payload.invite_id, { ...invite, revoked: true });
     }
-    if (event.type === "join_request.created" && typeof event.payload.request_id === "string" && typeof event.payload.display_name === "string") {
+    if (
+      event.type === "join_request.created" &&
+      typeof event.payload.request_id === "string" &&
+      typeof event.payload.display_name === "string"
+    ) {
       joinRequests.set(event.payload.request_id, {
         request_id: event.payload.request_id,
         display_name: event.payload.display_name,
         status: "pending",
-        created_at: event.created_at
+        created_at: event.created_at,
       });
     }
-    if ((event.type === "join_request.approved" || event.type === "join_request.rejected" || event.type === "join_request.expired") && typeof event.payload.request_id === "string") {
+    if (
+      (event.type === "join_request.approved" ||
+        event.type === "join_request.rejected" ||
+        event.type === "join_request.expired") &&
+      typeof event.payload.request_id === "string"
+    ) {
       const request = joinRequests.get(event.payload.request_id);
       if (request) {
-        const newStatus = event.type === "join_request.approved" ? "approved" : event.type === "join_request.rejected" ? "rejected" : "expired";
-        joinRequests.set(event.payload.request_id, { ...request, status: newStatus });
+        const newStatus =
+          event.type === "join_request.approved"
+            ? "approved"
+            : event.type === "join_request.rejected"
+              ? "rejected"
+              : "expired";
+        joinRequests.set(event.payload.request_id, {
+          ...request,
+          status: newStatus,
+        });
       }
-      if (event.type === "join_request.approved" && typeof event.payload.invite_id === "string") {
+      if (
+        event.type === "join_request.approved" &&
+        typeof event.payload.invite_id === "string"
+      ) {
         const invite = invites.get(event.payload.invite_id);
         if (invite) {
           const newUsedCount = invite.used_count + 1;
-          invites.set(event.payload.invite_id, { ...invite, used_count: newUsedCount, remaining: invite.max_uses - newUsedCount });
+          invites.set(event.payload.invite_id, {
+            ...invite,
+            used_count: newUsedCount,
+            remaining: invite.max_uses - newUsedCount,
+          });
         }
       }
     }
-    if (event.type === "orbit.note.created" && typeof event.payload.note_id === "string" && typeof event.payload.text === "string") {
-      const createdAt = typeof event.payload.created_at === "string" ? event.payload.created_at : event.created_at;
-      const replyTo = typeof event.payload.reply_to === "string" ? event.payload.reply_to : undefined;
+    if (
+      event.type === "orbit.note.created" &&
+      typeof event.payload.note_id === "string" &&
+      typeof event.payload.text === "string"
+    ) {
+      const createdAt =
+        typeof event.payload.created_at === "string"
+          ? event.payload.created_at
+          : event.created_at;
+      const replyTo =
+        typeof event.payload.reply_to === "string"
+          ? event.payload.reply_to
+          : undefined;
       orbitNotes.set(event.payload.note_id, {
         note_id: event.payload.note_id,
         text: event.payload.text,
@@ -640,20 +902,35 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
         likes: 0,
         liked_by_me: false,
         quoted: false,
-        reply_to: replyTo
+        reply_to: replyTo,
       });
     }
-    if (event.type === "orbit.like.changed" && typeof event.payload.note_id === "string") {
+    if (
+      event.type === "orbit.like.changed" &&
+      typeof event.payload.note_id === "string"
+    ) {
       const note = orbitNotes.get(event.payload.note_id);
       if (note) {
-        const likes = typeof event.payload.likes === "number" ? event.payload.likes : note.likes;
-        const likedByMe = event.payload.participant_id === options.currentParticipantId && typeof event.payload.liked === "boolean"
-          ? event.payload.liked
-          : note.liked_by_me;
-        orbitNotes.set(event.payload.note_id, { ...note, likes, liked_by_me: likedByMe });
+        const likes =
+          typeof event.payload.likes === "number"
+            ? event.payload.likes
+            : note.likes;
+        const likedByMe =
+          event.payload.participant_id === options.currentParticipantId &&
+          typeof event.payload.liked === "boolean"
+            ? event.payload.liked
+            : note.liked_by_me;
+        orbitNotes.set(event.payload.note_id, {
+          ...note,
+          likes,
+          liked_by_me: likedByMe,
+        });
       }
     }
-    if (event.type === "orbit.notes.quoted" && Array.isArray(event.payload.note_ids)) {
+    if (
+      event.type === "orbit.notes.quoted" &&
+      Array.isArray(event.payload.note_ids)
+    ) {
       for (const noteId of event.payload.note_ids) {
         if (typeof noteId !== "string") continue;
         const note = orbitNotes.get(noteId);
@@ -663,37 +940,100 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     if (event.type === "orbit.cleared") {
       orbitNotes.clear();
     }
-    if (event.type === "main_input.accepted" && typeof event.payload.input_id === "string" && typeof event.payload.text === "string") {
+    if (
+      event.type === "main_input.accepted" &&
+      typeof event.payload.input_id === "string"
+    ) {
+      const parsedContent = StructuredMessageContentSchema.safeParse(
+        event.payload.content
+      );
+      if (!parsedContent.success) continue;
       mainInputQueue.set(event.payload.input_id, {
         input_id: event.payload.input_id,
-        text: event.payload.text,
+        text: parsedContent.data.text,
         status: "accepted",
         created_at: event.created_at,
-        actor_id: event.actor_id
+        actor_id: event.actor_id,
       });
-      mainInputStatusByMessageId.set(typeof event.payload.message_id === "string" ? event.payload.message_id : event.payload.input_id, "accepted");
+      mainInputStatusByMessageId.set(
+        typeof event.payload.message_id === "string"
+          ? event.payload.message_id
+          : event.payload.input_id,
+        "accepted"
+      );
     }
-    if (event.type === "main_input.queued" && typeof event.payload.input_id === "string") {
+    if (
+      event.type === "main_input.queued" &&
+      typeof event.payload.input_id === "string"
+    ) {
       const existing = mainInputQueue.get(event.payload.input_id);
-      if (existing) mainInputQueue.set(event.payload.input_id, { ...existing, status: "queued" });
-      mainInputStatusByMessageId.set(typeof event.payload.message_id === "string" ? event.payload.message_id : event.payload.input_id, "queued");
+      if (existing)
+        mainInputQueue.set(event.payload.input_id, {
+          ...existing,
+          status: "queued",
+        });
+      mainInputStatusByMessageId.set(
+        typeof event.payload.message_id === "string"
+          ? event.payload.message_id
+          : event.payload.input_id,
+        "queued"
+      );
     }
-    if (event.type === "main_input.triggered" && typeof event.payload.input_id === "string") {
+    if (
+      event.type === "main_input.triggered" &&
+      typeof event.payload.input_id === "string"
+    ) {
       const existing = mainInputQueue.get(event.payload.input_id);
-      if (existing) mainInputQueue.set(event.payload.input_id, { ...existing, status: "triggered" });
-      mainInputStatusByMessageId.set(typeof event.payload.message_id === "string" ? event.payload.message_id : event.payload.input_id, "triggered");
+      if (existing)
+        mainInputQueue.set(event.payload.input_id, {
+          ...existing,
+          status: "triggered",
+        });
+      mainInputStatusByMessageId.set(
+        typeof event.payload.message_id === "string"
+          ? event.payload.message_id
+          : event.payload.input_id,
+        "triggered"
+      );
     }
-    if (event.type === "main_input.cancelled" && typeof event.payload.input_id === "string") {
+    if (
+      event.type === "main_input.cancelled" &&
+      typeof event.payload.input_id === "string"
+    ) {
       const existing = mainInputQueue.get(event.payload.input_id);
-      if (existing) mainInputQueue.set(event.payload.input_id, { ...existing, status: "cancelled" });
-      mainInputStatusByMessageId.set(typeof event.payload.message_id === "string" ? event.payload.message_id : event.payload.input_id, "cancelled");
+      if (existing)
+        mainInputQueue.set(event.payload.input_id, {
+          ...existing,
+          status: "cancelled",
+        });
+      mainInputStatusByMessageId.set(
+        typeof event.payload.message_id === "string"
+          ? event.payload.message_id
+          : event.payload.input_id,
+        "cancelled"
+      );
     }
-    if (event.type === "main_input.failed" && typeof event.payload.input_id === "string") {
+    if (
+      event.type === "main_input.failed" &&
+      typeof event.payload.input_id === "string"
+    ) {
       const existing = mainInputQueue.get(event.payload.input_id);
-      if (existing) mainInputQueue.set(event.payload.input_id, { ...existing, status: "failed" });
-      mainInputStatusByMessageId.set(typeof event.payload.message_id === "string" ? event.payload.message_id : event.payload.input_id, "failed");
+      if (existing)
+        mainInputQueue.set(event.payload.input_id, {
+          ...existing,
+          status: "failed",
+        });
+      mainInputStatusByMessageId.set(
+        typeof event.payload.message_id === "string"
+          ? event.payload.message_id
+          : event.payload.input_id,
+        "failed"
+      );
     }
-    if (event.type === "connector.snapshot.entry" && isConnectorLedgerEntry(event.payload.entry)) {
+    if (
+      event.type === "connector.snapshot.entry" &&
+      isConnectorLedgerEntry(event.payload.entry)
+    ) {
       const entry = event.payload.entry;
       if (!messages.some((message) => message.message_id === entry.entry_id)) {
         messages.push({
@@ -701,197 +1041,389 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
           actor_id: entry.actor_id,
           text: entry.text,
           kind: connectorLedgerMessageKind(entry),
-          created_at: entry.created_at
+          created_at: entry.created_at,
         });
       }
     }
-    if (event.type === "connector.snapshot.completed" && typeof event.payload.connector_id === "string" && typeof event.payload.last_sequence === "number") {
+    if (
+      event.type === "connector.snapshot.completed" &&
+      typeof event.payload.connector_id === "string" &&
+      typeof event.payload.last_sequence === "number"
+    ) {
       connectorSyncCursor = {
         connector_id: event.payload.connector_id,
         last_sequence: event.payload.last_sequence,
-        ...(typeof event.payload.request_id === "string" ? { request_id: event.payload.request_id } : {}),
-        synced_at: event.created_at
+        ...(typeof event.payload.request_id === "string"
+          ? { request_id: event.payload.request_id }
+          : {}),
+        synced_at: event.created_at,
       };
     }
-    if (event.type === "agent.registered" && typeof event.payload.agent_id === "string" && typeof event.payload.name === "string") {
+    if (
+      event.type === "agent.registered" &&
+      typeof event.payload.agent_id === "string" &&
+      typeof event.payload.name === "string"
+    ) {
       const existing = agents.get(event.payload.agent_id);
+      const adapter =
+        event.payload.adapter &&
+        typeof event.payload.adapter === "object" &&
+        !Array.isArray(event.payload.adapter)
+          ? (event.payload.adapter as Record<string, unknown>)
+          : undefined;
+      const inputCapabilities = AgentInputCapabilitiesSchema.safeParse(
+        adapter?.input_capabilities
+      );
       agents.set(event.payload.agent_id, {
         agent_id: event.payload.agent_id,
         name: event.payload.name,
-        capabilities: Array.isArray(event.payload.capabilities) ? event.payload.capabilities.filter((item): item is string => typeof item === "string") : [],
+        capabilities: Array.isArray(event.payload.capabilities)
+          ? event.payload.capabilities.filter(
+              (item): item is string => typeof item === "string"
+            )
+          : [],
         status: existing?.status ?? "unknown",
         last_status_at: existing?.last_status_at,
-        thinking_enabled: existing?.thinking_enabled
+        thinking_enabled: existing?.thinking_enabled,
+        input_capabilities: inputCapabilities.success
+          ? inputCapabilities.data
+          : existing?.input_capabilities,
       });
     }
-    if (event.type === "agent.updated" && typeof event.payload.agent_id === "string") {
+    if (
+      event.type === "agent.updated" &&
+      typeof event.payload.agent_id === "string"
+    ) {
       const existing = agents.get(event.payload.agent_id);
       if (existing) {
         agents.set(event.payload.agent_id, {
           ...existing,
-          thinking_enabled: event.payload.thinking_enabled === false ? false : true
+          thinking_enabled:
+            event.payload.thinking_enabled === false ? false : true,
         });
       }
     }
-    if ((event.type === "agent.unregistered" || event.type === "agent.disconnected") && typeof event.payload.agent_id === "string") {
+    if (
+      (event.type === "agent.unregistered" ||
+        event.type === "agent.disconnected") &&
+      typeof event.payload.agent_id === "string"
+    ) {
       const existing = agents.get(event.payload.agent_id);
-      if (existing) agents.set(event.payload.agent_id, { ...existing, status: "offline", last_status_at: event.created_at });
+      if (existing)
+        agents.set(event.payload.agent_id, {
+          ...existing,
+          status: "offline",
+          last_status_at: event.created_at,
+        });
     }
-    if (event.type === "agent.status_changed" && typeof event.payload.agent_id === "string") {
+    if (
+      event.type === "agent.status_changed" &&
+      typeof event.payload.agent_id === "string"
+    ) {
       const existing = agents.get(event.payload.agent_id);
       if (!existing && !participants.has(event.payload.agent_id)) continue;
-      const agent = existing ?? { agent_id: event.payload.agent_id, name: event.payload.agent_id, capabilities: [], status: "unknown" as const };
-      agents.set(event.payload.agent_id, { ...agent, status: event.payload.status === "online" ? "online" : "offline", last_status_at: event.created_at });
+      const agent = existing ?? {
+        agent_id: event.payload.agent_id,
+        name: event.payload.agent_id,
+        capabilities: [],
+        status: "unknown" as const,
+      };
+      agents.set(event.payload.agent_id, {
+        ...agent,
+        status: event.payload.status === "online" ? "online" : "offline",
+        last_status_at: event.created_at,
+      });
     }
-    if (event.type === "room.agent_selected" && typeof event.payload.agent_id === "string") activeAgentId = event.payload.agent_id;
+    if (
+      event.type === "room.agent_selected" &&
+      typeof event.payload.agent_id === "string"
+    )
+      activeAgentId = event.payload.agent_id;
     if (event.type === "participant.presence_changed") {
-      const participantId = typeof event.payload.participant_id === "string" ? event.payload.participant_id : undefined;
-      const presence = event.payload.presence === "online" || event.payload.presence === "idle" || event.payload.presence === "offline" ? event.payload.presence : undefined;
+      const participantId =
+        typeof event.payload.participant_id === "string"
+          ? event.payload.participant_id
+          : undefined;
+      const presence =
+        event.payload.presence === "online" ||
+        event.payload.presence === "idle" ||
+        event.payload.presence === "offline"
+          ? event.payload.presence
+          : undefined;
       if (participantId && presence) {
         const activity = activityFor(participantActivity, participantId);
         activity.presence = presence;
-        activity.updated_at = typeof event.payload.updated_at === "string" ? event.payload.updated_at : event.created_at;
+        activity.updated_at =
+          typeof event.payload.updated_at === "string"
+            ? event.payload.updated_at
+            : event.created_at;
       }
     }
     if (event.type === "participant.typing_started") {
-      const participantId = typeof event.payload.participant_id === "string" ? event.payload.participant_id : undefined;
+      const participantId =
+        typeof event.payload.participant_id === "string"
+          ? event.payload.participant_id
+          : undefined;
       if (participantId) {
         const activity = activityFor(participantActivity, participantId);
         activity.typing = true;
-        activity.typing_updated_at = typeof event.payload.started_at === "string" ? event.payload.started_at : event.created_at;
+        activity.typing_updated_at =
+          typeof event.payload.started_at === "string"
+            ? event.payload.started_at
+            : event.created_at;
       }
     }
     if (event.type === "participant.typing_stopped") {
-      const participantId = typeof event.payload.participant_id === "string" ? event.payload.participant_id : undefined;
+      const participantId =
+        typeof event.payload.participant_id === "string"
+          ? event.payload.participant_id
+          : undefined;
       if (participantId) {
         const activity = activityFor(participantActivity, participantId);
         activity.typing = false;
-        activity.typing_updated_at = typeof event.payload.stopped_at === "string" ? event.payload.stopped_at : event.created_at;
+        activity.typing_updated_at =
+          typeof event.payload.stopped_at === "string"
+            ? event.payload.stopped_at
+            : event.created_at;
       }
     }
-    if (event.type === "claude.session_catalog.updated" && typeof event.payload.agent_id === "string" && typeof event.payload.working_dir === "string" && Array.isArray(event.payload.sessions)) {
+    if (
+      event.type === "claude.session_catalog.updated" &&
+      typeof event.payload.agent_id === "string" &&
+      typeof event.payload.working_dir === "string" &&
+      Array.isArray(event.payload.sessions)
+    ) {
       claudeSessionCatalog = {
         agent_id: event.payload.agent_id,
         working_dir: event.payload.working_dir,
-        sessions: event.payload.sessions as ClaudeSessionSummary[]
+        sessions: event.payload.sessions as ClaudeSessionSummary[],
       };
     }
-    if (event.type === "claude.session_selected" && typeof event.payload.agent_id === "string" && typeof event.payload.mode === "string" && typeof event.payload.selected_by === "string") {
+    if (
+      event.type === "claude.session_selected" &&
+      typeof event.payload.agent_id === "string" &&
+      typeof event.payload.mode === "string" &&
+      typeof event.payload.selected_by === "string"
+    ) {
       if (event.payload.mode === "fresh") {
-        claudeSessionSelection = { agent_id: event.payload.agent_id, mode: "fresh", selected_by: event.payload.selected_by };
+        claudeSessionSelection = {
+          agent_id: event.payload.agent_id,
+          mode: "fresh",
+          selected_by: event.payload.selected_by,
+        };
       }
-      if (event.payload.mode === "resume" && typeof event.payload.session_id === "string") {
-        claudeSessionSelection = { agent_id: event.payload.agent_id, mode: "resume", session_id: event.payload.session_id, selected_by: event.payload.selected_by };
+      if (
+        event.payload.mode === "resume" &&
+        typeof event.payload.session_id === "string"
+      ) {
+        claudeSessionSelection = {
+          agent_id: event.payload.agent_id,
+          mode: "resume",
+          session_id: event.payload.session_id,
+          selected_by: event.payload.selected_by,
+        };
       }
     }
-    if (event.type === "claude.session_ready" && typeof event.payload.agent_id === "string" && typeof event.payload.mode === "string" && typeof event.payload.ready_at === "string") {
+    if (
+      event.type === "claude.session_ready" &&
+      typeof event.payload.agent_id === "string" &&
+      typeof event.payload.mode === "string" &&
+      typeof event.payload.ready_at === "string"
+    ) {
       if (event.payload.mode === "fresh") {
         claudeSessionReady = {
           agent_id: event.payload.agent_id,
           mode: "fresh",
-          ...(typeof event.payload.session_id === "string" ? { session_id: event.payload.session_id } : {}),
-          ready_at: event.payload.ready_at
+          ...(typeof event.payload.session_id === "string"
+            ? { session_id: event.payload.session_id }
+            : {}),
+          ready_at: event.payload.ready_at,
         };
       }
-      if (event.payload.mode === "resume" && typeof event.payload.session_id === "string") {
+      if (
+        event.payload.mode === "resume" &&
+        typeof event.payload.session_id === "string"
+      ) {
         claudeSessionReady = {
           agent_id: event.payload.agent_id,
           mode: "resume",
           session_id: event.payload.session_id,
-          ready_at: event.payload.ready_at
+          ready_at: event.payload.ready_at,
         };
       }
     }
-    if (event.type === "agent.session_catalog.updated" && typeof event.payload.agent_id === "string" && typeof event.payload.provider === "string" && typeof event.payload.working_dir === "string" && Array.isArray(event.payload.sessions)) {
+    if (
+      event.type === "agent.session_catalog.updated" &&
+      typeof event.payload.agent_id === "string" &&
+      typeof event.payload.provider === "string" &&
+      typeof event.payload.working_dir === "string" &&
+      Array.isArray(event.payload.sessions)
+    ) {
       agentSessionCatalog = {
         agent_id: event.payload.agent_id,
         provider: event.payload.provider,
         working_dir: event.payload.working_dir,
-        sessions: event.payload.sessions as AgentSessionSummary[]
+        sessions: event.payload.sessions as AgentSessionSummary[],
       };
     }
-    if (event.type === "agent.session_selected" && typeof event.payload.agent_id === "string" && typeof event.payload.provider === "string" && typeof event.payload.mode === "string" && typeof event.payload.selected_by === "string") {
+    if (
+      event.type === "agent.session_selected" &&
+      typeof event.payload.agent_id === "string" &&
+      typeof event.payload.provider === "string" &&
+      typeof event.payload.mode === "string" &&
+      typeof event.payload.selected_by === "string"
+    ) {
       if (event.payload.mode === "fresh") {
-        agentSessionSelection = { agent_id: event.payload.agent_id, provider: event.payload.provider, mode: "fresh", selected_by: event.payload.selected_by };
+        agentSessionSelection = {
+          agent_id: event.payload.agent_id,
+          provider: event.payload.provider,
+          mode: "fresh",
+          selected_by: event.payload.selected_by,
+        };
       }
-      if (event.payload.mode === "resume" && typeof event.payload.session_id === "string") {
-        agentSessionSelection = { agent_id: event.payload.agent_id, provider: event.payload.provider, mode: "resume", session_id: event.payload.session_id, selected_by: event.payload.selected_by };
+      if (
+        event.payload.mode === "resume" &&
+        typeof event.payload.session_id === "string"
+      ) {
+        agentSessionSelection = {
+          agent_id: event.payload.agent_id,
+          provider: event.payload.provider,
+          mode: "resume",
+          session_id: event.payload.session_id,
+          selected_by: event.payload.selected_by,
+        };
       }
     }
-    if (event.type === "agent.session_ready" && typeof event.payload.agent_id === "string" && isLocalAgentProvider(event.payload.provider) && typeof event.payload.mode === "string" && typeof event.payload.ready_at === "string") {
+    if (
+      event.type === "agent.session_ready" &&
+      typeof event.payload.agent_id === "string" &&
+      isLocalAgentProvider(event.payload.provider) &&
+      typeof event.payload.mode === "string" &&
+      typeof event.payload.ready_at === "string"
+    ) {
       if (event.payload.mode === "fresh") {
         agentSessionReady = {
           agent_id: event.payload.agent_id,
           provider: event.payload.provider,
           mode: "fresh",
-          ...(typeof event.payload.session_id === "string" ? { session_id: event.payload.session_id } : {}),
-          ready_at: event.payload.ready_at
+          ...(typeof event.payload.session_id === "string"
+            ? { session_id: event.payload.session_id }
+            : {}),
+          ready_at: event.payload.ready_at,
         };
       }
-      if (event.payload.mode === "resume" && typeof event.payload.session_id === "string") {
+      if (
+        event.payload.mode === "resume" &&
+        typeof event.payload.session_id === "string"
+      ) {
         agentSessionReady = {
           agent_id: event.payload.agent_id,
           provider: event.payload.provider,
           mode: "resume",
           session_id: event.payload.session_id,
-          ready_at: event.payload.ready_at
+          ready_at: event.payload.ready_at,
         };
       }
     }
   }
 
   for (const event of events) {
-    if (event.type === "claude.session_preview.requested" && typeof event.payload.preview_id === "string" && typeof event.payload.agent_id === "string" && typeof event.payload.session_id === "string") {
+    if (
+      event.type === "claude.session_preview.requested" &&
+      typeof event.payload.preview_id === "string" &&
+      typeof event.payload.agent_id === "string" &&
+      typeof event.payload.session_id === "string"
+    ) {
       claudeSessionPreviews.set(event.payload.preview_id, {
         preview_id: event.payload.preview_id,
         agent_id: event.payload.agent_id,
         session_id: event.payload.session_id,
-        requested_by: typeof event.payload.requested_by === "string" ? event.payload.requested_by : undefined,
+        requested_by:
+          typeof event.payload.requested_by === "string"
+            ? event.payload.requested_by
+            : undefined,
         status: "requested",
-        messages: []
+        messages: [],
       });
     }
-    if (event.type === "claude.session_preview.message" && typeof event.payload.preview_id === "string" && typeof event.payload.agent_id === "string" && typeof event.payload.session_id === "string" && typeof event.payload.text === "string") {
+    if (
+      event.type === "claude.session_preview.message" &&
+      typeof event.payload.preview_id === "string" &&
+      typeof event.payload.agent_id === "string" &&
+      typeof event.payload.session_id === "string" &&
+      typeof event.payload.text === "string"
+    ) {
       const existing = claudeSessionPreviews.get(event.payload.preview_id) ?? {
         preview_id: event.payload.preview_id,
         agent_id: event.payload.agent_id,
         session_id: event.payload.session_id,
         status: "requested" as const,
-        messages: []
+        messages: [],
       };
       claudeSessionPreviews.set(event.payload.preview_id, {
         ...existing,
-        messages: [...existing.messages, event.payload as unknown as ClaudeSessionPreviewMessagePayload].sort((a, b) => a.sequence - b.sequence)
+        messages: [
+          ...existing.messages,
+          event.payload as unknown as ClaudeSessionPreviewMessagePayload,
+        ].sort((a, b) => a.sequence - b.sequence),
       });
     }
-    if (event.type === "claude.session_preview.completed" && typeof event.payload.preview_id === "string") {
+    if (
+      event.type === "claude.session_preview.completed" &&
+      typeof event.payload.preview_id === "string"
+    ) {
       const existing = claudeSessionPreviews.get(event.payload.preview_id);
-      if (existing) claudeSessionPreviews.set(event.payload.preview_id, {
-        ...existing,
-        status: "completed",
-        previewed_message_count: typeof event.payload.previewed_message_count === "number" ? event.payload.previewed_message_count : existing.messages.length
-      });
+      if (existing)
+        claudeSessionPreviews.set(event.payload.preview_id, {
+          ...existing,
+          status: "completed",
+          previewed_message_count:
+            typeof event.payload.previewed_message_count === "number"
+              ? event.payload.previewed_message_count
+              : existing.messages.length,
+        });
     }
-    if (event.type === "claude.session_preview.failed" && typeof event.payload.preview_id === "string") {
+    if (
+      event.type === "claude.session_preview.failed" &&
+      typeof event.payload.preview_id === "string"
+    ) {
       const existing = claudeSessionPreviews.get(event.payload.preview_id);
       claudeSessionPreviews.set(event.payload.preview_id, {
         preview_id: event.payload.preview_id,
-        agent_id: typeof event.payload.agent_id === "string" ? event.payload.agent_id : existing?.agent_id ?? event.actor_id,
-        session_id: typeof event.payload.session_id === "string" ? event.payload.session_id : existing?.session_id ?? "unknown",
+        agent_id:
+          typeof event.payload.agent_id === "string"
+            ? event.payload.agent_id
+            : (existing?.agent_id ?? event.actor_id),
+        session_id:
+          typeof event.payload.session_id === "string"
+            ? event.payload.session_id
+            : (existing?.session_id ?? "unknown"),
         requested_by: existing?.requested_by,
         messages: existing?.messages ?? [],
         status: "failed",
-        error: typeof event.payload.error === "string" ? event.payload.error : "Preview failed"
+        error:
+          typeof event.payload.error === "string"
+            ? event.payload.error
+            : "Preview failed",
       });
     }
-    if (event.type === "claude.session_import.started" && typeof event.payload.import_id === "string" && typeof event.payload.agent_id === "string" && typeof event.payload.session_id === "string" && typeof event.payload.title === "string") {
+    if (
+      event.type === "claude.session_import.started" &&
+      typeof event.payload.import_id === "string" &&
+      typeof event.payload.agent_id === "string" &&
+      typeof event.payload.session_id === "string" &&
+      typeof event.payload.title === "string"
+    ) {
       claudeImports.set(event.payload.import_id, {
         import_id: event.payload.import_id,
         agent_id: event.payload.agent_id,
         session_id: event.payload.session_id,
         title: event.payload.title,
-        message_count: typeof event.payload.message_count === "number" ? event.payload.message_count : 0,
-        status: "started"
+        message_count:
+          typeof event.payload.message_count === "number"
+            ? event.payload.message_count
+            : 0,
+        status: "started",
       });
       messages.push({
         message_id: `claude-import-banner-${event.payload.import_id}`,
@@ -900,33 +1432,63 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
         kind: "claude_import_banner",
         created_at: event.created_at,
         claudeImportId: event.payload.import_id,
-        claudeSessionId: event.payload.session_id
+        claudeSessionId: event.payload.session_id,
       });
     }
-    if (event.type === "claude.session_import.message" && typeof event.payload.import_id === "string" && typeof event.payload.session_id === "string" && typeof event.payload.text === "string") {
+    if (
+      event.type === "claude.session_import.message" &&
+      typeof event.payload.import_id === "string" &&
+      typeof event.payload.session_id === "string" &&
+      typeof event.payload.text === "string"
+    ) {
       messages.push({
         message_id: `claude-import-${event.payload.import_id}-${typeof event.payload.sequence === "number" ? event.payload.sequence : messages.length}`,
-        actor_id: typeof event.payload.agent_id === "string" ? event.payload.agent_id : event.actor_id,
+        actor_id:
+          typeof event.payload.agent_id === "string"
+            ? event.payload.agent_id
+            : event.actor_id,
         text: event.payload.text,
         kind: `claude_import_${typeof event.payload.author_role === "string" ? event.payload.author_role : "system"}`,
-        created_at: typeof event.payload.original_created_at === "string" ? event.payload.original_created_at : event.created_at,
+        created_at:
+          typeof event.payload.original_created_at === "string"
+            ? event.payload.original_created_at
+            : event.created_at,
         claudeImportId: event.payload.import_id,
         claudeSessionId: event.payload.session_id,
-        claudeSourceKind: typeof event.payload.source_kind === "string" ? event.payload.source_kind : undefined,
-        claudeImportSequence: typeof event.payload.sequence === "number" ? event.payload.sequence : undefined
+        claudeSourceKind:
+          typeof event.payload.source_kind === "string"
+            ? event.payload.source_kind
+            : undefined,
+        claudeImportSequence:
+          typeof event.payload.sequence === "number"
+            ? event.payload.sequence
+            : undefined,
       });
     }
-    if (event.type === "claude.session_import.completed" && typeof event.payload.import_id === "string") {
+    if (
+      event.type === "claude.session_import.completed" &&
+      typeof event.payload.import_id === "string"
+    ) {
       const existing = claudeImports.get(event.payload.import_id);
-      if (existing) claudeImports.set(event.payload.import_id, {
-        ...existing,
-        status: "completed",
-        imported_message_count: typeof event.payload.imported_message_count === "number" ? event.payload.imported_message_count : existing.message_count
-      });
+      if (existing)
+        claudeImports.set(event.payload.import_id, {
+          ...existing,
+          status: "completed",
+          imported_message_count:
+            typeof event.payload.imported_message_count === "number"
+              ? event.payload.imported_message_count
+              : existing.message_count,
+        });
     }
-    if (event.type === "claude.session_import.failed" && typeof event.payload.import_id === "string") {
+    if (
+      event.type === "claude.session_import.failed" &&
+      typeof event.payload.import_id === "string"
+    ) {
       const existing = claudeImports.get(event.payload.import_id);
-      const sessionId = typeof event.payload.session_id === "string" ? event.payload.session_id : existing?.session_id ?? "unknown";
+      const sessionId =
+        typeof event.payload.session_id === "string"
+          ? event.payload.session_id
+          : (existing?.session_id ?? "unknown");
       if (!existing) {
         messages.push({
           message_id: `claude-import-banner-${event.payload.import_id}`,
@@ -935,75 +1497,132 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
           kind: "claude_import_banner",
           created_at: event.created_at,
           claudeImportId: event.payload.import_id,
-          claudeSessionId: sessionId
+          claudeSessionId: sessionId,
         });
       }
       claudeImports.set(event.payload.import_id, {
         import_id: event.payload.import_id,
-        agent_id: typeof event.payload.agent_id === "string" ? event.payload.agent_id : existing?.agent_id ?? event.actor_id,
+        agent_id:
+          typeof event.payload.agent_id === "string"
+            ? event.payload.agent_id
+            : (existing?.agent_id ?? event.actor_id),
         session_id: sessionId,
         title: existing?.title ?? `Claude session ${sessionId.slice(0, 8)}`,
         message_count: existing?.message_count ?? 0,
         imported_message_count: existing?.imported_message_count,
         status: "failed",
-        error: typeof event.payload.error === "string" ? event.payload.error : "Import failed"
+        error:
+          typeof event.payload.error === "string"
+            ? event.payload.error
+            : "Import failed",
       });
     }
-    if (event.type === "agent.session_preview.requested" && typeof event.payload.preview_id === "string" && typeof event.payload.agent_id === "string" && typeof event.payload.provider === "string" && typeof event.payload.session_id === "string") {
+    if (
+      event.type === "agent.session_preview.requested" &&
+      typeof event.payload.preview_id === "string" &&
+      typeof event.payload.agent_id === "string" &&
+      typeof event.payload.provider === "string" &&
+      typeof event.payload.session_id === "string"
+    ) {
       agentSessionPreviews.set(event.payload.preview_id, {
         preview_id: event.payload.preview_id,
         agent_id: event.payload.agent_id,
         provider: event.payload.provider,
         session_id: event.payload.session_id,
-        requested_by: typeof event.payload.requested_by === "string" ? event.payload.requested_by : undefined,
+        requested_by:
+          typeof event.payload.requested_by === "string"
+            ? event.payload.requested_by
+            : undefined,
         status: "requested",
-        messages: []
+        messages: [],
       });
     }
-    if (event.type === "agent.session_preview.message" && typeof event.payload.preview_id === "string" && typeof event.payload.agent_id === "string" && typeof event.payload.provider === "string" && typeof event.payload.session_id === "string" && typeof event.payload.text === "string") {
+    if (
+      event.type === "agent.session_preview.message" &&
+      typeof event.payload.preview_id === "string" &&
+      typeof event.payload.agent_id === "string" &&
+      typeof event.payload.provider === "string" &&
+      typeof event.payload.session_id === "string" &&
+      typeof event.payload.text === "string"
+    ) {
       const existing = agentSessionPreviews.get(event.payload.preview_id) ?? {
         preview_id: event.payload.preview_id,
         agent_id: event.payload.agent_id,
         provider: event.payload.provider,
         session_id: event.payload.session_id,
         status: "requested" as const,
-        messages: []
+        messages: [],
       };
       agentSessionPreviews.set(event.payload.preview_id, {
         ...existing,
-        messages: [...existing.messages, event.payload as unknown as AgentSessionPreviewMessagePayload].sort((a, b) => a.sequence - b.sequence)
+        messages: [
+          ...existing.messages,
+          event.payload as unknown as AgentSessionPreviewMessagePayload,
+        ].sort((a, b) => a.sequence - b.sequence),
       });
     }
-    if (event.type === "agent.session_preview.completed" && typeof event.payload.preview_id === "string") {
+    if (
+      event.type === "agent.session_preview.completed" &&
+      typeof event.payload.preview_id === "string"
+    ) {
       const existing = agentSessionPreviews.get(event.payload.preview_id);
-      if (existing) agentSessionPreviews.set(event.payload.preview_id, {
-        ...existing,
-        status: "completed",
-        previewed_message_count: typeof event.payload.previewed_message_count === "number" ? event.payload.previewed_message_count : existing.messages.length
-      });
+      if (existing)
+        agentSessionPreviews.set(event.payload.preview_id, {
+          ...existing,
+          status: "completed",
+          previewed_message_count:
+            typeof event.payload.previewed_message_count === "number"
+              ? event.payload.previewed_message_count
+              : existing.messages.length,
+        });
     }
-    if (event.type === "agent.session_preview.failed" && typeof event.payload.preview_id === "string") {
+    if (
+      event.type === "agent.session_preview.failed" &&
+      typeof event.payload.preview_id === "string"
+    ) {
       const existing = agentSessionPreviews.get(event.payload.preview_id);
       agentSessionPreviews.set(event.payload.preview_id, {
         preview_id: event.payload.preview_id,
-        agent_id: typeof event.payload.agent_id === "string" ? event.payload.agent_id : existing?.agent_id ?? event.actor_id,
-        provider: typeof event.payload.provider === "string" ? event.payload.provider : existing?.provider ?? "local-agent",
-        session_id: typeof event.payload.session_id === "string" ? event.payload.session_id : existing?.session_id ?? "unknown",
+        agent_id:
+          typeof event.payload.agent_id === "string"
+            ? event.payload.agent_id
+            : (existing?.agent_id ?? event.actor_id),
+        provider:
+          typeof event.payload.provider === "string"
+            ? event.payload.provider
+            : (existing?.provider ?? "local-agent"),
+        session_id:
+          typeof event.payload.session_id === "string"
+            ? event.payload.session_id
+            : (existing?.session_id ?? "unknown"),
         requested_by: existing?.requested_by,
         messages: existing?.messages ?? [],
         status: "failed",
-        error: typeof event.payload.error === "string" ? event.payload.error : "Preview failed"
+        error:
+          typeof event.payload.error === "string"
+            ? event.payload.error
+            : "Preview failed",
       });
     }
-    if (event.type === "agent.session_import.started" && typeof event.payload.import_id === "string" && typeof event.payload.agent_id === "string" && typeof event.payload.provider === "string" && typeof event.payload.session_id === "string" && typeof event.payload.title === "string") {
+    if (
+      event.type === "agent.session_import.started" &&
+      typeof event.payload.import_id === "string" &&
+      typeof event.payload.agent_id === "string" &&
+      typeof event.payload.provider === "string" &&
+      typeof event.payload.session_id === "string" &&
+      typeof event.payload.title === "string"
+    ) {
       agentImports.set(event.payload.import_id, {
         import_id: event.payload.import_id,
         agent_id: event.payload.agent_id,
         provider: event.payload.provider,
         session_id: event.payload.session_id,
         title: event.payload.title,
-        message_count: typeof event.payload.message_count === "number" ? event.payload.message_count : 0,
-        status: "started"
+        message_count:
+          typeof event.payload.message_count === "number"
+            ? event.payload.message_count
+            : 0,
+        status: "started",
       });
       messages.push({
         message_id: `agent-import-banner-${event.payload.import_id}`,
@@ -1013,35 +1632,69 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
         created_at: event.created_at,
         agentImportId: event.payload.import_id,
         agentSessionId: event.payload.session_id,
-        agentProvider: event.payload.provider
+        agentProvider: event.payload.provider,
       });
     }
-    if (event.type === "agent.session_import.message" && typeof event.payload.import_id === "string" && typeof event.payload.provider === "string" && typeof event.payload.session_id === "string" && typeof event.payload.text === "string") {
+    if (
+      event.type === "agent.session_import.message" &&
+      typeof event.payload.import_id === "string" &&
+      typeof event.payload.provider === "string" &&
+      typeof event.payload.session_id === "string" &&
+      typeof event.payload.text === "string"
+    ) {
       messages.push({
         message_id: `agent-import-${event.payload.import_id}-${typeof event.payload.sequence === "number" ? event.payload.sequence : messages.length}`,
-        actor_id: typeof event.payload.agent_id === "string" ? event.payload.agent_id : event.actor_id,
+        actor_id:
+          typeof event.payload.agent_id === "string"
+            ? event.payload.agent_id
+            : event.actor_id,
         text: event.payload.text,
         kind: `agent_import_${typeof event.payload.author_role === "string" ? event.payload.author_role : "system"}`,
-        created_at: typeof event.payload.original_created_at === "string" ? event.payload.original_created_at : event.created_at,
+        created_at:
+          typeof event.payload.original_created_at === "string"
+            ? event.payload.original_created_at
+            : event.created_at,
         agentImportId: event.payload.import_id,
         agentSessionId: event.payload.session_id,
         agentProvider: event.payload.provider,
-        agentSourceKind: typeof event.payload.source_kind === "string" ? event.payload.source_kind : undefined,
-        agentImportSequence: typeof event.payload.sequence === "number" ? event.payload.sequence : undefined
+        agentSourceKind:
+          typeof event.payload.source_kind === "string"
+            ? event.payload.source_kind
+            : undefined,
+        agentImportSequence:
+          typeof event.payload.sequence === "number"
+            ? event.payload.sequence
+            : undefined,
       });
     }
-    if (event.type === "agent.session_import.completed" && typeof event.payload.import_id === "string") {
+    if (
+      event.type === "agent.session_import.completed" &&
+      typeof event.payload.import_id === "string"
+    ) {
       const existing = agentImports.get(event.payload.import_id);
-      if (existing) agentImports.set(event.payload.import_id, {
-        ...existing,
-        status: "completed",
-        imported_message_count: typeof event.payload.imported_message_count === "number" ? event.payload.imported_message_count : existing.message_count
-      });
+      if (existing)
+        agentImports.set(event.payload.import_id, {
+          ...existing,
+          status: "completed",
+          imported_message_count:
+            typeof event.payload.imported_message_count === "number"
+              ? event.payload.imported_message_count
+              : existing.message_count,
+        });
     }
-    if (event.type === "agent.session_import.failed" && typeof event.payload.import_id === "string") {
+    if (
+      event.type === "agent.session_import.failed" &&
+      typeof event.payload.import_id === "string"
+    ) {
       const existing = agentImports.get(event.payload.import_id);
-      const sessionId = typeof event.payload.session_id === "string" ? event.payload.session_id : existing?.session_id ?? "unknown";
-      const provider = typeof event.payload.provider === "string" ? event.payload.provider : existing?.provider ?? "local-agent";
+      const sessionId =
+        typeof event.payload.session_id === "string"
+          ? event.payload.session_id
+          : (existing?.session_id ?? "unknown");
+      const provider =
+        typeof event.payload.provider === "string"
+          ? event.payload.provider
+          : (existing?.provider ?? "local-agent");
       if (!existing) {
         messages.push({
           message_id: `agent-import-banner-${event.payload.import_id}`,
@@ -1051,127 +1704,261 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
           created_at: event.created_at,
           agentImportId: event.payload.import_id,
           agentSessionId: sessionId,
-          agentProvider: provider
+          agentProvider: provider,
         });
       }
       agentImports.set(event.payload.import_id, {
         import_id: event.payload.import_id,
-        agent_id: typeof event.payload.agent_id === "string" ? event.payload.agent_id : existing?.agent_id ?? event.actor_id,
+        agent_id:
+          typeof event.payload.agent_id === "string"
+            ? event.payload.agent_id
+            : (existing?.agent_id ?? event.actor_id),
         provider,
         session_id: sessionId,
         title: existing?.title ?? `Agent session ${sessionId.slice(0, 8)}`,
         message_count: existing?.message_count ?? 0,
         imported_message_count: existing?.imported_message_count,
         status: "failed",
-        error: typeof event.payload.error === "string" ? event.payload.error : "Import failed"
+        error:
+          typeof event.payload.error === "string"
+            ? event.payload.error
+            : "Import failed",
       });
     }
-    if (event.type === "claude.runtime.status_changed" && typeof event.payload.turn_id === "string" && typeof event.payload.status_id === "string") {
-      claudeRuntimeStatuses.set(event.payload.status_id, event.payload as unknown as ClaudeRuntimeStatusView);
+    if (
+      event.type === "claude.runtime.status_changed" &&
+      typeof event.payload.turn_id === "string" &&
+      typeof event.payload.status_id === "string"
+    ) {
+      claudeRuntimeStatuses.set(
+        event.payload.status_id,
+        event.payload as unknown as ClaudeRuntimeStatusView
+      );
       const turnId = event.payload.turn_id;
-      const phase = typeof event.payload.phase === "string" ? event.payload.phase : undefined;
-      const current = typeof event.payload.current === "string" ? event.payload.current : undefined;
+      const phase =
+        typeof event.payload.phase === "string"
+          ? event.payload.phase
+          : undefined;
+      const current =
+        typeof event.payload.current === "string"
+          ? event.payload.current
+          : undefined;
       const metrics = event.payload.metrics as ClaudeRuntimeMetrics | undefined;
-      const startedAt = typeof event.payload.started_at === "string" ? event.payload.started_at : undefined;
-      const detail = event.payload.detail as Record<string, unknown> | undefined;
-      turnStatusById.set(turnId, { ...turnStatusById.get(turnId), phase, current, metrics, started_at: startedAt });
+      const startedAt =
+        typeof event.payload.started_at === "string"
+          ? event.payload.started_at
+          : undefined;
+      const detail = event.payload.detail as
+        Record<string, unknown> | undefined;
+      turnStatusById.set(turnId, {
+        ...turnStatusById.get(turnId),
+        phase,
+        current,
+        metrics,
+        started_at: startedAt,
+      });
       const streaming = streamingTurns.get(turnId);
-      if (streaming) streamingTurns.set(turnId, { ...streaming, phase, current, metrics, started_at: startedAt ?? streaming.started_at, detail });
+      if (streaming)
+        streamingTurns.set(turnId, {
+          ...streaming,
+          phase,
+          current,
+          metrics,
+          started_at: startedAt ?? streaming.started_at,
+          detail,
+        });
     }
-    if (event.type === "claude.runtime.status_completed" && typeof event.payload.status_id === "string") {
+    if (
+      event.type === "claude.runtime.status_completed" &&
+      typeof event.payload.status_id === "string"
+    ) {
       const existing = claudeRuntimeStatuses.get(event.payload.status_id);
-      const completedAt = typeof event.payload.completed_at === "string" ? event.payload.completed_at : event.created_at;
-      const turnId = existing?.turn_id ?? (typeof event.payload.turn_id === "string" ? event.payload.turn_id : undefined);
-      const metrics = existing?.metrics ?? (event.payload.metrics as ClaudeRuntimeMetrics | undefined);
+      const completedAt =
+        typeof event.payload.completed_at === "string"
+          ? event.payload.completed_at
+          : event.created_at;
+      const turnId =
+        existing?.turn_id ??
+        (typeof event.payload.turn_id === "string"
+          ? event.payload.turn_id
+          : undefined);
+      const metrics =
+        existing?.metrics ??
+        (event.payload.metrics as ClaudeRuntimeMetrics | undefined);
       if (existing) {
         claudeRuntimeStatuses.set(event.payload.status_id, {
           ...existing,
           phase: "completed",
-          summary: typeof event.payload.summary === "string" ? event.payload.summary : "Claude Code completed",
-          completed_at: completedAt
+          summary:
+            typeof event.payload.summary === "string"
+              ? event.payload.summary
+              : "Claude Code completed",
+          completed_at: completedAt,
         });
       }
       if (turnId) {
         turnStatusById.set(turnId, {
           ...turnStatusById.get(turnId),
           finalPhase: "Completed",
-          finalSummary: typeof event.payload.summary === "string" ? event.payload.summary : "Claude Code completed",
+          finalSummary:
+            typeof event.payload.summary === "string"
+              ? event.payload.summary
+              : "Claude Code completed",
           finalMetrics: metrics,
-          completedAt
+          completedAt,
         });
       }
     }
-    if (event.type === "claude.runtime.status_failed" && typeof event.payload.status_id === "string") {
+    if (
+      event.type === "claude.runtime.status_failed" &&
+      typeof event.payload.status_id === "string"
+    ) {
       const existing = claudeRuntimeStatuses.get(event.payload.status_id);
-      const failedAt = typeof event.payload.failed_at === "string" ? event.payload.failed_at : event.created_at;
-      const turnId = existing?.turn_id ?? (typeof event.payload.turn_id === "string" ? event.payload.turn_id : undefined);
+      const failedAt =
+        typeof event.payload.failed_at === "string"
+          ? event.payload.failed_at
+          : event.created_at;
+      const turnId =
+        existing?.turn_id ??
+        (typeof event.payload.turn_id === "string"
+          ? event.payload.turn_id
+          : undefined);
       if (existing) {
         claudeRuntimeStatuses.set(event.payload.status_id, {
           ...existing,
           phase: "failed",
-          error: typeof event.payload.error === "string" ? event.payload.error : "Claude Code failed",
-          failed_at: failedAt
+          error:
+            typeof event.payload.error === "string"
+              ? event.payload.error
+              : "Claude Code failed",
+          failed_at: failedAt,
         });
       }
       if (turnId) {
         turnStatusById.set(turnId, {
           ...turnStatusById.get(turnId),
           failed: true,
-          error: typeof event.payload.error === "string" ? event.payload.error : "Claude Code failed"
+          error:
+            typeof event.payload.error === "string"
+              ? event.payload.error
+              : "Claude Code failed",
         });
       }
     }
-    if (event.type === "agent.runtime.status_changed" && typeof event.payload.turn_id === "string" && typeof event.payload.status_id === "string") {
-      agentRuntimeStatuses.set(event.payload.status_id, event.payload as unknown as AgentRuntimeStatusView);
+    if (
+      event.type === "agent.runtime.status_changed" &&
+      typeof event.payload.turn_id === "string" &&
+      typeof event.payload.status_id === "string"
+    ) {
+      agentRuntimeStatuses.set(
+        event.payload.status_id,
+        event.payload as unknown as AgentRuntimeStatusView
+      );
       const turnId = event.payload.turn_id;
-      const phase = typeof event.payload.phase === "string" ? event.payload.phase : undefined;
-      const current = typeof event.payload.current === "string" ? event.payload.current : undefined;
+      const phase =
+        typeof event.payload.phase === "string"
+          ? event.payload.phase
+          : undefined;
+      const current =
+        typeof event.payload.current === "string"
+          ? event.payload.current
+          : undefined;
       const metrics = event.payload.metrics as ClaudeRuntimeMetrics | undefined;
-      const startedAt = typeof event.payload.started_at === "string" ? event.payload.started_at : undefined;
-      turnStatusById.set(turnId, { ...turnStatusById.get(turnId), phase, current, metrics, started_at: startedAt });
+      const startedAt =
+        typeof event.payload.started_at === "string"
+          ? event.payload.started_at
+          : undefined;
+      turnStatusById.set(turnId, {
+        ...turnStatusById.get(turnId),
+        phase,
+        current,
+        metrics,
+        started_at: startedAt,
+      });
       const streaming = streamingTurns.get(turnId);
-      if (streaming) streamingTurns.set(turnId, { ...streaming, phase, current, metrics, started_at: startedAt ?? streaming.started_at });
+      if (streaming)
+        streamingTurns.set(turnId, {
+          ...streaming,
+          phase,
+          current,
+          metrics,
+          started_at: startedAt ?? streaming.started_at,
+        });
     }
-    if (event.type === "agent.runtime.status_completed" && typeof event.payload.status_id === "string") {
+    if (
+      event.type === "agent.runtime.status_completed" &&
+      typeof event.payload.status_id === "string"
+    ) {
       const existing = agentRuntimeStatuses.get(event.payload.status_id);
-      const completedAt = typeof event.payload.completed_at === "string" ? event.payload.completed_at : event.created_at;
-      const turnId = existing?.turn_id ?? (typeof event.payload.turn_id === "string" ? event.payload.turn_id : undefined);
-      const metrics = existing?.metrics ?? (event.payload.metrics as ClaudeRuntimeMetrics | undefined);
+      const completedAt =
+        typeof event.payload.completed_at === "string"
+          ? event.payload.completed_at
+          : event.created_at;
+      const turnId =
+        existing?.turn_id ??
+        (typeof event.payload.turn_id === "string"
+          ? event.payload.turn_id
+          : undefined);
+      const metrics =
+        existing?.metrics ??
+        (event.payload.metrics as ClaudeRuntimeMetrics | undefined);
       if (existing) {
         agentRuntimeStatuses.set(event.payload.status_id, {
           ...existing,
           phase: "completed",
-          summary: typeof event.payload.summary === "string" ? event.payload.summary : "Completed",
-          completed_at: completedAt
+          summary:
+            typeof event.payload.summary === "string"
+              ? event.payload.summary
+              : "Completed",
+          completed_at: completedAt,
         });
       }
       if (turnId) {
         turnStatusById.set(turnId, {
           ...turnStatusById.get(turnId),
           finalPhase: "Completed",
-          finalSummary: typeof event.payload.summary === "string" ? event.payload.summary : "Completed",
+          finalSummary:
+            typeof event.payload.summary === "string"
+              ? event.payload.summary
+              : "Completed",
           finalMetrics: metrics,
-          completedAt
+          completedAt,
         });
       }
     }
-    if (event.type === "agent.runtime.status_failed" && typeof event.payload.status_id === "string") {
+    if (
+      event.type === "agent.runtime.status_failed" &&
+      typeof event.payload.status_id === "string"
+    ) {
       const existing = agentRuntimeStatuses.get(event.payload.status_id);
-      const failedAt = typeof event.payload.failed_at === "string" ? event.payload.failed_at : event.created_at;
-      const turnId = existing?.turn_id ?? (typeof event.payload.turn_id === "string" ? event.payload.turn_id : undefined);
+      const failedAt =
+        typeof event.payload.failed_at === "string"
+          ? event.payload.failed_at
+          : event.created_at;
+      const turnId =
+        existing?.turn_id ??
+        (typeof event.payload.turn_id === "string"
+          ? event.payload.turn_id
+          : undefined);
       if (existing) {
         agentRuntimeStatuses.set(event.payload.status_id, {
           ...existing,
           phase: "failed",
-          error: typeof event.payload.error === "string" ? event.payload.error : "Failed",
-          failed_at: failedAt
+          error:
+            typeof event.payload.error === "string"
+              ? event.payload.error
+              : "Failed",
+          failed_at: failedAt,
         });
       }
       if (turnId) {
         turnStatusById.set(turnId, {
           ...turnStatusById.get(turnId),
           failed: true,
-          error: typeof event.payload.error === "string" ? event.payload.error : "Failed"
+          error:
+            typeof event.payload.error === "string"
+              ? event.payload.error
+              : "Failed",
         });
       }
     }
@@ -1192,9 +1979,12 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
         run.status = "completed";
         run.message_id = stringField(payload, "message_id");
         run.summary = stringField(payload, "summary") ?? run.summary;
-        run.metrics = asRecord(payload.metrics) as AgentRunMetrics | undefined ?? run.metrics;
+        run.metrics =
+          (asRecord(payload.metrics) as AgentRunMetrics | undefined) ??
+          run.metrics;
         run.usage = asRecord(payload.usage) ?? run.usage;
-        run.completed_at = stringField(payload, "completed_at") ?? event.created_at;
+        run.completed_at =
+          stringField(payload, "completed_at") ?? event.created_at;
       }
     }
     if (event.type === "agent.run.failed") {
@@ -1203,7 +1993,8 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
       if (run) {
         run.status = "failed";
         run.error = stringField(payload, "error") ?? run.error ?? "Run failed";
-        run.partial_message_id = stringField(payload, "partial_message_id") ?? run.partial_message_id;
+        run.partial_message_id =
+          stringField(payload, "partial_message_id") ?? run.partial_message_id;
         run.failed_at = stringField(payload, "failed_at") ?? event.created_at;
       }
     }
@@ -1222,24 +2013,41 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
           agent_id: run.agent_id,
           provider: run.provider,
           node_id: nodeId,
-          parent_node_id: stringField(payload, "parent_node_id") ?? existing?.parent_node_id,
+          parent_node_id:
+            stringField(payload, "parent_node_id") ?? existing?.parent_node_id,
           kind: kind as AgentRunNodeKind,
           status: status as AgentRunNodeStatus,
           title,
-          role: payload.role === "user" || payload.role === "assistant" || payload.role === "system" ? payload.role : existing?.role,
-          content_format: payload.content_format === "text" || payload.content_format === "markdown" || payload.content_format === "html" ? payload.content_format : existing?.content_format,
+          role:
+            payload.role === "user" ||
+            payload.role === "assistant" ||
+            payload.role === "system"
+              ? payload.role
+              : existing?.role,
+          content_format:
+            payload.content_format === "text" ||
+            payload.content_format === "markdown" ||
+            payload.content_format === "html"
+              ? payload.content_format
+              : existing?.content_format,
           text: stringField(payload, "text") ?? existing?.text,
           text_chunks: existing?.text_chunks ?? [],
           stdout_chunks: existing?.stdout_chunks ?? [],
           stderr_chunks: existing?.stderr_chunks ?? [],
           detail: asRecord(payload.detail) ?? existing?.detail,
-          source_refs: asRecord(payload.source_refs) as AgentRunSourceRefs | undefined ?? existing?.source_refs,
+          source_refs:
+            (asRecord(payload.source_refs) as AgentRunSourceRefs | undefined) ??
+            existing?.source_refs,
           summary: existing?.summary,
           error: existing?.error,
-          started_at: stringField(payload, "started_at") ?? existing?.started_at ?? event.created_at,
-          updated_at: stringField(payload, "updated_at") ?? existing?.updated_at,
+          started_at:
+            stringField(payload, "started_at") ??
+            existing?.started_at ??
+            event.created_at,
+          updated_at:
+            stringField(payload, "updated_at") ?? existing?.updated_at,
           completed_at: existing?.completed_at,
-          failed_at: existing?.failed_at
+          failed_at: existing?.failed_at,
         };
         const index = run.nodes.findIndex((entry) => entry.node_id === nodeId);
         if (index >= 0) run.nodes[index] = node;
@@ -1255,10 +2063,13 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
       const run = runId ? agentRuns.get(runId) : undefined;
       const node = run && nodeId ? findRunNode(run, nodeId) : undefined;
       if (node && chunk !== undefined) {
-        if (deltaType === "stdout") node.stdout_chunks = [...node.stdout_chunks, chunk];
-        else if (deltaType === "stderr") node.stderr_chunks = [...node.stderr_chunks, chunk];
+        if (deltaType === "stdout")
+          node.stdout_chunks = [...node.stdout_chunks, chunk];
+        else if (deltaType === "stderr")
+          node.stderr_chunks = [...node.stderr_chunks, chunk];
         else node.text_chunks = [...node.text_chunks, chunk];
-        node.updated_at = stringField(payload, "updated_at") ?? event.created_at;
+        node.updated_at =
+          stringField(payload, "updated_at") ?? event.created_at;
       }
     }
     if (event.type === "agent.run.node.updated") {
@@ -1268,12 +2079,17 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
       const run = runId ? agentRuns.get(runId) : undefined;
       const node = run && nodeId ? findRunNode(run, nodeId) : undefined;
       if (node) {
-        node.status = stringField(payload, "status") as AgentRunNodeStatus | undefined ?? node.status;
+        node.status =
+          (stringField(payload, "status") as AgentRunNodeStatus | undefined) ??
+          node.status;
         node.title = stringField(payload, "title") ?? node.title;
         node.text = stringField(payload, "text") ?? node.text;
         node.detail = asRecord(payload.detail) ?? node.detail;
-        node.source_refs = asRecord(payload.source_refs) as AgentRunSourceRefs | undefined ?? node.source_refs;
-        node.updated_at = stringField(payload, "updated_at") ?? event.created_at;
+        node.source_refs =
+          (asRecord(payload.source_refs) as AgentRunSourceRefs | undefined) ??
+          node.source_refs;
+        node.updated_at =
+          stringField(payload, "updated_at") ?? event.created_at;
       }
     }
     if (event.type === "agent.run.node.completed") {
@@ -1286,7 +2102,8 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
         node.status = "completed";
         node.summary = stringField(payload, "summary") ?? node.summary;
         node.detail = asRecord(payload.detail) ?? node.detail;
-        node.completed_at = stringField(payload, "completed_at") ?? event.created_at;
+        node.completed_at =
+          stringField(payload, "completed_at") ?? event.created_at;
         node.updated_at = node.completed_at;
       }
     }
@@ -1298,31 +2115,46 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
       const node = run && nodeId ? findRunNode(run, nodeId) : undefined;
       if (node) {
         node.status = "failed";
-        node.error = stringField(payload, "error") ?? node.error ?? "Node failed";
+        node.error =
+          stringField(payload, "error") ?? node.error ?? "Node failed";
         node.detail = asRecord(payload.detail) ?? node.detail;
         node.failed_at = stringField(payload, "failed_at") ?? event.created_at;
         node.updated_at = node.failed_at;
       }
     }
-    if (event.type === "message.created" && typeof event.payload.text === "string") {
-      const messageId = typeof event.payload.message_id === "string" ? event.payload.message_id : undefined;
-      const turnId = stringField(event.payload as Record<string, unknown>, "turn_id");
-      const kind = typeof event.payload.kind === "string" ? event.payload.kind : "human";
+    if (event.type === "message.created") {
+      const parsedContent = StructuredMessageContentSchema.safeParse(
+        event.payload.content
+      );
+      if (!parsedContent.success) continue;
+      const messageId =
+        typeof event.payload.message_id === "string"
+          ? event.payload.message_id
+          : undefined;
+      const turnId = stringField(
+        event.payload as Record<string, unknown>,
+        "turn_id"
+      );
+      const kind =
+        typeof event.payload.kind === "string" ? event.payload.kind : "human";
       if (kind === "agent" && turnId && agentRuns.has(turnId)) {
         const run = agentRuns.get(turnId)!;
         run.message_id = messageId ?? run.message_id;
-        run.final_text = event.payload.text;
-        if (!run.answer_text) run.answer_text = event.payload.text;
+        run.final_text = parsedContent.data.text;
+        if (!run.answer_text) run.answer_text = parsedContent.data.text;
         latestSenderId = event.actor_id;
         continue;
       }
       const message: MessageView = {
         message_id: messageId,
-        turn_id: turnId,
+        ...(turnId ? { turn_id: turnId } : {}),
         actor_id: event.actor_id,
-        text: event.payload.text,
+        text: parsedContent.data.text,
+        ...(parsedContent.data.attachments.length > 0
+          ? { attachments: parsedContent.data.attachments }
+          : {}),
         kind,
-        created_at: event.created_at
+        created_at: event.created_at,
       };
       const status = messageId ? turnMessageStatus.get(messageId) : undefined;
       if (status) {
@@ -1332,24 +2164,51 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
         message.agentElapsed = status.agentElapsed;
         message.turnFailed = status.turnFailed;
         message.turnError = status.turnError;
-        turnMessageStatus.delete(messageId);
+        if (messageId) turnMessageStatus.delete(messageId);
       }
       messages.push(message);
     }
-    if (event.type === "message.created" && typeof event.payload.text === "string") {
+    if (
+      event.type === "message.created" &&
+      StructuredMessageContentSchema.safeParse(event.payload.content).success
+    ) {
       latestSenderId = event.actor_id;
     }
-    if (event.type === "agent.turn.started" && typeof event.payload.turn_id === "string" && typeof event.payload.agent_id === "string") streamingTurns.set(event.payload.turn_id, { turn_id: event.payload.turn_id, agent_id: event.payload.agent_id, text: "" });
-    if (event.type === "agent.output.delta" && typeof event.payload.turn_id === "string" && typeof event.payload.agent_id === "string" && typeof event.payload.chunk === "string") {
+    if (
+      event.type === "agent.turn.started" &&
+      typeof event.payload.turn_id === "string" &&
+      typeof event.payload.agent_id === "string"
+    )
+      streamingTurns.set(event.payload.turn_id, {
+        turn_id: event.payload.turn_id,
+        agent_id: event.payload.agent_id,
+        text: "",
+      });
+    if (
+      event.type === "agent.output.delta" &&
+      typeof event.payload.turn_id === "string" &&
+      typeof event.payload.agent_id === "string" &&
+      typeof event.payload.chunk === "string"
+    ) {
       const run = agentRuns.get(event.payload.turn_id);
       if (run) {
         run.answer_text = `${run.answer_text ?? ""}${event.payload.chunk}`;
       } else {
-        const current = streamingTurns.get(event.payload.turn_id) ?? { turn_id: event.payload.turn_id, agent_id: event.payload.agent_id, text: "" };
-        streamingTurns.set(event.payload.turn_id, { ...current, text: current.text + event.payload.chunk });
+        const current = streamingTurns.get(event.payload.turn_id) ?? {
+          turn_id: event.payload.turn_id,
+          agent_id: event.payload.agent_id,
+          text: "",
+        };
+        streamingTurns.set(event.payload.turn_id, {
+          ...current,
+          text: current.text + event.payload.chunk,
+        });
       }
     }
-    if (event.type === "claude.output.thinking_delta" && typeof event.payload.turn_id === "string") {
+    if (
+      event.type === "claude.output.thinking_delta" &&
+      typeof event.payload.turn_id === "string"
+    ) {
       const turnId = event.payload.turn_id;
       const done = !!event.payload.done;
       const current = streamingTurns.get(turnId);
@@ -1357,33 +2216,46 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
         streamingTurns.set(turnId, {
           ...current,
           phase: "thinking",
-          current: done ? "Thinking complete" : "Thinking"
+          current: done ? "Thinking complete" : "Thinking",
         });
       }
     }
-    if (event.type === "agent.turn.completed" && typeof event.payload.turn_id === "string") {
+    if (
+      event.type === "agent.turn.completed" &&
+      typeof event.payload.turn_id === "string"
+    ) {
       const turnId = event.payload.turn_id;
       const status = turnStatusById.get(turnId);
-      const messageId = typeof event.payload.message_id === "string" ? event.payload.message_id : undefined;
-      if (messageId && status) {
-        const elapsed = status.started_at && status.completedAt
-          ? formatElapsedSeconds(status.started_at, status.completedAt)
+      const messageId =
+        typeof event.payload.message_id === "string"
+          ? event.payload.message_id
           : undefined;
+      if (messageId && status) {
+        const elapsed =
+          status.started_at && status.completedAt
+            ? formatElapsedSeconds(status.started_at, status.completedAt)
+            : undefined;
         turnMessageStatus.set(messageId, {
           agentPhase: status.finalPhase ?? "Completed",
           agentSummary: status.finalSummary,
           agentMetrics: status.finalMetrics,
           agentElapsed: elapsed,
-          turnFailed: false
+          turnFailed: false,
         });
       }
       streamingTurns.delete(turnId);
     }
-    if (event.type === "agent.turn.failed" && typeof event.payload.turn_id === "string") {
+    if (
+      event.type === "agent.turn.failed" &&
+      typeof event.payload.turn_id === "string"
+    ) {
       const turnId = event.payload.turn_id;
       const streaming = streamingTurns.get(turnId);
       const status = turnStatusById.get(turnId);
-      const error = typeof event.payload.error === "string" ? event.payload.error : "unknown error";
+      const error =
+        typeof event.payload.error === "string"
+          ? event.payload.error
+          : "unknown error";
       const run = agentRuns.get(turnId);
       if (run) {
         run.status = run.status === "completed" ? run.status : "failed";
@@ -1393,12 +2265,15 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
       }
       messages.push({
         message_id: `failed-${turnId}`,
-        actor_id: typeof event.payload.agent_id === "string" ? event.payload.agent_id : event.actor_id,
+        actor_id:
+          typeof event.payload.agent_id === "string"
+            ? event.payload.agent_id
+            : event.actor_id,
         text: streaming?.text ?? "",
         kind: "agent",
         created_at: event.created_at,
         turnFailed: true,
-        turnError: error
+        turnError: error,
       });
       streamingTurns.delete(turnId);
     }
@@ -1409,30 +2284,47 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
   // accepted items (not yet queued) show in Thread for immediate feedback.
   // queued items render in the queue bar above composer, not in Thread.
   for (const item of mainInputQueue.values()) {
-    if (item.status === "cancelled" || item.status === "failed" || item.status === "queued") continue;
-    const hasMessageCreated = messages.some((m) => m.message_id === item.input_id);
+    if (
+      item.status === "cancelled" ||
+      item.status === "failed" ||
+      item.status === "queued"
+    )
+      continue;
+    const hasMessageCreated = messages.some(
+      (m) => m.message_id === item.input_id
+    );
     if (hasMessageCreated) continue;
     messages.push({
       message_id: item.input_id,
       actor_id: item.actor_id,
       text: item.text,
       kind: item.status === "triggered" ? "human" : "queued",
-      created_at: item.created_at
+      created_at: item.created_at,
     });
   }
   messages.sort((a, b) => a.created_at.localeCompare(b.created_at));
-  const runTraceTurnIds = new Set([...agentRuns.values()].map((run) => run.turn_id));
+  const runTraceTurnIds = new Set(
+    [...agentRuns.values()].map((run) => run.turn_id)
+  );
 
   // Apply main_input status overrides to persisted message.created items.
   // cancelled/failed main_input hides the corresponding message from Thread.
   const filteredMessages = messages.filter((msg) => {
     const status = mainInputStatusByMessageId.get(msg.message_id ?? "");
-    return status !== "cancelled" && status !== "failed" && status !== "queued" && !(msg.kind === "agent" && msg.turn_id && runTraceTurnIds.has(msg.turn_id));
+    return (
+      status !== "cancelled" &&
+      status !== "failed" &&
+      status !== "queued" &&
+      !(msg.kind === "agent" && msg.turn_id && runTraceTurnIds.has(msg.turn_id))
+    );
   });
   messages = filteredMessages;
 
   for (const activity of participantActivity.values()) {
-    if (activity.typing && !typingIsFresh(activity.typing_updated_at, nowMs, typingTtlMs)) {
+    if (
+      activity.typing &&
+      !typingIsFresh(activity.typing_updated_at, nowMs, typingTtlMs)
+    ) {
       activity.typing = false;
     }
   }
@@ -1440,59 +2332,86 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
   const agentRunsForView = [...agentRuns.values()]
     .map((run): AgentRunView => ({
       ...run,
-      nodes: [...run.nodes].sort((a, b) => agentRunNodeSortKey(a).localeCompare(agentRunNodeSortKey(b)))
+      nodes: [...run.nodes].sort((a, b) =>
+        agentRunNodeSortKey(a).localeCompare(agentRunNodeSortKey(b))
+      ),
     }))
     .sort((a, b) => agentRunSortKey(a).localeCompare(agentRunSortKey(b)));
-  const terminalRunTurnIds = new Set(agentRunsForView
-    .filter((run) => run.status === "completed" || run.status === "failed")
-    .map((run) => run.turn_id));
-  const activeClaudeRuntimeStatuses = [...claudeRuntimeStatuses.values()]
-    .filter((status) => !terminalRunTurnIds.has(status.turn_id));
-  const activeAgentRuntimeStatuses = [...agentRuntimeStatuses.values()]
-    .filter((status) => !terminalRunTurnIds.has(status.turn_id));
+  const terminalRunTurnIds = new Set(
+    agentRunsForView
+      .filter((run) => run.status === "completed" || run.status === "failed")
+      .map((run) => run.turn_id)
+  );
+  const activeClaudeRuntimeStatuses = [
+    ...claudeRuntimeStatuses.values(),
+  ].filter((status) => !terminalRunTurnIds.has(status.turn_id));
+  const activeAgentRuntimeStatuses = [...agentRuntimeStatuses.values()].filter(
+    (status) => !terminalRunTurnIds.has(status.turn_id)
+  );
   const claudeRuntimeStatusesForView = activeClaudeRuntimeStatuses
-    .sort((a, b) => (b.updated_at ?? b.started_at ?? "").localeCompare(a.updated_at ?? a.started_at ?? ""))
+    .sort((a, b) =>
+      (b.updated_at ?? b.started_at ?? "").localeCompare(
+        a.updated_at ?? a.started_at ?? ""
+      )
+    )
     .slice(0, 1);
   const agentRuntimeStatusesForView = activeAgentRuntimeStatuses
-    .sort((a, b) => (b.updated_at ?? b.started_at ?? "").localeCompare(a.updated_at ?? a.started_at ?? ""))
+    .sort((a, b) =>
+      (b.updated_at ?? b.started_at ?? "").localeCompare(
+        a.updated_at ?? a.started_at ?? ""
+      )
+    )
     .slice(0, 1);
-  const visibleStreamingTurns = [...streamingTurns.values()].filter((turn) => !runTraceTurnIds.has(turn.turn_id));
+  const visibleStreamingTurns = [...streamingTurns.values()].filter(
+    (turn) => !runTraceTurnIds.has(turn.turn_id)
+  );
 
-  const workingAgentIds = new Set<string>(visibleStreamingTurns.map((turn) => turn.agent_id));
+  const workingAgentIds = new Set<string>(
+    visibleStreamingTurns.map((turn) => turn.agent_id)
+  );
   for (const status of activeClaudeRuntimeStatuses) {
-    if (status.phase !== "completed" && status.phase !== "failed") workingAgentIds.add(status.agent_id);
+    if (status.phase !== "completed" && status.phase !== "failed")
+      workingAgentIds.add(status.agent_id);
   }
   for (const status of activeAgentRuntimeStatuses) {
-    if (status.phase !== "completed" && status.phase !== "failed") workingAgentIds.add(status.agent_id);
+    if (status.phase !== "completed" && status.phase !== "failed")
+      workingAgentIds.add(status.agent_id);
   }
   for (const run of agentRunsForView) {
     const isTerminal = run.status === "completed" || run.status === "failed";
     if (!isTerminal) workingAgentIds.add(run.agent_id);
-    if (!isTerminal && run.nodes.some((node) => node.status === "waiting_input")) workingAgentIds.add(run.agent_id);
+    if (
+      !isTerminal &&
+      run.nodes.some((node) => node.status === "waiting_input")
+    )
+      workingAgentIds.add(run.agent_id);
   }
 
   const avatarStatuses: AvatarStatusView[] = [
     ...[...participants.values()]
       .filter(isHumanParticipant)
       .map((participant): AvatarStatusView => {
-      const activity = participantActivity.get(participant.id);
-      const status: AvatarStatusKind = activity?.typing
-        ? "typing"
-        : activity?.presence === "idle"
-          ? "idle"
-          : activity?.presence === "offline"
-            ? "offline"
-            : "online";
-      return {
-        id: participant.id,
-        display_name: participant.display_name,
-        role: participant.role,
-        kind: "human",
-        group: "humans",
-        status,
-        active: status === "typing" || participant.id === latestSenderId || participant.role === "owner"
-      };
-    }),
+        const activity = participantActivity.get(participant.id);
+        const status: AvatarStatusKind = activity?.typing
+          ? "typing"
+          : activity?.presence === "idle"
+            ? "idle"
+            : activity?.presence === "offline"
+              ? "offline"
+              : "online";
+        return {
+          id: participant.id,
+          display_name: participant.display_name,
+          role: participant.role,
+          kind: "human",
+          group: "humans",
+          status,
+          active:
+            status === "typing" ||
+            participant.id === latestSenderId ||
+            participant.role === "owner",
+        };
+      }),
     ...[...agents.values()].map((agent): AvatarStatusView => {
       const status: AvatarStatusKind = workingAgentIds.has(agent.agent_id)
         ? "working"
@@ -1509,10 +2428,14 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
         group: "agents",
         status,
         capabilities: agent.capabilities,
-        active: status === "working" || agent.agent_id === activeAgentId
+        active: status === "working" || agent.agent_id === activeAgentId,
       };
-    })
-  ].sort((a, b) => avatarPriority(a.status) - avatarPriority(b.status) || a.display_name.localeCompare(b.display_name));
+    }),
+  ].sort(
+    (a, b) =>
+      avatarPriority(a.status) - avatarPriority(b.status) ||
+      a.display_name.localeCompare(b.display_name)
+  );
 
   return {
     participants: [...participants.values()],
@@ -1523,7 +2446,9 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     inviteCount,
     invites: [...invites.values()],
     roomName,
-    joinRequests: [...joinRequests.values()].filter((r) => r.status === "pending"),
+    joinRequests: [...joinRequests.values()].filter(
+      (r) => r.status === "pending"
+    ),
     claudeSessionCatalog,
     claudeSessionSelection,
     claudeSessionReady,
@@ -1540,9 +2465,13 @@ export function deriveRoomState(events: CacpEvent[], options: DeriveRoomStateOpt
     participantActivity,
     avatarStatuses,
     latestSenderId,
-    orbitNotes: [...orbitNotes.values()].sort((a, b) => a.created_at.localeCompare(b.created_at)),
-    mainInputQueue: [...mainInputQueue.values()].filter((item) => item.status === "accepted" || item.status === "queued"),
-    connectorSyncCursor
+    orbitNotes: [...orbitNotes.values()].sort((a, b) =>
+      a.created_at.localeCompare(b.created_at)
+    ),
+    mainInputQueue: [...mainInputQueue.values()].filter(
+      (item) => item.status === "accepted" || item.status === "queued"
+    ),
+    connectorSyncCursor,
   };
 }
 
@@ -1550,19 +2479,30 @@ export function isHumanParticipant(participant: ParticipantView): boolean {
   return participant.role !== "agent" && participant.type !== "agent";
 }
 
-export function humanParticipants(participants: ParticipantView[]): ParticipantView[] {
+export function humanParticipants(
+  participants: ParticipantView[]
+): ParticipantView[] {
   return participants.filter(isHumanParticipant);
 }
 
 export function isTurnInFlight(events: CacpEvent[]): boolean {
   const turns = new Map<string, boolean>();
   for (const event of events) {
-    const turnId = typeof event.payload.turn_id === "string" ? event.payload.turn_id : undefined;
+    const turnId =
+      typeof event.payload.turn_id === "string"
+        ? event.payload.turn_id
+        : undefined;
     if (!turnId) continue;
-    if (event.type === "agent.turn.requested" || event.type === "agent.turn.started") {
+    if (
+      event.type === "agent.turn.requested" ||
+      event.type === "agent.turn.started"
+    ) {
       turns.set(turnId, true);
     }
-    if (event.type === "agent.turn.completed" || event.type === "agent.turn.failed") {
+    if (
+      event.type === "agent.turn.completed" ||
+      event.type === "agent.turn.failed"
+    ) {
       turns.set(turnId, false);
     }
   }

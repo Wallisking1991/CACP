@@ -24,14 +24,19 @@ interface Ripple {
   color: string;
 }
 
-function getWorkingAgentPositions(avatars: AvatarStatusView[]): AgentPosition[] {
+function getWorkingAgentPositions(
+  avatars: AvatarStatusView[]
+): AgentPosition[] {
   const working = avatars.filter(
-    (a) => a.kind === "agent" && (a.status === "working" || a.status === "typing")
+    (a) =>
+      a.kind === "agent" && (a.status === "working" || a.status === "typing")
   );
 
   return working
-    .map((agent) => {
-      const el = document.querySelector(`[data-avatar-id="${agent.id}"]`) as HTMLElement | null;
+    .map((agent): AgentPosition => {
+      const el = document.querySelector(
+        `[data-avatar-id="${agent.id}"]`
+      ) as HTMLElement | null;
       const rect = el?.getBoundingClientRect();
       const x = rect ? rect.left + rect.width / 2 : 0;
       const y = rect ? rect.top + rect.height / 2 : 0;
@@ -47,7 +52,10 @@ function getWorkingAgentPositions(avatars: AvatarStatusView[]): AgentPosition[] 
     .filter((pos) => pos.x > 0 && pos.y > 0);
 }
 
-export default function AgentRippleOverlay({ avatarStatuses, turnInFlight }: AgentRippleOverlayProps) {
+export default function AgentRippleOverlay({
+  avatarStatuses,
+  turnInFlight,
+}: AgentRippleOverlayProps) {
   const [positions, setPositions] = useState<AgentPosition[]>([]);
   const [ripples, setRipples] = useState<Ripple[]>([]);
   const nextIdRef = useRef(0);
@@ -67,7 +75,9 @@ export default function AgentRippleOverlay({ avatarStatuses, turnInFlight }: Age
   useEffect(() => {
     if (positions.length === 0) return;
 
-    const timers: Array<ReturnType<typeof setTimeout> | ReturnType<typeof setInterval>> = [];
+    const timers: Array<
+      ReturnType<typeof setTimeout> | ReturnType<typeof setInterval>
+    > = [];
 
     for (const agent of positions) {
       const intervalMs = agent.mode === "streaming" ? 800 : 2500;
@@ -111,7 +121,11 @@ export default function AgentRippleOverlay({ avatarStatuses, turnInFlight }: Age
   return (
     <div className="agent-ripple-overlay" aria-hidden="true">
       {positions.map((agent) => (
-        <div key={`${agent.id}-waves`} className="agent-wave-group" style={{ left: agent.x, top: agent.y }}>
+        <div
+          key={`${agent.id}-waves`}
+          className="agent-wave-group"
+          style={{ left: agent.x, top: agent.y }}
+        >
           <div
             className="agent-wave-layer agent-wave-layer--1"
             style={{ "--agent-color": agent.color } as React.CSSProperties}
@@ -126,7 +140,13 @@ export default function AgentRippleOverlay({ avatarStatuses, turnInFlight }: Age
         <div
           key={r.id}
           className={`agent-ripple ${r.mode === "streaming" ? "agent-ripple--streaming" : ""}`}
-          style={{ left: r.x, top: r.y, "--agent-color": r.color } as React.CSSProperties}
+          style={
+            {
+              left: r.x,
+              top: r.y,
+              "--agent-color": r.color,
+            } as React.CSSProperties
+          }
           onAnimationEnd={() => removeRipple(r.id)}
         />
       ))}

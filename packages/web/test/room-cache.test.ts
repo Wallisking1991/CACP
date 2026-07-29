@@ -1,5 +1,12 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { openRoomCache, getCachedRoomIds, getRoomEvents, setRoomEvents, clearRoomCache, deleteRoomCache } from "../src/room-cache.js";
+import {
+  openRoomCache,
+  getCachedRoomIds,
+  getRoomEvents,
+  setRoomEvents,
+  clearRoomCache,
+  deleteRoomCache,
+} from "../src/room-cache.js";
 
 describe("room-cache", () => {
   beforeEach(async () => {

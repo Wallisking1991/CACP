@@ -16,7 +16,10 @@ describe("OrbitLayer", () => {
   const baseProps = {
     notes: [],
     currentParticipantId: "user_1",
-    actorNames: new Map<string, string>([["user_1", "Alice"], ["user_2", "Bob"]]),
+    actorNames: new Map<string, string>([
+      ["user_1", "Alice"],
+      ["user_2", "Bob"],
+    ]),
     onLike: vi.fn(),
     onUnlike: vi.fn(),
   };
@@ -28,7 +31,15 @@ describe("OrbitLayer", () => {
 
   it("renders orbit notes with text and author", () => {
     const notes = [
-      { note_id: "note_1", text: "Hello orbit", created_by: "user_1", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: false }
+      {
+        note_id: "note_1",
+        text: "Hello orbit",
+        created_by: "user_1",
+        created_at: "2026-04-25T00:00:00.000Z",
+        likes: 0,
+        liked_by_me: false,
+        quoted: false,
+      },
     ];
     renderOrbitLayer({ ...baseProps, notes });
 
@@ -39,7 +50,15 @@ describe("OrbitLayer", () => {
   it("shows like count and calls onLike when like button clicked", () => {
     const onLike = vi.fn();
     const notes = [
-      { note_id: "note_1", text: "Note text", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 2, liked_by_me: false, quoted: false }
+      {
+        note_id: "note_1",
+        text: "Note text",
+        created_by: "user_2",
+        created_at: "2026-04-25T00:00:00.000Z",
+        likes: 2,
+        liked_by_me: false,
+        quoted: false,
+      },
     ];
     renderOrbitLayer({ ...baseProps, notes, onLike });
 
@@ -53,7 +72,15 @@ describe("OrbitLayer", () => {
   it("shows Unlike button when liked_by_me is true", () => {
     const onUnlike = vi.fn();
     const notes = [
-      { note_id: "note_1", text: "Liked note", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 1, liked_by_me: true, quoted: false }
+      {
+        note_id: "note_1",
+        text: "Liked note",
+        created_by: "user_2",
+        created_at: "2026-04-25T00:00:00.000Z",
+        likes: 1,
+        liked_by_me: true,
+        quoted: false,
+      },
     ];
     renderOrbitLayer({ ...baseProps, notes, onUnlike });
 
@@ -65,29 +92,59 @@ describe("OrbitLayer", () => {
   it("does not allow liking my own orbit note", () => {
     const onLike = vi.fn();
     const notes = [
-      { note_id: "note_1", text: "My note", created_by: "user_1", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: false }
+      {
+        note_id: "note_1",
+        text: "My note",
+        created_by: "user_1",
+        created_at: "2026-04-25T00:00:00.000Z",
+        likes: 0,
+        liked_by_me: false,
+        quoted: false,
+      },
     ];
     renderOrbitLayer({ ...baseProps, notes, onLike });
 
-    expect(screen.queryByRole("button", { name: /Like/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Like/i })
+    ).not.toBeInTheDocument();
     expect(document.querySelector(".orbit-note--own")).not.toBeNull();
     expect(onLike).not.toHaveBeenCalled();
   });
 
   it("does not render like controls when reactions are disabled", () => {
     const notes = [
-      { note_id: "note_1", text: "Observer visible", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 2, liked_by_me: false, quoted: false }
+      {
+        note_id: "note_1",
+        text: "Observer visible",
+        created_by: "user_2",
+        created_at: "2026-04-25T00:00:00.000Z",
+        likes: 2,
+        liked_by_me: false,
+        quoted: false,
+      },
     ];
     renderOrbitLayer({ ...baseProps, notes, canReact: false });
 
-    expect(screen.queryByRole("button", { name: /Like/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Like/i })
+    ).not.toBeInTheDocument();
     expect(screen.getByText(/2/)).toBeInTheDocument();
   });
 
   it("renders quoted mark inside meta row instead of absolute badge", () => {
     renderOrbitLayer({
       ...baseProps,
-      notes: [{ note_id: "note_1", text: "Quoted note", created_by: "user_2", created_at: "2026-05-01T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: true }],
+      notes: [
+        {
+          note_id: "note_1",
+          text: "Quoted note",
+          created_by: "user_2",
+          created_at: "2026-05-01T00:00:00.000Z",
+          likes: 0,
+          liked_by_me: false,
+          quoted: true,
+        },
+      ],
     });
     const note = document.querySelector(".orbit-note");
     const meta = note!.querySelector(".orbit-note-meta");
@@ -98,7 +155,15 @@ describe("OrbitLayer", () => {
 
   it("renders like button inside meta row and removes separate actions row", () => {
     const notes = [
-      { note_id: "note_1", text: "Note text", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 2, liked_by_me: false, quoted: false }
+      {
+        note_id: "note_1",
+        text: "Note text",
+        created_by: "user_2",
+        created_at: "2026-04-25T00:00:00.000Z",
+        likes: 2,
+        liked_by_me: false,
+        quoted: false,
+      },
     ];
     renderOrbitLayer({ ...baseProps, notes });
 
@@ -111,7 +176,15 @@ describe("OrbitLayer", () => {
 
   it("hides like count and button when there are no likes", () => {
     const notes = [
-      { note_id: "note_1", text: "No likes yet", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: false }
+      {
+        note_id: "note_1",
+        text: "No likes yet",
+        created_by: "user_2",
+        created_at: "2026-04-25T00:00:00.000Z",
+        likes: 0,
+        liked_by_me: false,
+        quoted: false,
+      },
     ];
     renderOrbitLayer({ ...baseProps, notes });
 
@@ -123,12 +196,22 @@ describe("OrbitLayer", () => {
   it("reveals like button on hover when note has no likes yet", () => {
     const onLike = vi.fn();
     const notes = [
-      { note_id: "note_1", text: "New note", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: false }
+      {
+        note_id: "note_1",
+        text: "New note",
+        created_by: "user_2",
+        created_at: "2026-04-25T00:00:00.000Z",
+        likes: 0,
+        liked_by_me: false,
+        quoted: false,
+      },
     ];
     renderOrbitLayer({ ...baseProps, notes, onLike });
 
     // Default: no button visible
-    expect(screen.queryByRole("button", { name: /Like/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Like/i })
+    ).not.toBeInTheDocument();
 
     // Hover reveals the button
     const noteEl = document.querySelector(".orbit-note");
@@ -142,7 +225,15 @@ describe("OrbitLayer", () => {
 
   it("renders thumbs up icon instead of heart icon", () => {
     const notes = [
-      { note_id: "note_1", text: "Note text", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 2, liked_by_me: false, quoted: false }
+      {
+        note_id: "note_1",
+        text: "Note text",
+        created_by: "user_2",
+        created_at: "2026-04-25T00:00:00.000Z",
+        likes: 2,
+        liked_by_me: false,
+        quoted: false,
+      },
     ];
     renderOrbitLayer({ ...baseProps, notes });
 
@@ -152,7 +243,12 @@ describe("OrbitLayer", () => {
 
   it("renders the promote button in the header when canPromote is true", () => {
     const onPromoteClick = vi.fn();
-    renderOrbitLayer({ ...baseProps, canPromote: true, hasPromotable: true, onPromoteClick });
+    renderOrbitLayer({
+      ...baseProps,
+      canPromote: true,
+      hasPromotable: true,
+      onPromoteClick,
+    });
     const button = screen.getByRole("button", { name: /Promote orbit notes/i });
     expect(button).toBeInTheDocument();
     expect(button).not.toBeDisabled();
@@ -162,7 +258,12 @@ describe("OrbitLayer", () => {
 
   it("disables the promote button when there are no promotable notes", () => {
     const onPromoteClick = vi.fn();
-    renderOrbitLayer({ ...baseProps, canPromote: true, hasPromotable: false, onPromoteClick });
+    renderOrbitLayer({
+      ...baseProps,
+      canPromote: true,
+      hasPromotable: false,
+      onPromoteClick,
+    });
     const button = screen.getByRole("button", { name: /Promote orbit notes/i });
     expect(button).toBeDisabled();
     fireEvent.click(button);
@@ -170,19 +271,36 @@ describe("OrbitLayer", () => {
   });
 
   it("hides the promote button entirely when canPromote is false", () => {
-    renderOrbitLayer({ ...baseProps, canPromote: false, hasPromotable: true, onPromoteClick: vi.fn() });
-    expect(screen.queryByRole("button", { name: /Promote orbit notes/i })).not.toBeInTheDocument();
+    renderOrbitLayer({
+      ...baseProps,
+      canPromote: false,
+      hasPromotable: true,
+      onPromoteClick: vi.fn(),
+    });
+    expect(
+      screen.queryByRole("button", { name: /Promote orbit notes/i })
+    ).not.toBeInTheDocument();
   });
 
   it("shows reply button on hover and calls onReply when clicked", () => {
     const onReply = vi.fn();
     const notes = [
-      { note_id: "note_1", text: "Hello", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: false }
+      {
+        note_id: "note_1",
+        text: "Hello",
+        created_by: "user_2",
+        created_at: "2026-04-25T00:00:00.000Z",
+        likes: 0,
+        liked_by_me: false,
+        quoted: false,
+      },
     ];
     renderOrbitLayer({ ...baseProps, notes, onReply });
 
     // Default: no reply button visible
-    expect(screen.queryByRole("button", { name: /Reply/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Reply/i })
+    ).not.toBeInTheDocument();
 
     // Hover reveals the reply button
     const noteEl = document.querySelector(".orbit-note");
@@ -196,8 +314,25 @@ describe("OrbitLayer", () => {
 
   it("renders reply preview for notes with reply_to", () => {
     const notes = [
-      { note_id: "note_1", text: "Original", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: false },
-      { note_id: "note_2", text: "Reply text", created_by: "user_1", created_at: "2026-04-25T00:00:01.000Z", likes: 0, liked_by_me: false, quoted: false, reply_to: "note_1" }
+      {
+        note_id: "note_1",
+        text: "Original",
+        created_by: "user_2",
+        created_at: "2026-04-25T00:00:00.000Z",
+        likes: 0,
+        liked_by_me: false,
+        quoted: false,
+      },
+      {
+        note_id: "note_2",
+        text: "Reply text",
+        created_by: "user_1",
+        created_at: "2026-04-25T00:00:01.000Z",
+        likes: 0,
+        liked_by_me: false,
+        quoted: false,
+        reply_to: "note_1",
+      },
     ];
     renderOrbitLayer({ ...baseProps, notes });
 
@@ -211,18 +346,36 @@ describe("OrbitLayer", () => {
   it("does not show reply button when canReact is false", () => {
     const onReply = vi.fn();
     const notes = [
-      { note_id: "note_1", text: "Hello", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: false }
+      {
+        note_id: "note_1",
+        text: "Hello",
+        created_by: "user_2",
+        created_at: "2026-04-25T00:00:00.000Z",
+        likes: 0,
+        liked_by_me: false,
+        quoted: false,
+      },
     ];
     renderOrbitLayer({ ...baseProps, notes, onReply, canReact: false });
 
     const noteEl = document.querySelector(".orbit-note");
     fireEvent.mouseEnter(noteEl!);
-    expect(screen.queryByRole("button", { name: /Reply/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Reply/i })
+    ).not.toBeInTheDocument();
   });
 
   it("highlights message that @mentions current user", () => {
     const notes = [
-      { note_id: "note_1", text: "Hey @Alice check this", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: false }
+      {
+        note_id: "note_1",
+        text: "Hey @Alice check this",
+        created_by: "user_2",
+        created_at: "2026-04-25T00:00:00.000Z",
+        likes: 0,
+        liked_by_me: false,
+        quoted: false,
+      },
     ];
     renderOrbitLayer({ ...baseProps, notes, currentDisplayName: "Alice" });
 
@@ -233,21 +386,59 @@ describe("OrbitLayer", () => {
 
   it("highlights message that replies to current user's note", () => {
     const notes = [
-      { note_id: "note_1", text: "My message", created_by: "user_1", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: false },
-      { note_id: "note_2", text: "Reply to you", created_by: "user_2", created_at: "2026-04-25T00:00:01.000Z", likes: 0, liked_by_me: false, quoted: false, reply_to: "note_1" }
+      {
+        note_id: "note_1",
+        text: "My message",
+        created_by: "user_1",
+        created_at: "2026-04-25T00:00:00.000Z",
+        likes: 0,
+        liked_by_me: false,
+        quoted: false,
+      },
+      {
+        note_id: "note_2",
+        text: "Reply to you",
+        created_by: "user_2",
+        created_at: "2026-04-25T00:00:01.000Z",
+        likes: 0,
+        liked_by_me: false,
+        quoted: false,
+        reply_to: "note_1",
+      },
     ];
     renderOrbitLayer({ ...baseProps, notes });
 
     const notesEls = document.querySelectorAll(".orbit-note");
-    expect(notesEls[0]!.classList.contains("orbit-note--highlighted")).toBe(false);
-    expect(notesEls[1]!.classList.contains("orbit-note--highlighted")).toBe(true);
+    expect(notesEls[0]!.classList.contains("orbit-note--highlighted")).toBe(
+      false
+    );
+    expect(notesEls[1]!.classList.contains("orbit-note--highlighted")).toBe(
+      true
+    );
     expect(document.querySelector(".orbit-note-reply-icon")).not.toBeNull();
   });
 
   it("shows mention icon instead of reply icon when both apply", () => {
     const notes = [
-      { note_id: "note_1", text: "My message", created_by: "user_1", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: false },
-      { note_id: "note_2", text: "@Alice replying", created_by: "user_2", created_at: "2026-04-25T00:00:01.000Z", likes: 0, liked_by_me: false, quoted: false, reply_to: "note_1" }
+      {
+        note_id: "note_1",
+        text: "My message",
+        created_by: "user_1",
+        created_at: "2026-04-25T00:00:00.000Z",
+        likes: 0,
+        liked_by_me: false,
+        quoted: false,
+      },
+      {
+        note_id: "note_2",
+        text: "@Alice replying",
+        created_by: "user_2",
+        created_at: "2026-04-25T00:00:01.000Z",
+        likes: 0,
+        liked_by_me: false,
+        quoted: false,
+        reply_to: "note_1",
+      },
     ];
     renderOrbitLayer({ ...baseProps, notes, currentDisplayName: "Alice" });
 
@@ -257,7 +448,15 @@ describe("OrbitLayer", () => {
 
   it("does not reset scrollTop when notes reference changes but length stays the same", () => {
     const notes = [
-      { note_id: "note_1", text: "Hello", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: false }
+      {
+        note_id: "note_1",
+        text: "Hello",
+        created_by: "user_2",
+        created_at: "2026-04-25T00:00:00.000Z",
+        likes: 0,
+        liked_by_me: false,
+        quoted: false,
+      },
     ];
 
     const { rerender } = render(
@@ -267,8 +466,14 @@ describe("OrbitLayer", () => {
     );
 
     const container = document.querySelector(".orbit-notes") as HTMLElement;
-    Object.defineProperty(container, "scrollHeight", { value: 200, writable: true });
-    Object.defineProperty(container, "clientHeight", { value: 100, writable: true });
+    Object.defineProperty(container, "scrollHeight", {
+      value: 200,
+      writable: true,
+    });
+    Object.defineProperty(container, "clientHeight", {
+      value: 100,
+      writable: true,
+    });
     container.scrollTop = 50;
 
     rerender(
@@ -282,7 +487,15 @@ describe("OrbitLayer", () => {
 
   it("scrolls to bottom when notes length increases", () => {
     const notes = [
-      { note_id: "note_1", text: "Hello", created_by: "user_2", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: false }
+      {
+        note_id: "note_1",
+        text: "Hello",
+        created_by: "user_2",
+        created_at: "2026-04-25T00:00:00.000Z",
+        likes: 0,
+        liked_by_me: false,
+        quoted: false,
+      },
     ];
 
     const { rerender } = render(
@@ -292,13 +505,27 @@ describe("OrbitLayer", () => {
     );
 
     const container = document.querySelector(".orbit-notes") as HTMLElement;
-    Object.defineProperty(container, "scrollHeight", { value: 200, writable: true });
-    Object.defineProperty(container, "clientHeight", { value: 100, writable: true });
+    Object.defineProperty(container, "scrollHeight", {
+      value: 200,
+      writable: true,
+    });
+    Object.defineProperty(container, "clientHeight", {
+      value: 100,
+      writable: true,
+    });
     container.scrollTop = 50;
 
     const longerNotes = [
       ...notes,
-      { note_id: "note_2", text: "World", created_by: "user_2", created_at: "2026-04-25T00:00:01.000Z", likes: 0, liked_by_me: false, quoted: false }
+      {
+        note_id: "note_2",
+        text: "World",
+        created_by: "user_2",
+        created_at: "2026-04-25T00:00:01.000Z",
+        likes: 0,
+        liked_by_me: false,
+        quoted: false,
+      },
     ];
     rerender(
       <LangProvider>

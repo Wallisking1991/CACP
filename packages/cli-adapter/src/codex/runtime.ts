@@ -1,7 +1,14 @@
 import type { AgentRunMetrics } from "@cacp/protocol";
 import { RunTraceRecorder } from "../run-trace.js";
 import { loadCodexSdk } from "./codex-sdk.js";
-import type { CodexRuntimeInput, CodexSdk, CodexThread, CodexThreadItem, CodexTurnInput, CodexTurnResult } from "./types.js";
+import type {
+  CodexRuntimeInput,
+  CodexSdk,
+  CodexThread,
+  CodexThreadItem,
+  CodexTurnInput,
+  CodexTurnResult,
+} from "./types.js";
 import { toCodexThreadOptions } from "./types.js";
 
 function computeTextDelta(previous: string, next: string): string {
@@ -12,16 +19,44 @@ function computeTextDelta(previous: string, next: string): string {
 
 function itemIdentity(item: CodexThreadItem, fallbackPrefix: string): string {
   if (typeof item.id === "string" && item.id) return item.id;
-  if (typeof item.command === "string" && item.command) return `${fallbackPrefix}:${item.command}`;
+  if (typeof item.command === "string" && item.command)
+    return `${fallbackPrefix}:${item.command}`;
   return `${fallbackPrefix}:unknown`;
 }
 
-function promptForTurn(input: CodexTurnInput): string {
-  return `${input.speakerName}(${input.speakerRole}): ${input.text}`;
+function promptForTurn(input: CodexTurnInput): import("./types.js").CodexInput {
+  const baseText = `${input.speakerName}(${input.speakerRole}): ${input.text}`;
+  if (!input.attachments?.length) return baseText;
+  const images = input.attachments.filter((attachment) =>
+    ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(
+      attachment.media_type
+    )
+  );
+  const filePaths = input.attachments.filter(
+    (attachment) => !images.includes(attachment)
+  );
+  return [
+    {
+      type: "text",
+      text: [
+        baseText,
+        ...filePaths.map(
+          (attachment) =>
+            `Attached file "${attachment.name}" is available at: ${attachment.path}`
+        ),
+      ].join("\n"),
+    },
+    ...images.map((attachment) => ({
+      type: "local_image" as const,
+      path: attachment.path,
+    })),
+  ];
 }
 
 function asUsageRecord(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" ? value as Record<string, unknown> : undefined;
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
 function commandBaseName(command: string): string {
@@ -31,17 +66,34 @@ function commandBaseName(command: string): string {
   return first?.[1] ?? "";
 }
 
-const ReadCommands = new Set(["cat", "head", "tail", "less", "more", "ls", "dir"]);
+const ReadCommands = new Set([
+  "cat",
+  "head",
+  "tail",
+  "less",
+  "more",
+  "ls",
+  "dir",
+]);
 const SearchCommands = new Set(["grep", "find", "rg", "fd"]);
 
-function commandTypeForTitle(item: CodexThreadItem): { action: string; subject: string } | undefined {
-  if (item.type !== "command_execution" || typeof item.command !== "string" || !item.command) return undefined;
+function commandTypeForTitle(
+  item: CodexThreadItem
+): { action: string; subject: string } | undefined {
+  if (
+    item.type !== "command_execution" ||
+    typeof item.command !== "string" ||
+    !item.command
+  )
+    return undefined;
   const base = commandBaseName(item.command);
   const rest = item.command.trim().slice(base.length).trim();
 
-  if (base === "ls" || base === "dir") return { action: "List directory", subject: rest };
+  if (base === "ls" || base === "dir")
+    return { action: "List directory", subject: rest };
   if (ReadCommands.has(base)) return { action: "Read file", subject: rest };
-  if (SearchCommands.has(base)) return { action: "Search text", subject: item.command.trim() };
+  if (SearchCommands.has(base))
+    return { action: "Search text", subject: item.command.trim() };
   return { action: "Run command", subject: item.command.trim() };
 }
 
@@ -49,30 +101,55 @@ function toolTitle(item: CodexThreadItem): string {
   if (item.type === "command_execution") {
     const inferred = commandTypeForTitle(item);
     if (inferred) {
-      return inferred.subject ? `${inferred.action}: ${inferred.subject}` : inferred.action;
+      return inferred.subject
+        ? `${inferred.action}: ${inferred.subject}`
+        : inferred.action;
     }
   }
   if (item.type === "web_search" || item.type === "web_search_call") {
     return "Web search";
   }
   if (item.type === "mcp_tool_call") {
-    const toolName = typeof item.tool_name === "string" ? item.tool_name : typeof item.name === "string" ? item.name : "MCP tool";
+    const toolName =
+      typeof item.tool_name === "string"
+        ? item.tool_name
+        : typeof item.name === "string"
+          ? item.name
+          : "MCP tool";
     return `Use ${toolName}`;
   }
   if (item.type === "file_change") {
-    const filePath = typeof item.file_path === "string" && item.file_path ? item.file_path : undefined;
-    const changeType = typeof item.change_type === "string" && item.change_type ? item.change_type : "Change";
-    return filePath ? `${changeType.charAt(0).toUpperCase() + changeType.slice(1)} file: ${filePath}` : "File change";
+    const filePath =
+      typeof item.file_path === "string" && item.file_path
+        ? item.file_path
+        : undefined;
+    const changeType =
+      typeof item.change_type === "string" && item.change_type
+        ? item.change_type
+        : "Change";
+    return filePath
+      ? `${changeType.charAt(0).toUpperCase() + changeType.slice(1)} file: ${filePath}`
+      : "File change";
   }
   if (item.type === "todo_list") {
-    const title = typeof item.title === "string" && item.title ? item.title : undefined;
+    const title =
+      typeof item.title === "string" && item.title ? item.title : undefined;
     return title ? `Todo list: ${title}` : "Todo list";
   }
   return "Codex step";
 }
 
-function nodeKindForItem(item: CodexThreadItem): "tool" | "reasoning_summary" | "status" {
-  if (item.type === "command_execution" || item.type === "web_search" || item.type === "web_search_call" || item.type === "mcp_tool_call" || item.type === "file_change" || item.type === "todo_list") {
+function nodeKindForItem(
+  item: CodexThreadItem
+): "tool" | "reasoning_summary" | "status" {
+  if (
+    item.type === "command_execution" ||
+    item.type === "web_search" ||
+    item.type === "web_search_call" ||
+    item.type === "mcp_tool_call" ||
+    item.type === "file_change" ||
+    item.type === "todo_list"
+  ) {
     return "tool";
   }
   if (item.type === "reasoning") return "reasoning_summary";
@@ -87,16 +164,26 @@ export class CodexRuntime {
   private activeAbortController: AbortController | undefined;
 
   constructor(private readonly input: CodexRuntimeInput) {
-    this.sdkPromise = Promise.resolve(input.sdk ?? loadCodexSdk()).catch((error) => {
-      this.sdkLoadError = error instanceof Error ? error : new Error(String(error));
-      return undefined;
-    });
+    this.sdkPromise = Promise.resolve(input.sdk ?? loadCodexSdk()).catch(
+      (error) => {
+        this.sdkLoadError =
+          error instanceof Error ? error : new Error(String(error));
+        return undefined;
+      }
+    );
   }
 
-  async selectSession(selection: { mode: "fresh" } | { mode: "resume"; sessionId: string }): Promise<void> {
+  async selectSession(
+    selection: { mode: "fresh" } | { mode: "resume"; sessionId: string }
+  ): Promise<void> {
     const sdk = await this.sdkPromise;
-    if (!sdk) throw this.sdkLoadError ?? new Error("Codex SDK is not available");
-    const options = toCodexThreadOptions({ workingDir: this.input.workingDir, permissionLevel: this.input.permissionLevel, model: this.input.model });
+    if (!sdk)
+      throw this.sdkLoadError ?? new Error("Codex SDK is not available");
+    const options = toCodexThreadOptions({
+      workingDir: this.input.workingDir,
+      permissionLevel: this.input.permissionLevel,
+      model: this.input.model,
+    });
     if (selection.mode === "fresh") {
       this.thread = sdk.startThread(options);
       this.sessionId = this.thread.id ?? undefined;
@@ -111,21 +198,28 @@ export class CodexRuntime {
       throw new Error("codex_session_not_selected");
     }
 
-    const metrics: AgentRunMetrics = { files_read: 0, searches: 0, commands: 0 };
+    const metrics: AgentRunMetrics = {
+      files_read: 0,
+      searches: 0,
+      commands: 0,
+    };
     const countedCommands = new Set<string>();
     const countedSearches = new Set<string>();
     const outputByNodeId = new Map<string, string>();
-    const recorder = new RunTraceRecorder({
-      turnId: input.turnId,
-      agentId: this.input.agentId,
-      provider: "codex-cli"
-    }, {
-      startNode: this.input.startNode,
-      appendNodeDelta: this.input.appendNodeDelta,
-      updateNode: this.input.updateNode,
-      completeNode: this.input.completeNode,
-      failNode: this.input.failNode
-    });
+    const recorder = new RunTraceRecorder(
+      {
+        turnId: input.turnId,
+        agentId: this.input.agentId,
+        provider: "codex-cli",
+      },
+      {
+        startNode: this.input.startNode,
+        appendNodeDelta: this.input.appendNodeDelta,
+        updateNode: this.input.updateNode,
+        completeNode: this.input.completeNode,
+        failNode: this.input.failNode,
+      }
+    );
 
     let finalText = "";
     let previousText = "";
@@ -140,7 +234,7 @@ export class CodexRuntime {
           nodeId,
           kind: "status",
           status: "running",
-          title: "Codex run failed"
+          title: "Codex run failed",
         });
         await recorder.failNode({ nodeId, error });
         return;
@@ -152,17 +246,23 @@ export class CodexRuntime {
 
     const closeOpenNodes = async () => {
       for (const nodeId of recorder.openNodeIds()) {
-        await recorder.completeNode({ nodeId, summary: recorder.currentTitle(nodeId) ?? "Completed" });
+        await recorder.completeNode({
+          nodeId,
+          summary: recorder.currentTitle(nodeId) ?? "Completed",
+        });
       }
     };
 
-    const ensureNodeStarted = async (item: CodexThreadItem, status: "pending" | "waiting_input" | "running" | "streaming" = "running") => {
+    const ensureNodeStarted = async (
+      item: CodexThreadItem,
+      status: "pending" | "waiting_input" | "running" | "streaming" = "running"
+    ) => {
       const nodeId = itemIdentity(item, "item");
       await recorder.startNode({
         nodeId,
         kind: nodeKindForItem(item),
         status,
-        title: toolTitle(item)
+        title: toolTitle(item),
       });
       return nodeId;
     };
@@ -183,7 +283,10 @@ export class CodexRuntime {
         } else {
           metrics.commands += 1;
         }
-      } else if (item.type === "web_search" || item.type === "web_search_call") {
+      } else if (
+        item.type === "web_search" ||
+        item.type === "web_search_call"
+      ) {
         const id = itemIdentity(item, "search");
         if (countedSearches.has(id)) return;
         countedSearches.add(id);
@@ -196,11 +299,18 @@ export class CodexRuntime {
       const delta = computeTextDelta(previousOutput, nextOutput);
       outputByNodeId.set(nodeId, nextOutput);
       if (delta) {
-        await recorder.appendNodeDelta({ nodeId, deltaType: "stdout", chunk: delta });
+        await recorder.appendNodeDelta({
+          nodeId,
+          deltaType: "stdout",
+          chunk: delta,
+        });
       }
     };
 
-    const handleItem = async (item: CodexThreadItem, stage: "started" | "updated" | "completed") => {
+    const handleItem = async (
+      item: CodexThreadItem,
+      stage: "started" | "updated" | "completed"
+    ) => {
       if (item.type === "agent_message" && typeof item.text === "string") {
         const delta = computeTextDelta(previousText, item.text);
         finalText = item.text;
@@ -214,15 +324,24 @@ export class CodexRuntime {
       if (item.type === "reasoning") {
         const nodeId = await ensureNodeStarted(item, "running");
         if (stage === "completed") {
-          await recorder.completeNode({ nodeId, summary: "Reasoning complete" });
+          await recorder.completeNode({
+            nodeId,
+            summary: "Reasoning complete",
+          });
         }
         return;
       }
 
       if (item.type === "command_execution") {
         countItemMetric(item);
-        const nodeId = await ensureNodeStarted(item, stage === "completed" ? "running" : "streaming");
-        const aggregatedOutput = typeof item.aggregated_output === "string" ? item.aggregated_output : "";
+        const nodeId = await ensureNodeStarted(
+          item,
+          stage === "completed" ? "running" : "streaming"
+        );
+        const aggregatedOutput =
+          typeof item.aggregated_output === "string"
+            ? item.aggregated_output
+            : "";
         if (aggregatedOutput) {
           await syncCommandOutput(nodeId, aggregatedOutput);
         }
@@ -230,20 +349,27 @@ export class CodexRuntime {
           await recorder.completeNode({
             nodeId,
             detail: {
-              ...(typeof item.exit_code === "number" ? { exit_code: item.exit_code } : {}),
-              ...(typeof item.status === "string" ? { status: item.status } : {})
+              ...(typeof item.exit_code === "number"
+                ? { exit_code: item.exit_code }
+                : {}),
+              ...(typeof item.status === "string"
+                ? { status: item.status }
+                : {}),
             },
-            summary: typeof item.exit_code === "number"
-              ? `Command completed with exit code ${item.exit_code}`
-              : "Command completed"
+            summary:
+              typeof item.exit_code === "number"
+                ? `Command completed with exit code ${item.exit_code}`
+                : "Command completed",
           });
         } else {
           await recorder.updateNode({
             nodeId,
             status: "streaming",
             detail: {
-              ...(typeof item.status === "string" ? { status: item.status } : {})
-            }
+              ...(typeof item.status === "string"
+                ? { status: item.status }
+                : {}),
+            },
           });
         }
         return;
@@ -253,15 +379,25 @@ export class CodexRuntime {
         countItemMetric(item);
         const nodeId = await ensureNodeStarted(item);
         if (stage === "completed") {
-          await recorder.completeNode({ nodeId, summary: "Web search completed" });
+          await recorder.completeNode({
+            nodeId,
+            summary: "Web search completed",
+          });
         }
         return;
       }
 
-      if (item.type === "mcp_tool_call" || item.type === "todo_list" || item.type === "file_change") {
+      if (
+        item.type === "mcp_tool_call" ||
+        item.type === "todo_list" ||
+        item.type === "file_change"
+      ) {
         const nodeId = await ensureNodeStarted(item);
         if (stage === "completed") {
-          await recorder.completeNode({ nodeId, summary: recorder.currentTitle(nodeId) ?? "Completed" });
+          await recorder.completeNode({
+            nodeId,
+            summary: recorder.currentTitle(nodeId) ?? "Completed",
+          });
         }
         return;
       }
@@ -272,19 +408,24 @@ export class CodexRuntime {
       nodeId: "connecting",
       kind: "status",
       status: "running",
-      title: "Connecting"
+      title: "Connecting",
     });
 
     const abortController = new AbortController();
     this.activeAbortController = abortController;
 
     try {
-      const { events } = await this.thread.runStreamed(prompt, { signal: abortController.signal });
+      const { events } = await this.thread.runStreamed(prompt, {
+        signal: abortController.signal,
+      });
 
       let firstEvent = true;
       for await (const event of events) {
         if (firstEvent) {
-          await recorder.completeNode({ nodeId: "connecting", summary: "Connected" });
+          await recorder.completeNode({
+            nodeId: "connecting",
+            summary: "Connected",
+          });
           firstEvent = false;
         }
         switch (event.type) {
@@ -311,7 +452,12 @@ export class CodexRuntime {
           case "turn.completed": {
             usage = asUsageRecord(event.usage);
             await closeOpenNodes();
-            return { finalText, sessionId, metrics, ...(usage ? { usage } : {}) };
+            return {
+              finalText,
+              sessionId,
+              metrics,
+              ...(usage ? { usage } : {}),
+            };
           }
           case "turn.failed": {
             const error = event.error?.message ?? "Turn failed";

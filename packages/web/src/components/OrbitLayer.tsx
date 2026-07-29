@@ -87,7 +87,9 @@ export function OrbitLayer({
       aria-label={clearLabel}
       title={clearLabel}
     >
-      <span className="orbit-clear-btn__icon" aria-hidden="true">&#128465;</span>
+      <span className="orbit-clear-btn__icon" aria-hidden="true">
+        &#128465;
+      </span>
     </button>
   ) : null;
 
@@ -121,7 +123,8 @@ export function OrbitLayer({
           const showReactionControls = canReact && !ownNote;
           const isHovered = hoveredNoteId === note.note_id;
           const hasLikes = note.likes > 0;
-          const showLikeButton = showReactionControls && (hasLikes || isHovered || note.liked_by_me);
+          const showLikeButton =
+            showReactionControls && (hasLikes || isHovered || note.liked_by_me);
           const showLikeCount = hasLikes;
           const showReplyButton = canReact && isHovered && onReply;
 
@@ -129,14 +132,27 @@ export function OrbitLayer({
           const isConsecutive = prevAuthor === note.created_by;
 
           const kind = actorKinds?.get(note.created_by) ?? "human";
-          const colors = kind === "agent" ? agentColors(note.created_by) : humanColors(note.created_by);
+          const colors =
+            kind === "agent"
+              ? agentColors(note.created_by)
+              : humanColors(note.created_by);
           const authorName = actorNames.get(note.created_by) || note.created_by;
 
-          const replyParent = note.reply_to ? notes.find((n) => n.note_id === note.reply_to) : undefined;
-          const replyParentName = replyParent ? (actorNames.get(replyParent.created_by) || replyParent.created_by) : undefined;
+          const replyParent = note.reply_to
+            ? notes.find((n) => n.note_id === note.reply_to)
+            : undefined;
+          const replyParentName = replyParent
+            ? actorNames.get(replyParent.created_by) || replyParent.created_by
+            : undefined;
 
-          const isReplyToMe = replyParent ? replyParent.created_by === currentParticipantId : false;
-          const isMentioned = currentDisplayName ? new RegExp("@" + currentDisplayName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).test(note.text) : false;
+          const isReplyToMe = replyParent
+            ? replyParent.created_by === currentParticipantId
+            : false;
+          const isMentioned = currentDisplayName
+            ? new RegExp(
+                "@" + currentDisplayName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+              ).test(note.text)
+            : false;
           const isHighlighted = isMentioned || isReplyToMe;
 
           return (
@@ -148,8 +164,12 @@ export function OrbitLayer({
                 ownNote && "orbit-note--own",
                 isConsecutive && "orbit-note--consecutive",
                 isHighlighted && "orbit-note--highlighted",
-              ].filter(Boolean).join(" ")}
-              style={{ "--orbit-author-bar": colors.bar } as React.CSSProperties}
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              style={
+                { "--orbit-author-bar": colors.bar } as React.CSSProperties
+              }
               onMouseEnter={() => setHoveredNoteId(note.note_id)}
               onMouseLeave={() => setHoveredNoteId(null)}
             >
@@ -158,40 +178,72 @@ export function OrbitLayer({
                   <span className="orbit-note-author-wrap">
                     <span
                       className="orbit-note-avatar"
-                      style={{ background: kind === "agent" ? colors.gradient : colors.bg, color: colors.text }}
+                      style={{
+                        background:
+                          kind === "agent" ? colors.gradient : colors.bg,
+                        color: colors.text,
+                      }}
                     >
                       {initials(authorName)}
                     </span>
-                    <span className="orbit-note-author" style={{ color: colors.bar }}>{authorName}</span>
-                    {isMentioned && <span className="orbit-note-mention-icon" aria-hidden="true">@</span>}
-                    {isReplyToMe && !isMentioned && <span className="orbit-note-reply-icon" aria-hidden="true">↩</span>}
+                    <span
+                      className="orbit-note-author"
+                      style={{ color: colors.bar }}
+                    >
+                      {authorName}
+                    </span>
+                    {isMentioned && (
+                      <span
+                        className="orbit-note-mention-icon"
+                        aria-hidden="true"
+                      >
+                        @
+                      </span>
+                    )}
+                    {isReplyToMe && !isMentioned && (
+                      <span
+                        className="orbit-note-reply-icon"
+                        aria-hidden="true"
+                      >
+                        ↩
+                      </span>
+                    )}
                   </span>
                 )}
                 <span className="orbit-note-meta-right">
-                  <span className="orbit-note-time">{new Date(note.created_at).toLocaleTimeString()}</span>
-                  {note.quoted && <span className="orbit-note-quoted-mark">{t("orbit.note.quoted")}</span>}
-                  {showLikeCount && <span className="orbit-note-likes">{note.likes}</span>}
-                  {showLikeButton && (note.liked_by_me ? (
-                    <button
-                      type="button"
-                      className="orbit-like-btn-inline orbit-like-btn-inline--active"
-                      onClick={() => onUnlike(note.note_id)}
-                      aria-label={t("orbit.unlike")}
-                      title={t("orbit.unlike")}
-                    >
-                      👍
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="orbit-like-btn-inline"
-                      onClick={() => onLike(note.note_id)}
-                      aria-label={t("orbit.like")}
-                      title={t("orbit.like")}
-                    >
-                      👍
-                    </button>
-                  ))}
+                  <span className="orbit-note-time">
+                    {new Date(note.created_at).toLocaleTimeString()}
+                  </span>
+                  {note.quoted && (
+                    <span className="orbit-note-quoted-mark">
+                      {t("orbit.note.quoted")}
+                    </span>
+                  )}
+                  {showLikeCount && (
+                    <span className="orbit-note-likes">{note.likes}</span>
+                  )}
+                  {showLikeButton &&
+                    (note.liked_by_me ? (
+                      <button
+                        type="button"
+                        className="orbit-like-btn-inline orbit-like-btn-inline--active"
+                        onClick={() => onUnlike(note.note_id)}
+                        aria-label={t("orbit.unlike")}
+                        title={t("orbit.unlike")}
+                      >
+                        👍
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="orbit-like-btn-inline"
+                        onClick={() => onLike(note.note_id)}
+                        aria-label={t("orbit.like")}
+                        title={t("orbit.like")}
+                      >
+                        👍
+                      </button>
+                    ))}
                   {showReplyButton && (
                     <button
                       type="button"
@@ -207,8 +259,12 @@ export function OrbitLayer({
               </div>
               {replyParent && (
                 <div className="orbit-note-reply-preview">
-                  <span className="orbit-note-reply-preview__name">{replyParentName}</span>
-                  <span className="orbit-note-reply-preview__text">{replyParent.text}</span>
+                  <span className="orbit-note-reply-preview__name">
+                    {replyParentName}
+                  </span>
+                  <span className="orbit-note-reply-preview__text">
+                    {replyParent.text}
+                  </span>
                 </div>
               )}
               <p className="orbit-note-text">{note.text}</p>

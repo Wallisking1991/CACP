@@ -11,8 +11,15 @@ export interface RoomIdentityProps {
   userRole?: string;
   isOwner?: boolean;
   onCopyRoomId: (roomId: string) => void;
-  onCreatePairing?: (agentType: string, permissionLevel: string) => Promise<string>;
-  onCreateInvite?: (role: string, ttl: number, maxUses: number) => Promise<string | undefined>;
+  onCreatePairing?: (
+    agentType: string,
+    permissionLevel: string
+  ) => Promise<string>;
+  onCreateInvite?: (
+    role: string,
+    ttl: number,
+    maxUses: number
+  ) => Promise<string | undefined>;
   createdInvite?: { url: string; role: string; ttl: number; max_uses: number };
   invites?: InviteView[];
 }
@@ -27,7 +34,10 @@ function maskInviteUrl(url: string): string {
     const u = new URL(url);
     const token = u.searchParams.get("token");
     if (!token) return url;
-    const masked = token.length > 8 ? token.slice(0, 4) + "••••" + token.slice(-4) : "••••" + token.slice(-4);
+    const masked =
+      token.length > 8
+        ? token.slice(0, 4) + "••••" + token.slice(-4)
+        : "••••" + token.slice(-4);
     return url.replace(token, masked);
   } catch {
     return url;
@@ -56,9 +66,22 @@ const permissionLevels = [
 
 type ActivePanel = "none" | "menu" | "invite" | "pairing";
 
-export function RoomIdentity({ roomName, roomId, userDisplayName, userRole, isOwner, onCopyRoomId, onCreatePairing, onCreateInvite, createdInvite, invites = [] }: RoomIdentityProps) {
+export function RoomIdentity({
+  roomName,
+  roomId,
+  userDisplayName,
+  userRole,
+  isOwner,
+  onCopyRoomId,
+  onCreatePairing,
+  onCreateInvite,
+  createdInvite,
+  invites = [],
+}: RoomIdentityProps) {
   const t = useT();
-  const roleLabel = userRole ? (t(`role.${userRole}` as Parameters<typeof t>[0]) ?? userRole) : "";
+  const roleLabel = userRole
+    ? (t(`role.${userRole}` as Parameters<typeof t>[0]) ?? userRole)
+    : "";
   const userLine = [userDisplayName, roleLabel].filter(Boolean).join(" · ");
 
   const [activePanel, setActivePanel] = useState<ActivePanel>("none");
@@ -98,8 +121,10 @@ export function RoomIdentity({ roomName, roomId, userDisplayName, userRole, isOw
     function handleClickOutside(event: MouseEvent) {
       const target = event.target as Node;
       if (
-        shareButtonRef.current && !shareButtonRef.current.contains(target) &&
-        panelRef.current && !panelRef.current.contains(target)
+        shareButtonRef.current &&
+        !shareButtonRef.current.contains(target) &&
+        panelRef.current &&
+        !panelRef.current.contains(target)
       ) {
         setActivePanel("none");
       }
@@ -127,7 +152,7 @@ export function RoomIdentity({ roomName, roomId, userDisplayName, userRole, isOw
   }, [activePanel]);
 
   const togglePanel = useCallback((panel: ActivePanel) => {
-    setActivePanel((prev) => prev === panel ? "none" : panel);
+    setActivePanel((prev) => (prev === panel ? "none" : panel));
     setPairingError("");
     setInviteError("");
   }, []);
@@ -143,7 +168,8 @@ export function RoomIdentity({ roomName, roomId, userDisplayName, userRole, isOw
       setActivePanel("none");
       window.setTimeout(() => setPairingCopied(false), 2000);
     } catch (err) {
-      const message = err instanceof Error ? err.message : t("room.generateError");
+      const message =
+        err instanceof Error ? err.message : t("room.generateError");
       setPairingError(message);
     } finally {
       setPairingLoading(false);
@@ -163,7 +189,8 @@ export function RoomIdentity({ roomName, roomId, userDisplayName, userRole, isOw
       setActivePanel("none");
       window.setTimeout(() => setInviteCopied(false), 2000);
     } catch (err) {
-      const message = err instanceof Error ? err.message : t("room.generateError");
+      const message =
+        err instanceof Error ? err.message : t("room.generateError");
       setInviteError(message);
     } finally {
       setInviteLoading(false);
@@ -175,217 +202,250 @@ export function RoomIdentity({ roomName, roomId, userDisplayName, userRole, isOw
     setActivePanel("none");
   }, [onCopyRoomId, roomId]);
 
-  const panelContent = activePanel === "menu" ? (
-    <div className="share-menu">
-      {isOwner && onCreateInvite ? (
-        <button
-          type="button"
-          className="share-menu-item"
-          onClick={() => setActivePanel("invite")}
-        >
-          <InviteIcon />
-          <span>{t("room.copyInvite")}</span>
-        </button>
-      ) : null}
-      {isOwner && onCreatePairing ? (
-        <button
-          type="button"
-          className="share-menu-item"
-          onClick={() => setActivePanel("pairing")}
-        >
-          <LinkIcon />
-          <span>{t("room.copyConnectionCode")}</span>
-        </button>
-      ) : null}
-    </div>
-  ) : activePanel === "pairing" ? (
-    <>
-      <button
-        type="button"
-        className="share-menu-back"
-        onClick={() => setActivePanel("menu")}
-      >
-        ← Back
-      </button>
-      <label className="section-label" htmlFor="conn-code-agent-type">{t("landing.create.agentType")}</label>
-      <select
-        id="conn-code-agent-type"
-        value={agentType}
-        onChange={(e) => setAgentType(e.target.value)}
-      >
-        {agentTypes.map((a) => (
-          <option key={a.value} value={a.value}>
-            {t(a.labelKey as Parameters<typeof t>[0])}
-          </option>
-        ))}
-      </select>
-      <label className="section-label" htmlFor="conn-code-permission">{t("landing.create.permissionLevel")}</label>
-      <select
-        id="conn-code-permission"
-        value={permissionLevel}
-        onChange={(e) => setPermissionLevel(e.target.value)}
-      >
-        {permissionLevels.map((p) => (
-          <option key={p.value} value={p.value}>
-            {t(p.labelKey as Parameters<typeof t>[0])}
-          </option>
-        ))}
-      </select>
-      {pairingError ? (
-        <p className="error inline-error" style={{ fontSize: 12, margin: 0 }}>{pairingError}</p>
-      ) : null}
-      <div className="connection-code-panel-actions">
-        <button
-          type="button"
-          className="btn btn-secondary"
-          onClick={() => setActivePanel("none")}
-          disabled={pairingLoading}
-        >
-          {t("common.cancel")}
-        </button>
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={handleGeneratePairing}
-          disabled={pairingLoading}
-        >
-          {pairingLoading ? "…" : t("room.generateAndCopy")}
-        </button>
-      </div>
-    </>
-  ) : activePanel === "invite" ? (
-    <>
-      <button
-        type="button"
-        className="share-menu-back"
-        onClick={() => setActivePanel("menu")}
-      >
-        ← Back
-      </button>
-      <label className="section-label" htmlFor="invite-role">{t("role.label")}</label>
-      <select
-        id="invite-role"
-        value={inviteRole}
-        onChange={(e) => setInviteRole(e.target.value)}
-      >
-        <option value="member">{t("role.member")}</option>
-        <option value="observer">{t("role.observer")}</option>
-      </select>
-      <label className="section-label" htmlFor="invite-ttl">{t("sidebar.ttlLabel")}</label>
-      <select
-        id="invite-ttl"
-        value={inviteTtl}
-        onChange={(e) => setInviteTtl(Number(e.target.value))}
-      >
-        <option value={3600}>{t("sidebar.ttl1h")}</option>
-        <option value={86400}>{t("sidebar.ttl24h")}</option>
-        <option value={604800}>{t("sidebar.ttl7d")}</option>
-      </select>
-      <label className="section-label" htmlFor="invite-max-uses">{t("sidebar.maxUsesLabel")}</label>
-      <select
-        id="invite-max-uses"
-        value={inviteMaxUses}
-        onChange={(e) => setInviteMaxUses(Number(e.target.value))}
-      >
-        <option value={1}>{t("sidebar.maxUses1")}</option>
-        <option value={5}>{t("sidebar.maxUses5")}</option>
-        <option value={10}>{t("sidebar.maxUses10")}</option>
-        <option value={20}>{t("sidebar.maxUses20")}</option>
-      </select>
-      {inviteError ? (
-        <p className="error inline-error" style={{ fontSize: 12, margin: 0 }}>{inviteError}</p>
-      ) : null}
-      <div className="connection-code-panel-actions">
-        <button
-          type="button"
-          className="btn btn-secondary"
-          onClick={() => setActivePanel("none")}
-          disabled={inviteLoading}
-        >
-          {t("common.cancel")}
-        </button>
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={handleGenerateInvite}
-          disabled={inviteLoading}
-        >
-          {inviteLoading ? "…" : t("room.generateAndCopy")}
-        </button>
-      </div>
-      {createdInvite ? (
-        <div style={{ marginTop: 8 }}>
-          <code
-            style={{
-              display: "block",
-              fontSize: 11,
-              wordBreak: "break-all",
-              padding: 8,
-              background: "var(--surface-warm)",
-              border: "1px solid var(--border-soft)",
-              borderRadius: "var(--radius-chip)",
-              color: "var(--ink-2)",
-            }}
+  const panelContent =
+    activePanel === "menu" ? (
+      <div className="share-menu">
+        {isOwner && onCreateInvite ? (
+          <button
+            type="button"
+            className="share-menu-item"
+            onClick={() => setActivePanel("invite")}
           >
-            {inviteRevealed ? createdInvite.url : maskInviteUrl(createdInvite.url)}
-          </code>
-          <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-            <button type="button" className="btn btn-ghost" style={{ fontSize: 11, padding: "4px 8px" }} onClick={() => setInviteRevealed((v) => !v)}>
-              {inviteRevealed ? t("sidebar.hideInvite") : t("sidebar.revealInvite")}
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              style={{ fontSize: 11, padding: "4px 8px" }}
-              aria-label={t("sidebar.copyInviteLink")}
-              onClick={() => navigator.clipboard.writeText(createdInvite!.url).catch(() => {})}
-            >
-              {t("sidebar.copyInvite")}
-            </button>
-          </div>
+            <InviteIcon />
+            <span>{t("room.copyInvite")}</span>
+          </button>
+        ) : null}
+        {isOwner && onCreatePairing ? (
+          <button
+            type="button"
+            className="share-menu-item"
+            onClick={() => setActivePanel("pairing")}
+          >
+            <LinkIcon />
+            <span>{t("room.copyConnectionCode")}</span>
+          </button>
+        ) : null}
+      </div>
+    ) : activePanel === "pairing" ? (
+      <>
+        <button
+          type="button"
+          className="share-menu-back"
+          onClick={() => setActivePanel("menu")}
+        >
+          ← Back
+        </button>
+        <label className="section-label" htmlFor="conn-code-agent-type">
+          {t("landing.create.agentType")}
+        </label>
+        <select
+          id="conn-code-agent-type"
+          value={agentType}
+          onChange={(e) => setAgentType(e.target.value)}
+        >
+          {agentTypes.map((a) => (
+            <option key={a.value} value={a.value}>
+              {t(a.labelKey as Parameters<typeof t>[0])}
+            </option>
+          ))}
+        </select>
+        <label className="section-label" htmlFor="conn-code-permission">
+          {t("landing.create.permissionLevel")}
+        </label>
+        <select
+          id="conn-code-permission"
+          value={permissionLevel}
+          onChange={(e) => setPermissionLevel(e.target.value)}
+        >
+          {permissionLevels.map((p) => (
+            <option key={p.value} value={p.value}>
+              {t(p.labelKey as Parameters<typeof t>[0])}
+            </option>
+          ))}
+        </select>
+        {pairingError ? (
+          <p className="error inline-error" style={{ fontSize: 12, margin: 0 }}>
+            {pairingError}
+          </p>
+        ) : null}
+        <div className="connection-code-panel-actions">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => setActivePanel("none")}
+            disabled={pairingLoading}
+          >
+            {t("common.cancel")}
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={handleGeneratePairing}
+            disabled={pairingLoading}
+          >
+            {pairingLoading ? "…" : t("room.generateAndCopy")}
+          </button>
         </div>
-      ) : null}
-      {invites.length > 0 && (
-        <div style={{ marginTop: 12 }}>
-          <h4 style={{ fontSize: 13, marginBottom: 8 }}>{t("sidebar.activeInvites")}</h4>
-          {invites.map((inv) => (
-            <div
-              key={inv.invite_id}
+      </>
+    ) : activePanel === "invite" ? (
+      <>
+        <button
+          type="button"
+          className="share-menu-back"
+          onClick={() => setActivePanel("menu")}
+        >
+          ← Back
+        </button>
+        <label className="section-label" htmlFor="invite-role">
+          {t("role.label")}
+        </label>
+        <select
+          id="invite-role"
+          value={inviteRole}
+          onChange={(e) => setInviteRole(e.target.value)}
+        >
+          <option value="member">{t("role.member")}</option>
+          <option value="observer">{t("role.observer")}</option>
+        </select>
+        <label className="section-label" htmlFor="invite-ttl">
+          {t("sidebar.ttlLabel")}
+        </label>
+        <select
+          id="invite-ttl"
+          value={inviteTtl}
+          onChange={(e) => setInviteTtl(Number(e.target.value))}
+        >
+          <option value={3600}>{t("sidebar.ttl1h")}</option>
+          <option value={86400}>{t("sidebar.ttl24h")}</option>
+          <option value={604800}>{t("sidebar.ttl7d")}</option>
+        </select>
+        <label className="section-label" htmlFor="invite-max-uses">
+          {t("sidebar.maxUsesLabel")}
+        </label>
+        <select
+          id="invite-max-uses"
+          value={inviteMaxUses}
+          onChange={(e) => setInviteMaxUses(Number(e.target.value))}
+        >
+          <option value={1}>{t("sidebar.maxUses1")}</option>
+          <option value={5}>{t("sidebar.maxUses5")}</option>
+          <option value={10}>{t("sidebar.maxUses10")}</option>
+          <option value={20}>{t("sidebar.maxUses20")}</option>
+        </select>
+        {inviteError ? (
+          <p className="error inline-error" style={{ fontSize: 12, margin: 0 }}>
+            {inviteError}
+          </p>
+        ) : null}
+        <div className="connection-code-panel-actions">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => setActivePanel("none")}
+            disabled={inviteLoading}
+          >
+            {t("common.cancel")}
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={handleGenerateInvite}
+            disabled={inviteLoading}
+          >
+            {inviteLoading ? "…" : t("room.generateAndCopy")}
+          </button>
+        </div>
+        {createdInvite ? (
+          <div style={{ marginTop: 8 }}>
+            <code
               style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                padding: "6px 8px",
-                marginBottom: 4,
+                display: "block",
+                fontSize: 11,
+                wordBreak: "break-all",
+                padding: 8,
                 background: "var(--surface-warm)",
                 border: "1px solid var(--border-soft)",
                 borderRadius: "var(--radius-chip)",
-                fontSize: 12,
-                opacity: inv.revoked ? 0.6 : 1
+                color: "var(--ink-2)",
               }}
             >
-              <span>
-                {t("sidebar.inviteItem", { role: inv.role, remaining: inv.remaining, max: inv.max_uses })}
-              </span>
-              {inv.revoked && (
-                <span style={{ fontSize: 11, color: "var(--ink-3)" }}>{t("sidebar.inviteRevoked")}</span>
-              )}
+              {inviteRevealed
+                ? createdInvite.url
+                : maskInviteUrl(createdInvite.url)}
+            </code>
+            <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ fontSize: 11, padding: "4px 8px" }}
+                onClick={() => setInviteRevealed((v) => !v)}
+              >
+                {inviteRevealed
+                  ? t("sidebar.hideInvite")
+                  : t("sidebar.revealInvite")}
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ fontSize: 11, padding: "4px 8px" }}
+                aria-label={t("sidebar.copyInviteLink")}
+                onClick={() =>
+                  navigator.clipboard
+                    .writeText(createdInvite!.url)
+                    .catch(() => {})
+                }
+              >
+                {t("sidebar.copyInvite")}
+              </button>
             </div>
-          ))}
-        </div>
-      )}
-    </>
-  ) : null;
+          </div>
+        ) : null}
+        {invites.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <h4 style={{ fontSize: 13, marginBottom: 8 }}>
+              {t("sidebar.activeInvites")}
+            </h4>
+            {invites.map((inv) => (
+              <div
+                key={inv.invite_id}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  padding: "6px 8px",
+                  marginBottom: 4,
+                  background: "var(--surface-warm)",
+                  border: "1px solid var(--border-soft)",
+                  borderRadius: "var(--radius-chip)",
+                  fontSize: 12,
+                  opacity: inv.revoked ? 0.6 : 1,
+                }}
+              >
+                <span>
+                  {t("sidebar.inviteItem", {
+                    role: inv.role,
+                    remaining: inv.remaining,
+                    max: inv.max_uses,
+                  })}
+                </span>
+                {inv.revoked && (
+                  <span style={{ fontSize: 11, color: "var(--ink-3)" }}>
+                    {t("sidebar.inviteRevoked")}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </>
+    ) : null;
 
-  const panel = activePanel !== "none" ? (
-    <div
-      ref={panelRef}
-      className="connection-code-panel"
-      style={panelStyle}
-    >
-      {panelContent}
-    </div>
-  ) : null;
+  const panel =
+    activePanel !== "none" ? (
+      <div ref={panelRef} className="connection-code-panel" style={panelStyle}>
+        {panelContent}
+      </div>
+    ) : null;
 
   const canShare = isOwner && (onCreateInvite || onCreatePairing);
 
@@ -395,7 +455,9 @@ export function RoomIdentity({ roomName, roomId, userDisplayName, userRole, isOw
         <div className="room-identity__title-row">
           <h2>{roomName}</h2>
         </div>
-        {userLine ? <p className="room-identity__user-line">{userLine}</p> : null}
+        {userLine ? (
+          <p className="room-identity__user-line">{userLine}</p>
+        ) : null}
       </div>
       {canShare ? (
         <button
@@ -409,7 +471,9 @@ export function RoomIdentity({ roomName, roomId, userDisplayName, userRole, isOw
           <LinkIcon />
         </button>
       ) : null}
-      {panel && typeof document !== "undefined" && createPortal(panel, document.body)}
+      {panel &&
+        typeof document !== "undefined" &&
+        createPortal(panel, document.body)}
     </div>
   );
 }

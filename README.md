@@ -10,7 +10,7 @@ It starts from a simple belief: the next generation of AI tools should not only 
 
 Most current AI and AI Agent products still assume a one-to-one interaction model: one user talks to one AI assistant or one local coding agent. That model is powerful, but many real-world problems are not solved by one person alone. Product design, software requirements, open-source planning, security reviews, business decisions, and creative work often need multiple people with different knowledge to build a shared understanding before AI can produce a high-quality answer.
 
-CACP is an open-source exploration of that missing collaboration layer. It provides a shared AI room where humans can discuss together, invite members or observers, connect a local or API-based agent, and use side-channel Orbit notes plus a Send-to-Agent main input queue to mix free-form human discussion with structured AI turns.
+CACP is an open-source exploration of that missing collaboration layer. It provides a shared AI room where humans can discuss together, invite members or observers, connect a local tool agent, and use side-channel Orbit notes plus a Send-to-Agent main input queue to mix free-form human discussion with structured AI turns.
 
 This is an early prototype and protocol experiment. The core experience is already runnable and suitable for trying, studying, and contributing to, but it should not be treated as a production-ready collaboration platform yet.
 
@@ -24,18 +24,19 @@ It includes:
 
 - A web room where multiple humans can join the same AI conversation.
 - A room server that stores room state as an append-only event log and broadcasts updates in real time.
-- A local connector that bridges the web room to a persistent Claude Code session or LLM API agents.
+- A local connector that bridges the web room to Claude Code, Codex CLI, GitHub Copilot CLI, or Kimi Code.
 - A protocol package that defines shared event types, participant roles, connection codes, and room contracts.
 - An Orbit side-channel for human-only notes plus a FIFO Send-to-Agent queue, so people can chat freely while AI turns stay ordered and predictable.
+- Ephemeral image and document attachments that are removed as soon as their room is deleted.
 
-Local execution is Claude Code-first:
+Local execution supports four tool-agent adapters:
 
-- Claude Code runs in the owner’s project directory through the Local Connector.
-- The connector can start fresh or resume a detected Claude Code session.
-- Resumed Claude Code session history is uploaded into the shared room timeline only after the room owner confirms.
-- Imported Claude Code history is visible to all room members and should be treated as shared room content.
+- Claude Code
+- Codex CLI
+- GitHub Copilot CLI
+- Kimi Code
 
-Pure conversation LLM API agents remain supported for OpenAI-compatible and Anthropic-compatible providers. API keys stay local to the connector and are validated before pairing.
+The agent runs in the owner’s selected project directory through the Local Connector. Where the underlying tool supports it, the connector can start a fresh session or resume a detected session. Imported history is visible to room members and should be treated as shared room content. HTTP-based LLM API agents are not part of the current product.
 
 ## Who is it for?
 
@@ -51,7 +52,7 @@ Possible use cases:
 - Discussing software requirements with business and technical stakeholders.
 - Exploring a game, app, or creative concept with people from different backgrounds.
 - Letting observers learn how an AI-assisted project discussion unfolds.
-- Testing how a local Claude Code session or LLM API agents behave inside a shared room.
+- Testing how local tool-agent sessions behave inside a shared room.
 
 ### For developers
 
@@ -63,8 +64,8 @@ Developer areas include:
 - Fastify/WebSocket room server.
 - SQLite event store.
 - React + Vite room UI.
-- Local Connector Claude Code runtime and LLM API provider adapters.
-- LLM API provider adapters.
+- Local Connector runtimes for Claude Code, Codex CLI, GitHub Copilot CLI, and Kimi Code.
+- Attachment capability negotiation and adapter compatibility.
 - Invite, pairing, participant, and room governance flows.
 
 ## Try the live demo
@@ -86,23 +87,18 @@ Enter:
 - A room name.
 - Your display name.
 - The type of agent you want to connect.
-- The Claude Code permission level if you choose local execution.
+- The local-agent permission level.
 
 ### 2. Choose an agent type
 
 CACP can connect different kinds of agents.
 
-Local Claude Code agent:
+Supported local tool agents:
 
 - Claude Code
-
-LLM API agents:
-
-- OpenAI-compatible providers
-- Anthropic-compatible providers
-- Selected provider-specific adapters such as DeepSeek, Kimi, MiniMax, SiliconFlow, GLM, and others
-
-LLM API connector flow supports provider-specific adapters such as DeepSeek, Kimi, MiniMax, SiliconFlow, and GLM.
+- Codex CLI
+- GitHub Copilot CLI
+- Kimi Code
 
 ### 3. Download and start the Local Connector
 
@@ -120,11 +116,11 @@ Start the connector and paste the CACP connection code shown in the web room.
 
 Keep the connector window open while using the room. Closing it disconnects the local agent.
 
-### 4. Connect an LLM API agent
+### 4. Add images or documents
 
-If you choose an LLM API agent, the connector will ask for provider settings such as base URL, model, and API key.
+Owners and admins can attach supported images, PDFs, text/source files, and Office documents to a Send-to-Agent message. The server validates type, size, extension, and checksum; the connector verifies the file again before exposing it to the selected tool agent.
 
-These settings are used by the local connector. Do not share API keys in room messages, screenshots, issue reports, or logs.
+Attachments are temporary room data. They are not kept as a permanent file library and are deleted immediately when the room is deleted.
 
 ### 5. Invite members or observers
 
@@ -161,12 +157,12 @@ CACP is designed around a local-first agent boundary, but users still need to be
 Important cautions:
 
 - The live demo is experimental. Do not use it for confidential work.
-- Claude Code runs on your machine through the Local Connector and may access the working directory you choose.
+- The selected tool agent runs on your machine through the Local Connector and may access the working directory you choose.
 - Use read-only permission for demos unless you intentionally want an agent to edit files.
 - Do not expose tokens, API keys, SSH keys, production configs, private room links, or sensitive files in chat, screenshots, or logs.
 - Only connect agents in directories you trust.
 - Only invite people you trust into rooms that contain meaningful context.
-- If you are unsure, use an LLM API agent or a test folder instead of a local coding agent with write access.
+- If you are unsure, use a test folder and read-only permission instead of giving a local tool agent write access.
 
 ## What CACP is not
 
@@ -184,7 +180,7 @@ CACP is an early open-source experiment in how multiple humans and AI agents can
 packages/
   protocol      Shared TypeScript types, Zod schemas, protocol contracts, connection codes
   server        Fastify/WebSocket room server, SQLite event store, auth, pairing, governance
-  cli-adapter   Local connector runtime for Claude Code sessions and LLM API agents
+  cli-adapter   Local connector runtimes for supported local tool agents
   web           React + Vite room UI
 
 docs/
@@ -203,7 +199,7 @@ scripts/
 
 Prerequisites:
 
-- Node.js 20 or newer
+- Node.js 22.12 or newer (Node.js 24 recommended)
 - Corepack
 - pnpm version pinned by `packageManager`
 
@@ -248,10 +244,10 @@ corepack pnpm --filter @cacp/web test
 corepack pnpm --filter @cacp/cli-adapter test
 ```
 
-Build the Windows Local Connector executable:
+Build the cross-platform Local Connector bundle:
 
 ```powershell
-corepack pnpm build:connector:win
+corepack pnpm package:connector
 ```
 
 ## Developer notes
@@ -267,7 +263,8 @@ Important files:
 - Web API client: `packages/web/src/api.ts`
 - Web state derivation: `packages/web/src/room-state.ts`
 - CLI adapter entrypoint: `packages/cli-adapter/src/index.ts`
-- LLM provider registry: `packages/cli-adapter/src/llm/providers/registry.ts`
+- Adapter compatibility manifest: `packages/cli-adapter/src/agent-compatibility.ts`
+- Attachment materialization: `packages/cli-adapter/src/connector/attachment-materializer.ts`
 
 When changing protocol event contracts, update:
 
@@ -305,7 +302,7 @@ Contributions are welcome, especially in these areas:
 - Room UX, Orbit side-channel, and Send-to-Agent queue improvements.
 - Local Connector usability.
 - Agent adapter compatibility.
-- LLM provider adapters.
+- Local tool-agent adapters.
 - Security review and hardening.
 - Documentation and examples.
 
@@ -318,4 +315,3 @@ Project contact emails:
 - 453043662@qq.com
 - wangzuchong@gmail.com
 - 1023289914@qq.com
-

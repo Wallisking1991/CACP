@@ -15,10 +15,16 @@ export function runStatusLabel(status: AgentRunView["status"]): string {
 }
 
 function numberField(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
-function plural(count: number, singular: string, pluralLabel = `${singular}s`): string {
+function plural(
+  count: number,
+  singular: string,
+  pluralLabel = `${singular}s`
+): string {
   return `${count.toLocaleString()} ${count === 1 ? singular : pluralLabel}`;
 }
 
@@ -38,10 +44,14 @@ export function runMetricsParts(run: AgentRunView): string[] {
   const totalCost = numberField(run.usage?.total_cost_usd);
   const turns = numberField(run.usage?.num_turns);
   if (durationMs !== undefined) parts.push(formatDuration(durationMs));
-  if (run.metrics?.files_read) parts.push(plural(run.metrics.files_read, "file"));
-  if (run.metrics?.searches) parts.push(plural(run.metrics.searches, "search", "searches"));
-  if (run.metrics?.commands) parts.push(plural(run.metrics.commands, "command"));
-  if (outputTokens !== undefined) parts.push(plural(outputTokens, "output token"));
+  if (run.metrics?.files_read)
+    parts.push(plural(run.metrics.files_read, "file"));
+  if (run.metrics?.searches)
+    parts.push(plural(run.metrics.searches, "search", "searches"));
+  if (run.metrics?.commands)
+    parts.push(plural(run.metrics.commands, "command"));
+  if (outputTokens !== undefined)
+    parts.push(plural(outputTokens, "output token"));
   if (turns !== undefined) parts.push(plural(turns, "turn"));
   return parts;
 }
@@ -57,7 +67,11 @@ export function answerTextFor(run: AgentRunView): string | undefined {
 }
 
 export function combinedChunks(node: AgentRunNodeView): string {
-  return [...node.text_chunks, ...node.stdout_chunks, ...node.stderr_chunks].join("");
+  return [
+    ...node.text_chunks,
+    ...node.stdout_chunks,
+    ...node.stderr_chunks,
+  ].join("");
 }
 
 export function nodeKindLabel(node: AgentRunNodeView): string {
@@ -85,14 +99,18 @@ export function nodeStatusLabel(node: AgentRunNodeView): string {
 export function shouldRenderNodeSummary(node: AgentRunNodeView): boolean {
   if (!node.summary) return false;
   if (node.summary === node.title) return false;
-  if (node.title === "Thinking" && node.summary === "Thinking complete") return false;
+  if (node.title === "Thinking" && node.summary === "Thinking complete")
+    return false;
   return true;
 }
 
 export function processSummary(run: AgentRunView): string {
   const parts: string[] = [];
-  if (run.metrics?.searches) parts.push(plural(run.metrics.searches, "search", "searches"));
-  if (run.metrics?.files_read) parts.push(plural(run.metrics.files_read, "file"));
-  if (run.metrics?.commands) parts.push(plural(run.metrics.commands, "command"));
+  if (run.metrics?.searches)
+    parts.push(plural(run.metrics.searches, "search", "searches"));
+  if (run.metrics?.files_read)
+    parts.push(plural(run.metrics.files_read, "file"));
+  if (run.metrics?.commands)
+    parts.push(plural(run.metrics.commands, "command"));
   return parts.length > 0 ? parts.join(", ") : "activity";
 }

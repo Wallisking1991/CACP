@@ -1,10 +1,50 @@
+import { readFile } from "node:fs/promises";
 import type { AgentRunMetrics } from "@cacp/protocol";
 import { RunTraceRecorder } from "../run-trace.js";
+import type { MaterializedAttachment } from "../connector/attachment-materializer.js";
 import { findKimiCli, loadKimiSdk } from "./kimi-sdk.js";
-import type { KimiRuntimeInput, KimiSdk, KimiSdkSession, KimiSdkStreamEvent, KimiTurnResult } from "./types.js";
+import type {
+  KimiRuntimeInput,
+  KimiSdk,
+  KimiSdkSession,
+  KimiSdkStreamEvent,
+  KimiTurnResult,
+} from "./types.js";
 
-function promptForTurn(input: { text: string; speakerName: string; speakerRole: string }): string {
-  return `${input.speakerName}(${input.speakerRole}): ${input.text}`;
+async function promptForTurn(input: {
+  text: string;
+  speakerName: string;
+  speakerRole: string;
+  attachments?: MaterializedAttachment[];
+}): Promise<string | unknown[]> {
+  const baseText = `${input.speakerName}(${input.speakerRole}): ${input.text}`;
+  if (!input.attachments?.length) return baseText;
+  const images = input.attachments.filter((attachment) =>
+    ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(
+      attachment.media_type
+    )
+  );
+  const filePaths = input.attachments.filter(
+    (attachment) => !images.includes(attachment)
+  );
+  const text = [
+    baseText,
+    ...filePaths.map(
+      (attachment) =>
+        `Attached file "${attachment.name}" is available at: ${attachment.path}`
+    ),
+  ].join("\n");
+  return [
+    { type: "text", text },
+    ...(await Promise.all(
+      images.map(async (attachment) => ({
+        type: "image_url",
+        image_url: {
+          url: `data:${attachment.media_type};base64,${(await readFile(attachment.path)).toString("base64")}`,
+        },
+      }))
+    )),
+  ];
 }
 
 import { permissionPolicy } from "../permission-policy.js";
@@ -12,11 +52,31 @@ import { permissionPolicy } from "../permission-policy.js";
 const ReadToolNames = new Set(["read_file", "view", "cat", "read", "open"]);
 const SearchToolNames = new Set(["search", "grep", "find", "rg", "fd", "glob"]);
 
-function metricKeyForToolName(toolName: string): keyof AgentRunMetrics | undefined {
+function metricKeyForToolName(
+  toolName: string
+): keyof AgentRunMetrics | undefined {
   const normalized = toolName.toLowerCase().replace(/[-_]/g, "");
-  if (ReadToolNames.has(normalized) || normalized.includes("read") || normalized.includes("view") || normalized.includes("cat")) return "files_read";
-  if (SearchToolNames.has(normalized) || normalized.includes("search") || normalized.includes("grep") || normalized.includes("find")) return "searches";
-  if (normalized.includes("command") || normalized.includes("shell") || normalized.includes("bash") || normalized.includes("exec")) return "commands";
+  if (
+    ReadToolNames.has(normalized) ||
+    normalized.includes("read") ||
+    normalized.includes("view") ||
+    normalized.includes("cat")
+  )
+    return "files_read";
+  if (
+    SearchToolNames.has(normalized) ||
+    normalized.includes("search") ||
+    normalized.includes("grep") ||
+    normalized.includes("find")
+  )
+    return "searches";
+  if (
+    normalized.includes("command") ||
+    normalized.includes("shell") ||
+    normalized.includes("bash") ||
+    normalized.includes("exec")
+  )
+    return "commands";
   return undefined;
 }
 
@@ -25,7 +85,9 @@ function toolTitle(toolName: string): string {
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" ? value as Record<string, unknown> : {};
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function textFromToolResult(result: unknown): string {
@@ -48,14 +110,19 @@ export class KimiRuntime {
   private desiredThinking: boolean;
 
   constructor(private readonly input: KimiRuntimeInput) {
-    this.sdkPromise = Promise.resolve(input.sdk ?? loadKimiSdk()).catch((error) => {
-      this.sdkLoadError = error instanceof Error ? error : new Error(String(error));
-      return undefined;
-    });
+    this.sdkPromise = Promise.resolve(input.sdk ?? loadKimiSdk()).catch(
+      (error) => {
+        this.sdkLoadError =
+          error instanceof Error ? error : new Error(String(error));
+        return undefined;
+      }
+    );
     this.desiredThinking = input.thinking ?? false;
   }
 
-  async selectSession(selection: { mode: "fresh" } | { mode: "resume"; sessionId: string }): Promise<void> {
+  async selectSession(
+    selection: { mode: "fresh" } | { mode: "resume"; sessionId: string }
+  ): Promise<void> {
     const sdk = await this.sdkPromise;
     if (!sdk) throw this.sdkLoadError ?? new Error("Kimi SDK is not available");
 
@@ -68,36 +135,54 @@ export class KimiRuntime {
       // so room owners control tool access via permission_level instead of
       // Kimi CLI's native auto-approval.
       yoloMode: false,
-      executable: findKimiCli() ?? "kimi"
+      executable: findKimiCli() ?? "kimi",
     };
 
     if (selection.mode === "fresh") {
       this.session = sdk.createSession(config);
       this.sessionId = this.session.sessionId;
     } else {
-      this.session = sdk.createSession({ ...config, sessionId: selection.sessionId });
+      this.session = sdk.createSession({
+        ...config,
+        sessionId: selection.sessionId,
+      });
       this.sessionId = selection.sessionId;
     }
   }
 
-  async runTurn(input: { turnId: string; text: string; roomName?: string; speakerName: string; speakerRole: string; modeLabel: string }): Promise<KimiTurnResult> {
+  async runTurn(input: {
+    turnId: string;
+    text: string;
+    roomName?: string;
+    speakerName: string;
+    speakerRole: string;
+    modeLabel: string;
+    attachments?: MaterializedAttachment[];
+  }): Promise<KimiTurnResult> {
     if (!this.session) {
       throw new Error("kimi_session_not_selected");
     }
 
-    const metrics: AgentRunMetrics = { files_read: 0, searches: 0, commands: 0 };
+    const metrics: AgentRunMetrics = {
+      files_read: 0,
+      searches: 0,
+      commands: 0,
+    };
     const countedTools = new Set<string>();
-    const recorder = new RunTraceRecorder({
-      turnId: input.turnId,
-      agentId: this.input.agentId,
-      provider: "kimi-cli"
-    }, {
-      startNode: this.input.startNode,
-      appendNodeDelta: this.input.appendNodeDelta,
-      updateNode: this.input.updateNode,
-      completeNode: this.input.completeNode,
-      failNode: this.input.failNode
-    });
+    const recorder = new RunTraceRecorder(
+      {
+        turnId: input.turnId,
+        agentId: this.input.agentId,
+        provider: "kimi-cli",
+      },
+      {
+        startNode: this.input.startNode,
+        appendNodeDelta: this.input.appendNodeDelta,
+        updateNode: this.input.updateNode,
+        completeNode: this.input.completeNode,
+        failNode: this.input.failNode,
+      }
+    );
 
     let finalText = "";
     let hasReceivedFirstEvent = false;
@@ -107,23 +192,36 @@ export class KimiRuntime {
     let eventQueue = Promise.resolve();
 
     const enqueue = (fn: () => Promise<void>): void => {
-      eventQueue = eventQueue.then(() => fn()).catch(() => { /* ignore */ });
+      eventQueue = eventQueue
+        .then(() => fn())
+        .catch(() => {
+          /* ignore */
+        });
     };
 
     const failOpenNodes = async (error: string) => {
       const openNodeIds = recorder.openNodeIds();
       if (openNodeIds.length === 0) {
         const nodeId = "kimi_error";
-        await recorder.startNode({ nodeId, kind: "status", status: "running", title: "Kimi run failed" });
+        await recorder.startNode({
+          nodeId,
+          kind: "status",
+          status: "running",
+          title: "Kimi run failed",
+        });
         await recorder.failNode({ nodeId, error });
         return;
       }
-      for (const nodeId of openNodeIds) await recorder.failNode({ nodeId, error });
+      for (const nodeId of openNodeIds)
+        await recorder.failNode({ nodeId, error });
     };
 
     const closeOpenNodes = async () => {
       for (const nodeId of recorder.openNodeIds()) {
-        const summary = nodeId === reasoningNodeId ? "Thinking complete" : (recorder.currentTitle(nodeId) ?? "Completed");
+        const summary =
+          nodeId === reasoningNodeId
+            ? "Thinking complete"
+            : (recorder.currentTitle(nodeId) ?? "Completed");
         await recorder.completeNode({ nodeId, summary });
       }
     };
@@ -143,14 +241,17 @@ export class KimiRuntime {
         nodeId: reasoningNodeId,
         kind: "reasoning_summary",
         status: "streaming",
-        title: "Thinking"
+        title: "Thinking",
       });
       return reasoningNodeId;
     };
 
     const handleFirstEvent = async () => {
       if (!hasReceivedFirstEvent) {
-        await recorder.completeNode({ nodeId: "connecting", summary: "Connected" });
+        await recorder.completeNode({
+          nodeId: "connecting",
+          summary: "Connected",
+        });
         hasReceivedFirstEvent = true;
       }
     };
@@ -159,23 +260,28 @@ export class KimiRuntime {
       nodeId: "connecting",
       kind: "status",
       status: "running",
-      title: "Connecting"
+      title: "Connecting",
     });
 
     const abortController = new AbortController();
     this.activeAbortController = abortController;
 
-    const prompt = promptForTurn(input);
+    const prompt = await promptForTurn(input);
     const turn = this.session.prompt(prompt);
 
     return new Promise<KimiTurnResult>((resolve, reject) => {
       const onAbort = () => {
         if (hasCompleted) return;
         hasCompleted = true;
-        turn.interrupt().catch(() => { /* ignore */ });
-        eventQueue.then(() => closeOpenNodes()).then(() => {
-          resolve({ finalText, sessionId: this.sessionId, metrics });
-        }).catch(reject);
+        turn.interrupt().catch(() => {
+          /* ignore */
+        });
+        eventQueue
+          .then(() => closeOpenNodes())
+          .then(() => {
+            resolve({ finalText, sessionId: this.sessionId, metrics });
+          })
+          .catch(reject);
       };
 
       abortController.signal.addEventListener("abort", onAbort, { once: true });
@@ -193,12 +299,22 @@ export class KimiRuntime {
                 enqueue(async () => {
                   await handleFirstEvent();
                   const payload = asRecord(kimEvent.payload);
-                  if (payload.type === "text" && typeof payload.text === "string") {
+                  if (
+                    payload.type === "text" &&
+                    typeof payload.text === "string"
+                  ) {
                     finalText += payload.text;
                     await this.input.publishDelta(input.turnId, payload.text);
-                  } else if (payload.type === "think" && typeof payload.think === "string") {
+                  } else if (
+                    payload.type === "think" &&
+                    typeof payload.think === "string"
+                  ) {
                     const nodeId = await ensureReasoningNode();
-                    await recorder.appendNodeDelta({ nodeId, deltaType: "text", chunk: payload.think });
+                    await recorder.appendNodeDelta({
+                      nodeId,
+                      deltaType: "text",
+                      chunk: payload.think,
+                    });
                   }
                 });
                 break;
@@ -209,15 +325,17 @@ export class KimiRuntime {
                   await handleFirstEvent();
                   const payload = asRecord(kimEvent.payload);
                   const func = asRecord(payload.function);
-                  const toolCallId = typeof payload.id === "string" ? payload.id : "unknown";
-                  const toolName = typeof func.name === "string" ? func.name : "unknown";
+                  const toolCallId =
+                    typeof payload.id === "string" ? payload.id : "unknown";
+                  const toolName =
+                    typeof func.name === "string" ? func.name : "unknown";
 
                   countToolMetric(toolCallId, toolName);
                   await recorder.startNode({
                     nodeId: toolCallId,
                     kind: "tool",
                     status: "running",
-                    title: toolTitle(toolName)
+                    title: toolTitle(toolName),
                   });
                 });
                 break;
@@ -227,26 +345,49 @@ export class KimiRuntime {
                 enqueue(async () => {
                   await handleFirstEvent();
                   const payload = asRecord(kimEvent.payload);
-                  const toolCallId = typeof payload.tool_call_id === "string" ? payload.tool_call_id : "unknown";
+                  const toolCallId =
+                    typeof payload.tool_call_id === "string"
+                      ? payload.tool_call_id
+                      : "unknown";
                   const returnValue = asRecord(payload.return_value);
-                  const output = typeof returnValue.output === "string" ? returnValue.output : "";
-                  const message = typeof returnValue.message === "string" ? returnValue.message : "";
+                  const output =
+                    typeof returnValue.output === "string"
+                      ? returnValue.output
+                      : "";
+                  const message =
+                    typeof returnValue.message === "string"
+                      ? returnValue.message
+                      : "";
                   const text = output || message || "";
 
                   if (text) {
-                    await recorder.appendNodeDelta({ nodeId: toolCallId, deltaType: "stdout", chunk: text });
+                    await recorder.appendNodeDelta({
+                      nodeId: toolCallId,
+                      deltaType: "stdout",
+                      chunk: text,
+                    });
                   }
 
-                  await recorder.completeNode({ nodeId: toolCallId, summary: text || "Tool completed" });
+                  await recorder.completeNode({
+                    nodeId: toolCallId,
+                    summary: text || "Tool completed",
+                  });
                 });
                 break;
               }
 
               case "ApprovalRequest": {
                 const payload = asRecord(kimEvent.payload);
-                const requestId = typeof payload.id === "string" ? payload.id : "unknown";
-                const action = typeof payload.action === "string" ? payload.action : "unknown action";
-                const description = typeof payload.description === "string" ? payload.description : "";
+                const requestId =
+                  typeof payload.id === "string" ? payload.id : "unknown";
+                const action =
+                  typeof payload.action === "string"
+                    ? payload.action
+                    : "unknown action";
+                const description =
+                  typeof payload.description === "string"
+                    ? payload.description
+                    : "";
 
                 enqueue(async () => {
                   await handleFirstEvent();
@@ -255,18 +396,27 @@ export class KimiRuntime {
                     nodeId,
                     kind: "status",
                     status: "running",
-                    title: `Approval: ${action}`
+                    title: `Approval: ${action}`,
                   });
 
-                  const policy = permissionPolicy(this.input.permissionLevel ?? "read_only", action);
+                  const policy = permissionPolicy(
+                    this.input.permissionLevel ?? "read_only",
+                    action
+                  );
                   if (policy === "allow") {
                     await turn.approve(requestId, "approve");
-                    await recorder.completeNode({ nodeId, summary: "Approved" });
+                    await recorder.completeNode({
+                      nodeId,
+                      summary: "Approved",
+                    });
                     return;
                   }
                   if (policy === "deny") {
                     await turn.approve(requestId, "reject");
-                    await recorder.completeNode({ nodeId, summary: "Denied by CACP permission level" });
+                    await recorder.completeNode({
+                      nodeId,
+                      summary: "Denied by CACP permission level",
+                    });
                     return;
                   }
 
@@ -278,19 +428,28 @@ export class KimiRuntime {
                       tool_use_id: requestId,
                       tool_name: action,
                       description: description || `${action} requires approval`,
-                      requested_at: new Date().toISOString()
+                      requested_at: new Date().toISOString(),
                     });
 
                     if (decision.decision === "allow") {
                       await turn.approve(requestId, "approve");
-                      await recorder.completeNode({ nodeId, summary: "Approved" });
+                      await recorder.completeNode({
+                        nodeId,
+                        summary: "Approved",
+                      });
                     } else {
                       await turn.approve(requestId, "reject");
-                      await recorder.completeNode({ nodeId, summary: `Rejected: ${decision.reason ?? "no reason"}` });
+                      await recorder.completeNode({
+                        nodeId,
+                        summary: `Rejected: ${decision.reason ?? "no reason"}`,
+                      });
                     }
                   } catch {
                     await turn.approve(requestId, "reject");
-                    await recorder.failNode({ nodeId, error: "Approval request failed" });
+                    await recorder.failNode({
+                      nodeId,
+                      error: "Approval request failed",
+                    });
                   }
                 });
                 break;
@@ -298,9 +457,15 @@ export class KimiRuntime {
 
               case "QuestionRequest": {
                 const payload = asRecord(kimEvent.payload);
-                const requestId = typeof payload.id === "string" ? payload.id : "unknown";
-                const toolCallId = typeof payload.tool_call_id === "string" ? payload.tool_call_id : "unknown";
-                const questions = Array.isArray(payload.questions) ? payload.questions : [];
+                const requestId =
+                  typeof payload.id === "string" ? payload.id : "unknown";
+                const toolCallId =
+                  typeof payload.tool_call_id === "string"
+                    ? payload.tool_call_id
+                    : "unknown";
+                const questions = Array.isArray(payload.questions)
+                  ? payload.questions
+                  : [];
 
                 enqueue(async () => {
                   await handleFirstEvent();
@@ -309,45 +474,81 @@ export class KimiRuntime {
                     nodeId,
                     kind: "elicitation",
                     status: "waiting_input",
-                    title: questions.length > 0 && typeof questions[0].question === "string" ? questions[0].question : "Question"
+                    title:
+                      questions.length > 0 &&
+                      typeof questions[0].question === "string"
+                        ? questions[0].question
+                        : "Question",
                   });
 
                   if (!this.input.requestElicitation) {
                     await turn.respondQuestion(requestId, requestId, {});
-                    await recorder.completeNode({ nodeId, summary: "No elicitation handler" });
+                    await recorder.completeNode({
+                      nodeId,
+                      summary: "No elicitation handler",
+                    });
                     return;
                   }
 
                   try {
-                    const decision = await this.input.requestElicitation(nodeId, {
-                      agent_id: this.input.agentId,
-                      turn_id: input.turnId,
-                      message: questions.map((q: unknown, i: number) => {
-                        const qRecord = asRecord(q);
-                        const opts = Array.isArray(qRecord.options) ? qRecord.options : [];
-                        const optsText = opts.map((o: unknown) => {
-                          const oRecord = asRecord(o);
-                          return `- ${typeof oRecord.label === "string" ? oRecord.label : ""}`;
-                        }).join("\n");
-                        return `${i + 1}. ${typeof qRecord.question === "string" ? qRecord.question : ""}${optsText ? "\n" + optsText : ""}`;
-                      }).join("\n\n"),
-                      ...(questions.length > 0 ? { title: typeof questions[0].question === "string" ? questions[0].question : "Question" } : {}),
-                      requested_at: new Date().toISOString()
-                    });
+                    const decision = await this.input.requestElicitation(
+                      nodeId,
+                      {
+                        agent_id: this.input.agentId,
+                        turn_id: input.turnId,
+                        message: questions
+                          .map((q: unknown, i: number) => {
+                            const qRecord = asRecord(q);
+                            const opts = Array.isArray(qRecord.options)
+                              ? qRecord.options
+                              : [];
+                            const optsText = opts
+                              .map((o: unknown) => {
+                                const oRecord = asRecord(o);
+                                return `- ${typeof oRecord.label === "string" ? oRecord.label : ""}`;
+                              })
+                              .join("\n");
+                            return `${i + 1}. ${typeof qRecord.question === "string" ? qRecord.question : ""}${optsText ? "\n" + optsText : ""}`;
+                          })
+                          .join("\n\n"),
+                        ...(questions.length > 0
+                          ? {
+                              title:
+                                typeof questions[0].question === "string"
+                                  ? questions[0].question
+                                  : "Question",
+                            }
+                          : {}),
+                        requested_at: new Date().toISOString(),
+                      }
+                    );
 
-                    const answers = decision.action === "accept" && decision.content && typeof decision.content.answers === "object" && decision.content.answers !== null
-                      ? decision.content.answers as Record<string, string>
-                      : {};
+                    const answers =
+                      decision.action === "accept" &&
+                      decision.content &&
+                      typeof decision.content.answers === "object" &&
+                      decision.content.answers !== null
+                        ? (decision.content.answers as Record<string, string>)
+                        : {};
                     await turn.respondQuestion(requestId, requestId, answers);
 
                     if (decision.action === "accept") {
-                      await recorder.completeNode({ nodeId, summary: "Answered" });
+                      await recorder.completeNode({
+                        nodeId,
+                        summary: "Answered",
+                      });
                     } else {
-                      await recorder.completeNode({ nodeId, summary: `Declined` });
+                      await recorder.completeNode({
+                        nodeId,
+                        summary: `Declined`,
+                      });
                     }
                   } catch {
                     await turn.respondQuestion(requestId, requestId, {});
-                    await recorder.failNode({ nodeId, error: "Question request failed" });
+                    await recorder.failNode({
+                      nodeId,
+                      error: "Question request failed",
+                    });
                   }
                 });
                 break;
@@ -357,15 +558,21 @@ export class KimiRuntime {
                 enqueue(async () => {
                   await handleFirstEvent();
                   const payload = asRecord(kimEvent.payload);
-                  const parentToolCallId = typeof payload.parent_tool_call_id === "string" ? payload.parent_tool_call_id : "unknown";
+                  const parentToolCallId =
+                    typeof payload.parent_tool_call_id === "string"
+                      ? payload.parent_tool_call_id
+                      : "unknown";
                   const nodeId = `subagent_${parentToolCallId}`;
                   await recorder.startNode({
                     nodeId,
                     kind: "status",
                     status: "running",
-                    title: "Running subagent"
+                    title: "Running subagent",
                   });
-                  await recorder.completeNode({ nodeId, summary: "Subagent completed" });
+                  await recorder.completeNode({
+                    nodeId,
+                    summary: "Subagent completed",
+                  });
                 });
                 break;
               }
@@ -374,7 +581,10 @@ export class KimiRuntime {
                 enqueue(async () => {
                   const payload = asRecord(kimEvent.payload);
                   const tokenUsage = asRecord(payload.token_usage);
-                  if (typeof tokenUsage.input_other === "number" && typeof tokenUsage.output === "number") {
+                  if (
+                    typeof tokenUsage.input_other === "number" &&
+                    typeof tokenUsage.output === "number"
+                  ) {
                     // Token usage available but not directly mapped to run trace
                   }
                 });
@@ -387,7 +597,7 @@ export class KimiRuntime {
                     nodeId: "compacting",
                     kind: "status",
                     status: "running",
-                    title: "Compacting context"
+                    title: "Compacting context",
                   });
                 });
                 break;
@@ -395,7 +605,10 @@ export class KimiRuntime {
 
               case "CompactionEnd": {
                 enqueue(async () => {
-                  await recorder.completeNode({ nodeId: "compacting", summary: "Context compacted" });
+                  await recorder.completeNode({
+                    nodeId: "compacting",
+                    summary: "Context compacted",
+                  });
                 });
                 break;
               }
@@ -413,7 +626,8 @@ export class KimiRuntime {
         } catch (error) {
           if (!hasCompleted) {
             hasCompleted = true;
-            const message = error instanceof Error ? error.message : String(error);
+            const message =
+              error instanceof Error ? error.message : String(error);
             await failOpenNodes(message);
             reject(new Error(message));
           }

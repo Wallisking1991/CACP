@@ -26,14 +26,16 @@ function renderThread(props: {
 describe("Thread agent status", () => {
   it("renders dynamic status in streaming-status line", () => {
     renderThread({
-      streamingTurns: [{
-        turn_id: "turn_1",
-        agent_id: "agent_1",
-        text: "Working on it",
-        phase: "reading_files",
-        current: "Reading src/index.ts",
-        metrics: { files_read: 3, searches: 0, commands: 0 }
-      }]
+      streamingTurns: [
+        {
+          turn_id: "turn_1",
+          agent_id: "agent_1",
+          text: "Working on it",
+          phase: "reading_files",
+          current: "Reading src/index.ts",
+          metrics: { files_read: 3, searches: 0, commands: 0 },
+        },
+      ],
     });
 
     const bubble = screen.getByText("Working on it").closest("article");
@@ -47,11 +49,13 @@ describe("Thread agent status", () => {
 
   it("falls back to default streaming text when no status", () => {
     renderThread({
-      streamingTurns: [{
-        turn_id: "turn_1",
-        agent_id: "agent_1",
-        text: "Hello"
-      }]
+      streamingTurns: [
+        {
+          turn_id: "turn_1",
+          agent_id: "agent_1",
+          text: "Hello",
+        },
+      ],
     });
 
     const bubble = screen.getByText("Hello").closest("article");
@@ -61,15 +65,17 @@ describe("Thread agent status", () => {
 
   it("renders failed state with error on same card", () => {
     renderThread({
-      messages: [{
-        message_id: "failed-turn_1",
-        actor_id: "agent_1",
-        text: "Partial output",
-        kind: "agent",
-        created_at: "2026-04-25T00:00:00.000Z",
-        turnFailed: true,
-        turnError: "command exited with code 1"
-      }]
+      messages: [
+        {
+          message_id: "failed-turn_1",
+          actor_id: "agent_1",
+          text: "Partial output",
+          kind: "agent",
+          created_at: "2026-04-25T00:00:00.000Z",
+          turnFailed: true,
+          turnError: "command exited with code 1",
+        },
+      ],
     });
 
     const card = screen.getByText("Partial output").closest("article");
@@ -79,30 +85,38 @@ describe("Thread agent status", () => {
 
   it("does not render raw thinking text when thinking text is present", () => {
     renderThread({
-      streamingTurns: [{
-        turn_id: "turn_1",
-        agent_id: "agent_1",
-        text: "Here is the answer",
-        thinkingText: "Let me analyze the structure",
-        thinkingDone: false
-      }]
+      streamingTurns: [
+        {
+          turn_id: "turn_1",
+          agent_id: "agent_1",
+          text: "Here is the answer",
+          thinkingText: "Let me analyze the structure",
+          thinkingDone: false,
+        },
+      ],
     });
 
     const bubble = screen.getByText("Here is the answer").closest("article");
-    expect(bubble?.querySelector(".thinking-accordion")).not.toBeInTheDocument();
-    expect(screen.queryByText("Let me analyze the structure")).not.toBeInTheDocument();
+    expect(
+      bubble?.querySelector(".thinking-accordion")
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Let me analyze the structure")
+    ).not.toBeInTheDocument();
   });
 
   it("renders tool progress bar for reading_files phase", () => {
     renderThread({
-      streamingTurns: [{
-        turn_id: "turn_1",
-        agent_id: "agent_1",
-        text: "",
-        phase: "reading_files",
-        current: "Read src/App.tsx",
-        detail: { elapsed_time_seconds: 3 }
-      }]
+      streamingTurns: [
+        {
+          turn_id: "turn_1",
+          agent_id: "agent_1",
+          text: "",
+          phase: "reading_files",
+          current: "Read src/App.tsx",
+          detail: { elapsed_time_seconds: 3 },
+        },
+      ],
     });
 
     const bubble = document.querySelector(".streaming-bubble");
@@ -111,14 +125,16 @@ describe("Thread agent status", () => {
 
   it("renders memory recall pill for recalling_memory phase", () => {
     renderThread({
-      streamingTurns: [{
-        turn_id: "turn_1",
-        agent_id: "agent_1",
-        text: "",
-        phase: "recalling_memory",
-        current: "Recalling 3 memories",
-        detail: { memory_count: 3 }
-      }]
+      streamingTurns: [
+        {
+          turn_id: "turn_1",
+          agent_id: "agent_1",
+          text: "",
+          phase: "recalling_memory",
+          current: "Recalling 3 memories",
+          detail: { memory_count: 3 },
+        },
+      ],
     });
 
     const bubble = screen.getByText(/Recalling 3 memories/i).closest("article");
@@ -127,14 +143,21 @@ describe("Thread agent status", () => {
 
   it("renders turn summary footer for completed phase", () => {
     renderThread({
-      streamingTurns: [{
-        turn_id: "turn_1",
-        agent_id: "agent_1",
-        text: "Final answer",
-        phase: "completed",
-        current: "Claude Code completed in 12s",
-        detail: { duration_ms: 12000, total_cost_usd: 0.0042, num_turns: 3, usage: { input_tokens: 1200, output_tokens: 800 } }
-      }]
+      streamingTurns: [
+        {
+          turn_id: "turn_1",
+          agent_id: "agent_1",
+          text: "Final answer",
+          phase: "completed",
+          current: "Claude Code completed in 12s",
+          detail: {
+            duration_ms: 12000,
+            total_cost_usd: 0.0042,
+            num_turns: 3,
+            usage: { input_tokens: 1200, output_tokens: 800 },
+          },
+        },
+      ],
     });
 
     const bubble = screen.getByText("Final answer").closest("article");

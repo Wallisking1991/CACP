@@ -54,7 +54,11 @@ export default function OrbitComposer({
   while ((match = mentionRegex.exec(text)) !== null) {
     const member = members.find((m) => m.display_name === match![1]);
     if (member) {
-      mentions.push({ start: match!.index, end: match!.index + match![0].length, type: "user" });
+      mentions.push({
+        start: match!.index,
+        end: match!.index + match![0].length,
+        type: "user",
+      });
     }
   }
 
@@ -94,7 +98,10 @@ export default function OrbitComposer({
       requestAnimationFrame(() => {
         const textarea = textareaRef.current;
         if (textarea) {
-          checkMention(textarea.value, textarea.selectionStart ?? textarea.value.length);
+          checkMention(
+            textarea.value,
+            textarea.selectionStart ?? textarea.value.length
+          );
         }
       });
     },
@@ -152,16 +159,30 @@ export default function OrbitComposer({
         handleSend();
       }
     },
-    [mentionActive, mentionItems, mentionQuery, mentionIndex, text, handleSend, checkMention]
+    [
+      mentionActive,
+      mentionItems,
+      mentionQuery,
+      mentionIndex,
+      text,
+      handleSend,
+      checkMention,
+    ]
   );
 
   return (
     <div className="orbit-composer" data-testid="orbit-composer">
       {replyTo && (
         <div className="orbit-composer-reply-bar">
-          <span className="orbit-composer-reply-bar__label">{t("orbitComposer.replyingTo")}</span>
-          <span className="orbit-composer-reply-bar__name">{replyTo.authorName}</span>
-          <span className="orbit-composer-reply-bar__preview">{replyTo.text}</span>
+          <span className="orbit-composer-reply-bar__label">
+            {t("orbitComposer.replyingTo")}
+          </span>
+          <span className="orbit-composer-reply-bar__name">
+            {replyTo.authorName}
+          </span>
+          <span className="orbit-composer-reply-bar__preview">
+            {replyTo.text}
+          </span>
           <button
             type="button"
             className="orbit-composer-reply-bar__cancel"
@@ -207,7 +228,12 @@ export default function OrbitComposer({
             const beforeCursor = text.slice(0, cursorPos);
             const atIndex = beforeCursor.lastIndexOf("@");
             if (atIndex >= 0) {
-              const newText = text.slice(0, atIndex) + "@" + name + " " + text.slice(cursorPos);
+              const newText =
+                text.slice(0, atIndex) +
+                "@" +
+                name +
+                " " +
+                text.slice(cursorPos);
               setText(newText);
             }
             setMentionActive(false);

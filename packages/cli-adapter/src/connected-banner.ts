@@ -13,7 +13,7 @@ const colorCodes: Record<ColorName, [string, string]> = {
   green: ["\u001b[32m", "\u001b[0m"],
   yellow: ["\u001b[33m", "\u001b[0m"],
   cyan: ["\u001b[36m", "\u001b[0m"],
-  red: ["\u001b[31m", "\u001b[0m"]
+  red: ["\u001b[31m", "\u001b[0m"],
 };
 
 function paint(value: string, color: ColorName, enabled: boolean): string {
@@ -24,13 +24,19 @@ function paint(value: string, color: ColorName, enabled: boolean): string {
 
 export function formatConnectedBanner(input: ConnectedBannerInput): string {
   const useColor = input.color ?? Boolean(process.stdout.isTTY);
-  const agentSessionLabel = input.agentSessionLabel ?? "Claude Code persistent session";
-  const claudeLines = input.claudeSessionMode === "pending-selection"
-    ? [
-        paint("Claude Code session selection is pending in the web room.", "yellow", useColor),
-        "Open the CACP Web Room to select or resume a Claude session."
-      ]
-    : [];
+  const agentSessionLabel =
+    input.agentSessionLabel ?? "Claude Code persistent session";
+  const claudeLines =
+    input.claudeSessionMode === "pending-selection"
+      ? [
+          paint(
+            "Claude Code session selection is pending in the web room.",
+            "yellow",
+            useColor
+          ),
+          "Open the CACP Web Room to select or resume a Claude session.",
+        ]
+      : [];
 
   return [
     "",
@@ -39,7 +45,11 @@ export function formatConnectedBanner(input: ConnectedBannerInput): string {
     "╚══════════════════════════════════════════════╝",
     "",
     `🤖 ${input.agentName} is connected to room: ${input.roomId}`,
-    paint("⚠️  Do not close this window. The Local Agent will disconnect if this window closes.", "yellow", useColor),
+    paint(
+      "⚠️  Do not close this window. The Local Agent will disconnect if this window closes.",
+      "yellow",
+      useColor
+    ),
     "",
     `📁 Working directory: ${input.workingDir}`,
     ...claudeLines,
@@ -59,10 +69,13 @@ export function formatConnectedBanner(input: ConnectedBannerInput): string {
     "              │",
     "              ▼",
     `        💻 ${agentSessionLabel}`,
-    ""
+    "",
   ].join("\n");
 }
 
-export function printConnectedBanner(input: ConnectedBannerInput, log: (message: string) => void = console.log): void {
+export function printConnectedBanner(
+  input: ConnectedBannerInput,
+  log: (message: string) => void = console.log
+): void {
   log(formatConnectedBanner(input));
 }

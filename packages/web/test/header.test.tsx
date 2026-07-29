@@ -22,7 +22,9 @@ describe("Header", () => {
       </LangProvider>
     );
 
-    expect(screen.getByRole("button", { name: /more options/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /more options/i })
+    ).toBeInTheDocument();
   });
 
   it("renders notification button separately from MoreMenu", () => {
@@ -34,12 +36,21 @@ describe("Header", () => {
           avatarStatuses={[]}
           onCopyRoomId={vi.fn()}
           pendingNotificationCount={3}
-          joinRequests={[{ request_id: "req_1", display_name: "Bob", created_at: "2026-05-01T00:00:00Z" }]}
+          joinRequests={[
+            {
+              request_id: "req_1",
+              display_name: "Bob",
+              status: "pending",
+              created_at: "2026-05-01T00:00:00Z",
+            },
+          ]}
         />
       </LangProvider>
     );
 
-    expect(screen.getByRole("button", { name: /notifications/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /notifications/i })
+    ).toBeInTheDocument();
     expect(screen.getByText("3")).toBeInTheDocument();
   });
 
@@ -60,8 +71,12 @@ describe("Header", () => {
       </LangProvider>
     );
 
-    expect(screen.queryByRole("button", { name: /^sound$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /logs/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^sound$/i })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /logs/i })
+    ).not.toBeInTheDocument();
   });
 
   it("opens notification panel when notification button is clicked", () => {
@@ -73,7 +88,14 @@ describe("Header", () => {
           avatarStatuses={[]}
           onCopyRoomId={vi.fn()}
           pendingNotificationCount={1}
-          joinRequests={[{ request_id: "req_1", display_name: "Bob", created_at: "2026-05-01T00:00:00Z" }]}
+          joinRequests={[
+            {
+              request_id: "req_1",
+              display_name: "Bob",
+              status: "pending",
+              created_at: "2026-05-01T00:00:00Z",
+            },
+          ]}
           onApproveJoinRequest={vi.fn()}
           onRejectJoinRequest={vi.fn()}
         />
@@ -97,7 +119,9 @@ describe("Header", () => {
       </LangProvider>
     );
 
-    expect(screen.getByRole("button", { name: /notifications/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /notifications/i })
+    ).toBeInTheDocument();
     expect(screen.queryByText("0")).not.toBeInTheDocument();
   });
 

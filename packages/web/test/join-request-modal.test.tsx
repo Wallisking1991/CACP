@@ -8,10 +8,12 @@ const request = {
   request_id: "join_req_1",
   display_name: "Bob",
   status: "pending" as const,
-  created_at: "2026-04-27T12:00:00.000Z"
+  created_at: "2026-04-27T12:00:00.000Z",
 };
 
-function renderModal(props: Partial<ComponentProps<typeof JoinRequestModal>> = {}) {
+function renderModal(
+  props: Partial<ComponentProps<typeof JoinRequestModal>> = {}
+) {
   const onApprove = props.onApprove ?? vi.fn();
   const onReject = props.onReject ?? vi.fn();
   const onLater = props.onLater ?? vi.fn();
@@ -34,8 +36,12 @@ describe("JoinRequestModal", () => {
   it("renders the pending requester with clear actions", () => {
     renderModal();
 
-    expect(screen.getByRole("dialog", { name: "Join request" })).toBeInTheDocument();
-    expect(screen.getByText("Bob wants to join this room.")).toBeInTheDocument();
+    expect(
+      screen.getByRole("dialog", { name: "Join request" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Bob wants to join this room.")
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Later" })).toBeInTheDocument();
@@ -59,7 +65,13 @@ describe("JoinRequestModal", () => {
   it("renders nothing when no request is provided", () => {
     const { container } = render(
       <LangProvider>
-        <JoinRequestModal request={undefined} remainingCount={0} onApprove={() => {}} onReject={() => {}} onLater={() => {}} />
+        <JoinRequestModal
+          request={undefined}
+          remainingCount={0}
+          onApprove={() => {}}
+          onReject={() => {}}
+          onLater={() => {}}
+        />
       </LangProvider>
     );
 
@@ -69,6 +81,8 @@ describe("JoinRequestModal", () => {
   it("mentions additional pending requests", () => {
     renderModal({ remainingCount: 2 });
 
-    expect(screen.getByText("2 more requests are waiting.")).toBeInTheDocument();
+    expect(
+      screen.getByText("2 more requests are waiting.")
+    ).toBeInTheDocument();
   });
 });

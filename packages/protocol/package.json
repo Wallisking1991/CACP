@@ -12,9 +12,14 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run --reporter=dot",
+    "test:unit": "vitest run --reporter=dot",
+    "test:coverage": "vitest run --coverage --reporter=dot"
   },
-  "dependencies": { "zod": "^3.24.1" },
+  "dependencies": {
+    "zod": "^3.24.1"
+  },
   "devDependencies": {
     "typescript": "^5.7.3",
     "vitest": "^2.1.8"

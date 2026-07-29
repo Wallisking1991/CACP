@@ -2,7 +2,13 @@ import { execSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type { ClaudeQuery, ClaudeQueryInput, ClaudeSdk, ClaudeSdkSessionMessage, ClaudeSdkSessionSummary } from "./types.js";
+import type {
+  ClaudeQuery,
+  ClaudeQueryInput,
+  ClaudeSdk,
+  ClaudeSdkSessionMessage,
+  ClaudeSdkSessionSummary,
+} from "./types.js";
 
 type UnknownSdkModule = Record<string | symbol, unknown>;
 
@@ -11,7 +17,9 @@ export interface ClaudeSdkBoundaryOptions {
 }
 
 function asRecord(value: unknown): Record<string | symbol, unknown> {
-  return value && typeof value === "object" ? value as Record<string | symbol, unknown> : {};
+  return value && typeof value === "object"
+    ? (value as Record<string | symbol, unknown>)
+    : {};
 }
 
 function wrapQuery(rawQuery: unknown): ClaudeQuery {
@@ -19,7 +27,9 @@ function wrapQuery(rawQuery: unknown): ClaudeQuery {
   const iterator = query[Symbol.asyncIterator];
   const close = query.close;
   if (typeof iterator !== "function") {
-    throw new Error("Claude Code Agent SDK query() did not return an async iterable query");
+    throw new Error(
+      "Claude Code Agent SDK query() did not return an async iterable query"
+    );
   }
   return {
     [Symbol.asyncIterator](): AsyncIterator<unknown> {
@@ -27,42 +37,56 @@ function wrapQuery(rawQuery: unknown): ClaudeQuery {
     },
     close(): void {
       if (typeof close === "function") close.call(rawQuery);
-    }
+    },
   };
 }
 
-export function createClaudeSdkFromModule(module: UnknownSdkModule, options: ClaudeSdkBoundaryOptions = {}): ClaudeSdk {
+export function createClaudeSdkFromModule(
+  module: UnknownSdkModule,
+  options: ClaudeSdkBoundaryOptions = {}
+): ClaudeSdk {
   const query = module.query;
   const listSessions = module.listSessions;
   const getSessionMessages = module.getSessionMessages;
   if (typeof query !== "function") {
-    throw new Error("Claude Code Agent SDK query API was not found. Install a Claude Code Agent SDK version that exposes query().");
+    throw new Error(
+      "Claude Code Agent SDK query API was not found. Install a Claude Code Agent SDK version that exposes query()."
+    );
   }
 
   return {
     query(input: ClaudeQueryInput): ClaudeQuery {
-      const claudeCodeExecutablePath = options.resolveClaudeCodeExecutablePath?.();
-      return wrapQuery(query({
-        prompt: input.prompt,
-        options: {
-          ...input.options,
-          ...(claudeCodeExecutablePath && !input.options.pathToClaudeCodeExecutable
-            ? { pathToClaudeCodeExecutable: claudeCodeExecutablePath }
-            : {})
-        }
-      }));
+      const claudeCodeExecutablePath =
+        options.resolveClaudeCodeExecutablePath?.();
+      return wrapQuery(
+        query({
+          prompt: input.prompt,
+          options: {
+            ...input.options,
+            ...(claudeCodeExecutablePath &&
+            !input.options.pathToClaudeCodeExecutable
+              ? { pathToClaudeCodeExecutable: claudeCodeExecutablePath }
+              : {}),
+          },
+        })
+      );
     },
     async listSessions(input): Promise<ClaudeSdkSessionSummary[]> {
       if (typeof listSessions !== "function") return [];
-      return await listSessions({ dir: input.dir }) as ClaudeSdkSessionSummary[];
-    },
-    async getSessionMessages(sessionId, input): Promise<ClaudeSdkSessionMessage[]> {
-      if (typeof getSessionMessages !== "function") return [];
-      return await getSessionMessages(sessionId, {
+      return (await listSessions({
         dir: input.dir,
-        ...(input.includeSystemMessages ? { includeSystemMessages: true } : {})
-      }) as ClaudeSdkSessionMessage[];
-    }
+      })) as ClaudeSdkSessionSummary[];
+    },
+    async getSessionMessages(
+      sessionId,
+      input
+    ): Promise<ClaudeSdkSessionMessage[]> {
+      if (typeof getSessionMessages !== "function") return [];
+      return (await getSessionMessages(sessionId, {
+        dir: input.dir,
+        ...(input.includeSystemMessages ? { includeSystemMessages: true } : {}),
+      })) as ClaudeSdkSessionMessage[];
+    },
   };
 }
 
@@ -90,10 +114,15 @@ function platformPackageName(): string | undefined {
   return undefined;
 }
 
-function scanPnpmVirtualStore(baseDirs: string[], name: string): string | undefined {
+function scanPnpmVirtualStore(
+  baseDirs: string[],
+  name: string
+): string | undefined {
   const platformPkg = platformPackageName();
   if (!platformPkg) return undefined;
-  const platformPkgBase = platformPkg.replace("@anthropic-ai/", "@anthropic-ai+").replace("/", "@");
+  const platformPkgBase = platformPkg
+    .replace("@anthropic-ai/", "@anthropic-ai+")
+    .replace("/", "@");
 
   for (const base of baseDirs) {
     const pnpmDir = join(base, "node_modules", ".pnpm");
@@ -101,8 +130,17 @@ function scanPnpmVirtualStore(baseDirs: string[], name: string): string | undefi
     try {
       const entries = readdirSync(pnpmDir, { withFileTypes: true });
       for (const entry of entries) {
-        if (entry.isDirectory() && entry.name.startsWith(platformPkgBase + "@")) {
-          const candidate = join(pnpmDir, entry.name, "node_modules", platformPkg, name);
+        if (
+          entry.isDirectory() &&
+          entry.name.startsWith(platformPkgBase + "@")
+        ) {
+          const candidate = join(
+            pnpmDir,
+            entry.name,
+            "node_modules",
+            platformPkg,
+            name
+          );
           if (existsSync(candidate)) return candidate;
         }
       }
@@ -123,7 +161,12 @@ function scanNpmLocal(baseDirs: string[], name: string): string | undefined {
     if (existsSync(direct)) return direct;
 
     // Nested inside SDK: node_modules/@anthropic-ai/claude-agent-sdk/node_modules/.../claude.exe
-    const sdkDir = join(base, "node_modules", "@anthropic-ai", "claude-agent-sdk");
+    const sdkDir = join(
+      base,
+      "node_modules",
+      "@anthropic-ai",
+      "claude-agent-sdk"
+    );
     if (existsSync(sdkDir)) {
       const nested = join(sdkDir, "node_modules", platformPkg, name);
       if (existsSync(nested)) return nested;
@@ -134,7 +177,10 @@ function scanNpmLocal(baseDirs: string[], name: string): string | undefined {
 
 function resolveNpmGlobalRoot(): string | undefined {
   try {
-    const result = execSync("npm root -g", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    const result = execSync("npm root -g", {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
     if (result && existsSync(result)) return result;
   } catch {
     // ignore
@@ -144,7 +190,10 @@ function resolveNpmGlobalRoot(): string | undefined {
 
 function resolvePnpmGlobalRoot(): string | undefined {
   try {
-    const result = execSync("pnpm root -g", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    const result = execSync("pnpm root -g", {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
     if (result && existsSync(result)) return result;
   } catch {
     // ignore
@@ -154,7 +203,10 @@ function resolvePnpmGlobalRoot(): string | undefined {
 
 function resolveYarnGlobalRoot(): string | undefined {
   try {
-    const globalDir = execSync("yarn global dir", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    const globalDir = execSync("yarn global dir", {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
     if (globalDir) {
       const candidate = join(globalDir, "node_modules");
       if (existsSync(candidate)) return candidate;
@@ -181,7 +233,8 @@ function scanNpmGlobal(name: string): string | undefined {
     const appData = process.env.APPDATA;
     if (appData) globalRoots.push(join(appData, "npm", "node_modules"));
     const localAppData = process.env.LOCALAPPDATA;
-    if (localAppData) globalRoots.push(join(localAppData, "npm", "node_modules"));
+    if (localAppData)
+      globalRoots.push(join(localAppData, "npm", "node_modules"));
   } else {
     globalRoots.push(join(homedir(), ".npm", "lib", "node_modules"));
     globalRoots.push("/usr/local/lib/node_modules");
@@ -212,11 +265,16 @@ function scanPathEnv(name: string): string | undefined {
 
 function execWhich(command: string): string | undefined {
   try {
-    const result = execSync(command, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }).trim();
+    const result = execSync(command, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
+    }).trim();
     if (result) {
       const first = result.split(/\r?\n/)[0].trim();
       // On Windows, reject .cmd/.bat shims
-      if (process.platform === "win32" && /\.(cmd|bat)$/i.test(first)) return undefined;
+      if (process.platform === "win32" && /\.(cmd|bat)$/i.test(first))
+        return undefined;
       if (existsSync(first)) return first;
     }
   } catch {
@@ -261,7 +319,9 @@ export function findClaudeBinary(): string | undefined {
   const baseDirs: string[] = [];
   try {
     baseDirs.push(process.cwd());
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   const fromPnpm = scanPnpmVirtualStore(baseDirs, name);
   if (fromPnpm) return fromPnpm;
 
@@ -280,15 +340,19 @@ export function findClaudeBinary(): string | undefined {
   return undefined;
 }
 
-export async function loadClaudeSdk(options: { pathToClaudeCodeExecutable?: string } = {}): Promise<ClaudeSdk> {
-  const module = await import("@anthropic-ai/claude-agent-sdk") as UnknownSdkModule;
+export async function loadClaudeSdk(
+  options: { pathToClaudeCodeExecutable?: string } = {}
+): Promise<ClaudeSdk> {
+  const module =
+    (await import("@anthropic-ai/claude-agent-sdk")) as UnknownSdkModule;
 
   // Find the binary: explicit option > env var > auto-discovery
-  const binaryPath = options.pathToClaudeCodeExecutable
-    ?? process.env.CACP_CLAUDE_PATH
-    ?? findClaudeBinary();
+  const binaryPath =
+    options.pathToClaudeCodeExecutable ??
+    process.env.CACP_CLAUDE_PATH ??
+    findClaudeBinary();
 
   return createClaudeSdkFromModule(module, {
-    resolveClaudeCodeExecutablePath: () => binaryPath
+    resolveClaudeCodeExecutablePath: () => binaryPath,
   });
 }

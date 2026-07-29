@@ -52,7 +52,11 @@ export function RoleChangeConfirmDialog({
   const cancelLabel = t("role.change.confirm.cancel");
 
   return createPortal(
-    <div className="confirm-modal-overlay" onClick={onCancel} onMouseDown={(e) => e.stopPropagation()}>
+    <div
+      className="confirm-modal-overlay"
+      onClick={onCancel}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
       <div
         className="confirm-modal-dialog"
         role="dialog"
@@ -62,7 +66,9 @@ export function RoleChangeConfirmDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="confirm-modal-header">
-          <h2 id={titleId} className="confirm-modal-title">{titleLabel}</h2>
+          <h2 id={titleId} className="confirm-modal-title">
+            {titleLabel}
+          </h2>
         </div>
         <div className="confirm-modal-body">
           <p id={bodyId}>{bodyLabel}</p>

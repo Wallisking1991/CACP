@@ -1,41 +1,86 @@
 #!/usr/bin/env node
 import { randomUUID } from "node:crypto";
 import WebSocket from "ws";
-import { CacpEventSchema, type AgentUpdatedPayload, type ConnectorSnapshotRequestedPayload, type ParticipantRole } from "@cacp/protocol";
-import { defaultConnectorHomeDir, loadRuntimeConfigFromArgs } from "./config.js";
+import {
+  CacpEventSchema,
+  StructuredMessageContentSchema,
+  type AgentUpdatedPayload,
+  type ConnectorSnapshotRequestedPayload,
+  type ParticipantRole,
+} from "@cacp/protocol";
+import {
+  defaultConnectorHomeDir,
+  loadRuntimeConfigFromArgs,
+} from "./config.js";
 import { printConnectedBanner } from "./connected-banner.js";
 import { handleFatalError } from "./fatal-error.js";
 import { reportTurnFailure } from "./error-reporting.js";
 import { RoomClient, statusSummary } from "./room-client.js";
 import { listClaudeSessions } from "./claude/session-catalog.js";
-import { buildClaudeImportFromSessionMessages, chunkClaudeImportMessages } from "./claude/transcript-import.js";
+import {
+  buildClaudeImportFromSessionMessages,
+  chunkClaudeImportMessages,
+} from "./claude/transcript-import.js";
 import { ClaudeRuntime } from "./claude/runtime.js";
 import { CodexRuntime } from "./codex/runtime.js";
 import { listCodexSessions } from "./codex/session-catalog.js";
-import { buildCodexImportFromSessionFile, chunkCodexImportMessages, findCodexSessionFile } from "./codex/transcript-import.js";
+import {
+  buildCodexImportFromSessionFile,
+  chunkCodexImportMessages,
+  findCodexSessionFile,
+} from "./codex/transcript-import.js";
 import { CopilotRuntime } from "./copilot/runtime.js";
 import { loadCopilotSdk } from "./copilot/copilot-sdk.js";
 import { KimiRuntime } from "./kimi/runtime.js";
 import { listKimiSessions } from "./kimi/session-catalog.js";
-import { buildKimiImportFromSessionEvents, chunkKimiImportMessages } from "./kimi/transcript-import.js";
+import {
+  buildKimiImportFromSessionEvents,
+  chunkKimiImportMessages,
+} from "./kimi/transcript-import.js";
 import { findCodexBinary } from "./codex/codex-sdk.js";
 import { findCopilotCli, findCopilotPackage } from "./copilot/copilot-sdk.js";
 import { findClaudeBinary } from "./claude/claude-sdk.js";
 import { findKimiCli } from "./kimi/kimi-sdk.js";
 import { roomAssetDirectory } from "./connector/room-assets.js";
 import { MainThreadLedger } from "./connector/main-ledger.js";
+import {
+  compatibilityForProvider,
+  ConnectorCompatibilityManifest,
+} from "./agent-compatibility.js";
+import {
+  cleanupRoomAttachments,
+  materializeAttachments,
+} from "./connector/attachment-materializer.js";
 
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
-  console.log("Usage: cacp-cli-adapter [config.json]\n       cacp-cli-adapter --connect <connection_code>\n       cacp-cli-adapter --server <url> --pair <pairing_token>\n       cacp-cli-adapter --detect-cli\n\nDouble-click without arguments to paste a CACP connection code.");
+  console.log(
+    "Usage: cacp-cli-adapter [config.json]\n       cacp-cli-adapter --connect <connection_code>\n       cacp-cli-adapter --server <url> --pair <pairing_token>\n       cacp-cli-adapter --detect-cli\n\nDouble-click without arguments to paste a CACP connection code."
+  );
   process.exit(0);
 }
 
 if (process.argv.includes("--detect-cli")) {
   const tools = [
-    { name: "Codex CLI", found: !!findCodexBinary(), hint: "If you plan to use Codex as your agent tool, please install it from: https://github.com/openai/codex" },
-    { name: "Copilot SDK", found: !!findCopilotPackage(), hint: "If you plan to use Copilot as your agent tool, please install it with: npm install -g @github/copilot" },
-    { name: "Claude Code", found: !!findClaudeBinary(), hint: "If you plan to use Claude Code as your agent tool, please install it from: https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview" },
-    { name: "Kimi CLI", found: !!findKimiCli(), hint: "If you plan to use Kimi as your agent tool, please install it and ensure it is available in your PATH. https://www.moonshot.cn/" }
+    {
+      name: "Codex CLI",
+      found: !!findCodexBinary(),
+      hint: "If you plan to use Codex as your agent tool, please install it from: https://github.com/openai/codex",
+    },
+    {
+      name: "Copilot SDK",
+      found: !!findCopilotPackage(),
+      hint: "If you plan to use Copilot as your agent tool, please install it with: npm install -g @github/copilot",
+    },
+    {
+      name: "Claude Code",
+      found: !!findClaudeBinary(),
+      hint: "If you plan to use Claude Code as your agent tool, please install it from: https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview",
+    },
+    {
+      name: "Kimi CLI",
+      found: !!findKimiCli(),
+      hint: "If you plan to use Kimi as your agent tool, please install it and ensure it is available in your PATH. https://www.moonshot.cn/",
+    },
   ];
   console.log("Checking local agent CLI tools...");
   console.log("");
@@ -43,39 +88,55 @@ if (process.argv.includes("--detect-cli")) {
     console.log(t.found ? `[OK] ${t.name}` : `[MISSING] ${t.name} - ${t.hint}`);
   }
   console.log("");
-  console.log("Note: CLI tools must be installed globally (e.g. npm install -g <package>) so the connector can find them.");
+  console.log(
+    "Note: CLI tools must be installed globally (e.g. npm install -g <package>) so the connector can find them."
+  );
   console.log("");
   process.exit(0);
 }
 
-async function postJson<T>(serverUrl: string, path: string, participantToken: string, body: unknown): Promise<T> {
+async function postJson<T>(
+  serverUrl: string,
+  path: string,
+  participantToken: string,
+  body: unknown
+): Promise<T> {
   const response = await fetch(`${serverUrl}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${participantToken}` },
-    body: JSON.stringify(body)
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${participantToken}`,
+    },
+    body: JSON.stringify(body),
   });
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}: ${await response.text()}`);
+  if (!response.ok)
+    throw new Error(
+      `${response.status} ${response.statusText}: ${await response.text()}`
+    );
   return (await response.json()) as T;
 }
 
 async function main() {
   const config = await loadRuntimeConfigFromArgs(process.argv.slice(2));
 
-  const registered = config.registered_agent ?? await postJson<{ agent_id: string; agent_token: string }>(
-    config.server_url,
-    `/rooms/${config.room_id}/agents/register`,
-    config.token!,
-    {
-      name: config.agent.name,
-      capabilities: config.agent.capabilities
-    }
-  );
+  const registered =
+    config.registered_agent ??
+    (await postJson<{ agent_id: string; agent_token: string }>(
+      config.server_url,
+      `/rooms/${config.room_id}/agents/register`,
+      config.token!,
+      {
+        name: config.agent.name,
+        capabilities: config.agent.capabilities,
+        compatibility: ConnectorCompatibilityManifest,
+      }
+    ));
   console.log(`Registered ${config.agent.name} as ${registered.agent_id}`);
 
   const roomClient = new RoomClient({
     serverUrl: config.server_url,
     roomId: config.room_id,
-    agentToken: registered.agent_token
+    agentToken: registered.agent_token,
   });
 
   const connectorHome = defaultConnectorHomeDir();
@@ -83,85 +144,224 @@ async function main() {
   const ledgerDir = roomAssetDirectory({
     baseDir: connectorHome,
     roomId: config.room_id,
-    roomName: ""
+    roomName: "",
   });
   const ledger = new MainThreadLedger({
     roomId: config.room_id,
     connectorId: registered.agent_id,
     agentId: registered.agent_id,
-    ledgerDir
+    ledgerDir,
   });
 
   const isClaudeCode = config.agent.capabilities.includes("claude-code");
   const isCodexCli = config.agent.capabilities.includes("codex-cli");
-  const claudeRuntime = isClaudeCode ? new ClaudeRuntime({
-    agentId: registered.agent_id,
-    workingDir: config.agent.working_dir,
-    permissionLevel: config.permission_level ?? "read_only",
-    model: config.agent.model ?? "claude-sonnet-4-20250514",
-    publishDelta: async (turnId, chunk) => {
-      await roomClient.publishTurnDelta(turnId, chunk);
-    },
-    startNode: async (payload) => { await roomClient.startRunNode(payload.run_id, payload); },
-    appendNodeDelta: async (payload) => { await roomClient.appendRunNodeDelta(payload.run_id, payload.node_id, payload); },
-    updateNode: async (payload) => { await roomClient.updateRunNode(payload.run_id, payload.node_id, payload); },
-    completeNode: async (payload) => { await roomClient.completeRunNode(payload.run_id, payload.node_id, payload); },
-    failNode: async (payload) => { await roomClient.failRunNode(payload.run_id, payload.node_id, payload); },
-    requestApproval: async (nodeId, payload) => { return await roomClient.requestRunApproval(payload.turn_id, nodeId, payload); },
-    requestElicitation: async (nodeId, payload) => { return await roomClient.requestRunElicitation(payload.turn_id, nodeId, payload); }
-  }) : undefined;
+  const claudeRuntime = isClaudeCode
+    ? new ClaudeRuntime({
+        agentId: registered.agent_id,
+        workingDir: config.agent.working_dir,
+        permissionLevel: config.permission_level ?? "read_only",
+        model: config.agent.model ?? "claude-sonnet-4-20250514",
+        publishDelta: async (turnId, chunk) => {
+          await roomClient.publishTurnDelta(turnId, chunk);
+        },
+        startNode: async (payload) => {
+          await roomClient.startRunNode(payload.run_id, payload);
+        },
+        appendNodeDelta: async (payload) => {
+          await roomClient.appendRunNodeDelta(
+            payload.run_id,
+            payload.node_id,
+            payload
+          );
+        },
+        updateNode: async (payload) => {
+          await roomClient.updateRunNode(
+            payload.run_id,
+            payload.node_id,
+            payload
+          );
+        },
+        completeNode: async (payload) => {
+          await roomClient.completeRunNode(
+            payload.run_id,
+            payload.node_id,
+            payload
+          );
+        },
+        failNode: async (payload) => {
+          await roomClient.failRunNode(
+            payload.run_id,
+            payload.node_id,
+            payload
+          );
+        },
+        requestApproval: async (nodeId, payload) => {
+          return await roomClient.requestRunApproval(
+            payload.turn_id,
+            nodeId,
+            payload
+          );
+        },
+        requestElicitation: async (nodeId, payload) => {
+          return await roomClient.requestRunElicitation(
+            payload.turn_id,
+            nodeId,
+            payload
+          );
+        },
+      })
+    : undefined;
 
-  const codexRuntime = isCodexCli ? new CodexRuntime({
-    agentId: registered.agent_id,
-    workingDir: config.agent.working_dir,
-    permissionLevel: config.permission_level ?? "read_only",
-    model: config.agent.model,
-    publishDelta: async (turnId, chunk) => {
-      await roomClient.publishTurnDelta(turnId, chunk);
-    },
-    startNode: async (payload) => { await roomClient.startRunNode(payload.run_id, payload); },
-    appendNodeDelta: async (payload) => { await roomClient.appendRunNodeDelta(payload.run_id, payload.node_id, payload); },
-    updateNode: async (payload) => { await roomClient.updateRunNode(payload.run_id, payload.node_id, payload); },
-    completeNode: async (payload) => { await roomClient.completeRunNode(payload.run_id, payload.node_id, payload); },
-    failNode: async (payload) => { await roomClient.failRunNode(payload.run_id, payload.node_id, payload); }
-  }) : undefined;
+  const codexRuntime = isCodexCli
+    ? new CodexRuntime({
+        agentId: registered.agent_id,
+        workingDir: config.agent.working_dir,
+        permissionLevel: config.permission_level ?? "read_only",
+        model: config.agent.model,
+        publishDelta: async (turnId, chunk) => {
+          await roomClient.publishTurnDelta(turnId, chunk);
+        },
+        startNode: async (payload) => {
+          await roomClient.startRunNode(payload.run_id, payload);
+        },
+        appendNodeDelta: async (payload) => {
+          await roomClient.appendRunNodeDelta(
+            payload.run_id,
+            payload.node_id,
+            payload
+          );
+        },
+        updateNode: async (payload) => {
+          await roomClient.updateRunNode(
+            payload.run_id,
+            payload.node_id,
+            payload
+          );
+        },
+        completeNode: async (payload) => {
+          await roomClient.completeRunNode(
+            payload.run_id,
+            payload.node_id,
+            payload
+          );
+        },
+        failNode: async (payload) => {
+          await roomClient.failRunNode(
+            payload.run_id,
+            payload.node_id,
+            payload
+          );
+        },
+      })
+    : undefined;
 
   const isKimiCli = config.agent.capabilities.includes("kimi-cli");
-  const kimiRuntime = isKimiCli ? new KimiRuntime({
-    agentId: registered.agent_id,
-    workingDir: config.agent.working_dir,
-    permissionLevel: config.permission_level ?? "read_only",
-    model: config.agent.model,
-    thinking: config.agent.thinking,
-    publishDelta: async (turnId, chunk) => {
-      await roomClient.publishTurnDelta(turnId, chunk);
-    },
-    startNode: async (payload) => { await roomClient.startRunNode(payload.run_id, payload); },
-    appendNodeDelta: async (payload) => { await roomClient.appendRunNodeDelta(payload.run_id, payload.node_id, payload); },
-    updateNode: async (payload) => { await roomClient.updateRunNode(payload.run_id, payload.node_id, payload); },
-    completeNode: async (payload) => { await roomClient.completeRunNode(payload.run_id, payload.node_id, payload); },
-    failNode: async (payload) => { await roomClient.failRunNode(payload.run_id, payload.node_id, payload); },
-    requestApproval: async (nodeId, payload) => { return await roomClient.requestRunApproval(payload.turn_id, nodeId, payload); },
-    requestElicitation: async (nodeId, payload) => { return await roomClient.requestRunElicitation(payload.turn_id, nodeId, payload); }
-  }) : undefined;
+  const kimiRuntime = isKimiCli
+    ? new KimiRuntime({
+        agentId: registered.agent_id,
+        workingDir: config.agent.working_dir,
+        permissionLevel: config.permission_level ?? "read_only",
+        model: config.agent.model,
+        thinking: config.agent.thinking,
+        publishDelta: async (turnId, chunk) => {
+          await roomClient.publishTurnDelta(turnId, chunk);
+        },
+        startNode: async (payload) => {
+          await roomClient.startRunNode(payload.run_id, payload);
+        },
+        appendNodeDelta: async (payload) => {
+          await roomClient.appendRunNodeDelta(
+            payload.run_id,
+            payload.node_id,
+            payload
+          );
+        },
+        updateNode: async (payload) => {
+          await roomClient.updateRunNode(
+            payload.run_id,
+            payload.node_id,
+            payload
+          );
+        },
+        completeNode: async (payload) => {
+          await roomClient.completeRunNode(
+            payload.run_id,
+            payload.node_id,
+            payload
+          );
+        },
+        failNode: async (payload) => {
+          await roomClient.failRunNode(
+            payload.run_id,
+            payload.node_id,
+            payload
+          );
+        },
+        requestApproval: async (nodeId, payload) => {
+          return await roomClient.requestRunApproval(
+            payload.turn_id,
+            nodeId,
+            payload
+          );
+        },
+        requestElicitation: async (nodeId, payload) => {
+          return await roomClient.requestRunElicitation(
+            payload.turn_id,
+            nodeId,
+            payload
+          );
+        },
+      })
+    : undefined;
 
   const isCopilotCli = config.agent.capabilities.includes("github-copilot");
-  const copilotRuntime = isCopilotCli ? new CopilotRuntime({
-    agentId: registered.agent_id,
-    workingDir: config.agent.working_dir,
-    permissionLevel: config.permission_level ?? "read_only",
-    model: config.agent.model,
-    publishDelta: async (turnId, chunk) => {
-      await roomClient.publishTurnDelta(turnId, chunk);
-    },
-    startNode: async (payload) => { await roomClient.startRunNode(payload.run_id, payload); },
-    appendNodeDelta: async (payload) => { await roomClient.appendRunNodeDelta(payload.run_id, payload.node_id, payload); },
-    updateNode: async (payload) => { await roomClient.updateRunNode(payload.run_id, payload.node_id, payload); },
-    completeNode: async (payload) => { await roomClient.completeRunNode(payload.run_id, payload.node_id, payload); },
-    failNode: async (payload) => { await roomClient.failRunNode(payload.run_id, payload.node_id, payload); }
-  }) : undefined;
+  const copilotRuntime = isCopilotCli
+    ? new CopilotRuntime({
+        agentId: registered.agent_id,
+        workingDir: config.agent.working_dir,
+        permissionLevel: config.permission_level ?? "read_only",
+        model: config.agent.model,
+        publishDelta: async (turnId, chunk) => {
+          await roomClient.publishTurnDelta(turnId, chunk);
+        },
+        startNode: async (payload) => {
+          await roomClient.startRunNode(payload.run_id, payload);
+        },
+        appendNodeDelta: async (payload) => {
+          await roomClient.appendRunNodeDelta(
+            payload.run_id,
+            payload.node_id,
+            payload
+          );
+        },
+        updateNode: async (payload) => {
+          await roomClient.updateRunNode(
+            payload.run_id,
+            payload.node_id,
+            payload
+          );
+        },
+        completeNode: async (payload) => {
+          await roomClient.completeRunNode(
+            payload.run_id,
+            payload.node_id,
+            payload
+          );
+        },
+        failNode: async (payload) => {
+          await roomClient.failRunNode(
+            payload.run_id,
+            payload.node_id,
+            payload
+          );
+        },
+      })
+    : undefined;
 
-  const streamUrl = new URL(`/rooms/${config.room_id}/stream`, config.server_url);
+  const streamUrl = new URL(
+    `/rooms/${config.room_id}/stream`,
+    config.server_url
+  );
   streamUrl.protocol = streamUrl.protocol === "https:" ? "wss:" : "ws:";
   streamUrl.searchParams.set("token", registered.agent_token);
 
@@ -178,7 +378,11 @@ async function main() {
     return new Date().toISOString();
   }
 
-  function appendAgentFinal(turnId: string, text: string, source: "composer" | "orbit_promote"): void {
+  function appendAgentFinal(
+    turnId: string,
+    text: string,
+    source: "composer" | "orbit_promote"
+  ): void {
     ledger.append({
       entry_type: "agent_final",
       actor_id: registered.agent_id,
@@ -187,7 +391,7 @@ async function main() {
       text,
       source,
       created_at: nowIso(),
-      turn_id: turnId
+      turn_id: turnId,
     });
   }
 
@@ -197,20 +401,28 @@ async function main() {
       if (!parsed.success) return;
 
       if (parsed.data.type === "connector.snapshot.requested") {
-        const payload = parsed.data.payload as Partial<ConnectorSnapshotRequestedPayload>;
-        if (!payload.request_id || payload.connector_id !== registered.agent_id) return;
-        const sinceSequence = typeof payload.since_sequence === "number" ? payload.since_sequence : 0;
+        const payload = parsed.data
+          .payload as Partial<ConnectorSnapshotRequestedPayload>;
+        if (!payload.request_id || payload.connector_id !== registered.agent_id)
+          return;
+        const sinceSequence =
+          typeof payload.since_sequence === "number"
+            ? payload.since_sequence
+            : 0;
         try {
           const entries = ledger.snapshotSince(sinceSequence);
           const latestSequence = Math.max(0, ledger.getLatestSequence());
           const firstSequence = entries[0]?.sequence ?? latestSequence;
-          const lastSequence = entries.length > 0 ? entries[entries.length - 1].sequence : latestSequence;
+          const lastSequence =
+            entries.length > 0
+              ? entries[entries.length - 1].sequence
+              : latestSequence;
           await roomClient.startSnapshot(payload.request_id, {
             request_id: payload.request_id,
             connector_id: registered.agent_id,
             first_sequence: firstSequence,
             last_sequence: lastSequence,
-            total_count: entries.length
+            total_count: entries.length,
           });
           for (const entry of entries) {
             await roomClient.uploadSnapshotEntry(payload.request_id, entry);
@@ -218,41 +430,58 @@ async function main() {
           await roomClient.completeSnapshot(payload.request_id, {
             request_id: payload.request_id,
             connector_id: registered.agent_id,
-            last_sequence: lastSequence
+            last_sequence: lastSequence,
           });
         } catch (error) {
           await roomClient.failSnapshot(payload.request_id, {
             request_id: payload.request_id,
             connector_id: registered.agent_id,
-            error: error instanceof Error ? error.message : String(error)
+            error: error instanceof Error ? error.message : String(error),
           });
         }
         return;
       }
 
-      if (parsed.data.type === "claude.session_preview.requested" && claudeRuntime) {
-        const payload = parsed.data.payload as { preview_id?: string; agent_id?: string; session_id?: string };
-        if (!payload.preview_id || !payload.session_id || payload.agent_id !== registered.agent_id) return;
+      if (
+        parsed.data.type === "claude.session_preview.requested" &&
+        claudeRuntime
+      ) {
+        const payload = parsed.data.payload as {
+          preview_id?: string;
+          agent_id?: string;
+          session_id?: string;
+        };
+        if (
+          !payload.preview_id ||
+          !payload.session_id ||
+          payload.agent_id !== registered.agent_id
+        )
+          return;
         try {
           const previewResult = await buildClaudeImportFromSessionMessages({
             importId: payload.preview_id,
             agentId: registered.agent_id,
             workingDir: config.agent.working_dir,
             sessionId: payload.session_id,
-            title: `Claude session ${payload.session_id.slice(0, 8)}`
+            title: `Claude session ${payload.session_id.slice(0, 8)}`,
           });
-          for (const chunk of chunkClaudeImportMessages(previewResult.messages)) {
-            await roomClient.uploadPreviewMessages(payload.preview_id, chunk.map((message) => {
-              const { import_id: _importId, ...previewMessage } = message;
-              return { ...previewMessage, preview_id: payload.preview_id! };
-            }));
+          for (const chunk of chunkClaudeImportMessages(
+            previewResult.messages
+          )) {
+            await roomClient.uploadPreviewMessages(
+              payload.preview_id,
+              chunk.map((message) => {
+                const { import_id: _importId, ...previewMessage } = message;
+                return { ...previewMessage, preview_id: payload.preview_id! };
+              })
+            );
           }
           await roomClient.completePreview(payload.preview_id, {
             preview_id: payload.preview_id,
             agent_id: registered.agent_id,
             session_id: payload.session_id,
             previewed_message_count: previewResult.messages.length,
-            completed_at: new Date().toISOString()
+            completed_at: new Date().toISOString(),
           });
         } catch (error) {
           await roomClient.failPreview(payload.preview_id, {
@@ -260,26 +489,33 @@ async function main() {
             agent_id: registered.agent_id,
             session_id: payload.session_id,
             error: error instanceof Error ? error.message : String(error),
-            failed_at: new Date().toISOString()
+            failed_at: new Date().toISOString(),
           });
         }
         return;
       }
 
       if (parsed.data.type === "claude.session_selected" && claudeRuntime) {
-        const payload = parsed.data.payload as { agent_id?: string; mode?: string; session_id?: string };
+        const payload = parsed.data.payload as {
+          agent_id?: string;
+          mode?: string;
+          session_id?: string;
+        };
         if (payload.agent_id !== registered.agent_id) return;
         if (payload.mode === "fresh") {
           try {
-            const sessionId = await claudeRuntime.selectSession({ mode: "fresh" });
+            const sessionId = await claudeRuntime.selectSession({
+              mode: "fresh",
+            });
             await roomClient.publishSessionReady({
               agent_id: registered.agent_id,
               mode: "fresh",
               ...(sessionId ? { session_id: sessionId } : {}),
-              ready_at: nowIso()
+              ready_at: nowIso(),
             });
           } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
+            const message =
+              error instanceof Error ? error.message : String(error);
             console.error("Claude session selection failed:", message);
           }
           return;
@@ -289,14 +525,18 @@ async function main() {
           const fallbackTitle = `Claude session ${payload.session_id.slice(0, 8)}`;
           let importClosed = false;
           try {
-            const catalog = await listClaudeSessions({ workingDir: config.agent.working_dir });
-            const selected = catalog.sessions.find((session) => session.session_id === payload.session_id);
+            const catalog = await listClaudeSessions({
+              workingDir: config.agent.working_dir,
+            });
+            const selected = catalog.sessions.find(
+              (session) => session.session_id === payload.session_id
+            );
             const importResult = await buildClaudeImportFromSessionMessages({
               importId,
               agentId: registered.agent_id,
               workingDir: config.agent.working_dir,
               sessionId: payload.session_id,
-              title: selected?.title ?? fallbackTitle
+              title: selected?.title ?? fallbackTitle,
             });
             const startedAt = new Date().toISOString();
             await roomClient.startImport({
@@ -305,25 +545,30 @@ async function main() {
               session_id: payload.session_id,
               title: importResult.title,
               message_count: importResult.messages.length,
-              started_at: startedAt
+              started_at: startedAt,
             });
-            for (const chunk of chunkClaudeImportMessages(importResult.messages)) {
+            for (const chunk of chunkClaudeImportMessages(
+              importResult.messages
+            )) {
               await roomClient.uploadImportMessages(importId, chunk);
             }
-            await claudeRuntime.selectSession({ mode: "resume", sessionId: payload.session_id });
+            await claudeRuntime.selectSession({
+              mode: "resume",
+              sessionId: payload.session_id,
+            });
             await roomClient.completeImport(importId, {
               import_id: importId,
               agent_id: registered.agent_id,
               session_id: payload.session_id,
               imported_message_count: importResult.messages.length,
-              completed_at: nowIso()
+              completed_at: nowIso(),
             });
             importClosed = true;
             await roomClient.publishSessionReady({
               agent_id: registered.agent_id,
               mode: "resume",
               session_id: payload.session_id,
-              ready_at: nowIso()
+              ready_at: nowIso(),
             });
           } catch (error) {
             if (importClosed) throw error;
@@ -332,7 +577,7 @@ async function main() {
               agent_id: registered.agent_id,
               session_id: payload.session_id,
               error: error instanceof Error ? error.message : String(error),
-              failed_at: nowIso()
+              failed_at: nowIso(),
             });
             importClosed = true;
           }
@@ -340,24 +585,50 @@ async function main() {
         return;
       }
 
-      if (parsed.data.type === "agent.session_preview.requested" && codexRuntime) {
-        const payload = parsed.data.payload as { preview_id?: string; agent_id?: string; session_id?: string; provider?: string };
-        if (!payload.preview_id || !payload.session_id || payload.agent_id !== registered.agent_id || payload.provider !== "codex-cli") return;
+      if (
+        parsed.data.type === "agent.session_preview.requested" &&
+        codexRuntime
+      ) {
+        const payload = parsed.data.payload as {
+          preview_id?: string;
+          agent_id?: string;
+          session_id?: string;
+          provider?: string;
+        };
+        if (
+          !payload.preview_id ||
+          !payload.session_id ||
+          payload.agent_id !== registered.agent_id ||
+          payload.provider !== "codex-cli"
+        )
+          return;
         try {
-          const filePath = await findCodexSessionFile({ sessionId: payload.session_id, workingDir: config.agent.working_dir });
+          const filePath = await findCodexSessionFile({
+            sessionId: payload.session_id,
+            workingDir: config.agent.working_dir,
+          });
           if (!filePath) throw new Error("Codex session file not found");
           const previewResult = await buildCodexImportFromSessionFile({
             importId: payload.preview_id,
             agentId: registered.agent_id,
             sessionId: payload.session_id,
             title: `Codex session ${payload.session_id.slice(0, 8)}`,
-            filePath
+            filePath,
           });
-          for (const chunk of chunkCodexImportMessages(previewResult.messages)) {
-            await roomClient.uploadAgentPreviewMessages(payload.preview_id, chunk.map((message) => {
-              const { import_id: _importId, ...previewMessage } = message;
-              return { ...previewMessage, preview_id: payload.preview_id!, provider: "codex-cli" };
-            }));
+          for (const chunk of chunkCodexImportMessages(
+            previewResult.messages
+          )) {
+            await roomClient.uploadAgentPreviewMessages(
+              payload.preview_id,
+              chunk.map((message) => {
+                const { import_id: _importId, ...previewMessage } = message;
+                return {
+                  ...previewMessage,
+                  preview_id: payload.preview_id!,
+                  provider: "codex-cli",
+                };
+              })
+            );
           }
           await roomClient.completeAgentPreview(payload.preview_id, {
             preview_id: payload.preview_id,
@@ -365,7 +636,7 @@ async function main() {
             provider: "codex-cli",
             session_id: payload.session_id,
             previewed_message_count: previewResult.messages.length,
-            completed_at: new Date().toISOString()
+            completed_at: new Date().toISOString(),
           });
         } catch (error) {
           await roomClient.failAgentPreview(payload.preview_id, {
@@ -374,42 +645,77 @@ async function main() {
             provider: "codex-cli",
             session_id: payload.session_id,
             error: error instanceof Error ? error.message : String(error),
-            failed_at: new Date().toISOString()
+            failed_at: new Date().toISOString(),
           });
         }
         return;
       }
 
-      if (parsed.data.type === "agent.session_preview.requested" && copilotRuntime) {
-        const payload = parsed.data.payload as { preview_id?: string; agent_id?: string; session_id?: string; provider?: string };
-        if (!payload.preview_id || !payload.session_id || payload.agent_id !== registered.agent_id || payload.provider !== "github-copilot") return;
+      if (
+        parsed.data.type === "agent.session_preview.requested" &&
+        copilotRuntime
+      ) {
+        const payload = parsed.data.payload as {
+          preview_id?: string;
+          agent_id?: string;
+          session_id?: string;
+          provider?: string;
+        };
+        if (
+          !payload.preview_id ||
+          !payload.session_id ||
+          payload.agent_id !== registered.agent_id ||
+          payload.provider !== "github-copilot"
+        )
+          return;
         await roomClient.failAgentPreview(payload.preview_id, {
           preview_id: payload.preview_id,
           agent_id: registered.agent_id,
           provider: "github-copilot",
           session_id: payload.session_id,
           error: "Session preview not yet implemented for GitHub Copilot",
-          failed_at: new Date().toISOString()
+          failed_at: new Date().toISOString(),
         });
         return;
       }
 
-      if (parsed.data.type === "agent.session_preview.requested" && kimiRuntime) {
-        const payload = parsed.data.payload as { preview_id?: string; agent_id?: string; session_id?: string; provider?: string };
-        if (!payload.preview_id || !payload.session_id || payload.agent_id !== registered.agent_id || payload.provider !== "kimi-cli") return;
+      if (
+        parsed.data.type === "agent.session_preview.requested" &&
+        kimiRuntime
+      ) {
+        const payload = parsed.data.payload as {
+          preview_id?: string;
+          agent_id?: string;
+          session_id?: string;
+          provider?: string;
+        };
+        if (
+          !payload.preview_id ||
+          !payload.session_id ||
+          payload.agent_id !== registered.agent_id ||
+          payload.provider !== "kimi-cli"
+        )
+          return;
         try {
           const previewResult = await buildKimiImportFromSessionEvents({
             importId: payload.preview_id,
             agentId: registered.agent_id,
             workingDir: config.agent.working_dir,
             sessionId: payload.session_id,
-            title: `Kimi session ${payload.session_id.slice(0, 8)}`
+            title: `Kimi session ${payload.session_id.slice(0, 8)}`,
           });
           for (const chunk of chunkKimiImportMessages(previewResult.messages)) {
-            await roomClient.uploadAgentPreviewMessages(payload.preview_id, chunk.map((message) => {
-              const { import_id: _importId, ...previewMessage } = message;
-              return { ...previewMessage, preview_id: payload.preview_id!, provider: "kimi-cli" };
-            }));
+            await roomClient.uploadAgentPreviewMessages(
+              payload.preview_id,
+              chunk.map((message) => {
+                const { import_id: _importId, ...previewMessage } = message;
+                return {
+                  ...previewMessage,
+                  preview_id: payload.preview_id!,
+                  provider: "kimi-cli",
+                };
+              })
+            );
           }
           await roomClient.completeAgentPreview(payload.preview_id, {
             preview_id: payload.preview_id,
@@ -417,7 +723,7 @@ async function main() {
             provider: "kimi-cli",
             session_id: payload.session_id,
             previewed_message_count: previewResult.messages.length,
-            completed_at: new Date().toISOString()
+            completed_at: new Date().toISOString(),
           });
         } catch (error) {
           await roomClient.failAgentPreview(payload.preview_id, {
@@ -426,15 +732,24 @@ async function main() {
             provider: "kimi-cli",
             session_id: payload.session_id,
             error: error instanceof Error ? error.message : String(error),
-            failed_at: new Date().toISOString()
+            failed_at: new Date().toISOString(),
           });
         }
         return;
       }
 
       if (parsed.data.type === "agent.session_selected" && codexRuntime) {
-        const payload = parsed.data.payload as { agent_id?: string; mode?: string; session_id?: string; provider?: string };
-        if (payload.agent_id !== registered.agent_id || payload.provider !== "codex-cli") return;
+        const payload = parsed.data.payload as {
+          agent_id?: string;
+          mode?: string;
+          session_id?: string;
+          provider?: string;
+        };
+        if (
+          payload.agent_id !== registered.agent_id ||
+          payload.provider !== "codex-cli"
+        )
+          return;
         if (payload.mode === "fresh") {
           try {
             await codexRuntime.selectSession({ mode: "fresh" });
@@ -442,10 +757,11 @@ async function main() {
               agent_id: registered.agent_id,
               provider: "codex-cli",
               mode: "fresh",
-              ready_at: nowIso()
+              ready_at: nowIso(),
             });
           } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
+            const message =
+              error instanceof Error ? error.message : String(error);
             console.error("Codex session selection failed:", message);
           }
           return;
@@ -455,14 +771,17 @@ async function main() {
           const fallbackTitle = `Codex session ${payload.session_id.slice(0, 8)}`;
           let importClosed = false;
           try {
-            const filePath = await findCodexSessionFile({ sessionId: payload.session_id, workingDir: config.agent.working_dir });
+            const filePath = await findCodexSessionFile({
+              sessionId: payload.session_id,
+              workingDir: config.agent.working_dir,
+            });
             if (!filePath) throw new Error("Codex session file not found");
             const importResult = await buildCodexImportFromSessionFile({
               importId,
               agentId: registered.agent_id,
               sessionId: payload.session_id,
               title: fallbackTitle,
-              filePath
+              filePath,
             });
             const startedAt = new Date().toISOString();
             await roomClient.startAgentImport({
@@ -472,19 +791,27 @@ async function main() {
               session_id: payload.session_id,
               title: importResult.title,
               message_count: importResult.messages.length,
-              started_at: startedAt
+              started_at: startedAt,
             });
-            for (const chunk of chunkCodexImportMessages(importResult.messages)) {
-              await roomClient.uploadAgentImportMessages(importId, chunk.map((message) => ({ ...message, provider: "codex-cli" })));
+            for (const chunk of chunkCodexImportMessages(
+              importResult.messages
+            )) {
+              await roomClient.uploadAgentImportMessages(
+                importId,
+                chunk.map((message) => ({ ...message, provider: "codex-cli" }))
+              );
             }
-            await codexRuntime.selectSession({ mode: "resume", sessionId: payload.session_id });
+            await codexRuntime.selectSession({
+              mode: "resume",
+              sessionId: payload.session_id,
+            });
             await roomClient.completeAgentImport(importId, {
               import_id: importId,
               agent_id: registered.agent_id,
               provider: "codex-cli",
               session_id: payload.session_id,
               imported_message_count: importResult.messages.length,
-              completed_at: nowIso()
+              completed_at: nowIso(),
             });
             importClosed = true;
             await roomClient.publishAgentSessionReady({
@@ -492,7 +819,7 @@ async function main() {
               provider: "codex-cli",
               mode: "resume",
               session_id: payload.session_id,
-              ready_at: nowIso()
+              ready_at: nowIso(),
             });
           } catch (error) {
             if (importClosed) throw error;
@@ -502,7 +829,7 @@ async function main() {
               provider: "codex-cli",
               session_id: payload.session_id,
               error: error instanceof Error ? error.message : String(error),
-              failed_at: nowIso()
+              failed_at: nowIso(),
             });
             importClosed = true;
           }
@@ -511,8 +838,17 @@ async function main() {
       }
 
       if (parsed.data.type === "agent.session_selected" && copilotRuntime) {
-        const payload = parsed.data.payload as { agent_id?: string; mode?: string; session_id?: string; provider?: string };
-        if (payload.agent_id !== registered.agent_id || payload.provider !== "github-copilot") return;
+        const payload = parsed.data.payload as {
+          agent_id?: string;
+          mode?: string;
+          session_id?: string;
+          provider?: string;
+        };
+        if (
+          payload.agent_id !== registered.agent_id ||
+          payload.provider !== "github-copilot"
+        )
+          return;
         if (payload.mode === "fresh") {
           try {
             await copilotRuntime.selectSession({ mode: "fresh" });
@@ -520,33 +856,51 @@ async function main() {
               agent_id: registered.agent_id,
               provider: "github-copilot",
               mode: "fresh",
-              ready_at: nowIso()
+              ready_at: nowIso(),
             });
           } catch (error) {
-            console.error("Copilot session selection failed:", error instanceof Error ? error.message : String(error));
+            console.error(
+              "Copilot session selection failed:",
+              error instanceof Error ? error.message : String(error)
+            );
           }
           return;
         }
         if (payload.mode === "resume" && payload.session_id) {
           try {
-            await copilotRuntime.selectSession({ mode: "resume", sessionId: payload.session_id });
+            await copilotRuntime.selectSession({
+              mode: "resume",
+              sessionId: payload.session_id,
+            });
             await roomClient.publishAgentSessionReady({
               agent_id: registered.agent_id,
               provider: "github-copilot",
               mode: "resume",
               session_id: payload.session_id,
-              ready_at: nowIso()
+              ready_at: nowIso(),
             });
           } catch (error) {
-            console.error("Copilot session resume failed:", error instanceof Error ? error.message : String(error));
+            console.error(
+              "Copilot session resume failed:",
+              error instanceof Error ? error.message : String(error)
+            );
           }
         }
         return;
       }
 
       if (parsed.data.type === "agent.session_selected" && kimiRuntime) {
-        const payload = parsed.data.payload as { agent_id?: string; mode?: string; session_id?: string; provider?: string };
-        if (payload.agent_id !== registered.agent_id || payload.provider !== "kimi-cli") return;
+        const payload = parsed.data.payload as {
+          agent_id?: string;
+          mode?: string;
+          session_id?: string;
+          provider?: string;
+        };
+        if (
+          payload.agent_id !== registered.agent_id ||
+          payload.provider !== "kimi-cli"
+        )
+          return;
         if (payload.mode === "fresh") {
           try {
             await kimiRuntime.selectSession({ mode: "fresh" });
@@ -554,10 +908,13 @@ async function main() {
               agent_id: registered.agent_id,
               provider: "kimi-cli",
               mode: "fresh",
-              ready_at: nowIso()
+              ready_at: nowIso(),
             });
           } catch (error) {
-            console.error("Kimi session selection failed:", error instanceof Error ? error.message : String(error));
+            console.error(
+              "Kimi session selection failed:",
+              error instanceof Error ? error.message : String(error)
+            );
           }
           return;
         }
@@ -566,14 +923,18 @@ async function main() {
           const fallbackTitle = `Kimi session ${payload.session_id.slice(0, 8)}`;
           let importClosed = false;
           try {
-            const catalog = await listKimiSessions({ workingDir: config.agent.working_dir });
-            const selected = catalog.sessions.find((session) => session.session_id === payload.session_id);
+            const catalog = await listKimiSessions({
+              workingDir: config.agent.working_dir,
+            });
+            const selected = catalog.sessions.find(
+              (session) => session.session_id === payload.session_id
+            );
             const importResult = await buildKimiImportFromSessionEvents({
               importId,
               agentId: registered.agent_id,
               workingDir: config.agent.working_dir,
               sessionId: payload.session_id,
-              title: selected?.title ?? fallbackTitle
+              title: selected?.title ?? fallbackTitle,
             });
             const startedAt = new Date().toISOString();
             await roomClient.startAgentImport({
@@ -583,19 +944,27 @@ async function main() {
               session_id: payload.session_id,
               title: importResult.title,
               message_count: importResult.messages.length,
-              started_at: startedAt
+              started_at: startedAt,
             });
-            for (const chunk of chunkKimiImportMessages(importResult.messages)) {
-              await roomClient.uploadAgentImportMessages(importId, chunk.map((message) => ({ ...message, provider: "kimi-cli" })));
+            for (const chunk of chunkKimiImportMessages(
+              importResult.messages
+            )) {
+              await roomClient.uploadAgentImportMessages(
+                importId,
+                chunk.map((message) => ({ ...message, provider: "kimi-cli" }))
+              );
             }
-            await kimiRuntime.selectSession({ mode: "resume", sessionId: payload.session_id });
+            await kimiRuntime.selectSession({
+              mode: "resume",
+              sessionId: payload.session_id,
+            });
             await roomClient.completeAgentImport(importId, {
               import_id: importId,
               agent_id: registered.agent_id,
               provider: "kimi-cli",
               session_id: payload.session_id,
               imported_message_count: importResult.messages.length,
-              completed_at: nowIso()
+              completed_at: nowIso(),
             });
             importClosed = true;
             await roomClient.publishAgentSessionReady({
@@ -603,7 +972,7 @@ async function main() {
               provider: "kimi-cli",
               mode: "resume",
               session_id: payload.session_id,
-              ready_at: nowIso()
+              ready_at: nowIso(),
             });
           } catch (error) {
             if (importClosed) throw error;
@@ -613,7 +982,7 @@ async function main() {
               provider: "kimi-cli",
               session_id: payload.session_id,
               error: error instanceof Error ? error.message : String(error),
-              failed_at: nowIso()
+              failed_at: nowIso(),
             });
             importClosed = true;
           }
@@ -623,61 +992,145 @@ async function main() {
 
       if (parsed.data.type === "agent.updated" && kimiRuntime) {
         const payload = parsed.data.payload as AgentUpdatedPayload;
-        if (payload.agent_id === registered.agent_id && typeof payload.thinking_enabled === "boolean") {
+        if (
+          payload.agent_id === registered.agent_id &&
+          typeof payload.thinking_enabled === "boolean"
+        ) {
           kimiRuntime.setThinking(payload.thinking_enabled);
         }
         return;
       }
 
       if (parsed.data.type === "task.created") {
-        const payload = parsed.data.payload as { task_id?: string; target_agent_id?: string };
+        const payload = parsed.data.payload as {
+          task_id?: string;
+          target_agent_id?: string;
+        };
         if (payload.target_agent_id === registered.agent_id) {
-          console.log("Ignoring task.created because this connector no longer runs generic local command tasks.");
+          console.log(
+            "Ignoring task.created because this connector no longer runs generic local command tasks."
+          );
         }
         return;
       }
 
       if (parsed.data.type === "agent.turn.requested") {
-        const payload = parsed.data.payload as { turn_id?: string; agent_id?: string; context_prompt?: string; message_text?: string; room_name?: string; speaker_name?: string; speaker_role?: string; mode?: string; source?: string };
-        const turnText = payload.message_text ?? payload.context_prompt;
-        if (!payload.turn_id || !turnText || payload.agent_id !== registered.agent_id || runningTasks.has(payload.turn_id)) return;
+        const payload = parsed.data.payload as {
+          turn_id?: string;
+          agent_id?: string;
+          content?: unknown;
+          room_name?: string;
+          speaker_name?: string;
+          speaker_role?: string;
+          mode?: string;
+          source?: string;
+        };
+        const contentResult = StructuredMessageContentSchema.safeParse(
+          payload.content
+        );
+        const turnText = contentResult.success
+          ? contentResult.data.text
+          : undefined;
+        if (
+          !payload.turn_id ||
+          !turnText ||
+          payload.agent_id !== registered.agent_id ||
+          runningTasks.has(payload.turn_id)
+        )
+          return;
         runningTasks.add(payload.turn_id);
         const turnId = payload.turn_id;
-        const ledgerSource = payload.source === "orbit_promote" ? "orbit_promote" : "composer";
+        const ledgerSource =
+          payload.source === "orbit_promote" ? "orbit_promote" : "composer";
         ledger.append({
           entry_type: "human_input",
           actor_id: parsed.data.actor_id,
-          actor_name: typeof payload.speaker_name === "string" ? payload.speaker_name : "Room participant",
-          actor_role: (typeof payload.speaker_role === "string" ? payload.speaker_role : "member") as ParticipantRole,
+          actor_name:
+            typeof payload.speaker_name === "string"
+              ? payload.speaker_name
+              : "Room participant",
+          actor_role: (typeof payload.speaker_role === "string"
+            ? payload.speaker_role
+            : "member") as ParticipantRole,
           text: turnText,
           source: ledgerSource,
           created_at: parsed.data.created_at,
-          turn_id: turnId
+          turn_id: turnId,
         });
-        let runProvider: "claude-code" | "codex-cli" | "github-copilot" | "kimi-cli" | undefined;
+        let runProvider:
+          | "claude-code"
+          | "codex-cli"
+          | "github-copilot"
+          | "kimi-cli"
+          | undefined;
         let turnCompleted = false;
         let runStarted = false;
         try {
+          runProvider = claudeRuntime
+            ? "claude-code"
+            : codexRuntime
+              ? "codex-cli"
+              : copilotRuntime
+                ? "github-copilot"
+                : kimiRuntime
+                  ? "kimi-cli"
+                  : undefined;
+          if (!runProvider) throw new Error("agent_runtime_unavailable");
+          const inputCapabilities =
+            compatibilityForProvider(runProvider).input_capabilities;
+          const unsupported = contentResult.success
+            ? contentResult.data.attachments.find(
+                (attachment) =>
+                  inputCapabilities[attachment.kind] === "unsupported"
+              )
+            : undefined;
+          if (unsupported) {
+            throw new Error(
+              `attachment_unsupported_by_agent:${unsupported.kind}`
+            );
+          }
+          const attachments = await materializeAttachments({
+            serverUrl: config.server_url,
+            roomId: config.room_id,
+            agentToken: registered.agent_token,
+            workingDir: config.agent.working_dir,
+            attachments: contentResult.success
+              ? contentResult.data.attachments
+              : [],
+          });
           if (claudeRuntime) {
-            runProvider = "claude-code";
             await roomClient.startTurn(turnId);
             await roomClient.startRun(turnId, {
               run_id: turnId,
               turn_id: turnId,
               agent_id: registered.agent_id,
               provider: runProvider,
-              started_at: nowIso()
+              started_at: nowIso(),
             });
             runStarted = true;
             const result = await claudeRuntime.runTurn({
               turnId,
-              roomName: typeof payload.room_name === "string" ? payload.room_name : undefined,
-              speakerName: typeof payload.speaker_name === "string" ? payload.speaker_name : "Room participant",
-              speakerRole: typeof payload.speaker_role === "string" ? payload.speaker_role : "member",
-              modeLabel: typeof payload.mode === "string" ? payload.mode : "normal",
-              text: turnText
+              roomName:
+                typeof payload.room_name === "string"
+                  ? payload.room_name
+                  : undefined,
+              speakerName:
+                typeof payload.speaker_name === "string"
+                  ? payload.speaker_name
+                  : "Room participant",
+              speakerRole:
+                typeof payload.speaker_role === "string"
+                  ? payload.speaker_role
+                  : "member",
+              modeLabel:
+                typeof payload.mode === "string" ? payload.mode : "normal",
+              text: turnText,
+              attachments,
             });
-            const turnCompletion = await roomClient.completeTurn(turnId, result.finalText);
+            const turnCompletion = await roomClient.completeTurn(
+              turnId,
+              result.finalText
+            );
             turnCompleted = true;
             await roomClient.completeRun(turnId, {
               run_id: turnId,
@@ -688,29 +1141,42 @@ async function main() {
               summary: statusSummary({ metrics: result.metrics }),
               metrics: result.metrics,
               ...(result.usage ? { usage: result.usage } : {}),
-              completed_at: nowIso()
+              completed_at: nowIso(),
             });
             appendAgentFinal(turnId, result.finalText, ledgerSource);
           } else if (codexRuntime) {
-            runProvider = "codex-cli";
             await roomClient.startTurn(turnId);
             await roomClient.startRun(turnId, {
               run_id: turnId,
               turn_id: turnId,
               agent_id: registered.agent_id,
               provider: runProvider,
-              started_at: nowIso()
+              started_at: nowIso(),
             });
             runStarted = true;
             const result = await codexRuntime.runTurn({
               turnId,
-              roomName: typeof payload.room_name === "string" ? payload.room_name : undefined,
-              speakerName: typeof payload.speaker_name === "string" ? payload.speaker_name : "Room participant",
-              speakerRole: typeof payload.speaker_role === "string" ? payload.speaker_role : "member",
-              modeLabel: typeof payload.mode === "string" ? payload.mode : "normal",
-              text: turnText
+              roomName:
+                typeof payload.room_name === "string"
+                  ? payload.room_name
+                  : undefined,
+              speakerName:
+                typeof payload.speaker_name === "string"
+                  ? payload.speaker_name
+                  : "Room participant",
+              speakerRole:
+                typeof payload.speaker_role === "string"
+                  ? payload.speaker_role
+                  : "member",
+              modeLabel:
+                typeof payload.mode === "string" ? payload.mode : "normal",
+              text: turnText,
+              attachments,
             });
-            const turnCompletion = await roomClient.completeTurn(turnId, result.finalText);
+            const turnCompletion = await roomClient.completeTurn(
+              turnId,
+              result.finalText
+            );
             turnCompleted = true;
             await roomClient.completeRun(turnId, {
               run_id: turnId,
@@ -721,29 +1187,42 @@ async function main() {
               summary: statusSummary({ metrics: result.metrics }),
               metrics: result.metrics,
               ...(result.usage ? { usage: result.usage } : {}),
-              completed_at: nowIso()
+              completed_at: nowIso(),
             });
             appendAgentFinal(turnId, result.finalText, ledgerSource);
           } else if (copilotRuntime) {
-            runProvider = "github-copilot";
             await roomClient.startTurn(turnId);
             await roomClient.startRun(turnId, {
               run_id: turnId,
               turn_id: turnId,
               agent_id: registered.agent_id,
               provider: runProvider,
-              started_at: nowIso()
+              started_at: nowIso(),
             });
             runStarted = true;
             const result = await copilotRuntime.runTurn({
               turnId,
-              roomName: typeof payload.room_name === "string" ? payload.room_name : undefined,
-              speakerName: typeof payload.speaker_name === "string" ? payload.speaker_name : "Room participant",
-              speakerRole: typeof payload.speaker_role === "string" ? payload.speaker_role : "member",
-              modeLabel: typeof payload.mode === "string" ? payload.mode : "normal",
-              text: turnText
+              roomName:
+                typeof payload.room_name === "string"
+                  ? payload.room_name
+                  : undefined,
+              speakerName:
+                typeof payload.speaker_name === "string"
+                  ? payload.speaker_name
+                  : "Room participant",
+              speakerRole:
+                typeof payload.speaker_role === "string"
+                  ? payload.speaker_role
+                  : "member",
+              modeLabel:
+                typeof payload.mode === "string" ? payload.mode : "normal",
+              text: turnText,
+              attachments,
             });
-            const turnCompletion = await roomClient.completeTurn(turnId, result.finalText);
+            const turnCompletion = await roomClient.completeTurn(
+              turnId,
+              result.finalText
+            );
             turnCompleted = true;
             await roomClient.completeRun(turnId, {
               run_id: turnId,
@@ -754,29 +1233,42 @@ async function main() {
               summary: statusSummary({ metrics: result.metrics }),
               metrics: result.metrics,
               ...(result.usage ? { usage: result.usage } : {}),
-              completed_at: nowIso()
+              completed_at: nowIso(),
             });
             appendAgentFinal(turnId, result.finalText, ledgerSource);
           } else if (kimiRuntime) {
-            runProvider = "kimi-cli";
             await roomClient.startTurn(turnId);
             await roomClient.startRun(turnId, {
               run_id: turnId,
               turn_id: turnId,
               agent_id: registered.agent_id,
               provider: runProvider,
-              started_at: nowIso()
+              started_at: nowIso(),
             });
             runStarted = true;
             const result = await kimiRuntime.runTurn({
               turnId,
-              roomName: typeof payload.room_name === "string" ? payload.room_name : undefined,
-              speakerName: typeof payload.speaker_name === "string" ? payload.speaker_name : "Room participant",
-              speakerRole: typeof payload.speaker_role === "string" ? payload.speaker_role : "member",
-              modeLabel: typeof payload.mode === "string" ? payload.mode : "normal",
-              text: turnText
+              roomName:
+                typeof payload.room_name === "string"
+                  ? payload.room_name
+                  : undefined,
+              speakerName:
+                typeof payload.speaker_name === "string"
+                  ? payload.speaker_name
+                  : "Room participant",
+              speakerRole:
+                typeof payload.speaker_role === "string"
+                  ? payload.speaker_role
+                  : "member",
+              modeLabel:
+                typeof payload.mode === "string" ? payload.mode : "normal",
+              text: turnText,
+              attachments,
             });
-            const turnCompletion = await roomClient.completeTurn(turnId, result.finalText);
+            const turnCompletion = await roomClient.completeTurn(
+              turnId,
+              result.finalText
+            );
             turnCompleted = true;
             await roomClient.completeRun(turnId, {
               run_id: turnId,
@@ -786,32 +1278,38 @@ async function main() {
               message_id: turnCompletion.message_id,
               summary: statusSummary({ metrics: result.metrics }),
               metrics: result.metrics,
-              completed_at: nowIso()
+              completed_at: nowIso(),
             });
             appendAgentFinal(turnId, result.finalText, ledgerSource);
           }
         } catch (error) {
-          const displayError = error instanceof Error ? error.message : String(error);
+          const displayError =
+            error instanceof Error ? error.message : String(error);
           console.error("Adapter turn failed", displayError);
           if (turnCompleted) {
             console.error("Adapter failed after turn completion", displayError);
           } else {
             await reportTurnFailure({
               displayError,
-              ...(runStarted && runProvider ? {
-                reportRunFailure: async (safeError, failedAt) => {
-                  await roomClient.failRun(turnId, {
-                    run_id: turnId,
-                    turn_id: turnId,
-                    agent_id: registered.agent_id,
-                    provider: runProvider!,
-                    error: safeError,
-                    failed_at: failedAt
-                  });
-                }
-              } : {}),
-              failTurn: async (safeError) => { await roomClient.failTurn(turnId, safeError); },
-              log: (message, reportError) => console.error(message, reportError)
+              ...(runStarted && runProvider
+                ? {
+                    reportRunFailure: async (safeError, failedAt) => {
+                      await roomClient.failRun(turnId, {
+                        run_id: turnId,
+                        turn_id: turnId,
+                        agent_id: registered.agent_id,
+                        provider: runProvider!,
+                        error: safeError,
+                        failed_at: failedAt,
+                      });
+                    },
+                  }
+                : {}),
+              failTurn: async (safeError) => {
+                await roomClient.failTurn(turnId, safeError);
+              },
+              log: (message, reportError) =>
+                console.error(message, reportError),
             });
           }
         } finally {
@@ -835,7 +1333,15 @@ async function main() {
       agentName: config.agent.name,
       workingDir: config.agent.working_dir,
       claudeSessionMode: isClaudeCode ? "pending-selection" : "not-applicable",
-      agentSessionLabel: isKimiCli ? "Kimi CLI session" : isCopilotCli ? "GitHub Copilot session" : isCodexCli ? "Codex CLI session" : isClaudeCode ? "Claude Code persistent session" : "Local agent runtime"
+      agentSessionLabel: isKimiCli
+        ? "Kimi CLI session"
+        : isCopilotCli
+          ? "GitHub Copilot session"
+          : isCodexCli
+            ? "Codex CLI session"
+            : isClaudeCode
+              ? "Claude Code persistent session"
+              : "Local agent runtime",
     });
     console.log(`Connected adapter stream for room ${config.room_id}`);
     console.log("DEBUG: WebSocket is open, about to publish catalog");
@@ -847,25 +1353,33 @@ async function main() {
           return roomClient.publishCatalog({
             agent_id: registered.agent_id,
             working_dir: catalog.workingDir,
-            sessions: catalog.sessions
+            sessions: catalog.sessions,
           });
         })
         .then(() => console.log("DEBUG: Catalog published successfully"))
         .catch((error) => {
-          console.error("Failed to publish Claude session catalog", error instanceof Error ? error.message : String(error));
+          console.error(
+            "Failed to publish Claude session catalog",
+            error instanceof Error ? error.message : String(error)
+          );
         });
       console.log("DEBUG: listClaudeSessions called (async)");
     }
     if (isCodexCli) {
       void listCodexSessions({ workingDir: config.agent.working_dir })
-        .then((catalog) => roomClient.publishAgentSessionCatalog({
-          agent_id: registered.agent_id,
-          provider: "codex-cli",
-          working_dir: catalog.workingDir,
-          sessions: catalog.sessions
-        }))
+        .then((catalog) =>
+          roomClient.publishAgentSessionCatalog({
+            agent_id: registered.agent_id,
+            provider: "codex-cli",
+            working_dir: catalog.workingDir,
+            sessions: catalog.sessions,
+          })
+        )
         .catch((error) => {
-          console.error("Failed to publish Codex session catalog", error instanceof Error ? error.message : String(error));
+          console.error(
+            "Failed to publish Codex session catalog",
+            error instanceof Error ? error.message : String(error)
+          );
         });
     }
     if (isCopilotCli) {
@@ -880,30 +1394,40 @@ async function main() {
             working_dir: config.agent.working_dir,
             sessions: sessions.map((s) => ({
               session_id: s.sessionId,
-              title: (s.summary ?? `Copilot session ${s.sessionId.slice(0, 8)}`).slice(0, 200),
+              title: (
+                s.summary ?? `Copilot session ${s.sessionId.slice(0, 8)}`
+              ).slice(0, 200),
               project_dir: config.agent.working_dir,
               updated_at: s.modifiedTime.toISOString(),
               message_count: 0,
               byte_size: 0,
               importable: false,
-              provider: "github-copilot"
-            }))
+              provider: "github-copilot",
+            })),
           });
         } catch (error) {
-          console.error("Failed to publish Copilot session catalog", error instanceof Error ? error.message : String(error));
+          console.error(
+            "Failed to publish Copilot session catalog",
+            error instanceof Error ? error.message : String(error)
+          );
         }
       })();
     }
     if (isKimiCli) {
       void listKimiSessions({ workingDir: config.agent.working_dir })
-        .then((catalog) => roomClient.publishAgentSessionCatalog({
-          agent_id: registered.agent_id,
-          provider: "kimi-cli",
-          working_dir: catalog.workingDir,
-          sessions: catalog.sessions
-        }))
+        .then((catalog) =>
+          roomClient.publishAgentSessionCatalog({
+            agent_id: registered.agent_id,
+            provider: "kimi-cli",
+            working_dir: catalog.workingDir,
+            sessions: catalog.sessions,
+          })
+        )
         .catch((error) => {
-          console.error("Failed to publish Kimi session catalog", error instanceof Error ? error.message : String(error));
+          console.error(
+            "Failed to publish Kimi session catalog",
+            error instanceof Error ? error.message : String(error)
+          );
         });
     }
     if (ws.readyState === WebSocket.OPEN) {
@@ -919,19 +1443,34 @@ async function main() {
       }, HEARTBEAT_INTERVAL_MS);
     }
   });
-  function gracefulShutdown(code: number, reasonText: string, source: "close" | "error" | "heartbeat"): void {
+  function gracefulShutdown(
+    code: number,
+    reasonText: string,
+    source: "close" | "error" | "heartbeat"
+  ): void {
     if (shutdownInitiated) return;
     shutdownInitiated = true;
     if (heartbeatInterval) clearInterval(heartbeatInterval);
     if (heartbeatTimeout) clearTimeout(heartbeatTimeout);
     if (source === "heartbeat") {
-      console.log("Adapter stream closed: connection timed out (heartbeat missed)");
+      console.log(
+        "Adapter stream closed: connection timed out (heartbeat missed)"
+      );
     } else if (source === "error") {
-      console.log(`Adapter stream closed due to error${reasonText ? `: ${reasonText}` : ""} (code: ${code})`);
+      console.log(
+        `Adapter stream closed due to error${reasonText ? `: ${reasonText}` : ""} (code: ${code})`
+      );
     } else {
-      console.log(`Adapter stream closed${reasonText ? `: ${reasonText}` : ""} (code: ${code})`);
+      console.log(
+        `Adapter stream closed${reasonText ? `: ${reasonText}` : ""} (code: ${code})`
+      );
     }
-    if (code === 4001 || reasonText === "participant_removed" || reasonText === "disconnected" || reasonText === "owner_disconnected") {
+    if (
+      code === 4001 ||
+      reasonText === "participant_removed" ||
+      reasonText === "disconnected" ||
+      reasonText === "owner_disconnected"
+    ) {
       console.log("This local Agent session was removed from the room.");
     }
     void claudeRuntime?.close().catch((error) => {
@@ -946,6 +1485,11 @@ async function main() {
     void kimiRuntime?.close().catch((error) => {
       console.error("Failed to close Kimi runtime", error);
     });
+    void cleanupRoomAttachments(config.agent.working_dir, config.room_id).catch(
+      (error) => {
+        console.error("Failed to clean room attachments", error);
+      }
+    );
     const exitCode = source === "close" ? 0 : 1;
     process.exitCode = exitCode;
     // Allow runtime close() promises a tick to settle before hard exit
@@ -957,7 +1501,11 @@ async function main() {
   });
   ws.on("error", (error) => {
     console.error("WebSocket error:", error);
-    gracefulShutdown(1006, error instanceof Error ? error.message : String(error), "error");
+    gracefulShutdown(
+      1006,
+      error instanceof Error ? error.message : String(error),
+      "error"
+    );
   });
   ws.on("pong", () => {
     if (heartbeatTimeout) {

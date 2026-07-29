@@ -4,7 +4,7 @@ import type {
   AgentRunNodeDeltaPayload,
   AgentRunNodeFailedPayload,
   AgentRunNodeStartedPayload,
-  AgentRunNodeUpdatedPayload
+  AgentRunNodeUpdatedPayload,
 } from "@cacp/protocol";
 
 export interface CopilotTurnInput {
@@ -14,6 +14,7 @@ export interface CopilotTurnInput {
   speakerRole: string;
   modeLabel: string;
   text: string;
+  attachments?: import("../connector/attachment-materializer.js").MaterializedAttachment[];
 }
 
 export interface CopilotTurnResult {
@@ -42,7 +43,14 @@ export interface CopilotRuntimeInput extends CopilotRunTraceSink {
 
 export interface CopilotSdkSession {
   sessionId: string;
-  send(options: { prompt: string }): Promise<string>;
+  send(options: {
+    prompt: string;
+    attachments?: Array<{
+      type: "file";
+      path: string;
+      displayName?: string;
+    }>;
+  }): Promise<string>;
   abort(): Promise<void>;
   disconnect(): Promise<void>;
   on(event: string, handler: (event: unknown) => void): () => void;

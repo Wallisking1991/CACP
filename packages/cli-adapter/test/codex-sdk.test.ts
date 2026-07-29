@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createCodexSdkFromModule, findCodexBinary } from "../src/codex/codex-sdk.js";
+import {
+  createCodexSdkFromModule,
+  findCodexBinary,
+} from "../src/codex/codex-sdk.js";
 import { toCodexThreadOptions } from "../src/codex/types.js";
 
 describe("Codex SDK boundary", () => {
@@ -13,16 +16,33 @@ describe("Codex SDK boundary", () => {
         constructorOptions.push(options);
       }
       startThread() {
-        return { id: null, runStreamed: async function runStreamed() { return { events: async function* () {}() }; } };
+        return {
+          id: null,
+          runStreamed: async function runStreamed() {
+            return { events: (async function* () {})() };
+          },
+        };
       }
       resumeThread() {
-        return { id: "session_1", runStreamed: async function runStreamed() { return { events: async function* () {}() }; } };
+        return {
+          id: "session_1",
+          runStreamed: async function runStreamed() {
+            return { events: (async function* () {})() };
+          },
+        };
       }
     }
 
-    const sdk = createCodexSdkFromModule({ Codex: FakeCodex }, { codexPath: "codex-test" });
-    expect(sdk.startThread({ workingDirectory: "D:\\Development\\2" }).id).toBeNull();
-    expect(constructorOptions[0]).toMatchObject({ codexPathOverride: "codex-test" });
+    const sdk = createCodexSdkFromModule(
+      { Codex: FakeCodex },
+      { codexPath: "codex-test" }
+    );
+    expect(
+      sdk.startThread({ workingDirectory: "D:\\Development\\2" }).id
+    ).toBeNull();
+    expect(constructorOptions[0]).toMatchObject({
+      codexPathOverride: "codex-test",
+    });
   });
 
   it("does not force a bare codex executable override when no path is configured", () => {
@@ -34,16 +54,28 @@ describe("Codex SDK boundary", () => {
         constructorOptions.push(options);
       }
       startThread() {
-        return { id: null, runStreamed: async function runStreamed() { return { events: async function* () {}() }; } };
+        return {
+          id: null,
+          runStreamed: async function runStreamed() {
+            return { events: (async function* () {})() };
+          },
+        };
       }
       resumeThread() {
-        return { id: "session_1", runStreamed: async function runStreamed() { return { events: async function* () {}() }; } };
+        return {
+          id: "session_1",
+          runStreamed: async function runStreamed() {
+            return { events: (async function* () {})() };
+          },
+        };
       }
     }
 
     try {
       const sdk = createCodexSdkFromModule({ Codex: FakeCodex });
-      expect(sdk.startThread({ workingDirectory: "D:\\Development\\2" }).id).toBeNull();
+      expect(
+        sdk.startThread({ workingDirectory: "D:\\Development\\2" }).id
+      ).toBeNull();
       expect(constructorOptions[0]).toEqual({});
     } finally {
       if (original === undefined) {
@@ -55,22 +87,37 @@ describe("Codex SDK boundary", () => {
   });
 
   it("maps CACP permission levels to Codex thread options", () => {
-    expect(toCodexThreadOptions({ workingDir: "D:\\Development\\2", permissionLevel: "read_only" })).toMatchObject({
+    expect(
+      toCodexThreadOptions({
+        workingDir: "D:\\Development\\2",
+        permissionLevel: "read_only",
+      })
+    ).toMatchObject({
       workingDirectory: "D:\\Development\\2",
       skipGitRepoCheck: true,
       sandboxMode: "read-only",
       approvalPolicy: "never",
-      networkAccessEnabled: false
+      networkAccessEnabled: false,
     });
-    expect(toCodexThreadOptions({ workingDir: "D:\\Development\\2", permissionLevel: "limited_write" })).toMatchObject({
+    expect(
+      toCodexThreadOptions({
+        workingDir: "D:\\Development\\2",
+        permissionLevel: "limited_write",
+      })
+    ).toMatchObject({
       sandboxMode: "workspace-write",
       approvalPolicy: "never",
-      networkAccessEnabled: false
+      networkAccessEnabled: false,
     });
-    expect(toCodexThreadOptions({ workingDir: "D:\\Development\\2", permissionLevel: "full_access" })).toMatchObject({
+    expect(
+      toCodexThreadOptions({
+        workingDir: "D:\\Development\\2",
+        permissionLevel: "full_access",
+      })
+    ).toMatchObject({
       sandboxMode: "danger-full-access",
       approvalPolicy: "never",
-      networkAccessEnabled: true
+      networkAccessEnabled: true,
     });
   });
 
@@ -79,9 +126,23 @@ describe("Codex SDK boundary", () => {
     const originalCwd = process.cwd();
     try {
       process.chdir(tmp);
-      const triple = process.platform === "win32" ? "x86_64-pc-windows-msvc" : "x86_64-unknown-linux-musl";
+      const triple =
+        process.platform === "win32"
+          ? "x86_64-pc-windows-msvc"
+          : "x86_64-unknown-linux-musl";
       const binName = process.platform === "win32" ? "codex.exe" : "codex";
-      const binDir = join(tmp, "node_modules", ".pnpm", "@openai+codex@0.128.0-win32-x64", "node_modules", "@openai", "codex", "vendor", triple, "codex");
+      const binDir = join(
+        tmp,
+        "node_modules",
+        ".pnpm",
+        "@openai+codex@0.128.0-win32-x64",
+        "node_modules",
+        "@openai",
+        "codex",
+        "vendor",
+        triple,
+        "codex"
+      );
       mkdirSync(binDir, { recursive: true });
       writeFileSync(join(binDir, binName), "fake-binary", { mode: 0o755 });
 
@@ -98,9 +159,20 @@ describe("Codex SDK boundary", () => {
     const originalCwd = process.cwd();
     try {
       process.chdir(tmp);
-      const triple = process.platform === "win32" ? "x86_64-pc-windows-msvc" : "x86_64-unknown-linux-musl";
+      const triple =
+        process.platform === "win32"
+          ? "x86_64-pc-windows-msvc"
+          : "x86_64-unknown-linux-musl";
       const binName = process.platform === "win32" ? "codex.exe" : "codex";
-      const binDir = join(tmp, "node_modules", "@openai", "codex", "vendor", triple, "codex");
+      const binDir = join(
+        tmp,
+        "node_modules",
+        "@openai",
+        "codex",
+        "vendor",
+        triple,
+        "codex"
+      );
       mkdirSync(binDir, { recursive: true });
       writeFileSync(join(binDir, binName), "fake-binary", { mode: 0o755 });
 
@@ -123,10 +195,26 @@ describe("Codex SDK boundary", () => {
       process.env.PATH = tmp;
       process.env.APPDATA = join(tmp, "Roaming");
       process.env.LOCALAPPDATA = join(tmp, "Local");
-      const triple = process.platform === "win32" ? "x86_64-pc-windows-msvc" : "x86_64-unknown-linux-musl";
-      const platformPackage = process.platform === "win32" ? "codex-win32-x64" : "codex-linux-x64";
+      const triple =
+        process.platform === "win32"
+          ? "x86_64-pc-windows-msvc"
+          : "x86_64-unknown-linux-musl";
+      const platformPackage =
+        process.platform === "win32" ? "codex-win32-x64" : "codex-linux-x64";
       const binName = process.platform === "win32" ? "codex.exe" : "codex";
-      const binDir = join(process.env.APPDATA, "npm", "node_modules", "@openai", "codex", "node_modules", "@openai", platformPackage, "vendor", triple, "codex");
+      const binDir = join(
+        process.env.APPDATA,
+        "npm",
+        "node_modules",
+        "@openai",
+        "codex",
+        "node_modules",
+        "@openai",
+        platformPackage,
+        "vendor",
+        triple,
+        "codex"
+      );
       mkdirSync(binDir, { recursive: true });
       writeFileSync(join(binDir, binName), "fake-binary", { mode: 0o755 });
 

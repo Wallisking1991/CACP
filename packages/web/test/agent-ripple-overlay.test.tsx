@@ -31,10 +31,7 @@ describe("AgentRippleOverlay", () => {
 
   it("renders nothing when no working agents", () => {
     const { container } = render(
-      <AgentRippleOverlay
-        avatarStatuses={[]}
-        turnInFlight={false}
-      />
+      <AgentRippleOverlay avatarStatuses={[]} turnInFlight={false} />
     );
     expect(container.querySelector(".agent-ripple-overlay")).toBeNull();
   });
@@ -45,6 +42,7 @@ describe("AgentRippleOverlay", () => {
         avatarStatuses={[
           {
             id: "agent-1",
+            role: "agent",
             kind: "agent",
             status: "working",
             display_name: "Test",
@@ -66,6 +64,7 @@ describe("AgentRippleOverlay", () => {
         avatarStatuses={[
           {
             id: "agent-1",
+            role: "agent",
             kind: "agent",
             status: "working",
             display_name: "Test",
@@ -87,6 +86,7 @@ describe("AgentRippleOverlay", () => {
         avatarStatuses={[
           {
             id: "agent-1",
+            role: "agent",
             kind: "agent",
             status: "idle",
             display_name: "Test",

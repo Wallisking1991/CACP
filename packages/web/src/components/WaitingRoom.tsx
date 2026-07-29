@@ -5,7 +5,10 @@ interface WaitingRoomProps {
   onCancel: () => void;
 }
 
-export default function WaitingRoom({ displayName, onCancel }: WaitingRoomProps) {
+export default function WaitingRoom({
+  displayName,
+  onCancel,
+}: WaitingRoomProps) {
   const t = useT();
 
   return (

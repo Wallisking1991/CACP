@@ -5,7 +5,9 @@ import zhMessages from "../src/i18n/messages.zh.json";
 
 describe("resolveLang", () => {
   it("keeps English and Chinese message catalogs aligned", () => {
-    expect(Object.keys(zhMessages).sort()).toEqual(Object.keys(enMessages).sort());
+    expect(Object.keys(zhMessages).sort()).toEqual(
+      Object.keys(enMessages).sort()
+    );
   });
 
   it("includes the orbit open-discussion keys in both catalogs", () => {

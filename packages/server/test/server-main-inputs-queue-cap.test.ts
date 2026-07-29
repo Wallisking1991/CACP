@@ -1,3 +1,7 @@
+import {
+  markTestAgentReady,
+  testConnectorCompatibility,
+} from "./test-compatibility.js";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildServer } from "../src/server.js";
@@ -7,9 +11,13 @@ async function ownerAndRoom(app: FastifyInstance) {
   const created = await app.inject({
     method: "POST",
     url: "/rooms",
-    payload: { name: "Room", display_name: "Owner" }
+    payload: { name: "Room", display_name: "Owner" },
   });
-  return created.json() as { room_id: string; owner_token: string; owner_id: string };
+  return created.json() as {
+    room_id: string;
+    owner_token: string;
+    owner_id: string;
+  };
 }
 
 async function setupRoomWithAgent(app: FastifyInstance) {
@@ -18,21 +26,35 @@ async function setupRoomWithAgent(app: FastifyInstance) {
     method: "POST",
     url: `/rooms/${room.room_id}/agents/register`,
     headers: { authorization: `Bearer ${room.owner_token}` },
-    payload: { name: "TestAgent", capabilities: ["llm-api"] }
+    payload: {
+      compatibility: testConnectorCompatibility,
+      name: "TestAgent",
+      capabilities: ["kimi-cli"],
+    },
   });
   const agent = agentReg.json() as { agent_id: string; agent_token: string };
   await app.inject({
     method: "POST",
     url: `/rooms/${room.room_id}/agents/select`,
     headers: { authorization: `Bearer ${room.owner_token}` },
-    payload: { agent_id: agent.agent_id }
+    payload: { agent_id: agent.agent_id },
   });
+  await markTestAgentReady(
+    app,
+    room.room_id,
+    room.owner_token,
+    agent.agent_id,
+    agent.agent_token
+  );
   return { room, agent };
 }
 
 describe("queuedMainInputs per-room cap", () => {
   let app: FastifyInstance | undefined;
-  afterEach(async () => { await app?.close(); app = undefined; });
+  afterEach(async () => {
+    await app?.close();
+    app = undefined;
+  });
 
   it("accepts 50 queued inputs but rejects the 51st with 409 queue_full", async () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
@@ -43,7 +65,7 @@ describe("queuedMainInputs per-room cap", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/main-inputs`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "open turn" }
+      payload: { text: "open turn" },
     });
     expect(opener.statusCode).toBe(201);
     expect((opener.json() as { status: string }).status).toBe("triggered");
@@ -54,7 +76,7 @@ describe("queuedMainInputs per-room cap", () => {
         method: "POST",
         url: `/rooms/${room.room_id}/main-inputs`,
         headers: { authorization: `Bearer ${room.owner_token}` },
-        payload: { text: `queued ${i}` }
+        payload: { text: `queued ${i}` },
       });
       expect(res.statusCode).toBe(201);
       expect((res.json() as { status: string }).status).toBe("queued");
@@ -65,7 +87,7 @@ describe("queuedMainInputs per-room cap", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/main-inputs`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "overflow" }
+      payload: { text: "overflow" },
     });
     expect(overflow.statusCode).toBe(409);
     expect(overflow.json()).toMatchObject({ error: "queue_full" });

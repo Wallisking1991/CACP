@@ -1,4 +1,5 @@
-export type RoomSoundCue = "message" | "mention" | "ai-start" | "agent-online" | "join-request";
+export type RoomSoundCue =
+  "message" | "mention" | "ai-start" | "agent-online" | "join-request";
 
 export interface RoomSoundController {
   enabled: () => boolean;
@@ -17,7 +18,10 @@ export interface RoomSoundControllerOptions {
 const storageKey = "cacp.room.sound.enabled";
 const volumeKey = "cacp.room.sound.volume";
 
-export function shouldPlayCueForMessage(input: { actorId: string; currentParticipantId: string }): boolean {
+export function shouldPlayCueForMessage(input: {
+  actorId: string;
+  currentParticipantId: string;
+}): boolean {
   return input.actorId !== input.currentParticipantId;
 }
 
@@ -36,7 +40,10 @@ function storedVolume(): number {
 let sharedAudioContext: AudioContext | undefined;
 
 function getAudioContext(): AudioContext | undefined {
-  const AudioContextCtor = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  const AudioContextCtor =
+    window.AudioContext ||
+    (window as unknown as { webkitAudioContext?: typeof AudioContext })
+      .webkitAudioContext;
   if (!AudioContextCtor) return undefined;
   if (!sharedAudioContext) {
     sharedAudioContext = new AudioContextCtor();
@@ -71,8 +78,14 @@ function synthTone(cue: RoomSoundCue, volume: number): void {
       osc.frequency.value = 400;
       osc.type = "sine";
       g.gain.setValueAtTime(0.0001, context.currentTime + offset);
-      g.gain.exponentialRampToValueAtTime(targetGain, context.currentTime + offset + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + offset + 0.1);
+      g.gain.exponentialRampToValueAtTime(
+        targetGain,
+        context.currentTime + offset + 0.01
+      );
+      g.gain.exponentialRampToValueAtTime(
+        0.0001,
+        context.currentTime + offset + 0.1
+      );
       osc.connect(g);
       g.connect(context.destination);
       osc.start(context.currentTime + offset);
@@ -88,7 +101,10 @@ function synthTone(cue: RoomSoundCue, volume: number): void {
   oscillator.type = "sine";
   const targetGain = 0.035 * volume;
   gain.gain.setValueAtTime(0.0001, context.currentTime);
-  gain.gain.exponentialRampToValueAtTime(targetGain, context.currentTime + 0.01);
+  gain.gain.exponentialRampToValueAtTime(
+    targetGain,
+    context.currentTime + 0.01
+  );
   gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.16);
   oscillator.connect(gain);
   gain.connect(context.destination);
@@ -99,7 +115,7 @@ function synthTone(cue: RoomSoundCue, volume: number): void {
 export function createRoomSoundController({
   playTone = synthTone,
   now = () => Date.now(),
-  cooldownMs = 450
+  cooldownMs = 450,
 }: RoomSoundControllerOptions = {}): RoomSoundController {
   let enabled = storedEnabled();
   let volume = storedVolume();
@@ -109,12 +125,14 @@ export function createRoomSoundController({
     enabled: () => enabled,
     setEnabled(next: boolean): void {
       enabled = next;
-      if (typeof localStorage !== "undefined") localStorage.setItem(storageKey, String(next));
+      if (typeof localStorage !== "undefined")
+        localStorage.setItem(storageKey, String(next));
     },
     volume: () => volume,
     setVolume(next: number): void {
       volume = Math.min(1, Math.max(0, next));
-      if (typeof localStorage !== "undefined") localStorage.setItem(volumeKey, String(volume));
+      if (typeof localStorage !== "undefined")
+        localStorage.setItem(volumeKey, String(volume));
     },
     play(cue: RoomSoundCue): void {
       if (!enabled) return;
@@ -127,6 +145,6 @@ export function createRoomSoundController({
       } catch {
         return;
       }
-    }
+    },
   };
 }

@@ -8,7 +8,12 @@ import type { StoredParticipant } from "./event-store.js";
  * call site would silently exclude that role from delivery and TypeScript
  * would not catch it.
  */
-export const HUMAN_ROLES: ParticipantRole[] = ["owner", "admin", "member", "observer"];
+export const HUMAN_ROLES: ParticipantRole[] = [
+  "owner",
+  "admin",
+  "member",
+  "observer",
+];
 
 export type RelayDelivery =
   | { kind: "room" }
@@ -30,12 +35,17 @@ export function targetedDelivery(ids: string[]): RelayDelivery {
 
 export function roleDelivery(roles: ParticipantRole[]): RelayDelivery {
   if (roles.length === 0) {
-    throw new Error("roleDelivery requires at least one role (mirrors required_roles .min(1) in schemas)");
+    throw new Error(
+      "roleDelivery requires at least one role (mirrors required_roles .min(1) in schemas)"
+    );
   }
   return { kind: "role", roles: [...new Set(roles)] };
 }
 
-export function canDeliverEnvelope(envelope: RelayEnvelope, participant: StoredParticipant): boolean {
+export function canDeliverEnvelope(
+  envelope: RelayEnvelope,
+  participant: StoredParticipant
+): boolean {
   if (envelope.delivery.kind === "room") return true;
   if (envelope.delivery.kind === "targeted") {
     return envelope.delivery.participant_ids.includes(participant.id);

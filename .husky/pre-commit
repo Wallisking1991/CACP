@@ -1,0 +1,5 @@
+corepack pnpm lint-staged
+corepack pnpm lint
+corepack pnpm security:staged
+corepack pnpm typecheck
+corepack pnpm test

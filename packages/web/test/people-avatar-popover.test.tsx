@@ -5,17 +5,41 @@ import { LangProvider } from "../src/i18n/LangProvider.js";
 import { PeopleAvatarPopover } from "../src/components/PeopleAvatarPopover.js";
 
 const participants = [
-  { id: "user_1", display_name: "Alice", role: "owner" as const },
-  { id: "user_2", display_name: "Bob", role: "member" as const },
-  { id: "user_3", display_name: "Charlie", role: "admin" as const },
-  { id: "user_4", display_name: "Dave", role: "observer" as const },
+  {
+    id: "user_1",
+    display_name: "Alice",
+    role: "owner" as const,
+    type: "human",
+  },
+  {
+    id: "user_2",
+    display_name: "Bob",
+    role: "member" as const,
+    type: "human",
+  },
+  {
+    id: "user_3",
+    display_name: "Charlie",
+    role: "admin" as const,
+    type: "human",
+  },
+  {
+    id: "user_4",
+    display_name: "Dave",
+    role: "observer" as const,
+    type: "human",
+  },
 ];
 
 describe("PeopleAvatarPopover", () => {
   it("renders participant list with names and roles", () => {
     render(
       <LangProvider>
-        <PeopleAvatarPopover participants={participants} isOwner={false} currentParticipantId="user_1" />
+        <PeopleAvatarPopover
+          participants={participants}
+          isOwner={false}
+          currentParticipantId="user_1"
+        />
       </LangProvider>
     );
 
@@ -57,7 +81,9 @@ describe("PeopleAvatarPopover", () => {
       </LangProvider>
     );
 
-    expect(screen.queryByRole("button", { name: /remove Alice/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /remove Alice/i })
+    ).not.toBeInTheDocument();
   });
 
   it("does not show remove buttons when not owner and not admin", () => {
@@ -72,7 +98,9 @@ describe("PeopleAvatarPopover", () => {
       </LangProvider>
     );
 
-    expect(screen.queryByRole("button", { name: /remove/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /remove/i })
+    ).not.toBeInTheDocument();
   });
 
   it("lets admin remove members and observers but not owner or other admins", () => {
@@ -90,13 +118,21 @@ describe("PeopleAvatarPopover", () => {
     );
 
     // Admin can remove member (Bob)
-    expect(screen.getByRole("button", { name: /remove Bob/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /remove Bob/i })
+    ).toBeInTheDocument();
     // Admin can remove observer (Dave)
-    expect(screen.getByRole("button", { name: /remove Dave/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /remove Dave/i })
+    ).toBeInTheDocument();
     // Admin cannot remove owner (Alice)
-    expect(screen.queryByRole("button", { name: /remove Alice/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /remove Alice/i })
+    ).not.toBeInTheDocument();
     // Admin cannot remove other admin (Charlie - self)
-    expect(screen.queryByRole("button", { name: /remove Charlie/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /remove Charlie/i })
+    ).not.toBeInTheDocument();
   });
 
   it("shows role dropdown only for owner", () => {
@@ -166,7 +202,9 @@ describe("PeopleAvatarPopover", () => {
 
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onUpdateRole).not.toHaveBeenCalled();
-    expect(screen.queryByRole("button", { name: /Confirm/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Confirm/i })
+    ).not.toBeInTheDocument();
   });
 
   it("does not show role dropdown for admin", () => {
@@ -208,9 +246,24 @@ describe("PeopleAvatarPopover", () => {
 
   it("does not show role dropdown for any owner participant", () => {
     const multiOwnerParticipants = [
-      { id: "user_1", display_name: "Alice", role: "owner" as const },
-      { id: "user_5", display_name: "Eve", role: "owner" as const },
-      { id: "user_2", display_name: "Bob", role: "member" as const },
+      {
+        id: "user_1",
+        display_name: "Alice",
+        role: "owner" as const,
+        type: "human",
+      },
+      {
+        id: "user_5",
+        display_name: "Eve",
+        role: "owner" as const,
+        type: "human",
+      },
+      {
+        id: "user_2",
+        display_name: "Bob",
+        role: "member" as const,
+        type: "human",
+      },
     ];
     render(
       <LangProvider>

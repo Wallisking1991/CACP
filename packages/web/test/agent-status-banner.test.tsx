@@ -18,13 +18,23 @@ describe("AgentStatusBanner", () => {
   });
 
   it("shows selecting session message for owner", () => {
-    renderBanner({ status: "selecting_session", isOwner: true, providerLabel: "Claude Code" });
+    renderBanner({
+      status: "selecting_session",
+      isOwner: true,
+      providerLabel: "Claude Code",
+    });
     expect(screen.getByText(/Select a session to start/i)).toBeInTheDocument();
   });
 
   it("shows waiting for owner message for non-owner", () => {
-    renderBanner({ status: "selecting_session", isOwner: false, providerLabel: "Claude Code" });
-    expect(screen.getByText(/Waiting for owner to select a session/i)).toBeInTheDocument();
+    renderBanner({
+      status: "selecting_session",
+      isOwner: false,
+      providerLabel: "Claude Code",
+    });
+    expect(
+      screen.getByText(/Waiting for owner to select a session/i)
+    ).toBeInTheDocument();
   });
 
   it("renders nothing when status is ready", () => {

@@ -7,14 +7,14 @@ describe("Vite dev proxy", () => {
     const roomsProxy = viteConfig.server?.proxy?.["/rooms"];
     expect(roomsProxy).toMatchObject({
       target: "http://127.0.0.1:3737",
-      ws: true
+      ws: true,
     });
   });
 
   it("proxies invite verification to the CACP server", () => {
     const invitesProxy = viteConfig.server?.proxy?.["/invites"];
     expect(invitesProxy).toMatchObject({
-      target: "http://127.0.0.1:3737"
+      target: "http://127.0.0.1:3737",
     });
   });
 });

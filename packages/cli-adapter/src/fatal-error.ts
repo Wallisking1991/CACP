@@ -40,11 +40,15 @@ async function defaultPause(): Promise<void> {
   }
 }
 
-export async function handleFatalError(error: unknown, options?: Partial<FatalErrorHandlerOptions>): Promise<void> {
+export async function handleFatalError(
+  error: unknown,
+  options?: Partial<FatalErrorHandlerOptions>
+): Promise<void> {
   const argv = options?.argv ?? process.argv;
   const execPath = options?.execPath ?? process.execPath;
   const stdinIsTTY = options?.stdinIsTTY ?? defaultStdin.isTTY;
-  const writeError = options?.writeError ?? ((line: string) => console.error(line));
+  const writeError =
+    options?.writeError ?? ((line: string) => console.error(line));
   const exit = options?.exit ?? ((code: number) => process.exit(code));
 
   writeError("CACP Local Connector failed.");

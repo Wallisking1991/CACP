@@ -9,7 +9,7 @@ export const ConnectionCodePayloadSchema = z.object({
   expires_at: z.string().datetime(),
   room_id: z.string().min(1).optional(),
   agent_type: AgentTypeSchema.optional(),
-  permission_level: PermissionLevelSchema.optional()
+  permission_level: PermissionLevelSchema.optional(),
 });
 
 export type ConnectionCodePayload = z.infer<typeof ConnectionCodePayloadSchema>;
@@ -18,11 +18,17 @@ function encodeBase64Url(value: string): string {
   const bytes = new TextEncoder().encode(value);
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/u, "");
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/u, "");
 }
 
 function decodeBase64Url(value: string): string {
-  const padded = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+  const padded = value
+    .replace(/-/g, "+")
+    .replace(/_/g, "/")
+    .padEnd(Math.ceil(value.length / 4) * 4, "=");
   const binary = atob(padded);
   const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
   return new TextDecoder().decode(bytes);
@@ -36,7 +42,9 @@ export function buildConnectionCode(payload: ConnectionCodePayload): string {
 export function parseConnectionCode(code: string): ConnectionCodePayload {
   if (!code.startsWith(Prefix)) throw new Error("invalid_connection_code");
   try {
-    return ConnectionCodePayloadSchema.parse(JSON.parse(decodeBase64Url(code.slice(Prefix.length))));
+    return ConnectionCodePayloadSchema.parse(
+      JSON.parse(decodeBase64Url(code.slice(Prefix.length)))
+    );
   } catch {
     throw new Error("invalid_connection_code");
   }

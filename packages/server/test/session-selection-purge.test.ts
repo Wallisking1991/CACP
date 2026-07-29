@@ -1,3 +1,4 @@
+import { testConnectorCompatibility } from "./test-compatibility.js";
 import { describe, expect, it } from "vitest";
 import { buildServer } from "../src/server.js";
 
@@ -6,55 +7,86 @@ async function createRoomAndOwner() {
   const roomResponse = await app.inject({
     method: "POST",
     url: "/rooms",
-    payload: { name: "Purge Room", display_name: "Owner" }
+    payload: { name: "Purge Room", display_name: "Owner" },
   });
-  const room = roomResponse.json() as { room_id: string; owner_token: string; owner_id: string };
+  const room = roomResponse.json() as {
+    room_id: string;
+    owner_token: string;
+    owner_id: string;
+  };
   return { app, room };
 }
 
-async function registerClaudeAgent(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerToken: string) {
-  const response = await app.inject({
-    method: "POST",
-    url: `/rooms/${roomId}/agents/register`,
-    headers: { authorization: `Bearer ${ownerToken}` },
-    payload: { name: "Claude Code Agent", capabilities: ["claude-code", "claude.persistent_session"] }
-  });
-  expect(response.statusCode).toBe(201);
-  return response.json() as { agent_id: string; agent_token: string };
-}
-
-async function registerCodexAgent(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerToken: string) {
+async function registerClaudeAgent(
+  app: Awaited<ReturnType<typeof buildServer>>,
+  roomId: string,
+  ownerToken: string
+) {
   const response = await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/agents/register`,
     headers: { authorization: `Bearer ${ownerToken}` },
     payload: {
-      name: "Codex CLI Agent",
-      capabilities: ["codex-cli", "code-agent.persistent_session", "code-agent.local_execution"]
-    }
+      compatibility: testConnectorCompatibility,
+      name: "Claude Code Agent",
+      capabilities: ["claude-code", "claude.persistent_session"],
+    },
   });
   expect(response.statusCode).toBe(201);
   return response.json() as { agent_id: string; agent_token: string };
 }
 
-async function selectAgent(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerToken: string, agentId: string) {
+async function registerCodexAgent(
+  app: Awaited<ReturnType<typeof buildServer>>,
+  roomId: string,
+  ownerToken: string
+) {
+  const response = await app.inject({
+    method: "POST",
+    url: `/rooms/${roomId}/agents/register`,
+    headers: { authorization: `Bearer ${ownerToken}` },
+    payload: {
+      compatibility: testConnectorCompatibility,
+      name: "Codex CLI Agent",
+      capabilities: [
+        "codex-cli",
+        "code-agent.persistent_session",
+        "code-agent.local_execution",
+      ],
+    },
+  });
+  expect(response.statusCode).toBe(201);
+  return response.json() as { agent_id: string; agent_token: string };
+}
+
+async function selectAgent(
+  app: Awaited<ReturnType<typeof buildServer>>,
+  roomId: string,
+  ownerToken: string,
+  agentId: string
+) {
   const response = await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/agents/select`,
     headers: { authorization: `Bearer ${ownerToken}` },
-    payload: { agent_id: agentId }
+    payload: { agent_id: agentId },
   });
   expect(response.statusCode).toBe(201);
 }
 
-async function listEventTypes(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerToken: string): Promise<string[]> {
+async function listEventTypes(
+  app: Awaited<ReturnType<typeof buildServer>>,
+  roomId: string,
+  ownerToken: string
+): Promise<string[]> {
   const response = await app.inject({
     method: "GET",
     url: `/rooms/${roomId}/events`,
-    headers: { authorization: `Bearer ${ownerToken}` }
+    headers: { authorization: `Bearer ${ownerToken}` },
   });
   expect(response.statusCode).toBe(200);
-  const events = (response.json() as { events: Array<{ type: string }> }).events;
+  const events = (response.json() as { events: Array<{ type: string }> })
+    .events;
   return events.map((event) => event.type);
 }
 
@@ -73,13 +105,17 @@ const ESSENTIAL_TYPES = new Set([
   "join_request.created",
   "join_request.approved",
   "join_request.rejected",
-  "join_request.expired"
+  "join_request.expired",
 ]);
 
 describe("session-selection physically purges content events", () => {
   it("Claude session-selection deletes prior message/turn/orbit/main_input events from the store", async () => {
     const { app, room } = await createRoomAndOwner();
-    const agent = await registerClaudeAgent(app, room.room_id, room.owner_token);
+    const agent = await registerClaudeAgent(
+      app,
+      room.room_id,
+      room.owner_token
+    );
     await selectAgent(app, room.room_id, room.owner_token, agent.agent_id);
     const ownerAuth = { authorization: `Bearer ${room.owner_token}` };
 
@@ -88,7 +124,7 @@ describe("session-selection physically purges content events", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/messages`,
       headers: ownerAuth,
-      payload: { text: "Hello agent" }
+      payload: { text: "Hello agent" },
     });
     expect(message.statusCode).toBe(201);
 
@@ -101,7 +137,7 @@ describe("session-selection physically purges content events", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/claude/session-selection`,
       headers: ownerAuth,
-      payload: { agent_id: agent.agent_id, mode: "fresh" }
+      payload: { agent_id: agent.agent_id, mode: "fresh" },
     });
     expect(selection.statusCode).toBe(201);
 
@@ -131,7 +167,7 @@ describe("session-selection physically purges content events", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/messages`,
       headers: ownerAuth,
-      payload: { text: "Hello codex" }
+      payload: { text: "Hello codex" },
     });
     expect(message.statusCode).toBe(201);
 
@@ -142,7 +178,11 @@ describe("session-selection physically purges content events", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/agent-sessions/selection`,
       headers: ownerAuth,
-      payload: { agent_id: agent.agent_id, provider: "codex-cli", mode: "fresh" }
+      payload: {
+        agent_id: agent.agent_id,
+        provider: "codex-cli",
+        mode: "fresh",
+      },
     });
     expect(selection.statusCode).toBe(201);
 
@@ -161,7 +201,11 @@ describe("session-selection physically purges content events", () => {
 
   it("preserves claude.session_catalog.updated through purge so the picker can re-render after New Conversation", async () => {
     const { app, room } = await createRoomAndOwner();
-    const agent = await registerClaudeAgent(app, room.room_id, room.owner_token);
+    const agent = await registerClaudeAgent(
+      app,
+      room.room_id,
+      room.owner_token
+    );
     await selectAgent(app, room.room_id, room.owner_token, agent.agent_id);
     const ownerAuth = { authorization: `Bearer ${room.owner_token}` };
     const agentAuth = { authorization: `Bearer ${agent.agent_token}` };
@@ -182,10 +226,10 @@ describe("session-selection physically purges content events", () => {
             updated_at: "2026-05-01T00:00:00.000Z",
             message_count: 12,
             byte_size: 4096,
-            importable: true
-          }
-        ]
-      }
+            importable: true,
+          },
+        ],
+      },
     });
     expect(catalog.statusCode).toBe(201);
 
@@ -197,7 +241,7 @@ describe("session-selection physically purges content events", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/claude/session-selection`,
       headers: ownerAuth,
-      payload: { agent_id: agent.agent_id, mode: "fresh" }
+      payload: { agent_id: agent.agent_id, mode: "fresh" },
     });
     expect(selection.statusCode).toBe(201);
 
@@ -231,10 +275,10 @@ describe("session-selection physically purges content events", () => {
             updated_at: "2026-05-01T00:00:00.000Z",
             message_count: 8,
             byte_size: 2048,
-            importable: true
-          }
-        ]
-      }
+            importable: true,
+          },
+        ],
+      },
     });
     expect(catalog.statusCode).toBe(201);
 
@@ -245,7 +289,11 @@ describe("session-selection physically purges content events", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/agent-sessions/selection`,
       headers: ownerAuth,
-      payload: { agent_id: agent.agent_id, provider: "codex-cli", mode: "fresh" }
+      payload: {
+        agent_id: agent.agent_id,
+        provider: "codex-cli",
+        mode: "fresh",
+      },
     });
     expect(selection.statusCode).toBe(201);
 
@@ -257,7 +305,11 @@ describe("session-selection physically purges content events", () => {
 
   it("preserves room.created, participant.joined, agent.registered, room.agent_selected after purge", async () => {
     const { app, room } = await createRoomAndOwner();
-    const agent = await registerClaudeAgent(app, room.room_id, room.owner_token);
+    const agent = await registerClaudeAgent(
+      app,
+      room.room_id,
+      room.owner_token
+    );
     await selectAgent(app, room.room_id, room.owner_token, agent.agent_id);
     const ownerAuth = { authorization: `Bearer ${room.owner_token}` };
 
@@ -265,14 +317,14 @@ describe("session-selection physically purges content events", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/messages`,
       headers: ownerAuth,
-      payload: { text: "noise" }
+      payload: { text: "noise" },
     });
 
     const selection = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/claude/session-selection`,
       headers: ownerAuth,
-      payload: { agent_id: agent.agent_id, mode: "fresh" }
+      payload: { agent_id: agent.agent_id, mode: "fresh" },
     });
     expect(selection.statusCode).toBe(201);
 

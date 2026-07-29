@@ -1,6 +1,7 @@
 import WebSocket from "ws";
 
-const url = "ws://127.0.0.1:3737/rooms/room_5hUKsAoXCuvzayVO93b8Hw/stream?token=cacp_NCv-jTM-IEoGQ88yaim7L6LUXtMIWF-651tbTum-cC8";
+const url =
+  "ws://127.0.0.1:3737/rooms/room_5hUKsAoXCuvzayVO93b8Hw/stream?token=cacp_NCv-jTM-IEoGQ88yaim7L6LUXtMIWF-651tbTum-cC8";
 const ws = new WebSocket(url, { origin: "http://127.0.0.1:3737" });
 
 ws.on("open", () => {

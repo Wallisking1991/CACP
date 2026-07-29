@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { roomAssetDirectory, slugifyRoomTitle } from "../src/connector/room-assets.js";
+import {
+  roomAssetDirectory,
+  slugifyRoomTitle,
+} from "../src/connector/room-assets.js";
 
 describe("slugifyRoomTitle", () => {
   it("lowercases and replaces spaces with hyphens", () => {
@@ -19,7 +22,16 @@ describe("slugifyRoomTitle", () => {
   });
 
   it("appends -room suffix to Windows reserved device names", () => {
-    const reserved = ["con", "prn", "aux", "nul", "com1", "com9", "lpt1", "lpt9"];
+    const reserved = [
+      "con",
+      "prn",
+      "aux",
+      "nul",
+      "com1",
+      "com9",
+      "lpt1",
+      "lpt9",
+    ];
     for (const name of reserved) {
       expect(slugifyRoomTitle(name)).toBe(`${name}-room`);
       expect(slugifyRoomTitle(name.toUpperCase())).toBe(`${name}-room`);
@@ -46,7 +58,7 @@ describe("roomAssetDirectory", () => {
     const dir = roomAssetDirectory({
       baseDir: "/home/user/projects",
       roomId: "room_abc",
-      roomName: "Test Room"
+      roomName: "Test Room",
     });
     expect(dir).toMatch(/\.cacp\/rooms\/\d{4}-\d{2}-\d{2}-test-room-room_abc$/);
   });
@@ -56,8 +68,10 @@ describe("roomAssetDirectory", () => {
       baseDir: "/home/user/projects",
       roomId: "room_abc",
       roomName: "Test Room",
-      includeExports: true
+      includeExports: true,
     });
-    expect(dir).toMatch(/\.cacp\/rooms\/\d{4}-\d{2}-\d{2}-test-room-room_abc\/exports$/);
+    expect(dir).toMatch(
+      /\.cacp\/rooms\/\d{4}-\d{2}-\d{2}-test-room-room_abc\/exports$/
+    );
   });
 });

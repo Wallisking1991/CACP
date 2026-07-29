@@ -1,6 +1,15 @@
 import { createHash } from "node:crypto";
 import Database from "better-sqlite3";
-import { CacpEventSchema, type CacpEvent, type Participant, type ParticipantRole, type ParticipantType } from "@cacp/protocol";
+import {
+  CacpEventSchema,
+  type AttachmentDisposition,
+  type AttachmentKind,
+  type AttachmentRef,
+  type CacpEvent,
+  type Participant,
+  type ParticipantRole,
+  type ParticipantType,
+} from "@cacp/protocol";
 
 export interface StoredParticipant extends Participant {
   room_id: string;
@@ -17,6 +26,13 @@ export interface StoredRoom {
   owner_participant_id: string;
   created_at: string;
   archived_at: string | null;
+}
+
+export interface StoredAttachment extends AttachmentRef {
+  room_id: string;
+  created_by: string;
+  created_at: string;
+  message_id: string | null;
 }
 
 export interface NewInvite {
@@ -68,7 +84,7 @@ const ESSENTIAL_EVENT_TYPES = [
   "join_request.rejected",
   "join_request.expired",
   "claude.session_catalog.updated",
-  "agent.session_catalog.updated"
+  "agent.session_catalog.updated",
 ] as const;
 
 export interface NewAgentPairing {
@@ -136,15 +152,26 @@ export class EventStore {
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
     // Migration: rename old token column to token_hash
-    const participantColumns = this.db.prepare(`PRAGMA table_info(participants)`).all() as Array<{ name: string }>;
-    if (participantColumns.some((col) => col.name === "token") && !participantColumns.some((col) => col.name === "token_hash")) {
-      this.db.exec(`ALTER TABLE participants RENAME COLUMN token TO token_hash;`);
+    const participantColumns = this.db
+      .prepare(`PRAGMA table_info(participants)`)
+      .all() as Array<{ name: string }>;
+    if (
+      participantColumns.some((col) => col.name === "token") &&
+      !participantColumns.some((col) => col.name === "token_hash")
+    ) {
+      this.db.exec(
+        `ALTER TABLE participants RENAME COLUMN token TO token_hash;`
+      );
     }
     // Migration: remove UNIQUE constraint from join_requests.invite_id (needed for multi-use invites)
-    const joinRequestIndexes = this.db.prepare(`PRAGMA index_list(join_requests)`).all() as Array<{ name: string; unique: number }>;
+    const joinRequestIndexes = this.db
+      .prepare(`PRAGMA index_list(join_requests)`)
+      .all() as Array<{ name: string; unique: number }>;
     const inviteIdUniqueIndex = joinRequestIndexes.find((idx) => {
       if (idx.unique !== 1) return false;
-      const cols = this.db.prepare(`PRAGMA index_info(${idx.name})`).all() as Array<{ name: string }>;
+      const cols = this.db
+        .prepare(`PRAGMA index_info(${idx.name})`)
+        .all() as Array<{ name: string }>;
       return cols.length === 1 && cols[0].name === "invite_id";
     });
     if (inviteIdUniqueIndex) {
@@ -228,6 +255,21 @@ export class EventStore {
         participant_id TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_agent_pairings_room ON agent_pairings(room_id);
+      CREATE TABLE IF NOT EXISTS attachments (
+        attachment_id TEXT PRIMARY KEY,
+        room_id TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        name TEXT NOT NULL CHECK(length(name) BETWEEN 1 AND 255),
+        media_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL CHECK(size_bytes > 0),
+        sha256 TEXT NOT NULL CHECK(length(sha256) = 64),
+        kind TEXT NOT NULL CHECK(kind IN ('image', 'pdf', 'text', 'office', 'file')),
+        disposition TEXT NOT NULL CHECK(disposition IN ('inline', 'download')),
+        created_at TEXT NOT NULL,
+        message_id TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_attachments_room ON attachments(room_id);
+      CREATE INDEX IF NOT EXISTS idx_attachments_abandoned ON attachments(message_id, created_at);
       CREATE TABLE IF NOT EXISTS join_requests (
         request_id TEXT PRIMARY KEY,
         room_id TEXT NOT NULL,
@@ -287,17 +329,34 @@ export class EventStore {
 
   appendEvent(input: CacpEvent): CacpEvent {
     const event = CacpEventSchema.parse(input);
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       INSERT INTO events (event_id, room_id, type, actor_id, created_at, event_json)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(event.event_id, event.room_id, event.type, event.actor_id, event.created_at, JSON.stringify(event));
+    `
+      )
+      .run(
+        event.event_id,
+        event.room_id,
+        event.type,
+        event.actor_id,
+        event.created_at,
+        JSON.stringify(event)
+      );
     return event;
   }
 
   listEvents(roomId: string): CacpEvent[] {
-    return (this.db.prepare(`
+    return (
+      this.db
+        .prepare(
+          `
       SELECT event_json FROM events WHERE room_id = ? ORDER BY sequence ASC
-    `).all(roomId) as Array<{ event_json: string }>).map((row) => CacpEventSchema.parse(JSON.parse(row.event_json)));
+    `
+        )
+        .all(roomId) as Array<{ event_json: string }>
+    ).map((row) => CacpEventSchema.parse(JSON.parse(row.event_json)));
   }
 
   /**
@@ -312,67 +371,134 @@ export class EventStore {
    */
   purgeContentEvents(roomId: string): number {
     const placeholders = ESSENTIAL_EVENT_TYPES.map(() => "?").join(",");
-    const result = this.db.prepare(
-      `DELETE FROM events WHERE room_id = ? AND type NOT IN (${placeholders})`
-    ).run(roomId, ...ESSENTIAL_EVENT_TYPES);
+    const result = this.db
+      .prepare(
+        `DELETE FROM events WHERE room_id = ? AND type NOT IN (${placeholders})`
+      )
+      .run(roomId, ...ESSENTIAL_EVENT_TYPES);
     return result.changes;
   }
 
-  addParticipant(participant: StoredParticipant & { token: string }): StoredParticipant {
+  addParticipant(
+    participant: StoredParticipant & { token: string }
+  ): StoredParticipant {
     const tokenHash = hashParticipantToken(participant.token);
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       INSERT INTO participants (room_id, participant_id, token_hash, display_name, type, role, main_thread_history_access)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(participant.room_id, participant.id, tokenHash, participant.display_name, participant.type, participant.role, participant.main_thread_history_access);
-    return { room_id: participant.room_id, id: participant.id, display_name: participant.display_name, type: participant.type, role: participant.role, main_thread_history_access: participant.main_thread_history_access };
+    `
+      )
+      .run(
+        participant.room_id,
+        participant.id,
+        tokenHash,
+        participant.display_name,
+        participant.type,
+        participant.role,
+        participant.main_thread_history_access
+      );
+    return {
+      room_id: participant.room_id,
+      id: participant.id,
+      display_name: participant.display_name,
+      type: participant.type,
+      role: participant.role,
+      main_thread_history_access: participant.main_thread_history_access,
+    };
   }
 
-  updateParticipantRole(roomId: string, participantId: string, role: ParticipantRole): void {
-    this.db.prepare(`
+  updateParticipantRole(
+    roomId: string,
+    participantId: string,
+    role: ParticipantRole
+  ): void {
+    this.db
+      .prepare(
+        `
       UPDATE participants SET role = ? WHERE room_id = ? AND participant_id = ?
-    `).run(role, roomId, participantId);
+    `
+      )
+      .run(role, roomId, participantId);
   }
 
-  getParticipantByToken(roomId: string, participantToken: string): StoredParticipant | undefined {
+  getParticipantByToken(
+    roomId: string,
+    participantToken: string
+  ): StoredParticipant | undefined {
     const tokenHash = hashParticipantToken(participantToken);
-    const row = this.db.prepare(`
+    const row = this.db
+      .prepare(
+        `
       SELECT * FROM participants WHERE room_id = ? AND token_hash = ?
-    `).get(roomId, tokenHash) as ParticipantRow | undefined;
+    `
+      )
+      .get(roomId, tokenHash) as ParticipantRow | undefined;
     if (!row) return undefined;
-    if (this.isParticipantRevoked(row.room_id, row.participant_id)) return undefined;
+    if (this.isParticipantRevoked(row.room_id, row.participant_id))
+      return undefined;
     return participantFromRow(row);
   }
 
-  getRevokedParticipantByToken(roomId: string, participantToken: string): StoredParticipant | undefined {
+  getRevokedParticipantByToken(
+    roomId: string,
+    participantToken: string
+  ): StoredParticipant | undefined {
     const tokenHash = hashParticipantToken(participantToken);
-    const row = this.db.prepare(`
+    const row = this.db
+      .prepare(
+        `
       SELECT * FROM participants WHERE room_id = ? AND token_hash = ?
-    `).get(roomId, tokenHash) as ParticipantRow | undefined;
+    `
+      )
+      .get(roomId, tokenHash) as ParticipantRow | undefined;
     if (!row) return undefined;
-    if (!this.isParticipantRevoked(row.room_id, row.participant_id)) return undefined;
+    if (!this.isParticipantRevoked(row.room_id, row.participant_id))
+      return undefined;
     return participantFromRow(row);
   }
 
   getParticipants(roomId: string): StoredParticipant[] {
-    return (this.db.prepare(`
+    return (
+      this.db
+        .prepare(
+          `
       SELECT * FROM participants WHERE room_id = ? ORDER BY participant_id ASC
-    `).all(roomId) as ParticipantRow[])
+    `
+        )
+        .all(roomId) as ParticipantRow[]
+    )
       .map(participantFromRow)
       .filter((p) => !this.isParticipantRevoked(roomId, p.id));
   }
 
   createRoom(room: StoredRoom): StoredRoom {
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       INSERT INTO rooms (room_id, name, owner_participant_id, created_at, archived_at)
       VALUES (?, ?, ?, ?, ?)
-    `).run(room.room_id, room.name, room.owner_participant_id, room.created_at, room.archived_at);
+    `
+      )
+      .run(
+        room.room_id,
+        room.name,
+        room.owner_participant_id,
+        room.created_at,
+        room.archived_at
+      );
     return room;
   }
 
   getRoom(roomId: string): StoredRoom | undefined {
-    return this.db.prepare(`
+    return this.db
+      .prepare(
+        `
       SELECT * FROM rooms WHERE room_id = ?
-    `).get(roomId) as StoredRoom | undefined;
+    `
+      )
+      .get(roomId) as StoredRoom | undefined;
   }
 
   deleteRoom(roomId: string): void {
@@ -381,22 +507,181 @@ export class EventStore {
     this.db.prepare(`DELETE FROM rooms WHERE room_id = ?`).run(roomId);
     this.db.prepare(`DELETE FROM invites WHERE room_id = ?`).run(roomId);
     this.db.prepare(`DELETE FROM agent_pairings WHERE room_id = ?`).run(roomId);
+    this.db.prepare(`DELETE FROM attachments WHERE room_id = ?`).run(roomId);
     this.db.prepare(`DELETE FROM join_requests WHERE room_id = ?`).run(roomId);
-    this.db.prepare(`DELETE FROM participant_revocations WHERE room_id = ?`).run(roomId);
+    this.db
+      .prepare(`DELETE FROM participant_revocations WHERE room_id = ?`)
+      .run(roomId);
     this.db.prepare(`DELETE FROM orbit_notes WHERE room_id = ?`).run(roomId);
   }
 
-  addOrbitNote(note: { room_id: string; note_id: string; author_id: string; author_name: string; author_role: string; text: string; created_at: string; reply_to?: string }): void {
-    this.db.prepare(`
-      INSERT INTO orbit_notes (room_id, note_id, author_id, author_name, author_role, text, created_at, reply_to)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(note.room_id, note.note_id, note.author_id, note.author_name, note.author_role, note.text, note.created_at, note.reply_to ?? null);
+  createAttachment(attachment: {
+    attachment_id: string;
+    room_id: string;
+    created_by: string;
+    name: string;
+    media_type: string;
+    size_bytes: number;
+    sha256: string;
+    kind: AttachmentKind;
+    disposition: AttachmentDisposition;
+    created_at: string;
+  }): StoredAttachment {
+    this.db
+      .prepare(
+        `
+      INSERT INTO attachments (
+        attachment_id, room_id, created_by, name, media_type, size_bytes,
+        sha256, kind, disposition, created_at, message_id
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+    `
+      )
+      .run(
+        attachment.attachment_id,
+        attachment.room_id,
+        attachment.created_by,
+        attachment.name,
+        attachment.media_type,
+        attachment.size_bytes,
+        attachment.sha256,
+        attachment.kind,
+        attachment.disposition,
+        attachment.created_at
+      );
+    return { ...attachment, message_id: null };
   }
 
-  getOrbitNotes(roomId: string): Array<{ note_id: string; author_id: string; author_name: string; author_role: string; text: string; created_at: string; reply_to?: string }> {
-    return this.db.prepare(`
+  getAttachment(
+    roomId: string,
+    attachmentId: string
+  ): StoredAttachment | undefined {
+    return this.db
+      .prepare(
+        `
+      SELECT * FROM attachments
+      WHERE room_id = ? AND attachment_id = ?
+    `
+      )
+      .get(roomId, attachmentId) as StoredAttachment | undefined;
+  }
+
+  getAttachments(roomId: string, attachmentIds: string[]): StoredAttachment[] {
+    if (attachmentIds.length === 0) return [];
+    const placeholders = attachmentIds.map(() => "?").join(", ");
+    return this.db
+      .prepare(
+        `
+      SELECT * FROM attachments
+      WHERE room_id = ? AND attachment_id IN (${placeholders})
+    `
+      )
+      .all(roomId, ...attachmentIds) as StoredAttachment[];
+  }
+
+  roomAttachmentBytes(roomId: string): number {
+    const row = this.db
+      .prepare(
+        `SELECT COALESCE(SUM(size_bytes), 0) AS total FROM attachments WHERE room_id = ?`
+      )
+      .get(roomId) as { total: number };
+    return row.total;
+  }
+
+  attachAttachments(
+    roomId: string,
+    attachmentIds: string[],
+    messageId: string
+  ): void {
+    const update = this.db.prepare(
+      `
+      UPDATE attachments
+      SET message_id = ?
+      WHERE room_id = ? AND attachment_id = ? AND message_id IS NULL
+    `
+    );
+    for (const attachmentId of attachmentIds) {
+      const result = update.run(messageId, roomId, attachmentId);
+      if (result.changes !== 1) throw new Error("attachment_not_attachable");
+    }
+  }
+
+  listAbandonedAttachments(before: string): StoredAttachment[] {
+    return this.db
+      .prepare(
+        `
+      SELECT * FROM attachments
+      WHERE message_id IS NULL AND created_at < ?
+    `
+      )
+      .all(before) as StoredAttachment[];
+  }
+
+  deleteAttachment(roomId: string, attachmentId: string): void {
+    this.db
+      .prepare(
+        `DELETE FROM attachments WHERE room_id = ? AND attachment_id = ?`
+      )
+      .run(roomId, attachmentId);
+  }
+
+  deleteAllAttachments(): void {
+    this.db.prepare(`DELETE FROM attachments`).run();
+  }
+
+  addOrbitNote(note: {
+    room_id: string;
+    note_id: string;
+    author_id: string;
+    author_name: string;
+    author_role: string;
+    text: string;
+    created_at: string;
+    reply_to?: string;
+  }): void {
+    this.db
+      .prepare(
+        `
+      INSERT INTO orbit_notes (room_id, note_id, author_id, author_name, author_role, text, created_at, reply_to)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `
+      )
+      .run(
+        note.room_id,
+        note.note_id,
+        note.author_id,
+        note.author_name,
+        note.author_role,
+        note.text,
+        note.created_at,
+        note.reply_to ?? null
+      );
+  }
+
+  getOrbitNotes(roomId: string): Array<{
+    note_id: string;
+    author_id: string;
+    author_name: string;
+    author_role: string;
+    text: string;
+    created_at: string;
+    reply_to?: string;
+  }> {
+    return this.db
+      .prepare(
+        `
       SELECT note_id, author_id, author_name, author_role, text, created_at, reply_to FROM orbit_notes WHERE room_id = ? ORDER BY created_at ASC
-    `).all(roomId) as Array<{ note_id: string; author_id: string; author_name: string; author_role: string; text: string; created_at: string; reply_to?: string }>;
+    `
+      )
+      .all(roomId) as Array<{
+      note_id: string;
+      author_id: string;
+      author_name: string;
+      author_role: string;
+      text: string;
+      created_at: string;
+      reply_to?: string;
+    }>;
   }
 
   clearOrbitNotes(roomId: string): void {
@@ -404,48 +689,68 @@ export class EventStore {
   }
 
   createInvite(invite: NewInvite): StoredInvite {
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       INSERT INTO invites (invite_id, room_id, token_hash, role, main_thread_history_access, created_by, created_at, expires_at, max_uses)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      invite.invite_id,
-      invite.room_id,
-      invite.token_hash,
-      invite.role,
-      invite.main_thread_history_access,
-      invite.created_by,
-      invite.created_at,
-      invite.expires_at,
-      invite.max_uses
-    );
+    `
+      )
+      .run(
+        invite.invite_id,
+        invite.room_id,
+        invite.token_hash,
+        invite.role,
+        invite.main_thread_history_access,
+        invite.created_by,
+        invite.created_at,
+        invite.expires_at,
+        invite.max_uses
+      );
     return this.getInviteById(invite.invite_id) as StoredInvite;
   }
 
   getInviteById(inviteId: string): StoredInvite | undefined {
-    return this.db.prepare(`
+    return this.db
+      .prepare(
+        `
       SELECT * FROM invites WHERE invite_id = ?
-    `).get(inviteId) as StoredInvite | undefined;
+    `
+      )
+      .get(inviteId) as StoredInvite | undefined;
   }
 
   getInviteByTokenHash(tokenHash: string): StoredInvite | undefined {
-    return this.db.prepare(`
+    return this.db
+      .prepare(
+        `
       SELECT * FROM invites WHERE token_hash = ?
-    `).get(tokenHash) as StoredInvite | undefined;
+    `
+      )
+      .get(tokenHash) as StoredInvite | undefined;
   }
 
   countPendingJoinRequestsByInvite(inviteId: string): number {
-    const row = this.db.prepare(`
+    const row = this.db
+      .prepare(
+        `
       SELECT COUNT(*) as count FROM join_requests WHERE invite_id = ? AND status = 'pending'
-    `).get(inviteId) as { count: number } | undefined;
+    `
+      )
+      .get(inviteId) as { count: number } | undefined;
     return row?.count ?? 0;
   }
 
   consumeInvite(inviteId: string): StoredInvite {
-    const result = this.db.prepare(`
+    const result = this.db
+      .prepare(
+        `
       UPDATE invites
       SET used_count = used_count + 1
       WHERE invite_id = ? AND revoked_at IS NULL AND (max_uses IS NULL OR used_count < max_uses)
-    `).run(inviteId);
+    `
+      )
+      .run(inviteId);
 
     if (result.changes > 0) {
       return this.getInviteById(inviteId) as StoredInvite;
@@ -466,14 +771,20 @@ export class EventStore {
     if (!invite) {
       throw new Error("invite_not_found");
     }
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       UPDATE invites SET revoked_at = ? WHERE invite_id = ?
-    `).run(revokedAt, inviteId);
+    `
+      )
+      .run(revokedAt, inviteId);
     return this.getInviteById(inviteId) as StoredInvite;
   }
 
   createAgentPairing(pairing: NewAgentPairing): StoredAgentPairing {
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       INSERT INTO agent_pairings (
         pairing_id,
         room_id,
@@ -486,38 +797,58 @@ export class EventStore {
         expires_at
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      pairing.pairing_id,
-      pairing.room_id,
-      pairing.token_hash,
-      pairing.created_by,
-      pairing.agent_type,
-      pairing.permission_level,
-      pairing.working_dir,
-      pairing.created_at,
-      pairing.expires_at
-    );
+    `
+      )
+      .run(
+        pairing.pairing_id,
+        pairing.room_id,
+        pairing.token_hash,
+        pairing.created_by,
+        pairing.agent_type,
+        pairing.permission_level,
+        pairing.working_dir,
+        pairing.created_at,
+        pairing.expires_at
+      );
     return this.getAgentPairingById(pairing.pairing_id) as StoredAgentPairing;
   }
 
   getAgentPairingById(pairingId: string): StoredAgentPairing | undefined {
-    return this.db.prepare(`
+    return this.db
+      .prepare(
+        `
       SELECT * FROM agent_pairings WHERE pairing_id = ?
-    `).get(pairingId) as StoredAgentPairing | undefined;
+    `
+      )
+      .get(pairingId) as StoredAgentPairing | undefined;
   }
 
-  getAgentPairingByTokenHash(tokenHash: string): StoredAgentPairing | undefined {
-    return this.db.prepare(`
+  getAgentPairingByTokenHash(
+    tokenHash: string
+  ): StoredAgentPairing | undefined {
+    return this.db
+      .prepare(
+        `
       SELECT * FROM agent_pairings WHERE token_hash = ?
-    `).get(tokenHash) as StoredAgentPairing | undefined;
+    `
+      )
+      .get(tokenHash) as StoredAgentPairing | undefined;
   }
 
-  claimAgentPairing(pairingId: string, claimedAt: string, participantId?: string): StoredAgentPairing {
-    const result = this.db.prepare(`
+  claimAgentPairing(
+    pairingId: string,
+    claimedAt: string,
+    participantId?: string
+  ): StoredAgentPairing {
+    const result = this.db
+      .prepare(
+        `
       UPDATE agent_pairings
       SET claimed_at = ?, participant_id = ?
       WHERE pairing_id = ? AND claimed_at IS NULL
-    `).run(claimedAt, participantId ?? null, pairingId);
+    `
+      )
+      .run(claimedAt, participantId ?? null, pairingId);
 
     if (result.changes > 0) {
       return this.getAgentPairingById(pairingId) as StoredAgentPairing;
@@ -530,61 +861,109 @@ export class EventStore {
     throw new Error("pairing_claimed");
   }
 
-  deleteAgentPairingByParticipantId(roomId: string, participantId: string): void {
-    this.db.prepare(`
+  deleteAgentPairingByParticipantId(
+    roomId: string,
+    participantId: string
+  ): void {
+    this.db
+      .prepare(
+        `
       DELETE FROM agent_pairings WHERE room_id = ? AND participant_id = ?
-    `).run(roomId, participantId);
+    `
+      )
+      .run(roomId, participantId);
   }
 
   createJoinRequest(input: NewJoinRequest): StoredJoinRequest {
-    this.db.prepare(`
+    this.db
+      .prepare(
+        `
       INSERT INTO join_requests (
         request_id, room_id, invite_id, request_token_hash, display_name, role, main_thread_history_access, status,
         requested_at, expires_at, requester_ip, requester_user_agent
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      input.request_id,
-      input.room_id,
-      input.invite_id,
-      input.request_token_hash,
-      input.display_name,
-      input.role,
-      input.main_thread_history_access,
-      input.status,
-      input.requested_at,
-      input.expires_at,
-      input.requester_ip ?? null,
-      input.requester_user_agent ?? null
-    );
+    `
+      )
+      .run(
+        input.request_id,
+        input.room_id,
+        input.invite_id,
+        input.request_token_hash,
+        input.display_name,
+        input.role,
+        input.main_thread_history_access,
+        input.status,
+        input.requested_at,
+        input.expires_at,
+        input.requester_ip ?? null,
+        input.requester_user_agent ?? null
+      );
     return this.getJoinRequest(input.request_id) as StoredJoinRequest;
   }
 
   getJoinRequest(requestId: string): StoredJoinRequest | undefined {
-    return this.db.prepare(`SELECT * FROM join_requests WHERE request_id = ?`).get(requestId) as StoredJoinRequest | undefined;
+    return this.db
+      .prepare(`SELECT * FROM join_requests WHERE request_id = ?`)
+      .get(requestId) as StoredJoinRequest | undefined;
   }
 
   getJoinRequestByTokenHash(tokenHash: string): StoredJoinRequest | undefined {
-    return this.db.prepare(`SELECT * FROM join_requests WHERE request_token_hash = ?`).get(tokenHash) as StoredJoinRequest | undefined;
+    return this.db
+      .prepare(`SELECT * FROM join_requests WHERE request_token_hash = ?`)
+      .get(tokenHash) as StoredJoinRequest | undefined;
   }
 
-  listJoinRequests(roomId: string, status?: JoinRequestStatus): StoredJoinRequest[] {
+  listJoinRequests(
+    roomId: string,
+    status?: JoinRequestStatus
+  ): StoredJoinRequest[] {
     if (status) {
-      return this.db.prepare(`SELECT * FROM join_requests WHERE room_id = ? AND status = ? ORDER BY requested_at ASC`).all(roomId, status) as StoredJoinRequest[];
+      return this.db
+        .prepare(
+          `SELECT * FROM join_requests WHERE room_id = ? AND status = ? ORDER BY requested_at ASC`
+        )
+        .all(roomId, status) as StoredJoinRequest[];
     }
-    return this.db.prepare(`SELECT * FROM join_requests WHERE room_id = ? ORDER BY requested_at ASC`).all(roomId) as StoredJoinRequest[];
+    return this.db
+      .prepare(
+        `SELECT * FROM join_requests WHERE room_id = ? ORDER BY requested_at ASC`
+      )
+      .all(roomId) as StoredJoinRequest[];
   }
 
   getExpiredPendingJoinRequests(nowIso: string): StoredJoinRequest[] {
-    return this.db.prepare(`SELECT * FROM join_requests WHERE status = 'pending' AND expires_at <= ? ORDER BY requested_at ASC`).all(nowIso) as StoredJoinRequest[];
+    return this.db
+      .prepare(
+        `SELECT * FROM join_requests WHERE status = 'pending' AND expires_at <= ? ORDER BY requested_at ASC`
+      )
+      .all(nowIso) as StoredJoinRequest[];
   }
 
-  approveJoinRequest(requestId: string, input: { decided_at: string; decided_by: string; participant_id: string; participant_token_sealed: string }): StoredJoinRequest {
-    const result = this.db.prepare(`
+  approveJoinRequest(
+    requestId: string,
+    input: {
+      decided_at: string;
+      decided_by: string;
+      participant_id: string;
+      participant_token_sealed: string;
+    }
+  ): StoredJoinRequest {
+    const result = this.db
+      .prepare(
+        `
       UPDATE join_requests
       SET status = 'approved', decided_at = ?, decided_by = ?, participant_id = ?, participant_token_sealed = ?
       WHERE request_id = ? AND status = 'pending'
-    `).run(input.decided_at, input.decided_by, input.participant_id, input.participant_token_sealed, requestId);
+    `
+      )
+      .run(
+        input.decided_at,
+        input.decided_by,
+        input.participant_id,
+        input.participant_token_sealed,
+        requestId
+      );
     if (result.changes === 0) {
       const req = this.getJoinRequest(requestId);
       if (!req) throw new Error("join_request_not_found");
@@ -593,12 +972,20 @@ export class EventStore {
     return this.getJoinRequest(requestId) as StoredJoinRequest;
   }
 
-  rejectJoinRequest(requestId: string, decidedAt: string, decidedBy: string): StoredJoinRequest {
-    const result = this.db.prepare(`
+  rejectJoinRequest(
+    requestId: string,
+    decidedAt: string,
+    decidedBy: string
+  ): StoredJoinRequest {
+    const result = this.db
+      .prepare(
+        `
       UPDATE join_requests
       SET status = 'rejected', decided_at = ?, decided_by = ?
       WHERE request_id = ? AND status = 'pending'
-    `).run(decidedAt, decidedBy, requestId);
+    `
+      )
+      .run(decidedAt, decidedBy, requestId);
     if (result.changes === 0) {
       const req = this.getJoinRequest(requestId);
       if (!req) throw new Error("join_request_not_found");
@@ -608,11 +995,15 @@ export class EventStore {
   }
 
   expireJoinRequest(requestId: string, decidedAt: string): StoredJoinRequest {
-    const result = this.db.prepare(`
+    const result = this.db
+      .prepare(
+        `
       UPDATE join_requests
       SET status = 'expired', decided_at = ?
       WHERE request_id = ? AND status = 'pending'
-    `).run(decidedAt, requestId);
+    `
+      )
+      .run(decidedAt, requestId);
     if (result.changes === 0) {
       const req = this.getJoinRequest(requestId);
       if (!req) throw new Error("join_request_not_found");
@@ -621,27 +1012,64 @@ export class EventStore {
     return this.getJoinRequest(requestId) as StoredJoinRequest;
   }
 
-  revokeParticipant(roomId: string, participantId: string, removedBy: string, removedAt: string, reason?: string): StoredParticipantRevocation {
-    this.db.prepare(`
+  revokeParticipant(
+    roomId: string,
+    participantId: string,
+    removedBy: string,
+    removedAt: string,
+    reason?: string
+  ): StoredParticipantRevocation {
+    this.db
+      .prepare(
+        `
       INSERT INTO participant_revocations (room_id, participant_id, removed_by, removed_at, reason)
       VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(room_id, participant_id) DO UPDATE SET removed_by = excluded.removed_by, removed_at = excluded.removed_at, reason = excluded.reason
-    `).run(roomId, participantId, removedBy, removedAt, reason ?? null);
-    return { room_id: roomId, participant_id: participantId, removed_by: removedBy, removed_at: removedAt, reason: reason ?? null };
+    `
+      )
+      .run(roomId, participantId, removedBy, removedAt, reason ?? null);
+    return {
+      room_id: roomId,
+      participant_id: participantId,
+      removed_by: removedBy,
+      removed_at: removedAt,
+      reason: reason ?? null,
+    };
   }
 
   isParticipantRevoked(roomId: string, participantId: string): boolean {
-    const row = this.db.prepare(`SELECT 1 FROM participant_revocations WHERE room_id = ? AND participant_id = ?`).get(roomId, participantId) as { 1: number } | undefined;
+    const row = this.db
+      .prepare(
+        `SELECT 1 FROM participant_revocations WHERE room_id = ? AND participant_id = ?`
+      )
+      .get(roomId, participantId) as { 1: number } | undefined;
     return row !== undefined;
   }
 
   private migrateAgentPairingAgentTypes(): void {
-    const table = this.db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'agent_pairings'`).get() as { sql: string } | undefined;
+    const table = this.db
+      .prepare(
+        `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'agent_pairings'`
+      )
+      .get() as { sql: string } | undefined;
     if (!table) return;
-    const hasNewConstraint = table.sql.includes("'github-copilot'") && table.sql.includes("'kimi-cli'") && table.sql.includes("'codex-cli'") && !table.sql.includes("'llm-api'") && !table.sql.includes("'codex'") && !table.sql.includes("'opencode'") && !table.sql.includes("'echo'");
+    const hasNewConstraint =
+      table.sql.includes("'github-copilot'") &&
+      table.sql.includes("'kimi-cli'") &&
+      table.sql.includes("'codex-cli'") &&
+      !table.sql.includes("'llm-api'") &&
+      !table.sql.includes("'codex'") &&
+      !table.sql.includes("'opencode'") &&
+      !table.sql.includes("'echo'");
     if (hasNewConstraint) return;
-    const columns = this.db.prepare(`PRAGMA table_info(agent_pairings)`).all() as Array<{ name: string }>;
-    const participantIdSelect = columns.some((column) => column.name === "participant_id") ? "participant_id" : "NULL";
+    const columns = this.db
+      .prepare(`PRAGMA table_info(agent_pairings)`)
+      .all() as Array<{ name: string }>;
+    const participantIdSelect = columns.some(
+      (column) => column.name === "participant_id"
+    )
+      ? "participant_id"
+      : "NULL";
     this.db.exec(`
       CREATE TABLE agent_pairings_next (
         pairing_id TEXT PRIMARY KEY,
@@ -668,46 +1096,72 @@ export class EventStore {
   }
 
   private migrateInviteHistoryAccess(): void {
-    const columns = this.db.prepare(`PRAGMA table_info(invites)`).all() as Array<{ name: string }>;
+    const columns = this.db
+      .prepare(`PRAGMA table_info(invites)`)
+      .all() as Array<{ name: string }>;
     if (!columns.some((col) => col.name === "main_thread_history_access")) {
-      this.db.exec(`ALTER TABLE invites ADD COLUMN main_thread_history_access TEXT NOT NULL DEFAULT 'allowed' CHECK(main_thread_history_access IN ('allowed', 'denied'));`);
-      this.db.exec(`UPDATE invites SET main_thread_history_access = 'denied' WHERE role = 'observer';`);
+      this.db.exec(
+        `ALTER TABLE invites ADD COLUMN main_thread_history_access TEXT NOT NULL DEFAULT 'allowed' CHECK(main_thread_history_access IN ('allowed', 'denied'));`
+      );
+      this.db.exec(
+        `UPDATE invites SET main_thread_history_access = 'denied' WHERE role = 'observer';`
+      );
     }
   }
 
   private migrateJoinRequestHistoryAccess(): void {
-    const columns = this.db.prepare(`PRAGMA table_info(join_requests)`).all() as Array<{ name: string }>;
+    const columns = this.db
+      .prepare(`PRAGMA table_info(join_requests)`)
+      .all() as Array<{ name: string }>;
     if (!columns.some((col) => col.name === "main_thread_history_access")) {
-      this.db.exec(`ALTER TABLE join_requests ADD COLUMN main_thread_history_access TEXT NOT NULL DEFAULT 'allowed' CHECK(main_thread_history_access IN ('allowed', 'denied'));`);
-      this.db.exec(`UPDATE join_requests SET main_thread_history_access = 'denied' WHERE role = 'observer';`);
+      this.db.exec(
+        `ALTER TABLE join_requests ADD COLUMN main_thread_history_access TEXT NOT NULL DEFAULT 'allowed' CHECK(main_thread_history_access IN ('allowed', 'denied'));`
+      );
+      this.db.exec(
+        `UPDATE join_requests SET main_thread_history_access = 'denied' WHERE role = 'observer';`
+      );
     }
   }
 
   private migrateParticipantHistoryAccess(): void {
-    const columns = this.db.prepare(`PRAGMA table_info(participants)`).all() as Array<{ name: string }>;
+    const columns = this.db
+      .prepare(`PRAGMA table_info(participants)`)
+      .all() as Array<{ name: string }>;
     if (!columns.some((col) => col.name === "main_thread_history_access")) {
-      this.db.exec(`ALTER TABLE participants ADD COLUMN main_thread_history_access TEXT NOT NULL DEFAULT 'allowed' CHECK(main_thread_history_access IN ('allowed', 'denied'));`);
+      this.db.exec(
+        `ALTER TABLE participants ADD COLUMN main_thread_history_access TEXT NOT NULL DEFAULT 'allowed' CHECK(main_thread_history_access IN ('allowed', 'denied'));`
+      );
     }
   }
 
   private migrateAgentPairingParticipantId(): void {
-    const columns = this.db.prepare(`PRAGMA table_info(agent_pairings)`).all() as Array<{ name: string }>;
+    const columns = this.db
+      .prepare(`PRAGMA table_info(agent_pairings)`)
+      .all() as Array<{ name: string }>;
     if (!columns.some((col) => col.name === "participant_id")) {
-      this.db.exec(`ALTER TABLE agent_pairings ADD COLUMN participant_id TEXT;`);
+      this.db.exec(
+        `ALTER TABLE agent_pairings ADD COLUMN participant_id TEXT;`
+      );
     }
   }
 
   private migrateOrbitNotesReplyTo(): void {
-    const columns = this.db.prepare(`PRAGMA table_info(orbit_notes)`).all() as Array<{ name: string }>;
+    const columns = this.db
+      .prepare(`PRAGMA table_info(orbit_notes)`)
+      .all() as Array<{ name: string }>;
     if (!columns.some((col) => col.name === "reply_to")) {
       this.db.exec(`ALTER TABLE orbit_notes ADD COLUMN reply_to TEXT;`);
     }
   }
 
   private migrateOrbitNotesAuthorRole(): void {
-    const columns = this.db.prepare(`PRAGMA table_info(orbit_notes)`).all() as Array<{ name: string }>;
+    const columns = this.db
+      .prepare(`PRAGMA table_info(orbit_notes)`)
+      .all() as Array<{ name: string }>;
     if (!columns.some((col) => col.name === "author_role")) {
-      this.db.exec(`ALTER TABLE orbit_notes ADD COLUMN author_role TEXT NOT NULL DEFAULT 'member';`);
+      this.db.exec(
+        `ALTER TABLE orbit_notes ADD COLUMN author_role TEXT NOT NULL DEFAULT 'member';`
+      );
     }
   }
 }
@@ -719,6 +1173,6 @@ function participantFromRow(row: ParticipantRow): StoredParticipant {
     display_name: row.display_name,
     type: row.type,
     role: row.role,
-    main_thread_history_access: row.main_thread_history_access
+    main_thread_history_access: row.main_thread_history_access,
   };
 }

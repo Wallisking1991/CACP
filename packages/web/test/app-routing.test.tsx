@@ -4,9 +4,16 @@ import { MemoryRouter, Routes, Route } from "react-router-dom";
 import App from "../src/App.js";
 
 function mockFetch(response: unknown, ok = true): void {
-  vi.stubGlobal("fetch", vi.fn(() =>
-    Promise.resolve({ ok, json: () => Promise.resolve(response), text: () => Promise.resolve("error") } as Response)
-  ));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() =>
+      Promise.resolve({
+        ok,
+        json: () => Promise.resolve(response),
+        text: () => Promise.resolve("error"),
+      } as Response)
+    )
+  );
 }
 
 function mockWebSocket(): void {
@@ -50,8 +57,16 @@ describe("App routing", () => {
       participant_id: "pid_abc",
       role: "owner" as const,
     };
-    window.localStorage.setItem("cacp.sessions", JSON.stringify({ room_abc: session }));
-    mockFetch({ room_id: "room_abc", name: "Test Room", role: "owner", participant_id: "pid_abc" });
+    window.localStorage.setItem(
+      "cacp.sessions",
+      JSON.stringify({ room_abc: session })
+    );
+    mockFetch({
+      room_id: "room_abc",
+      name: "Test Room",
+      role: "owner",
+      participant_id: "pid_abc",
+    });
 
     render(
       <MemoryRouter initialEntries={["/room/room_abc"]} initialIndex={0}>
@@ -60,7 +75,9 @@ describe("App routing", () => {
     );
 
     await waitFor(() => {
-      expect(screen.queryByTestId("landing-create-card")).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId("landing-create-card")
+      ).not.toBeInTheDocument();
     });
   });
 
@@ -83,7 +100,10 @@ describe("App routing", () => {
       participant_id: "pid_abc",
       role: "member" as const,
     };
-    window.localStorage.setItem("cacp.sessions", JSON.stringify({ room_abc: session }));
+    window.localStorage.setItem(
+      "cacp.sessions",
+      JSON.stringify({ room_abc: session })
+    );
     mockFetch({}, false);
 
     render(

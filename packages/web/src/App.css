@@ -1,8 +1,12 @@
-@import './tokens.css';
+@import "./tokens.css";
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
-html, body, #root {
+html,
+body,
+#root {
   width: 100%;
   height: 100%;
   min-height: 0;
@@ -21,7 +25,12 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   margin: 0;
   font-family: var(--font-headline);
   font-weight: 600;
@@ -29,9 +38,16 @@ h1, h2, h3, h4, h5, h6 {
   line-height: 1.2;
 }
 
-p { margin: 0; }
+p {
+  margin: 0;
+}
 
-button, input, textarea, select { font: inherit; }
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
 
 /* Buttons */
 .btn {
@@ -46,7 +62,10 @@ button, input, textarea, select { font: inherit; }
   font-weight: 600;
   line-height: 1.4;
   cursor: pointer;
-  transition: background 200ms ease, border-color 200ms ease, color 200ms ease;
+  transition:
+    background 200ms ease,
+    border-color 200ms ease,
+    color 200ms ease;
 }
 
 .btn:disabled {
@@ -113,7 +132,9 @@ select.input {
   font-size: 14px;
   line-height: 1.5;
   outline: none;
-  transition: border-color 120ms ease, box-shadow 120ms ease;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
 }
 
 .input:focus-visible,
@@ -174,8 +195,13 @@ textarea.input {
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
 }
 
 /* Landing */
@@ -202,10 +228,23 @@ textarea.input {
   background:
     linear-gradient(rgba(194, 65, 12, 0.055) 1px, transparent 1px),
     linear-gradient(90deg, rgba(194, 65, 12, 0.055) 1px, transparent 1px),
-    radial-gradient(circle at 18% 22%, rgba(249, 115, 22, 0.18), transparent 32%),
-    radial-gradient(circle at 82% 72%, rgba(124, 45, 18, 0.12), transparent 34%),
+    radial-gradient(
+      circle at 18% 22%,
+      rgba(249, 115, 22, 0.18),
+      transparent 32%
+    ),
+    radial-gradient(
+      circle at 82% 72%,
+      rgba(124, 45, 18, 0.12),
+      transparent 34%
+    ),
     var(--bg);
-  background-size: 42px 42px, 42px 42px, auto, auto, auto;
+  background-size:
+    42px 42px,
+    42px 42px,
+    auto,
+    auto,
+    auto;
 }
 
 .landing-shell::after {
@@ -214,7 +253,13 @@ textarea.input {
   inset: 0;
   z-index: -2;
   pointer-events: none;
-  background: linear-gradient(110deg, transparent 0%, rgba(255, 247, 237, 0.18) 45%, rgba(249, 115, 22, 0.16) 50%, transparent 56%);
+  background: linear-gradient(
+    110deg,
+    transparent 0%,
+    rgba(255, 247, 237, 0.18) 45%,
+    rgba(249, 115, 22, 0.16) 50%,
+    transparent 56%
+  );
   transform: translateX(-34%);
   animation: landing-sheen 14s ease-in-out infinite;
 }
@@ -275,11 +320,17 @@ textarea.input {
   position: relative;
   border: 1px solid rgba(232, 223, 208, 0.82);
   border-radius: 24px;
-  background: linear-gradient(145deg, rgba(253, 250, 242, 0.92), rgba(253, 249, 241, 0.82));
+  background: linear-gradient(
+    145deg,
+    rgba(253, 250, 242, 0.92),
+    rgba(253, 249, 241, 0.82)
+  );
   padding: clamp(18px, 2.3vw, 26px);
   max-height: min(620px, calc(100dvh - 116px));
   overflow-y: auto;
-  box-shadow: 0 28px 90px rgba(28, 24, 19, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  box-shadow:
+    0 28px 90px rgba(28, 24, 19, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
   backdrop-filter: blur(18px);
 }
 
@@ -289,8 +340,15 @@ textarea.input {
   inset: 0;
   border-radius: inherit;
   padding: 1px;
-  background: linear-gradient(135deg, rgba(249, 115, 22, 0.44), transparent 32%, rgba(28, 24, 19, 0.12));
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  background: linear-gradient(
+    135deg,
+    rgba(249, 115, 22, 0.44),
+    transparent 32%,
+    rgba(28, 24, 19, 0.12)
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   pointer-events: none;
@@ -342,7 +400,6 @@ textarea.input {
   font-size: 12px;
   font-weight: 700;
 }
-
 
 .cacp-hero-logo {
   width: min(460px, 88vw);
@@ -469,7 +526,10 @@ textarea.input {
   max-height: 0;
   opacity: 0;
   overflow: hidden;
-  transition: max-height 380ms ease, opacity 280ms ease, padding 280ms ease;
+  transition:
+    max-height 380ms ease,
+    opacity 280ms ease,
+    padding 280ms ease;
 }
 
 .landing-advanced.is-open {
@@ -512,7 +572,12 @@ textarea.input {
   inset: -40% auto -40% -30%;
   width: 28%;
   transform: rotate(18deg) translateX(-120%);
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.55),
+    transparent
+  );
   transition: transform 520ms ease;
 }
 
@@ -535,14 +600,29 @@ textarea.input {
 }
 
 @keyframes landing-sheen {
-  0%, 42% { transform: translateX(-38%); opacity: 0; }
-  52% { opacity: 1; }
-  64%, 100% { transform: translateX(38%); opacity: 0; }
+  0%,
+  42% {
+    transform: translateX(-38%);
+    opacity: 0;
+  }
+  52% {
+    opacity: 1;
+  }
+  64%,
+  100% {
+    transform: translateX(38%);
+    opacity: 0;
+  }
 }
 
 @keyframes landing-orb-float {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-  50% { transform: translate3d(18px, -14px, 0) scale(1.08); }
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(18px, -14px, 0) scale(1.08);
+  }
 }
 
 @media (max-width: 1023px) {
@@ -724,8 +804,16 @@ textarea.input {
   inset: 0;
   z-index: 0;
   background:
-    radial-gradient(circle at 22% 18%, rgba(249, 115, 22, 0.50), transparent 44%),
-    radial-gradient(circle at 88% 78%, rgba(124, 45, 18, 0.34), transparent 46%),
+    radial-gradient(
+      circle at 22% 18%,
+      rgba(249, 115, 22, 0.5),
+      transparent 44%
+    ),
+    radial-gradient(
+      circle at 88% 78%,
+      rgba(124, 45, 18, 0.34),
+      transparent 46%
+    ),
     var(--bg);
 }
 
@@ -735,7 +823,13 @@ textarea.input {
   inset: 0;
   z-index: 1;
   pointer-events: none;
-  background: linear-gradient(110deg, transparent 0%, rgba(255, 247, 237, 0.22) 45%, rgba(249, 115, 22, 0.20) 50%, transparent 56%);
+  background: linear-gradient(
+    110deg,
+    transparent 0%,
+    rgba(255, 247, 237, 0.22) 45%,
+    rgba(249, 115, 22, 0.2) 50%,
+    transparent 56%
+  );
   transform: translateX(-34%);
   animation: workspace-sheen 14s ease-in-out infinite;
 }
@@ -767,14 +861,29 @@ textarea.input {
 }
 
 @keyframes workspace-sheen {
-  0%, 42% { transform: translateX(-38%); opacity: 0; }
-  52% { opacity: 1; }
-  64%, 100% { transform: translateX(38%); opacity: 0; }
+  0%,
+  42% {
+    transform: translateX(-38%);
+    opacity: 0;
+  }
+  52% {
+    opacity: 1;
+  }
+  64%,
+  100% {
+    transform: translateX(38%);
+    opacity: 0;
+  }
 }
 
 @keyframes workspace-orb-float {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-  50% { transform: translate3d(18px, -14px, 0) scale(1.08); }
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(18px, -14px, 0) scale(1.08);
+  }
 }
 
 .workspace-header {
@@ -789,15 +898,25 @@ textarea.input {
   padding: 10px 16px;
   border: 1px solid rgba(232, 223, 208, 0.78);
   border-radius: var(--radius-frame);
-  background: linear-gradient(145deg, rgba(253, 250, 242, 0.88), rgba(253, 249, 241, 0.76));
+  background: linear-gradient(
+    145deg,
+    rgba(253, 250, 242, 0.88),
+    rgba(253, 249, 241, 0.76)
+  );
   backdrop-filter: blur(16px);
-  box-shadow: 0 8px 32px rgba(28, 24, 19, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.65);
-  transition: box-shadow var(--motion-med) ease, border-color var(--motion-med) ease;
+  box-shadow:
+    0 8px 32px rgba(28, 24, 19, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  transition:
+    box-shadow var(--motion-med) ease,
+    border-color var(--motion-med) ease;
 }
 
 .workspace-header:hover {
   border-color: rgba(232, 223, 208, 0.95);
-  box-shadow: 0 12px 40px rgba(28, 24, 19, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  box-shadow:
+    0 12px 40px rgba(28, 24, 19, 0.09),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
 }
 
 .header-brand {
@@ -816,7 +935,13 @@ textarea.input {
 .header-brand__divider {
   width: 1px;
   height: 52px;
-  background: linear-gradient(to bottom, transparent, var(--border) 40%, var(--border) 60%, transparent);
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--border) 40%,
+    var(--border) 60%,
+    transparent
+  );
   opacity: 0.7;
 }
 
@@ -938,7 +1063,11 @@ textarea.input {
   background: rgba(253, 250, 242, 0.6);
   color: var(--ink-3);
   cursor: pointer;
-  transition: background 180ms ease, border-color 180ms ease, color 180ms ease, box-shadow 180ms ease;
+  transition:
+    background 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease;
 }
 
 .room-icon-button:hover {
@@ -952,7 +1081,9 @@ textarea.input {
   background: var(--surface-warm);
   border-color: var(--accent-border);
   color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft), 0 2px 8px rgba(194, 65, 12, 0.08);
+  box-shadow:
+    0 0 0 3px var(--accent-soft),
+    0 2px 8px rgba(194, 65, 12, 0.08);
 }
 
 /* Language toggle — same base as icon buttons, slightly wider */
@@ -969,7 +1100,11 @@ textarea.input {
   border: 1px solid var(--border);
   border-radius: 10px;
   cursor: pointer;
-  transition: background 180ms ease, border-color 180ms ease, color 180ms ease, box-shadow 180ms ease;
+  transition:
+    background 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease;
 }
 
 .lang-toggle:hover {
@@ -1228,13 +1363,27 @@ textarea.input {
   animation: message-enter 0.35s ease-out both;
 }
 
-.message:nth-child(1) { animation-delay: 0ms; }
-.message:nth-child(2) { animation-delay: 30ms; }
-.message:nth-child(3) { animation-delay: 60ms; }
-.message:nth-child(4) { animation-delay: 90ms; }
-.message:nth-child(5) { animation-delay: 120ms; }
-.message:nth-child(6) { animation-delay: 150ms; }
-.message:nth-child(n+7) { animation-delay: 180ms; }
+.message:nth-child(1) {
+  animation-delay: 0ms;
+}
+.message:nth-child(2) {
+  animation-delay: 30ms;
+}
+.message:nth-child(3) {
+  animation-delay: 60ms;
+}
+.message:nth-child(4) {
+  animation-delay: 90ms;
+}
+.message:nth-child(5) {
+  animation-delay: 120ms;
+}
+.message:nth-child(6) {
+  animation-delay: 150ms;
+}
+.message:nth-child(n + 7) {
+  animation-delay: 180ms;
+}
 
 .streaming-bubble {
   animation-delay: 0ms !important;
@@ -1443,7 +1592,8 @@ textarea.input {
 .agent-run-node__summary {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   font-size: 12px;
   line-height: 1.55;
   color: rgba(255, 247, 236, 0.82);
@@ -1547,15 +1697,23 @@ textarea.input {
 }
 
 @keyframes pulse-dot {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(0.8); }
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.8);
+  }
 }
 
 .thinking-accordion__content {
   padding: 8px 10px;
   font-size: 12px;
   line-height: 1.6;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   color: var(--ink-3);
   background: var(--surface-warm);
   border-top: 1px solid var(--border-soft);
@@ -1582,8 +1740,13 @@ textarea.input {
 }
 
 @keyframes tool-pulse {
-  0%, 100% { opacity: 0.6; }
-  50% { opacity: 1; }
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 .tool-progress-bar__elapsed {
@@ -1622,7 +1785,11 @@ textarea.input {
   flex-direction: column;
   gap: 8px;
   border-top: 1px solid var(--border);
-  background: linear-gradient(180deg, rgba(255,255,255,0.85) 0%, rgba(250,248,245,0.92) 100%);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.85) 0%,
+    rgba(250, 248, 245, 0.92) 100%
+  );
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   padding: 8px 16px;
@@ -1650,7 +1817,8 @@ textarea.input {
 }
 
 .composer-input--with-floating-btn {
-  padding-right: 48px;
+  padding-right: 56px;
+  padding-left: 56px;
 }
 
 .composer-input-wrapper {
@@ -1664,8 +1832,8 @@ textarea.input {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   padding: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-button);
@@ -1673,18 +1841,21 @@ textarea.input {
   color: var(--ink-3);
   cursor: pointer;
   z-index: 2;
-  transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast), opacity var(--motion-fast), transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition:
+    background var(--motion-fast),
+    border-color var(--motion-fast),
+    color var(--motion-fast),
+    opacity var(--motion-fast);
 }
 
 .composer-send-floating:hover:not(:disabled) {
   background: var(--surface-warm);
   border-color: var(--border-soft);
   color: var(--ink);
-  transform: scale(1.08);
 }
 
 .composer-send-floating:active:not(:disabled) {
-  transform: scale(0.96);
+  filter: brightness(0.96);
 }
 
 .composer-send-floating:focus-visible {
@@ -1709,8 +1880,15 @@ textarea.input {
 }
 
 @keyframes composer-pulse {
-  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(234, 88, 12, 0.35); }
-  50% { transform: scale(1.05); box-shadow: 0 0 0 8px rgba(234, 88, 12, 0); }
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(234, 88, 12, 0.35);
+  }
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 0 0 8px rgba(234, 88, 12, 0);
+  }
 }
 
 .main-composer-queued .composer-send-floating {
@@ -2216,17 +2394,25 @@ textarea.input {
   align-items: center;
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  background: linear-gradient(145deg, rgba(253, 250, 242, 0.88), rgba(253, 249, 241, 0.76));
+  background: linear-gradient(
+    145deg,
+    rgba(253, 250, 242, 0.88),
+    rgba(253, 249, 241, 0.76)
+  );
   border: 1px solid rgba(232, 223, 208, 0.78);
   box-shadow:
     0 8px 32px rgba(28, 24, 19, 0.06),
     inset 0 1px 0 rgba(255, 255, 255, 0.65);
-  transition: box-shadow var(--motion-med) ease, border-color var(--motion-med) ease;
+  transition:
+    box-shadow var(--motion-med) ease,
+    border-color var(--motion-med) ease;
 }
 
 .workspace-header--studio:hover {
   border-color: rgba(232, 223, 208, 0.95);
-  box-shadow: 0 12px 40px rgba(28, 24, 19, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  box-shadow:
+    0 12px 40px rgba(28, 24, 19, 0.09),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
 }
 
 .workspace-header--studio .role-avatar-rail {
@@ -2311,7 +2497,10 @@ textarea.input {
   background: var(--surface-warm);
   color: var(--ink-3);
   cursor: pointer;
-  transition: background 200ms ease, border-color 200ms ease, color 200ms ease;
+  transition:
+    background 200ms ease,
+    border-color 200ms ease,
+    color 200ms ease;
   flex-shrink: 0;
 }
 
@@ -2345,7 +2534,9 @@ textarea.input {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 150ms ease, border-color 150ms ease;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease;
   text-align: left;
 }
 
@@ -2394,7 +2585,10 @@ textarea.input {
   min-height: 32px;
   padding: 6px 10px;
   cursor: pointer;
-  transition: background 200ms ease, color 200ms ease, border-color 200ms ease;
+  transition:
+    background 200ms ease,
+    color 200ms ease,
+    border-color 200ms ease;
 }
 
 .room-id-chip.copied {
@@ -2470,7 +2664,9 @@ textarea.input {
   justify-content: center;
   border: 2px solid transparent;
   box-shadow: 0 4px 16px rgba(70, 48, 27, 0.08);
-  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.18s ease;
+  transition:
+    transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 0.18s ease;
 }
 
 .role-avatar--human {
@@ -2568,18 +2764,32 @@ textarea.input {
 }
 
 @keyframes halo-breathe {
-  0%, 100% { box-shadow: 0 0 0 2px #22c55e; }
-  50% { box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.25); }
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px #22c55e;
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.25);
+  }
 }
 
 @keyframes halo-spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes halo-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
-  50% { box-shadow: 0 0 0 5px rgba(59, 130, 246, 0); }
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(59, 130, 246, 0);
+  }
 }
 
 /* Hover bounce */
@@ -2589,7 +2799,9 @@ textarea.input {
 
 /* Avatar hover: red outer ring to signal removable */
 .role-avatar-stack:hover .role-avatar {
-  box-shadow: 0 0 0 2px var(--danger), 0 4px 16px rgba(70, 48, 27, 0.12);
+  box-shadow:
+    0 0 0 2px var(--danger),
+    0 4px 16px rgba(70, 48, 27, 0.12);
 }
 
 .role-avatar__delete {
@@ -2612,9 +2824,14 @@ textarea.input {
   padding: 0;
   opacity: 0;
   transform: scale(0.7);
-  transition: opacity 150ms ease, transform 150ms ease;
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease;
   z-index: 2;
-  text-shadow: 0 0 2px #fff, 0 0 4px #fff, 0 0 6px rgba(0,0,0,0.15);
+  text-shadow:
+    0 0 2px #fff,
+    0 0 4px #fff,
+    0 0 6px rgba(0, 0, 0, 0.15);
 }
 
 .role-avatar-stack:hover .role-avatar__delete {
@@ -2724,7 +2941,11 @@ textarea.input {
 .message-ai-card {
   width: min(940px, 94%);
   margin-right: auto;
-  background: linear-gradient(135deg, var(--studio-agent), var(--studio-agent-2));
+  background: linear-gradient(
+    135deg,
+    var(--studio-agent),
+    var(--studio-agent-2)
+  );
   color: #fff7ec;
   border-color: rgba(255, 210, 160, 0.22);
   box-shadow: var(--studio-shadow-soft);
@@ -2780,7 +3001,11 @@ textarea.input {
   border-left: 1px solid var(--border);
   padding-left: 16px;
   overflow: hidden;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.82) 0%, rgba(250, 248, 245, 0.72) 100%);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.82) 0%,
+    rgba(250, 248, 245, 0.72) 100%
+  );
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   box-shadow: 0 16px 48px rgba(28, 24, 19, 0.07);
@@ -2820,7 +3045,12 @@ textarea.input {
   cursor: pointer;
   font-size: 14px;
   line-height: 1;
-  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), background 150ms ease, border-color 150ms ease, color 150ms ease, opacity 150ms ease;
+  transition:
+    transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    opacity 150ms ease;
 }
 
 .orbit-promote-open-btn:hover:not(:disabled) {
@@ -2872,12 +3102,16 @@ textarea.input {
   padding-bottom: 4px;
   padding-right: 2px;
 }
-.orbit-notes::-webkit-scrollbar { width: 8px; }
+.orbit-notes::-webkit-scrollbar {
+  width: 8px;
+}
 .orbit-notes::-webkit-scrollbar-thumb {
   background: var(--ink-4, #9ca3af);
   border-radius: 4px;
 }
-.orbit-notes::-webkit-scrollbar-track { background: transparent; }
+.orbit-notes::-webkit-scrollbar-track {
+  background: transparent;
+}
 
 .orbit-note {
   position: relative;
@@ -2885,7 +3119,11 @@ textarea.input {
   border-radius: var(--radius-card);
   background: var(--surface-warm);
   padding: 10px 12px 10px 15px;
-  transition: border-color 150ms ease, background 150ms ease, transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
   flex-shrink: 0;
   animation: note-slide-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
@@ -2899,7 +3137,9 @@ textarea.input {
   width: 3px;
   border-radius: 0 2px 2px 0;
   background: var(--orbit-author-bar, var(--ink-4));
-  transition: top 0.15s ease, bottom 0.15s ease;
+  transition:
+    top 0.15s ease,
+    bottom 0.15s ease;
 }
 
 .orbit-note:hover::before {
@@ -2912,7 +3152,9 @@ textarea.input {
   box-shadow: 0 6px 20px rgba(28, 24, 19, 0.06);
 }
 
-.orbit-note--quoted { opacity: 0.72; }
+.orbit-note--quoted {
+  opacity: 0.72;
+}
 
 .orbit-note--consecutive {
   margin-top: -2px;
@@ -2925,8 +3167,14 @@ textarea.input {
 }
 
 @keyframes note-slide-in {
-  0% { opacity: 0; transform: translateY(8px) scale(0.98); }
-  100% { opacity: 1; transform: translateY(0) scale(1); }
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .orbit-toggle-tab {
@@ -2947,10 +3195,14 @@ textarea.input {
   color: var(--ink-1, #111827);
   cursor: pointer;
   box-shadow: var(--studio-shadow);
-  transition: background-color 120ms ease, border-color 120ms ease;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
 }
 
-.orbit-toggle-tab:hover { background: var(--surface-2, #f3f4f6); }
+.orbit-toggle-tab:hover {
+  background: var(--surface-2, #f3f4f6);
+}
 
 .orbit-toggle-tab:focus-visible {
   outline: 2px solid var(--accent, #2563eb);
@@ -2982,13 +3234,21 @@ textarea.input {
 }
 
 @keyframes orbit-pulse {
-  0%   { transform: scale(1); }
-  50%  { transform: scale(1.25); }
-  100% { transform: scale(1); }
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.25);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .orbit-unread-badge { animation: none; }
+  .orbit-unread-badge {
+    animation: none;
+  }
 }
 
 .orbit-unread-badge--mention {
@@ -2998,13 +3258,21 @@ textarea.input {
 }
 
 @keyframes orbit-mention-pulse {
-  0%   { transform: scale(1); }
-  50%  { transform: scale(1.35); }
-  100% { transform: scale(1); }
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.35);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .orbit-unread-badge--mention { animation: none; }
+  .orbit-unread-badge--mention {
+    animation: none;
+  }
 }
 
 .orbit-clear-btn {
@@ -3018,7 +3286,9 @@ textarea.input {
   background: #fef2f2;
   color: #b91c1c;
   cursor: pointer;
-  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), background 150ms ease;
+  transition:
+    transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background 150ms ease;
 }
 
 .orbit-clear-btn:hover {
@@ -3074,7 +3344,11 @@ textarea.input {
 }
 
 .orbit-note--own {
-  background: linear-gradient(135deg, var(--studio-agent), var(--studio-agent-2));
+  background: linear-gradient(
+    135deg,
+    var(--studio-agent),
+    var(--studio-agent-2)
+  );
   color: #fff7ec;
   border-color: rgba(255, 210, 160, 0.22);
   box-shadow: var(--studio-shadow-soft);
@@ -3184,7 +3458,9 @@ textarea.input {
   cursor: pointer;
   font-size: 13px;
   line-height: 1;
-  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), background 150ms ease;
+  transition:
+    transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background 150ms ease;
 }
 
 .orbit-like-btn-inline:hover {
@@ -3197,10 +3473,18 @@ textarea.input {
 }
 
 @keyframes like-bounce {
-  0% { transform: scale(1); }
-  40% { transform: scale(1.35); }
-  70% { transform: scale(0.9); }
-  100% { transform: scale(1); }
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.35);
+  }
+  70% {
+    transform: scale(0.9);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 .orbit-like-btn-inline--active {
@@ -3221,7 +3505,9 @@ textarea.input {
   cursor: pointer;
   font-size: 13px;
   line-height: 1;
-  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), background 150ms ease;
+  transition:
+    transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background 150ms ease;
 }
 
 .orbit-reply-btn-inline:hover {
@@ -3323,7 +3609,9 @@ textarea.input {
   cursor: pointer;
   font-size: 14px;
   line-height: 1;
-  transition: background 150ms ease, color 150ms ease;
+  transition:
+    background 150ms ease,
+    color 150ms ease;
 }
 
 .orbit-promote-modal-close:hover {
@@ -3403,7 +3691,11 @@ textarea.input {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 150ms ease, border-color 150ms ease, color 150ms ease, opacity 150ms ease;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    opacity 150ms ease;
 }
 
 .orbit-promote-modal-cancel {
@@ -3496,7 +3788,11 @@ textarea.input {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 150ms ease, border-color 150ms ease, color 150ms ease, opacity 150ms ease;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    opacity 150ms ease;
 }
 
 .confirm-modal-cancel {
@@ -3544,11 +3840,146 @@ textarea.input {
 /* MainComposer */
 .main-composer {
   border-top: 1px solid var(--border);
-  background: linear-gradient(180deg, rgba(255,255,255,0.85) 0%, rgba(250,248,245,0.92) 100%);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.85) 0%,
+    rgba(250, 248, 245, 0.92) 100%
+  );
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   padding: 8px 16px;
   transition: box-shadow var(--motion-fast);
+}
+
+.main-composer--dragging {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  background: var(--surface-warm);
+}
+
+.composer-attachment-button {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 2;
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition:
+    color var(--motion-fast),
+    background var(--motion-fast),
+    border-color var(--motion-fast);
+}
+
+.composer-attachment-button:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--surface-warm);
+  border-color: var(--border);
+}
+
+.composer-attachment-button:focus-visible,
+.main-composer__attachment-remove:focus-visible,
+.message-attachment__download:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.composer-attachment-button:disabled,
+.main-composer__attachment-remove:disabled,
+.message-attachment__download:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.main-composer__attachments {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 0 8px;
+}
+
+.main-composer__attachment {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  min-width: 180px;
+  max-width: 280px;
+  padding: 7px 8px 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.main-composer__attachment-name,
+.main-composer__attachment-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.main-composer__attachment-name {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.main-composer__attachment-meta {
+  grid-column: 1;
+  color: var(--ink-3);
+  font-size: 11px;
+}
+
+.main-composer__attachment-remove {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.main-composer__attachment-remove:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--surface-warm);
+}
+
+.main-composer__error {
+  margin-bottom: 7px;
+  color: #9f1239;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.main-composer__hint {
+  min-height: 18px;
+  padding-top: 5px;
+  color: var(--ink-3);
+  font-size: 11px;
+}
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
 }
 
 .main-composer:focus-within {
@@ -3557,6 +3988,101 @@ textarea.input {
 
 .main-composer-queued {
   background: var(--surface-queued);
+}
+
+.message-attachments {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.message-attachment {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.message-attachment--image {
+  grid-template-rows: auto auto;
+}
+
+.message-attachment__preview {
+  grid-column: 1 / -1;
+  width: 100%;
+  max-height: 280px;
+  object-fit: contain;
+  background: var(--surface-warm);
+}
+
+.message-attachment__details {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: 9px 10px;
+}
+
+.message-attachment__name,
+.message-attachment__meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-attachment__name {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.message-attachment__meta {
+  color: var(--ink-3);
+  font-size: 11px;
+}
+
+.message-attachment__download {
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  margin-right: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.message-attachment__download:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--surface-warm);
+}
+
+@media (max-width: 520px) {
+  .main-composer {
+    padding-inline: 10px;
+  }
+
+  .main-composer__attachment {
+    min-width: 160px;
+  }
+
+  .message-attachments {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .main-composer-queued .composer-send-floating {
+    animation: none;
+  }
 }
 
 /* OrbitComposer */
@@ -3614,7 +4140,9 @@ textarea.input {
   font-size: 14px;
   line-height: 1;
   flex-shrink: 0;
-  transition: background 150ms ease, color 150ms ease;
+  transition:
+    background 150ms ease,
+    color 150ms ease;
 }
 
 .orbit-composer-reply-bar__cancel:hover {
@@ -3765,7 +4293,11 @@ textarea.input {
 .agent-cockpit {
   border-radius: 18px;
   padding: 18px;
-  background: linear-gradient(135deg, var(--studio-agent), var(--studio-agent-2));
+  background: linear-gradient(
+    135deg,
+    var(--studio-agent),
+    var(--studio-agent-2)
+  );
   color: #fff7ec;
 }
 
@@ -3774,8 +4306,13 @@ textarea.input {
 }
 
 @keyframes studio-breathe {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.04); }
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.04);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3799,7 +4336,10 @@ textarea.input {
   background: rgba(253, 250, 242, 0.6);
   color: var(--ink-3);
   cursor: pointer;
-  transition: background 180ms ease, border-color 180ms ease, color 180ms ease;
+  transition:
+    background 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease;
 }
 
 .more-menu-button:hover {
@@ -3832,7 +4372,10 @@ textarea.input {
   background: rgba(253, 250, 242, 0.6);
   color: var(--ink-3);
   cursor: pointer;
-  transition: background 180ms ease, border-color 180ms ease, color 180ms ease;
+  transition:
+    background 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease;
 }
 
 .notification-button:hover {
@@ -4104,7 +4647,12 @@ textarea.input {
   margin-left: -60px;
   margin-top: -60px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(99, 102, 241, 0.32) 0%, rgba(168, 85, 247, 0.18) 35%, transparent 65%);
+  background: radial-gradient(
+    circle,
+    rgba(99, 102, 241, 0.32) 0%,
+    rgba(168, 85, 247, 0.18) 35%,
+    transparent 65%
+  );
   box-shadow: 0 0 60px rgba(99, 102, 241, 0.28);
   opacity: 0;
   will-change: transform, opacity;
@@ -4142,7 +4690,12 @@ textarea.input {
   margin-left: -40px;
   margin-top: -40px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(99, 102, 241, 1), rgba(168, 85, 247, 0.75) 40%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(99, 102, 241, 1),
+    rgba(168, 85, 247, 0.75) 40%,
+    transparent 70%
+  );
   box-shadow: 0 0 55px rgba(99, 102, 241, 0.7);
   will-change: transform, opacity;
   animation: header-ripple-expand 2.5s ease-out forwards;
@@ -4153,8 +4706,14 @@ textarea.input {
 }
 
 @keyframes header-ripple-expand {
-  0% { transform: scale(0.35); opacity: 0.9; }
-  100% { transform: scale(3.5); opacity: 0; }
+  0% {
+    transform: scale(0.35);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(3.5);
+    opacity: 0;
+  }
 }
 
 /* Fullscreen agent-centered ripple overlay */
@@ -4180,7 +4739,12 @@ textarea.input {
   margin-left: -60px;
   margin-top: -60px;
   border-radius: 50%;
-  background: radial-gradient(circle, color-mix(in srgb, var(--agent-color) 32%, transparent) 0%, color-mix(in srgb, var(--agent-color) 18%, transparent) 35%, transparent 65%);
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--agent-color) 32%, transparent) 0%,
+    color-mix(in srgb, var(--agent-color) 18%, transparent) 35%,
+    transparent 65%
+  );
   box-shadow: 0 0 60px color-mix(in srgb, var(--agent-color) 28%, transparent);
   opacity: 0;
   will-change: transform, opacity;
@@ -4217,7 +4781,12 @@ textarea.input {
   margin-left: -40px;
   margin-top: -40px;
   border-radius: 50%;
-  background: radial-gradient(circle, var(--agent-color), color-mix(in srgb, var(--agent-color) 75%, transparent) 40%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    var(--agent-color),
+    color-mix(in srgb, var(--agent-color) 75%, transparent) 40%,
+    transparent 70%
+  );
   box-shadow: 0 0 55px color-mix(in srgb, var(--agent-color) 70%, transparent);
   will-change: transform, opacity;
   animation: agent-ripple-expand 2.5s ease-out forwards;
@@ -4228,8 +4797,14 @@ textarea.input {
 }
 
 @keyframes agent-ripple-expand {
-  0% { transform: scale(0.35); opacity: 0.4; }
-  100% { transform: scale(3.5); opacity: 0; }
+  0% {
+    transform: scale(0.35);
+    opacity: 0.4;
+  }
+  100% {
+    transform: scale(3.5);
+    opacity: 0;
+  }
 }
 
 .skeleton-content {
@@ -4257,8 +4832,12 @@ textarea.input {
 }
 
 @keyframes skeleton-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -11,7 +11,10 @@ export interface MentionOverlayProps {
   mentions?: MentionRange[];
 }
 
-export default function MentionOverlay({ text, mentions = [] }: MentionOverlayProps) {
+export default function MentionOverlay({
+  text,
+  mentions = [],
+}: MentionOverlayProps) {
   if (mentions.length === 0) {
     return <div className="mention-overlay">{text}</div>;
   }
@@ -28,7 +31,11 @@ export default function MentionOverlay({ text, mentions = [] }: MentionOverlayPr
     parts.push(
       <span
         key={`${mention.start}-${mention.end}`}
-        className={mention.type === "agent" ? "mention-overlay__agent" : "mention-overlay__user"}
+        className={
+          mention.type === "agent"
+            ? "mention-overlay__agent"
+            : "mention-overlay__user"
+        }
       >
         {mentionText}
       </span>

@@ -1,12 +1,18 @@
 import type { ServerConfig } from "../src/config.js";
 
-export function localTestConfig(overrides?: Partial<ServerConfig>): ServerConfig {
+export function localTestConfig(
+  overrides?: Partial<ServerConfig>
+): ServerConfig {
   return {
     deploymentMode: "local",
     enableLocalLaunch: true,
     tokenSecret: "0123456789abcdef0123456789abcdef",
     bodyLimitBytes: 1024 * 1024,
     maxMessageLength: 4000,
+    maxAttachmentBytes: 10 * 1024 * 1024,
+    maxAttachmentsPerMessage: 5,
+    maxRoomAttachmentBytes: 50 * 1024 * 1024,
+    attachmentAbandonMs: 15 * 60 * 1000,
     maxParticipantsPerRoom: 20,
     maxAgentsPerRoom: 3,
     maxSocketsPerRoom: 50,
@@ -19,11 +25,13 @@ export function localTestConfig(overrides?: Partial<ServerConfig>): ServerConfig
     presenceChangeLimit: 30,
     typingEventLimit: 60,
     orbitEventLimit: 120,
-    ...overrides
+    ...overrides,
   };
 }
 
-export function cloudTestConfig(overrides?: Partial<ServerConfig>): ServerConfig {
+export function cloudTestConfig(
+  overrides?: Partial<ServerConfig>
+): ServerConfig {
   return {
     deploymentMode: "cloud",
     enableLocalLaunch: false,
@@ -31,6 +39,10 @@ export function cloudTestConfig(overrides?: Partial<ServerConfig>): ServerConfig
     tokenSecret: "0123456789abcdef0123456789abcdef",
     bodyLimitBytes: 1024 * 1024,
     maxMessageLength: 4000,
+    maxAttachmentBytes: 10 * 1024 * 1024,
+    maxAttachmentsPerMessage: 5,
+    maxRoomAttachmentBytes: 50 * 1024 * 1024,
+    attachmentAbandonMs: 15 * 60 * 1000,
     maxParticipantsPerRoom: 20,
     maxAgentsPerRoom: 3,
     maxSocketsPerRoom: 50,
@@ -43,6 +55,6 @@ export function cloudTestConfig(overrides?: Partial<ServerConfig>): ServerConfig
     presenceChangeLimit: 30,
     typingEventLimit: 60,
     orbitEventLimit: 120,
-    ...overrides
+    ...overrides,
   };
 }

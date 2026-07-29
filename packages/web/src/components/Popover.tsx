@@ -11,7 +11,7 @@ export interface PopoverProps {
 export function Popover({ triggerRef, open, onClose, children }: PopoverProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [style, setStyle] = useState<React.CSSProperties>({});
-  const hoverTimerRef = useRef<ReturnType<typeof window.setTimeout> | undefined>(undefined);
+  const hoverTimerRef = useRef<number | undefined>(undefined);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 

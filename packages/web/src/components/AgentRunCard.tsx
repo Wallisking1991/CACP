@@ -1,13 +1,29 @@
 import type { AgentRunView } from "../room-state.js";
 import { AgentRunNodeList } from "./AgentRunNodeList.js";
-import { answerTextFor, metricsSummary, processSummary, providerLabel, runStatusLabel } from "./agent-run-format.js";
+import {
+  answerTextFor,
+  metricsSummary,
+  processSummary,
+  providerLabel,
+  runStatusLabel,
+} from "./agent-run-format.js";
 
 export interface AgentRunCardProps {
   run: AgentRunView;
   agentName: string;
   thinkingEnabled?: boolean;
-  onResolveApproval?: (runId: string, nodeId: string, decision: "allow" | "deny", reason?: string) => void;
-  onResolveElicitation?: (runId: string, nodeId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => void;
+  onResolveApproval?: (
+    runId: string,
+    nodeId: string,
+    decision: "allow" | "deny",
+    reason?: string
+  ) => void;
+  onResolveElicitation?: (
+    runId: string,
+    nodeId: string,
+    action: "accept" | "decline" | "cancel",
+    content?: Record<string, unknown>
+  ) => void;
 }
 
 export function AgentRunCard({
@@ -15,7 +31,7 @@ export function AgentRunCard({
   agentName,
   thinkingEnabled,
   onResolveApproval,
-  onResolveElicitation
+  onResolveElicitation,
 }: AgentRunCardProps) {
   const provider = providerLabel(run.provider);
   const status = runStatusLabel(run.status);
@@ -31,17 +47,23 @@ export function AgentRunCard({
       onResolveElicitation={onResolveElicitation}
     />
   );
-  const processOpen = run.status === "running" || (run.status === "failed" && !hasAnswer);
-  const process = run.nodes.length > 0 ? (
-    <details className="agent-run-card__process" open={processOpen}>
-      <summary>Work process · {processSummary(run)}</summary>
-      {nodeList}
-    </details>
+  const processOpen =
+    run.status === "running" || (run.status === "failed" && !hasAnswer);
+  const process =
+    run.nodes.length > 0 ? (
+      <details className="agent-run-card__process" open={processOpen}>
+        <summary>Work process · {processSummary(run)}</summary>
+        {nodeList}
+      </details>
+    ) : null;
+  const answer = hasAnswer ? (
+    <div className="agent-run-card__answer message-body">{answerText}</div>
   ) : null;
-  const answer = hasAnswer ? <div className="agent-run-card__answer message-body">{answerText}</div> : null;
 
   return (
-    <article className={`message message-ai-card agent-run-card agent-run-card--${run.status}`}>
+    <article
+      className={`message message-ai-card agent-run-card agent-run-card--${run.status}`}
+    >
       <div className="message-meta">
         <span>{agentName}</span>
         <span>{provider}</span>

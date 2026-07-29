@@ -1,9 +1,17 @@
+import { testConnectorCompatibility } from "./test-compatibility.js";
 import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
-import { roomDelivery, targetedDelivery, roleDelivery, canDeliverEnvelope, HUMAN_ROLES, type RelayEnvelope } from "../src/relay.js";
+import {
+  roomDelivery,
+  targetedDelivery,
+  roleDelivery,
+  canDeliverEnvelope,
+  HUMAN_ROLES,
+  type RelayEnvelope,
+} from "../src/relay.js";
 import { EventBus } from "../src/event-bus.js";
 import { EventStore } from "../src/event-store.js";
 import { buildServer } from "../src/server.js";
@@ -27,37 +35,82 @@ describe("relay delivery", () => {
     const envelope: RelayEnvelope = {
       event: {
         protocol: "cacp",
-        version: "0.2.0",
+        version: "0.3.0",
         event_id: "evt_1",
         room_id: "room_1",
         type: "message.created",
         actor_id: "user_1",
         created_at: "2026-05-01T00:00:00.000Z",
-        payload: {}
+        payload: {},
       },
-      delivery: roomDelivery()
+      delivery: roomDelivery(),
     };
-    expect(canDeliverEnvelope(envelope, { id: "user_2", room_id: "room_1", type: "human", display_name: "Bob", role: "member", main_thread_history_access: "allowed" })).toBe(true);
-    expect(canDeliverEnvelope(envelope, { id: "agent_1", room_id: "room_1", type: "agent", display_name: "Agent", role: "agent", main_thread_history_access: "allowed" })).toBe(true);
+    expect(
+      canDeliverEnvelope(envelope, {
+        id: "user_2",
+        room_id: "room_1",
+        type: "human",
+        display_name: "Bob",
+        role: "member",
+        main_thread_history_access: "allowed",
+      })
+    ).toBe(true);
+    expect(
+      canDeliverEnvelope(envelope, {
+        id: "agent_1",
+        room_id: "room_1",
+        type: "agent",
+        display_name: "Agent",
+        role: "agent",
+        main_thread_history_access: "allowed",
+      })
+    ).toBe(true);
   });
 
   it("canDeliverEnvelope allows targeted delivery only for listed participants", () => {
     const envelope: RelayEnvelope = {
       event: {
         protocol: "cacp",
-        version: "0.2.0",
+        version: "0.3.0",
         event_id: "evt_1",
         room_id: "room_1",
         type: "connector.snapshot.entry",
         actor_id: "user_1",
         created_at: "2026-05-01T00:00:00.000Z",
-        payload: {}
+        payload: {},
       },
-      delivery: targetedDelivery(["user_1", "agent_1"])
+      delivery: targetedDelivery(["user_1", "agent_1"]),
     };
-    expect(canDeliverEnvelope(envelope, { id: "user_1", room_id: "room_1", type: "human", display_name: "Alice", role: "owner", main_thread_history_access: "allowed" })).toBe(true);
-    expect(canDeliverEnvelope(envelope, { id: "agent_1", room_id: "room_1", type: "agent", display_name: "Agent", role: "agent", main_thread_history_access: "allowed" })).toBe(true);
-    expect(canDeliverEnvelope(envelope, { id: "user_2", room_id: "room_1", type: "human", display_name: "Bob", role: "member", main_thread_history_access: "allowed" })).toBe(false);
+    expect(
+      canDeliverEnvelope(envelope, {
+        id: "user_1",
+        room_id: "room_1",
+        type: "human",
+        display_name: "Alice",
+        role: "owner",
+        main_thread_history_access: "allowed",
+      })
+    ).toBe(true);
+    expect(
+      canDeliverEnvelope(envelope, {
+        id: "agent_1",
+        room_id: "room_1",
+        type: "agent",
+        display_name: "Agent",
+        role: "agent",
+        main_thread_history_access: "allowed",
+      })
+    ).toBe(true);
+    expect(
+      canDeliverEnvelope(envelope, {
+        id: "user_2",
+        room_id: "room_1",
+        type: "human",
+        display_name: "Bob",
+        role: "member",
+        main_thread_history_access: "allowed",
+      })
+    ).toBe(false);
   });
 
   it("roleDelivery({roles}) builds a role-kind RelayDelivery", () => {
@@ -73,7 +126,9 @@ describe("relay delivery", () => {
     const d = roleDelivery(HUMAN_ROLES);
     expect(d.kind).toBe("role");
     if (d.kind === "role") {
-      expect(d.roles).toEqual(expect.arrayContaining(["owner", "admin", "member", "observer"]));
+      expect(d.roles).toEqual(
+        expect.arrayContaining(["owner", "admin", "member", "observer"])
+      );
       expect(d.roles).not.toContain("agent");
       expect(d.roles).toHaveLength(4);
     }
@@ -83,19 +138,46 @@ describe("relay delivery", () => {
     const envelope: RelayEnvelope = {
       event: {
         protocol: "cacp",
-        version: "0.2.0",
+        version: "0.3.0",
         event_id: "evt_1",
         room_id: "room_1",
         type: "orbit.note.created",
         actor_id: "user_1",
         created_at: "2026-05-01T00:00:00.000Z",
-        payload: {}
+        payload: {},
       },
-      delivery: roleDelivery(["owner", "admin", "member", "observer"])
+      delivery: roleDelivery(["owner", "admin", "member", "observer"]),
     };
-    expect(canDeliverEnvelope(envelope, { id: "user_1", room_id: "room_1", type: "human", display_name: "Alice", role: "owner", main_thread_history_access: "allowed" })).toBe(true);
-    expect(canDeliverEnvelope(envelope, { id: "user_2", room_id: "room_1", type: "human", display_name: "Bob", role: "member", main_thread_history_access: "allowed" })).toBe(true);
-    expect(canDeliverEnvelope(envelope, { id: "agent_1", room_id: "room_1", type: "agent", display_name: "Agent", role: "agent", main_thread_history_access: "allowed" })).toBe(false);
+    expect(
+      canDeliverEnvelope(envelope, {
+        id: "user_1",
+        room_id: "room_1",
+        type: "human",
+        display_name: "Alice",
+        role: "owner",
+        main_thread_history_access: "allowed",
+      })
+    ).toBe(true);
+    expect(
+      canDeliverEnvelope(envelope, {
+        id: "user_2",
+        room_id: "room_1",
+        type: "human",
+        display_name: "Bob",
+        role: "member",
+        main_thread_history_access: "allowed",
+      })
+    ).toBe(true);
+    expect(
+      canDeliverEnvelope(envelope, {
+        id: "agent_1",
+        room_id: "room_1",
+        type: "agent",
+        display_name: "Agent",
+        role: "agent",
+        main_thread_history_access: "allowed",
+      })
+    ).toBe(false);
   });
 });
 
@@ -108,26 +190,42 @@ describe("role-filter dispatch via canDeliverEnvelope (EventBus does no filterin
     const bus = new EventBus();
     const ownerCalls: string[] = [];
     const agentCalls: string[] = [];
-    const ownerParticipant = { id: "u1", room_id: "room_1", type: "human" as const, display_name: "Owner", role: "owner" as const, main_thread_history_access: "allowed" as const };
-    const agentParticipant = { id: "a1", room_id: "room_1", type: "agent" as const, display_name: "Agent", role: "agent" as const, main_thread_history_access: "allowed" as const };
+    const ownerParticipant = {
+      id: "u1",
+      room_id: "room_1",
+      type: "human" as const,
+      display_name: "Owner",
+      role: "owner" as const,
+      main_thread_history_access: "allowed" as const,
+    };
+    const agentParticipant = {
+      id: "a1",
+      room_id: "room_1",
+      type: "agent" as const,
+      display_name: "Agent",
+      role: "agent" as const,
+      main_thread_history_access: "allowed" as const,
+    };
     bus.subscribe("room_1", (envelope) => {
-      if (canDeliverEnvelope(envelope, ownerParticipant)) ownerCalls.push(envelope.event.event_id);
+      if (canDeliverEnvelope(envelope, ownerParticipant))
+        ownerCalls.push(envelope.event.event_id);
     });
     bus.subscribe("room_1", (envelope) => {
-      if (canDeliverEnvelope(envelope, agentParticipant)) agentCalls.push(envelope.event.event_id);
+      if (canDeliverEnvelope(envelope, agentParticipant))
+        agentCalls.push(envelope.event.event_id);
     });
     bus.publish({
       event: {
         protocol: "cacp",
-        version: "0.2.0",
+        version: "0.3.0",
         event_id: "evt_role_1",
         room_id: "room_1",
         type: "orbit.note.created",
         actor_id: "u1",
         created_at: "2026-05-01T00:00:00.000Z",
-        payload: {}
+        payload: {},
       },
-      delivery: roleDelivery(["owner", "admin", "member", "observer"])
+      delivery: roleDelivery(["owner", "admin", "member", "observer"]),
     });
     expect(ownerCalls).toEqual(["evt_role_1"]);
     expect(agentCalls).toEqual([]);
@@ -136,14 +234,19 @@ describe("role-filter dispatch via canDeliverEnvelope (EventBus does no filterin
 
 function addressOf(app: Awaited<ReturnType<typeof buildServer>>): string {
   const address = app.server.address();
-  if (!address || typeof address === "string") throw new Error("server did not bind to a TCP port");
+  if (!address || typeof address === "string")
+    throw new Error("server did not bind to a TCP port");
   return `127.0.0.1:${address.port}`;
 }
 
 function waitForOpen(socket: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {
     socket.addEventListener("open", () => resolve(), { once: true });
-    socket.addEventListener("error", () => reject(new Error("websocket failed to open")), { once: true });
+    socket.addEventListener(
+      "error",
+      () => reject(new Error("websocket failed to open")),
+      { once: true }
+    );
   });
 }
 
@@ -158,27 +261,42 @@ describe("orbit role-filtered delivery (integration)", () => {
       const created = await app.inject({
         method: "POST",
         url: "/rooms",
-        payload: { name: "Room", display_name: "Owner" }
+        payload: { name: "Room", display_name: "Owner" },
       });
-      const room = created.json() as { room_id: string; owner_token: string; owner_id: string };
+      const room = created.json() as {
+        room_id: string;
+        owner_token: string;
+        owner_id: string;
+      };
 
       const agentReg = await app.inject({
         method: "POST",
         url: `/rooms/${room.room_id}/agents/register`,
         headers: { authorization: `Bearer ${room.owner_token}` },
-        payload: { name: "TestAgent", capabilities: ["llm-api"] }
+        payload: {
+          compatibility: testConnectorCompatibility,
+          name: "TestAgent",
+          capabilities: ["kimi-cli"],
+        },
       });
-      const agent = agentReg.json() as { agent_id: string; agent_token: string };
+      const agent = agentReg.json() as {
+        agent_id: string;
+        agent_token: string;
+      };
 
       await app.inject({
         method: "POST",
         url: `/rooms/${room.room_id}/agents/select`,
         headers: { authorization: `Bearer ${room.owner_token}` },
-        payload: { agent_id: agent.agent_id }
+        payload: { agent_id: agent.agent_id },
       });
 
-      const ownerWs = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
-      const agentWs = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${agent.agent_token}`);
+      const ownerWs = new WebSocket(
+        `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+      );
+      const agentWs = new WebSocket(
+        `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${agent.agent_token}`
+      );
       await Promise.all([waitForOpen(ownerWs), waitForOpen(agentWs)]);
 
       const ownerEvents: Array<{ type: string }> = [];
@@ -199,7 +317,7 @@ describe("orbit role-filtered delivery (integration)", () => {
         method: "POST",
         url: `/rooms/${room.room_id}/orbit/notes`,
         headers: { authorization: `Bearer ${room.owner_token}` },
-        payload: { text: "Secret note" }
+        payload: { text: "Secret note" },
       });
       expect(noteRes.statusCode).toBe(201);
 
@@ -210,8 +328,12 @@ describe("orbit role-filtered delivery (integration)", () => {
       ownerWs.close();
       agentWs.close();
 
-      expect(ownerEvents.some((e) => e.type === "orbit.note.created")).toBe(true);
-      expect(agentEvents.some((e) => e.type === "orbit.note.created")).toBe(false);
+      expect(ownerEvents.some((e) => e.type === "orbit.note.created")).toBe(
+        true
+      );
+      expect(agentEvents.some((e) => e.type === "orbit.note.created")).toBe(
+        false
+      );
     } finally {
       await app.close();
       app = undefined;
@@ -229,7 +351,7 @@ describe("publishLiveOnly persistence guarantee", () => {
       const created = await app.inject({
         method: "POST",
         url: "/rooms",
-        payload: { name: "Room", display_name: "Owner" }
+        payload: { name: "Room", display_name: "Owner" },
       });
       const room = created.json() as { room_id: string; owner_token: string };
       roomId = room.room_id;
@@ -238,21 +360,25 @@ describe("publishLiveOnly persistence guarantee", () => {
         method: "POST",
         url: `/rooms/${room.room_id}/agents/register`,
         headers: { authorization: `Bearer ${room.owner_token}` },
-        payload: { name: "TestAgent", capabilities: ["llm-api"] }
+        payload: {
+          compatibility: testConnectorCompatibility,
+          name: "TestAgent",
+          capabilities: ["kimi-cli"],
+        },
       });
       const agent = agentReg.json() as { agent_id: string };
       await app.inject({
         method: "POST",
         url: `/rooms/${room.room_id}/agents/select`,
         headers: { authorization: `Bearer ${room.owner_token}` },
-        payload: { agent_id: agent.agent_id }
+        payload: { agent_id: agent.agent_id },
       });
 
       const noteRes = await app.inject({
         method: "POST",
         url: `/rooms/${room.room_id}/orbit/notes`,
         headers: { authorization: `Bearer ${room.owner_token}` },
-        payload: { text: "Live only" }
+        payload: { text: "Live only" },
       });
       expect(noteRes.statusCode).toBe(201);
     } finally {

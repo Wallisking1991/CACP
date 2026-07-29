@@ -18,7 +18,7 @@ function makeNode(overrides: Partial<AgentRunNodeView> = {}): AgentRunNodeView {
     stdout_chunks: [],
     stderr_chunks: [],
     started_at: new Date().toISOString(),
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -26,7 +26,13 @@ describe("AgentRunInteractionCard", () => {
   it("renders approval buttons for approval nodes", () => {
     const node = makeNode({ kind: "approval" });
     const onResolveApproval = vi.fn();
-    render(<AgentRunInteractionCard runId="run_1" node={node} onResolveApproval={onResolveApproval} />);
+    render(
+      <AgentRunInteractionCard
+        runId="run_1"
+        node={node}
+        onResolveApproval={onResolveApproval}
+      />
+    );
     fireEvent.click(screen.getByText("Allow"));
     expect(onResolveApproval).toHaveBeenCalledWith("run_1", "node_1", "allow");
   });
@@ -34,9 +40,20 @@ describe("AgentRunInteractionCard", () => {
   it("renders default elicitation buttons when no questions present", () => {
     const node = makeNode({ kind: "elicitation" });
     const onResolveElicitation = vi.fn();
-    render(<AgentRunInteractionCard runId="run_1" node={node} onResolveElicitation={onResolveElicitation} />);
+    render(
+      <AgentRunInteractionCard
+        runId="run_1"
+        node={node}
+        onResolveElicitation={onResolveElicitation}
+      />
+    );
     fireEvent.click(screen.getByText("Accept"));
-    expect(onResolveElicitation).toHaveBeenCalledWith("run_1", "node_1", "accept", {});
+    expect(onResolveElicitation).toHaveBeenCalledWith(
+      "run_1",
+      "node_1",
+      "accept",
+      {}
+    );
   });
 
   it("renders Kimi question options and submits answers", () => {
@@ -48,15 +65,21 @@ describe("AgentRunInteractionCard", () => {
             question: "Should I proceed?",
             options: [
               { label: "yes", description: "Proceed" },
-              { label: "no", description: "Cancel" }
+              { label: "no", description: "Cancel" },
             ],
-            multi_select: false
-          }
-        ]
-      }
+            multi_select: false,
+          },
+        ],
+      },
     });
     const onResolveElicitation = vi.fn();
-    render(<AgentRunInteractionCard runId="run_1" node={node} onResolveElicitation={onResolveElicitation} />);
+    render(
+      <AgentRunInteractionCard
+        runId="run_1"
+        node={node}
+        onResolveElicitation={onResolveElicitation}
+      />
+    );
 
     expect(screen.getByText("Should I proceed?")).toBeInTheDocument();
     expect(screen.getByText("yes")).toBeInTheDocument();
@@ -65,7 +88,12 @@ describe("AgentRunInteractionCard", () => {
     fireEvent.click(screen.getByText("yes"));
     fireEvent.click(screen.getByText("Submit"));
 
-    expect(onResolveElicitation).toHaveBeenCalledWith("run_1", "node_1", "accept", { answers: { "0": "yes" } });
+    expect(onResolveElicitation).toHaveBeenCalledWith(
+      "run_1",
+      "node_1",
+      "accept",
+      { answers: { "0": "yes" } }
+    );
   });
 
   it("renders text input for question without options", () => {
@@ -75,19 +103,30 @@ describe("AgentRunInteractionCard", () => {
         questions: [
           {
             question: "What is your name?",
-            options: []
-          }
-        ]
-      }
+            options: [],
+          },
+        ],
+      },
     });
     const onResolveElicitation = vi.fn();
-    render(<AgentRunInteractionCard runId="run_1" node={node} onResolveElicitation={onResolveElicitation} />);
+    render(
+      <AgentRunInteractionCard
+        runId="run_1"
+        node={node}
+        onResolveElicitation={onResolveElicitation}
+      />
+    );
 
     expect(screen.getByText("What is your name?")).toBeInTheDocument();
     const input = screen.getByRole("textbox");
     fireEvent.change(input, { target: { value: "Alice" } });
     fireEvent.click(screen.getByText("Submit"));
 
-    expect(onResolveElicitation).toHaveBeenCalledWith("run_1", "node_1", "accept", { answers: { "0": "Alice" } });
+    expect(onResolveElicitation).toHaveBeenCalledWith(
+      "run_1",
+      "node_1",
+      "accept",
+      { answers: { "0": "Alice" } }
+    );
   });
 });

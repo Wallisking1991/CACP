@@ -14,7 +14,11 @@ export interface SidebarProps {
   canManageRoom: boolean;
   currentParticipantId?: string;
   onSelectAgent: (agentId: string) => void;
-  onCreateInvite: (role: string, ttl: number, maxUses: number) => Promise<string | undefined>;
+  onCreateInvite: (
+    role: string,
+    ttl: number,
+    maxUses: number
+  ) => Promise<string | undefined>;
   onApproveJoinRequest: (requestId: string) => void;
   onRejectJoinRequest: (requestId: string) => void;
   onRemoveParticipant: (participantId: string) => void;
@@ -22,7 +26,11 @@ export interface SidebarProps {
   createdInvite?: { url: string; role: string; ttl: number; max_uses: number };
   invites: InviteView[];
   cloudMode?: boolean;
-  createdPairing?: { connection_code: string; download_url: string; expires_at: string };
+  createdPairing?: {
+    connection_code: string;
+    download_url: string;
+    expires_at: string;
+  };
 }
 
 function agentAvatarInitial(name: string): string {
@@ -32,7 +40,10 @@ function agentAvatarInitial(name: string): string {
   return map[name] ?? name.charAt(0).toUpperCase();
 }
 
-function formatLastSeen(iso: string | undefined, t: ReturnType<typeof useT>): string {
+function formatLastSeen(
+  iso: string | undefined,
+  t: ReturnType<typeof useT>
+): string {
   if (!iso) return "";
   const then = new Date(iso).getTime();
   const now = Date.now();
@@ -51,22 +62,34 @@ function roleClass(role: string): string {
 
 function roleDisplay(role: string, t: ReturnType<typeof useT>): string {
   switch (role) {
-    case "owner": return t("role.owner");
-    case "admin": return t("role.admin");
-    case "member": return t("role.member");
-    case "observer": return t("role.observer");
-    default: return role;
+    case "owner":
+      return t("role.owner");
+    case "admin":
+      return t("role.admin");
+    case "member":
+      return t("role.member");
+    case "observer":
+      return t("role.observer");
+    default:
+      return role;
   }
 }
 
 export function maskConnectionCode(code: string): string {
   if (code.length <= 12) return `••••${code}`;
   const parts = code.split(":");
-  const prefix = parts.length >= 2 ? parts.slice(0, 2).join(":") : code.slice(0, 8);
+  const prefix =
+    parts.length >= 2 ? parts.slice(0, 2).join(":") : code.slice(0, 8);
   return `${prefix}:••••••••${code.slice(-6)}`;
 }
 
-function PlaceholderDialog({ title, onClose }: { title: string; onClose: () => void }) {
+function PlaceholderDialog({
+  title,
+  onClose,
+}: {
+  title: string;
+  onClose: () => void;
+}) {
   const t = useT();
   return (
     <div
@@ -93,7 +116,9 @@ function PlaceholderDialog({ title, onClose }: { title: string; onClose: () => v
         onClick={(e) => e.stopPropagation()}
       >
         <h3 style={{ margin: "0 0 12px", fontSize: 16 }}>{title}</h3>
-        <p style={{ margin: "0 0 16px", color: "var(--ink-3)" }}>{t("sidebar.placeholderBody")}</p>
+        <p style={{ margin: "0 0 16px", color: "var(--ink-3)" }}>
+          {t("sidebar.placeholderBody")}
+        </p>
         <button type="button" className="btn btn-primary" onClick={onClose}>
           {t("sidebar.close")}
         </button>
@@ -130,10 +155,13 @@ export default function Sidebar({
 
   const handleCopyConnector = useCallback(() => {
     if (createdPairing) {
-      navigator.clipboard.writeText(createdPairing.connection_code).then(() => {
-        setConnectorCopied(true);
-        window.setTimeout(() => setConnectorCopied(false), 2000);
-      }).catch(() => {});
+      navigator.clipboard
+        .writeText(createdPairing.connection_code)
+        .then(() => {
+          setConnectorCopied(true);
+          window.setTimeout(() => setConnectorCopied(false), 2000);
+        })
+        .catch(() => {});
     }
   }, [createdPairing]);
 
@@ -176,30 +204,68 @@ export default function Sidebar({
 
           {activeAgent ? (
             <>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }} aria-label={`Active agent ${activeAgent.name}`}>
-                <div className="agent-avatar">{agentAvatarInitial(activeAgent.name)}</div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  marginBottom: 10,
+                }}
+                aria-label={`Active agent ${activeAgent.name}`}
+              >
+                <div className="agent-avatar">
+                  {agentAvatarInitial(activeAgent.name)}
+                </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600 }}>{activeAgent.name}</div>
-                  <div style={{ fontSize: 11, color: "var(--ink-4)", display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>
+                    {activeAgent.name}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: "var(--ink-4)",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
                     <span
-                      className={activeAgent.status === "online" ? "status-dot online" : "status-dot"}
+                      className={
+                        activeAgent.status === "online"
+                          ? "status-dot online"
+                          : "status-dot"
+                      }
                     />
                     {activeAgent.status === "online"
                       ? t("agent.status.online")
                       : t("agent.status.offline")}
-                    {activeAgent.last_status_at && activeAgent.status !== "online" && (
-                      <span>· {formatLastSeen(activeAgent.last_status_at, t)}</span>
-                    )}
+                    {activeAgent.last_status_at &&
+                      activeAgent.status !== "online" && (
+                        <span>
+                          · {formatLastSeen(activeAgent.last_status_at, t)}
+                        </span>
+                      )}
                   </div>
                 </div>
               </div>
 
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 6,
+                  flexWrap: "wrap",
+                  marginBottom: 10,
+                }}
+              >
                 {activeAgent.capabilities.map((cap) => (
-                  <span key={cap} className="permission-tag">{cap}</span>
+                  <span key={cap} className="permission-tag">
+                    {cap}
+                  </span>
                 ))}
                 {activeAgent.capabilities.length === 0 && (
-                  <span className="permission-tag">{t("sidebar.noCapabilities")}</span>
+                  <span className="permission-tag">
+                    {t("sidebar.noCapabilities")}
+                  </span>
                 )}
               </div>
 
@@ -209,7 +275,9 @@ export default function Sidebar({
                     type="button"
                     className="btn btn-ghost"
                     style={{ padding: "4px 8px", fontSize: 11 }}
-                    onClick={() => openPlaceholder(t("sidebar.restartAgentTitle"))}
+                    onClick={() =>
+                      openPlaceholder(t("sidebar.restartAgentTitle"))
+                    }
                   >
                     {t("sidebar.restart")}
                   </button>
@@ -217,7 +285,9 @@ export default function Sidebar({
                     type="button"
                     className="btn btn-ghost"
                     style={{ padding: "4px 8px", fontSize: 11 }}
-                    onClick={() => openPlaceholder(t("sidebar.changePermissionTitle"))}
+                    onClick={() =>
+                      openPlaceholder(t("sidebar.changePermissionTitle"))
+                    }
                   >
                     {t("sidebar.changePermission")}
                   </button>
@@ -227,14 +297,25 @@ export default function Sidebar({
                     aria-checked={activeAgent.thinking_enabled !== false}
                     className="btn btn-ghost"
                     style={{ padding: "4px 8px", fontSize: 11 }}
-                    onClick={() => onUpdateAgentThinking?.(activeAgent.agent_id, activeAgent.thinking_enabled === false)}
+                    onClick={() =>
+                      onUpdateAgentThinking?.(
+                        activeAgent.agent_id,
+                        activeAgent.thinking_enabled === false
+                      )
+                    }
                   >
-                    {activeAgent.thinking_enabled !== false ? t("sidebar.thinkingOn") : t("sidebar.thinkingOff")}
+                    {activeAgent.thinking_enabled !== false
+                      ? t("sidebar.thinkingOn")
+                      : t("sidebar.thinkingOff")}
                   </button>
                   <button
                     type="button"
                     className="btn btn-ghost"
-                    style={{ padding: "4px 8px", fontSize: 11, color: "var(--danger)" }}
+                    style={{
+                      padding: "4px 8px",
+                      fontSize: 11,
+                      color: "var(--danger)",
+                    }}
                     onClick={() => onRemoveParticipant(activeAgent.agent_id)}
                     title={t("sidebar.removeAgent")}
                   >
@@ -244,7 +325,9 @@ export default function Sidebar({
               )}
             </>
           ) : (
-            <p style={{ fontSize: 13, color: "var(--ink-3)" }}>{t("sidebar.noActiveAgent")}</p>
+            <p style={{ fontSize: 13, color: "var(--ink-3)" }}>
+              {t("sidebar.noActiveAgent")}
+            </p>
           )}
 
           <select
@@ -260,7 +343,10 @@ export default function Sidebar({
             <option value="">{t("sidebar.selectAgent")}</option>
             {agents.map((agent) => (
               <option key={agent.agent_id} value={agent.agent_id}>
-                {agent.status === "online" ? t("agent.status.online") : t("agent.status.offline")} · {agent.name}
+                {agent.status === "online"
+                  ? t("agent.status.online")
+                  : t("agent.status.offline")}{" "}
+                · {agent.name}
               </option>
             ))}
           </select>
@@ -290,16 +376,24 @@ export default function Sidebar({
               <span style={{ fontSize: 13 }}>
                 {p.display_name}
                 {p.id === currentParticipantId && (
-                  <span style={{ color: "var(--ink-4)", marginLeft: 4 }}>{t("sidebar.you")}</span>
+                  <span style={{ color: "var(--ink-4)", marginLeft: 4 }}>
+                    {t("sidebar.you")}
+                  </span>
                 )}
               </span>
               <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span className={roleClass(p.role)}>{roleDisplay(p.role, t)}</span>
+                <span className={roleClass(p.role)}>
+                  {roleDisplay(p.role, t)}
+                </span>
                 {isOwner && p.role !== "owner" && (
                   <button
                     type="button"
                     className="btn btn-ghost"
-                    style={{ padding: "2px 6px", fontSize: 11, color: "var(--ink-4)" }}
+                    style={{
+                      padding: "2px 6px",
+                      fontSize: 11,
+                      color: "var(--ink-4)",
+                    }}
                     onClick={() => onRemoveParticipant(p.id)}
                     title={t("sidebar.removeParticipant")}
                   >
@@ -311,7 +405,9 @@ export default function Sidebar({
           ))}
 
           {participants.length === 0 && (
-            <p style={{ fontSize: 13, color: "var(--ink-3)" }}>{t("sidebar.noPeople")}</p>
+            <p style={{ fontSize: 13, color: "var(--ink-3)" }}>
+              {t("sidebar.noPeople")}
+            </p>
           )}
         </div>
 
@@ -319,7 +415,9 @@ export default function Sidebar({
         {isOwner && joinRequests.length > 0 && (
           <div className="card">
             <div className="sidebar-card-title-row">
-              <span className="section-label">{t("sidebar.joinRequestsLabel")}</span>
+              <span className="section-label">
+                {t("sidebar.joinRequestsLabel")}
+              </span>
               <span
                 style={{
                   fontSize: 11,
@@ -376,7 +474,14 @@ export default function Sidebar({
               </button>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr 1fr",
+                gap: 8,
+                marginBottom: 10,
+              }}
+            >
               <select
                 className="input"
                 value={inviteRole}
@@ -450,12 +555,19 @@ export default function Sidebar({
         {cloudMode && isOwner && createdPairing && (
           <div className="card">
             <div className="sidebar-card-title-row">
-              <span className="section-label">{t("sidebar.connectorLabel")}</span>
+              <span className="section-label">
+                {t("sidebar.connectorLabel")}
+              </span>
             </div>
 
             <a
               className="btn btn-warm"
-              style={{ display: "block", textAlign: "center", marginBottom: 10, textDecoration: "none" }}
+              style={{
+                display: "block",
+                textAlign: "center",
+                marginBottom: 10,
+                textDecoration: "none",
+              }}
               href={createdPairing.download_url}
               download
             >
@@ -475,14 +587,24 @@ export default function Sidebar({
                 color: "var(--ink-2)",
               }}
             >
-              <span style={{ display: "block", marginBottom: 4, color: "var(--ink-4)" }}>
+              <span
+                style={{
+                  display: "block",
+                  marginBottom: 4,
+                  color: "var(--ink-4)",
+                }}
+              >
                 {t("sidebar.connectionCodePreview")}
               </span>
               {maskConnectionCode(createdPairing.connection_code)}
             </code>
 
-            <p style={{ fontSize: 11, color: "var(--ink-3)", margin: "0 0 8px" }}>
-              {t("sidebar.connectorHelp", { expiresAt: new Date(createdPairing.expires_at).toLocaleString() })}
+            <p
+              style={{ fontSize: 11, color: "var(--ink-3)", margin: "0 0 8px" }}
+            >
+              {t("sidebar.connectorHelp", {
+                expiresAt: new Date(createdPairing.expires_at).toLocaleString(),
+              })}
             </p>
 
             <button
@@ -491,13 +613,17 @@ export default function Sidebar({
               style={{ width: "100%" }}
               onClick={handleCopyConnector}
             >
-              {connectorCopied ? t("sidebar.connectionCodeCopied") : t("sidebar.copyConnectionCode")}
+              {connectorCopied
+                ? t("sidebar.connectionCodeCopied")
+                : t("sidebar.copyConnectionCode")}
             </button>
           </div>
         )}
       </aside>
 
-      {dialog && <PlaceholderDialog title={dialog.title} onClose={closeDialog} />}
+      {dialog && (
+        <PlaceholderDialog title={dialog.title} onClose={closeDialog} />
+      )}
     </>
   );
 }

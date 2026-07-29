@@ -18,7 +18,9 @@ describe("SoundPanel", () => {
       </LangProvider>
     );
 
-    expect(screen.getByRole("switch", { name: /sound cues/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("switch", { name: /sound cues/i })
+    ).toBeInTheDocument();
     expect(screen.getByRole("slider", { name: /volume/i })).toBeInTheDocument();
   });
 
@@ -54,7 +56,9 @@ describe("SoundPanel", () => {
       </LangProvider>
     );
 
-    fireEvent.change(screen.getByRole("slider", { name: /volume/i }), { target: { value: "0.75" } });
+    fireEvent.change(screen.getByRole("slider", { name: /volume/i }), {
+      target: { value: "0.75" },
+    });
     expect(onSoundVolumeChange).toHaveBeenCalledWith(0.75);
   });
 

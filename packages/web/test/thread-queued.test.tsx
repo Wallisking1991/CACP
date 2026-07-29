@@ -18,13 +18,15 @@ function renderThread(messages: MessageView[], pendingAgentName?: string) {
 
 describe("Thread queued messages", () => {
   it("renders queued message with dashed border style", () => {
-    const messages: MessageView[] = [{
-      message_id: "in1",
-      actor_id: "p1",
-      text: "Hello Agent",
-      kind: "queued",
-      created_at: "2026-05-02T00:00:00.000Z"
-    }];
+    const messages: MessageView[] = [
+      {
+        message_id: "in1",
+        actor_id: "p1",
+        text: "Hello Agent",
+        kind: "queued",
+        created_at: "2026-05-02T00:00:00.000Z",
+      },
+    ];
     renderThread(messages);
     const msg = screen.getByText("Hello Agent");
     expect(msg).toBeInTheDocument();
@@ -33,13 +35,15 @@ describe("Thread queued messages", () => {
   });
 
   it("shows 'QUEUED' label for queued messages", () => {
-    const messages: MessageView[] = [{
-      message_id: "in1",
-      actor_id: "p1",
-      text: "Hello",
-      kind: "queued",
-      created_at: "2026-05-02T00:00:00.000Z"
-    }];
+    const messages: MessageView[] = [
+      {
+        message_id: "in1",
+        actor_id: "p1",
+        text: "Hello",
+        kind: "queued",
+        created_at: "2026-05-02T00:00:00.000Z",
+      },
+    ];
     renderThread(messages);
     expect(screen.getByText(/QUEUED/i)).toBeInTheDocument();
   });

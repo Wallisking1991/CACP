@@ -17,7 +17,7 @@ describe("studio room CSS source", () => {
       ".message-ai-card",
       ".message-system-marker",
       ".composer-send-floating",
-      ".room-control-center"
+      ".room-control-center",
     ]) {
       expect(css).toContain(selector);
     }
@@ -44,9 +44,13 @@ describe("studio room CSS source", () => {
   });
 
   it("workspace-shell background has no grid lines, keeps glow and base color", () => {
-    expect(css).not.toMatch(/\.workspace-shell::before\s*\{[^}]*linear-gradient\([^)]*rgba\(194,\s*65,\s*12,\s*0\.18\)/s);
-    expect(css).not.toMatch(/\.workspace-shell::before\s*\{[^}]*background-size:/s);
-    expect(css).toMatch(/radial-gradient\(circle at 22% 18%/);
+    expect(css).not.toMatch(
+      /\.workspace-shell::before\s*\{[^}]*linear-gradient\([^)]*rgba\(194,\s*65,\s*12,\s*0\.18\)/s
+    );
+    expect(css).not.toMatch(
+      /\.workspace-shell::before\s*\{[^}]*background-size:/s
+    );
+    expect(css).toMatch(/radial-gradient\(\s*circle at 22% 18%/);
     expect(css).toMatch(/var\(--bg\)/);
   });
 
@@ -54,7 +58,9 @@ describe("studio room CSS source", () => {
     expect(css).toMatch(/\.agent-ripple-overlay\s*\{[^}]*position:\s*fixed/s);
     expect(css).toMatch(/\.agent-ripple-overlay\s*\{[^}]*inset:\s*0/s);
     expect(css).toMatch(/\.agent-ripple-overlay\s*\{[^}]*z-index:/s);
-    expect(css).toMatch(/\.agent-ripple-overlay\s*\{[^}]*pointer-events:\s*none/s);
+    expect(css).toMatch(
+      /\.agent-ripple-overlay\s*\{[^}]*pointer-events:\s*none/s
+    );
   });
 
   it("defines agent wave layers and ripples using CSS variable for color", () => {

@@ -11,7 +11,13 @@ export interface OrbitPromoteModalProps {
   onClose: () => void;
 }
 
-export function OrbitPromoteModal({ open, notes, canPromote, onPromote, onClose }: OrbitPromoteModalProps) {
+export function OrbitPromoteModal({
+  open,
+  notes,
+  canPromote,
+  onPromote,
+  onClose,
+}: OrbitPromoteModalProps) {
   const t = useT();
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
@@ -37,7 +43,8 @@ export function OrbitPromoteModal({ open, notes, canPromote, onPromote, onClose 
   if (!open || typeof document === "undefined") return null;
 
   const sortedNotes = [...notes].sort(
-    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    (a, b) =>
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   );
 
   const toggleNote = (noteId: string) => {
@@ -51,10 +58,15 @@ export function OrbitPromoteModal({ open, notes, canPromote, onPromote, onClose 
   };
 
   const allSelected = notes.length > 0 && selected.size === notes.length;
-  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(notes.map((note) => note.note_id)));
+  const toggleAll = () =>
+    setSelected(
+      allSelected ? new Set() : new Set(notes.map((note) => note.note_id))
+    );
 
   const handlePromote = () => {
-    const ids = notes.map((note) => note.note_id).filter((id) => selected.has(id));
+    const ids = notes
+      .map((note) => note.note_id)
+      .filter((id) => selected.has(id));
     if (ids.length === 0 || !canPromote) return;
     onPromote(ids);
     onClose();
@@ -64,13 +76,12 @@ export function OrbitPromoteModal({ open, notes, canPromote, onPromote, onClose 
   const cancelLabel = String(t("orbitPromote.cancel"));
   const closeLabel = String(t("orbitPromote.close"));
   const titleLabel = String(t("orbitPromote.title"));
-  const toggleAllLabel = String(t(allSelected ? "orbitPromote.deselectAll" : "orbitPromote.selectAll"));
+  const toggleAllLabel = String(
+    t(allSelected ? "orbitPromote.deselectAll" : "orbitPromote.selectAll")
+  );
 
   return createPortal(
-    <div
-      className="orbit-promote-modal-overlay"
-      onClick={onClose}
-    >
+    <div className="orbit-promote-modal-overlay" onClick={onClose}>
       <div
         className="orbit-promote-modal"
         role="dialog"
@@ -136,7 +147,12 @@ export function OrbitPromoteModal({ open, notes, canPromote, onPromote, onClose 
           >
             {promoteLabel}
             {selected.size > 0 && (
-              <span className="orbit-promote-modal-promote__badge" aria-hidden="true">{selected.size}</span>
+              <span
+                className="orbit-promote-modal-promote__badge"
+                aria-hidden="true"
+              >
+                {selected.size}
+              </span>
             )}
           </button>
         </div>

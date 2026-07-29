@@ -12,7 +12,6 @@ describe("Workspace visual atmosphere", () => {
           token: "tok",
           participant_id: "p1",
           role: "owner",
-          display_name: "Test",
         }}
         events={[]}
         onLeaveRoom={() => {}}
@@ -43,7 +42,6 @@ describe("Workspace visual atmosphere", () => {
           token: "tok",
           participant_id: "p1",
           role: "owner",
-          display_name: "Test",
         }}
         events={[]}
         onLeaveRoom={() => {}}
@@ -71,7 +69,6 @@ describe("Workspace visual atmosphere", () => {
           token: "tok",
           participant_id: "p1",
           role: "owner",
-          display_name: "Test",
         }}
         events={[]}
         onLeaveRoom={() => {}}
@@ -95,11 +92,28 @@ describe("Workspace visual atmosphere", () => {
       <Thread
         currentParticipantId="p1"
         messages={[
-          { message_id: "m1", actor_id: "p1", text: "Hello world", kind: "human", created_at: "2026-04-30T00:00:00.000Z" },
-          { message_id: "m2", actor_id: "p2", text: "Hi there", kind: "agent", created_at: "2026-04-30T00:00:01.000Z" },
+          {
+            message_id: "m1",
+            actor_id: "p1",
+            text: "Hello world",
+            kind: "human",
+            created_at: "2026-04-30T00:00:00.000Z",
+          },
+          {
+            message_id: "m2",
+            actor_id: "p2",
+            text: "Hi there",
+            kind: "agent",
+            created_at: "2026-04-30T00:00:01.000Z",
+          },
         ]}
         streamingTurns={[]}
-        actorNames={new Map([["p1", "Alice"], ["p2", "Bob"]])}
+        actorNames={
+          new Map([
+            ["p1", "Alice"],
+            ["p2", "Bob"],
+          ])
+        }
       />
     );
 

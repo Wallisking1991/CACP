@@ -6,7 +6,7 @@ import type {
   AgentRunNodeStartedPayload,
   AgentRunNodeStatus,
   AgentRunNodeUpdatedPayload,
-  AgentRunSourceRefs
+  AgentRunSourceRefs,
 } from "@cacp/protocol";
 
 export interface RunTraceContext {
@@ -59,7 +59,9 @@ export class RunTraceRecorder {
   }
 
   openNodeIds(): string[] {
-    return [...this.nodes.values()].filter((node) => !node.terminal).map((node) => node.nodeId);
+    return [...this.nodes.values()]
+      .filter((node) => !node.terminal)
+      .map((node) => node.nodeId);
   }
 
   currentTitle(nodeId: string): string | undefined {
@@ -102,7 +104,7 @@ export class RunTraceRecorder {
       ...(input.detail ? { detail: input.detail } : {}),
       ...(input.sourceRefs ? { source_refs: input.sourceRefs } : {}),
       started_at: timestamp,
-      updated_at: timestamp
+      updated_at: timestamp,
     });
 
     this.nodes.set(input.nodeId, {
@@ -110,7 +112,7 @@ export class RunTraceRecorder {
       kind: input.kind,
       title,
       status: input.status ?? "running",
-      terminal: false
+      terminal: false,
     });
   }
 
@@ -119,9 +121,18 @@ export class RunTraceRecorder {
     deltaType: "text" | "stdout" | "stderr";
     chunk: string;
   }): Promise<void> {
-    if (!input.chunk || !this.nodes.has(input.nodeId) || this.isTerminal(input.nodeId)) return;
+    if (
+      !input.chunk ||
+      !this.nodes.has(input.nodeId) ||
+      this.isTerminal(input.nodeId)
+    )
+      return;
 
-    for (let offset = 0; offset < input.chunk.length; offset += NodeDeltaChunkLimit) {
+    for (
+      let offset = 0;
+      offset < input.chunk.length;
+      offset += NodeDeltaChunkLimit
+    ) {
       const chunk = input.chunk.slice(offset, offset + NodeDeltaChunkLimit);
       await this.sink.appendNodeDelta({
         run_id: this.context.turnId,
@@ -131,7 +142,7 @@ export class RunTraceRecorder {
         node_id: input.nodeId,
         delta_type: input.deltaType,
         chunk,
-        updated_at: this.now()
+        updated_at: this.now(),
       });
     }
   }
@@ -145,7 +156,9 @@ export class RunTraceRecorder {
   }): Promise<void> {
     const existing = this.nodes.get(input.nodeId);
     if (!existing || existing.terminal) return;
-    const title = input.title ? limitProtocolText(input.title, ProtocolShortTextLimit) : undefined;
+    const title = input.title
+      ? limitProtocolText(input.title, ProtocolShortTextLimit)
+      : undefined;
 
     await this.sink.updateNode({
       run_id: this.context.turnId,
@@ -157,13 +170,13 @@ export class RunTraceRecorder {
       ...(title ? { title } : {}),
       ...(input.detail ? { detail: input.detail } : {}),
       ...(input.sourceRefs ? { source_refs: input.sourceRefs } : {}),
-      updated_at: this.now()
+      updated_at: this.now(),
     });
 
     this.nodes.set(input.nodeId, {
       ...existing,
       ...(input.status ? { status: input.status } : {}),
-      ...(title ? { title } : {})
+      ...(title ? { title } : {}),
     });
   }
 
@@ -181,15 +194,17 @@ export class RunTraceRecorder {
       agent_id: this.context.agentId,
       provider: this.context.provider,
       node_id: input.nodeId,
-      ...(input.summary ? { summary: limitProtocolText(input.summary, ProtocolShortTextLimit) } : {}),
+      ...(input.summary
+        ? { summary: limitProtocolText(input.summary, ProtocolShortTextLimit) }
+        : {}),
       ...(input.detail ? { detail: input.detail } : {}),
-      completed_at: this.now()
+      completed_at: this.now(),
     });
 
     this.nodes.set(input.nodeId, {
       ...existing,
       status: "completed",
-      terminal: true
+      terminal: true,
     });
   }
 
@@ -209,13 +224,13 @@ export class RunTraceRecorder {
       node_id: input.nodeId,
       error: limitProtocolText(input.error, ProtocolErrorTextLimit),
       ...(input.detail ? { detail: input.detail } : {}),
-      failed_at: this.now()
+      failed_at: this.now(),
     });
 
     this.nodes.set(input.nodeId, {
       ...existing,
       status: "failed",
-      terminal: true
+      terminal: true,
     });
   }
 

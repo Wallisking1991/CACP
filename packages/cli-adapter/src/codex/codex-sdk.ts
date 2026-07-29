@@ -2,19 +2,30 @@ import { execSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type { CodexSdk, CodexThread, CodexThreadOptions } from "./types.js";
+import type {
+  CodexInput,
+  CodexSdk,
+  CodexThread,
+  CodexThreadOptions,
+} from "./types.js";
 
 type UnknownCodexModule = Record<string, unknown>;
-type CodexConstructor = new (options?: { codexPathOverride?: string }) => CodexSdk;
+type CodexConstructor = new (options?: {
+  codexPathOverride?: string;
+}) => CodexSdk;
 
-function configuredCodexPath(input: { codexPath?: string }): string | undefined {
+function configuredCodexPath(input: {
+  codexPath?: string;
+}): string | undefined {
   const candidate = input.codexPath ?? process.env.CACP_CODEX_PATH;
   const trimmed = candidate?.trim();
   return trimmed || undefined;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" ? value as Record<string, unknown> : {};
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function wrapThread(rawThread: unknown): CodexThread {
@@ -28,9 +39,11 @@ function wrapThread(rawThread: unknown): CodexThread {
       const id = thread.id;
       return typeof id === "string" ? id : null;
     },
-    async runStreamed(input: string, options?: { signal?: AbortSignal }) {
-      return await runStreamed.call(rawThread, input, options) as { events: AsyncGenerator<never> };
-    }
+    async runStreamed(input: CodexInput, options?: { signal?: AbortSignal }) {
+      return (await runStreamed.call(rawThread, input, options)) as {
+        events: AsyncGenerator<never>;
+      };
+    },
   } as CodexThread;
 }
 
@@ -58,7 +71,7 @@ function platformPackageName(triple: string): string | undefined {
     "x86_64-apple-darwin": "@openai/codex-darwin-x64",
     "aarch64-apple-darwin": "@openai/codex-darwin-arm64",
     "x86_64-unknown-linux-musl": "@openai/codex-linux-x64",
-    "aarch64-unknown-linux-musl": "@openai/codex-linux-arm64"
+    "aarch64-unknown-linux-musl": "@openai/codex-linux-arm64",
   };
   return map[triple];
 }
@@ -67,32 +80,52 @@ function binaryName(): string {
   return process.platform === "win32" ? "codex.exe" : "codex";
 }
 
-function scanForBinary(baseDir: string, triple: string, name: string): string | undefined {
+function scanForBinary(
+  baseDir: string,
+  triple: string,
+  name: string
+): string | undefined {
   const candidate = join(baseDir, "vendor", triple, "codex", name);
   if (existsSync(candidate)) return candidate;
   return undefined;
 }
 
-function scanCodexPackageRoot(packageRoot: string, triple: string, name: string): string | undefined {
+function scanCodexPackageRoot(
+  packageRoot: string,
+  triple: string,
+  name: string
+): string | undefined {
   const direct = scanForBinary(packageRoot, triple, name);
   if (direct) return direct;
 
   const platformPackage = platformPackageName(triple);
   if (!platformPackage) return undefined;
-  const nested = scanForBinary(join(packageRoot, "node_modules", platformPackage), triple, name);
+  const nested = scanForBinary(
+    join(packageRoot, "node_modules", platformPackage),
+    triple,
+    name
+  );
   if (nested) return nested;
   return undefined;
 }
 
-function scanPnpmVirtualStore(baseDirs: string[], triple: string, name: string): string | undefined {
+function scanPnpmVirtualStore(
+  baseDirs: string[],
+  triple: string,
+  name: string
+): string | undefined {
   for (const base of baseDirs) {
     const pnpmDir = join(base, "node_modules", ".pnpm");
     if (!existsSync(pnpmDir)) continue;
     try {
       const entries = readdirSync(pnpmDir, { withFileTypes: true });
       for (const entry of entries) {
-        if (entry.isDirectory() && entry.name.startsWith("@openai+codex@") && entry.name.includes("win32")) {
-          const candidate = scanForBinary(join(pnpmDir, entry.name, "node_modules", "@openai", "codex"), triple, name);
+        if (entry.isDirectory() && entry.name.startsWith("@openai+codex@")) {
+          const candidate = scanCodexPackageRoot(
+            join(pnpmDir, entry.name, "node_modules", "@openai", "codex"),
+            triple,
+            name
+          );
           if (candidate) return candidate;
         }
       }
@@ -103,9 +136,17 @@ function scanPnpmVirtualStore(baseDirs: string[], triple: string, name: string):
   return undefined;
 }
 
-function scanNpmLocal(baseDirs: string[], triple: string, name: string): string | undefined {
+function scanNpmLocal(
+  baseDirs: string[],
+  triple: string,
+  name: string
+): string | undefined {
   for (const base of baseDirs) {
-    const candidate = scanCodexPackageRoot(join(base, "node_modules", "@openai", "codex"), triple, name);
+    const candidate = scanCodexPackageRoot(
+      join(base, "node_modules", "@openai", "codex"),
+      triple,
+      name
+    );
     if (candidate) return candidate;
   }
   return undefined;
@@ -113,7 +154,10 @@ function scanNpmLocal(baseDirs: string[], triple: string, name: string): string 
 
 function resolveNpmGlobalRoot(): string | undefined {
   try {
-    const result = execSync("npm root -g", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    const result = execSync("npm root -g", {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
     if (result && existsSync(result)) return result;
   } catch {
     // ignore
@@ -123,7 +167,10 @@ function resolveNpmGlobalRoot(): string | undefined {
 
 function resolvePnpmGlobalRoot(): string | undefined {
   try {
-    const result = execSync("pnpm root -g", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    const result = execSync("pnpm root -g", {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
     if (result && existsSync(result)) return result;
   } catch {
     // ignore
@@ -133,7 +180,10 @@ function resolvePnpmGlobalRoot(): string | undefined {
 
 function resolveYarnGlobalRoot(): string | undefined {
   try {
-    const globalDir = execSync("yarn global dir", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    const globalDir = execSync("yarn global dir", {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
     if (globalDir) {
       const candidate = join(globalDir, "node_modules");
       if (existsSync(candidate)) return candidate;
@@ -160,7 +210,8 @@ function scanNpmGlobal(triple: string, name: string): string | undefined {
     const appData = process.env.APPDATA;
     if (appData) globalRoots.push(join(appData, "npm", "node_modules"));
     const localAppData = process.env.LOCALAPPDATA;
-    if (localAppData) globalRoots.push(join(localAppData, "npm", "node_modules"));
+    if (localAppData)
+      globalRoots.push(join(localAppData, "npm", "node_modules"));
   } else {
     globalRoots.push(join(homedir(), ".npm", "lib", "node_modules"));
     globalRoots.push("/usr/local/lib/node_modules");
@@ -168,7 +219,11 @@ function scanNpmGlobal(triple: string, name: string): string | undefined {
   }
 
   for (const root of globalRoots) {
-    const candidate = scanCodexPackageRoot(join(root, "@openai", "codex"), triple, name);
+    const candidate = scanCodexPackageRoot(
+      join(root, "@openai", "codex"),
+      triple,
+      name
+    );
     if (candidate) return candidate;
   }
   return undefined;
@@ -195,11 +250,16 @@ function scanPathEnv(triple: string, name: string): string | undefined {
 
 function execWhich(command: string): string | undefined {
   try {
-    const result = execSync(command, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }).trim();
+    const result = execSync(command, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
+    }).trim();
     if (result) {
       const first = result.split(/\r?\n/)[0].trim();
       // On Windows, reject .cmd/.bat shims
-      if (process.platform === "win32" && /\.(cmd|bat)$/i.test(first)) return undefined;
+      if (process.platform === "win32" && /\.(cmd|bat)$/i.test(first))
+        return undefined;
       if (existsSync(first)) return first;
     }
   } catch {
@@ -217,15 +277,8 @@ export function findCodexBinary(): string | undefined {
   const baseDirs: string[] = [];
   try {
     baseDirs.push(process.cwd());
-  } catch { /* ignore */ }
-
-  // Try "which" / "where" first
-  if (process.platform === "win32") {
-    const fromWhere = execWhich("where.exe codex.exe");
-    if (fromWhere) return fromWhere;
-  } else {
-    const fromWhich = execWhich("which codex");
-    if (fromWhich) return fromWhich;
+  } catch {
+    /* ignore */
   }
 
   // Scan pnpm virtual store
@@ -235,6 +288,15 @@ export function findCodexBinary(): string | undefined {
   // Scan npm local installs
   const fromNpmLocal = scanNpmLocal(baseDirs, triple, name);
   if (fromNpmLocal) return fromNpmLocal;
+
+  // Prefer a project-local SDK binary over an unrelated system installation.
+  if (process.platform === "win32") {
+    const fromWhere = execWhich("where.exe codex.exe");
+    if (fromWhere) return fromWhere;
+  } else {
+    const fromWhich = execWhich("which codex");
+    if (fromWhich) return fromWhich;
+  }
 
   // Scan npm global installs
   const fromNpmGlobal = scanNpmGlobal(triple, name);
@@ -247,25 +309,34 @@ export function findCodexBinary(): string | undefined {
   return undefined;
 }
 
-export function createCodexSdkFromModule(module: UnknownCodexModule, input: { codexPath?: string } = {}): CodexSdk {
+export function createCodexSdkFromModule(
+  module: UnknownCodexModule,
+  input: { codexPath?: string } = {}
+): CodexSdk {
   const Codex = module.Codex;
   if (typeof Codex !== "function") {
-    throw new Error("Codex SDK constructor was not found. Install @openai/codex-sdk.");
+    throw new Error(
+      "Codex SDK constructor was not found. Install @openai/codex-sdk."
+    );
   }
   const codexPathOverride = configuredCodexPath(input);
-  const client = new (Codex as CodexConstructor)(codexPathOverride ? { codexPathOverride } : {});
+  const client = new (Codex as CodexConstructor)(
+    codexPathOverride ? { codexPathOverride } : {}
+  );
   return {
     startThread(options: CodexThreadOptions): CodexThread {
       return wrapThread(client.startThread(options));
     },
     resumeThread(id: string, options: CodexThreadOptions): CodexThread {
       return wrapThread(client.resumeThread(id, options));
-    }
+    },
   };
 }
 
-export async function loadCodexSdk(input: { codexPath?: string } = {}): Promise<CodexSdk> {
-  const module = await import("@openai/codex-sdk") as UnknownCodexModule;
+export async function loadCodexSdk(
+  input: { codexPath?: string } = {}
+): Promise<CodexSdk> {
+  const module = (await import("@openai/codex-sdk")) as UnknownCodexModule;
 
   // First attempt: let the SDK resolve the binary normally (works in regular node_modules installs)
   try {
@@ -279,14 +350,15 @@ export async function loadCodexSdk(input: { codexPath?: string } = {}): Promise<
   }
 
   // Second attempt: search for the binary ourselves and provide it as override
-  const binaryPath = input.codexPath ?? findCodexBinary() ?? process.env.CACP_CODEX_PATH;
+  const binaryPath =
+    input.codexPath ?? findCodexBinary() ?? process.env.CACP_CODEX_PATH;
   if (binaryPath) {
     return createCodexSdkFromModule(module, { codexPath: binaryPath });
   }
 
   throw new Error(
     "Unable to locate Codex CLI binaries. " +
-    "Install @openai/codex (e.g. npm install -g @openai/codex) " +
-    "or set the CACP_CODEX_PATH environment variable to the codex executable."
+      "Install @openai/codex (e.g. npm install -g @openai/codex) " +
+      "or set the CACP_CODEX_PATH environment variable to the codex executable."
   );
 }

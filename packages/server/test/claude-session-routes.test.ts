@@ -1,107 +1,158 @@
+import { testConnectorCompatibility } from "./test-compatibility.js";
 import { describe, expect, it } from "vitest";
 import { buildServer } from "../src/server.js";
 
 async function createRoomAndOwner() {
   const app = await buildServer({ dbPath: ":memory:" });
-  const roomResponse = await app.inject({ method: "POST", url: "/rooms", payload: { name: "Claude Room", display_name: "Owner" } });
-  const room = roomResponse.json() as { room_id: string; owner_token: string; owner_id: string };
+  const roomResponse = await app.inject({
+    method: "POST",
+    url: "/rooms",
+    payload: { name: "Claude Room", display_name: "Owner" },
+  });
+  const room = roomResponse.json() as {
+    room_id: string;
+    owner_token: string;
+    owner_id: string;
+  };
   return { app, room };
 }
 
-async function inviteMember(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerToken: string, historyAccess?: "allowed" | "denied") {
+async function inviteMember(
+  app: Awaited<ReturnType<typeof buildServer>>,
+  roomId: string,
+  ownerToken: string,
+  historyAccess?: "allowed" | "denied"
+) {
   const body: Record<string, unknown> = { role: "member" };
   if (historyAccess) body.main_thread_history_access = historyAccess;
   const inviteResponse = await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/invites`,
     headers: { authorization: `Bearer ${ownerToken}` },
-    payload: body
+    payload: body,
   });
   const invite = inviteResponse.json() as { invite_token: string };
   const pending = await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/join-requests`,
-    payload: { invite_token: invite.invite_token, display_name: "Member" }
+    payload: { invite_token: invite.invite_token, display_name: "Member" },
   });
-  const request = pending.json() as { request_id: string; request_token: string };
+  const request = pending.json() as {
+    request_id: string;
+    request_token: string;
+  };
   await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/join-requests/${request.request_id}/approve`,
     headers: { authorization: `Bearer ${ownerToken}` },
-    payload: {}
+    payload: {},
   });
   const status = await app.inject({
     method: "GET",
-    url: `/rooms/${roomId}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}`
+    url: `/rooms/${roomId}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}`,
   });
   return status.json() as { participant_token: string };
 }
 
-async function inviteObserver(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerToken: string) {
+async function inviteObserver(
+  app: Awaited<ReturnType<typeof buildServer>>,
+  roomId: string,
+  ownerToken: string
+) {
   const inviteResponse = await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/invites`,
     headers: { authorization: `Bearer ${ownerToken}` },
-    payload: { role: "observer" }
+    payload: { role: "observer" },
   });
   const invite = inviteResponse.json() as { invite_token: string };
   const pending = await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/join-requests`,
-    payload: { invite_token: invite.invite_token, display_name: "Observer" }
+    payload: { invite_token: invite.invite_token, display_name: "Observer" },
   });
-  const request = pending.json() as { request_id: string; request_token: string };
+  const request = pending.json() as {
+    request_id: string;
+    request_token: string;
+  };
   await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/join-requests/${request.request_id}/approve`,
     headers: { authorization: `Bearer ${ownerToken}` },
-    payload: {}
+    payload: {},
   });
   const status = await app.inject({
     method: "GET",
-    url: `/rooms/${roomId}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}`
+    url: `/rooms/${roomId}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}`,
   });
   return status.json() as { participant_token: string };
 }
 
-async function registerAgent(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerToken: string) {
+async function registerAgent(
+  app: Awaited<ReturnType<typeof buildServer>>,
+  roomId: string,
+  ownerToken: string
+) {
   const response = await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/agents/register`,
     headers: { authorization: `Bearer ${ownerToken}` },
-    payload: { name: "Claude Code Agent", capabilities: ["claude-code", "claude.persistent_session"] }
+    payload: {
+      compatibility: testConnectorCompatibility,
+      name: "Claude Code Agent",
+      capabilities: ["claude-code", "claude.persistent_session"],
+    },
   });
   expect(response.statusCode).toBe(201);
   return response.json() as { agent_id: string; agent_token: string };
 }
 
-async function registerNonClaudeAgent(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerToken: string) {
+async function registerNonClaudeAgent(
+  app: Awaited<ReturnType<typeof buildServer>>,
+  roomId: string,
+  ownerToken: string
+) {
   const response = await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/agents/register`,
     headers: { authorization: `Bearer ${ownerToken}` },
-    payload: { name: "LLM Chat Agent", capabilities: ["llm-api"] }
+    payload: {
+      compatibility: testConnectorCompatibility,
+      name: "Kimi Agent",
+      capabilities: ["kimi-cli"],
+    },
   });
   expect(response.statusCode).toBe(201);
   return response.json() as { agent_id: string; agent_token: string };
 }
 
-async function selectAgent(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerToken: string, agentId: string) {
+async function selectAgent(
+  app: Awaited<ReturnType<typeof buildServer>>,
+  roomId: string,
+  ownerToken: string,
+  agentId: string
+) {
   const selectResponse = await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/agents/select`,
     headers: { authorization: `Bearer ${ownerToken}` },
-    payload: { agent_id: agentId }
+    payload: { agent_id: agentId },
   });
   expect(selectResponse.statusCode).toBe(201);
 }
 
-async function selectClaudeSession(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerToken: string, agentId: string, sessionId: string) {
+async function selectClaudeSession(
+  app: Awaited<ReturnType<typeof buildServer>>,
+  roomId: string,
+  ownerToken: string,
+  agentId: string,
+  sessionId: string
+) {
   const response = await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/claude/session-selection`,
     headers: { authorization: `Bearer ${ownerToken}` },
-    payload: { agent_id: agentId, mode: "resume", session_id: sessionId }
+    payload: { agent_id: agentId, mode: "resume", session_id: sessionId },
   });
   expect(response.statusCode).toBe(201);
 }
@@ -119,23 +170,25 @@ describe("Claude session room routes", () => {
       payload: {
         agent_id: agent.agent_id,
         working_dir: "D:\\Development\\2",
-        sessions: [{
-          session_id: "session_1",
-          title: "Planning",
-          project_dir: "D:\\Development\\2",
-          updated_at: "2026-04-29T00:00:00.000Z",
-          message_count: 2,
-          byte_size: 1000,
-          importable: true
-        }]
-      }
+        sessions: [
+          {
+            session_id: "session_1",
+            title: "Planning",
+            project_dir: "D:\\Development\\2",
+            updated_at: "2026-04-29T00:00:00.000Z",
+            message_count: 2,
+            byte_size: 1000,
+            importable: true,
+          },
+        ],
+      },
     });
 
     expect(response.statusCode).toBe(201);
     const events = await app.inject({
       method: "GET",
       url: `/rooms/${room.room_id}/events`,
-      headers: { authorization: `Bearer ${room.owner_token}` }
+      headers: { authorization: `Bearer ${room.owner_token}` },
     });
     expect(events.body).toContain("claude.session_catalog.updated");
     await app.close();
@@ -154,32 +207,46 @@ describe("Claude session room routes", () => {
       payload: {
         agent_id: agent.agent_id,
         working_dir: "D:\\Development\\2",
-        sessions: [{
-          session_id: "session_1",
-          title: "Planning",
-          project_dir: "D:\\Development\\2",
-          updated_at: "2026-04-29T00:00:00.000Z",
-          message_count: 2,
-          byte_size: 1000,
-          importable: true
-        }]
-      }
+        sessions: [
+          {
+            session_id: "session_1",
+            title: "Planning",
+            project_dir: "D:\\Development\\2",
+            updated_at: "2026-04-29T00:00:00.000Z",
+            message_count: 2,
+            byte_size: 1000,
+            importable: true,
+          },
+        ],
+      },
     });
     expect(catalogResponse.statusCode).toBe(201);
 
     const ownerEvents = await app.inject({
       method: "GET",
       url: `/rooms/${room.room_id}/events`,
-      headers: { authorization: `Bearer ${room.owner_token}` }
+      headers: { authorization: `Bearer ${room.owner_token}` },
     });
-    expect(ownerEvents.json().events.some((ev: { type: string }) => ev.type === "claude.session_catalog.updated")).toBe(true);
+    expect(
+      ownerEvents
+        .json()
+        .events.some(
+          (ev: { type: string }) => ev.type === "claude.session_catalog.updated"
+        )
+    ).toBe(true);
 
     const memberEvents = await app.inject({
       method: "GET",
       url: `/rooms/${room.room_id}/events`,
-      headers: { authorization: `Bearer ${member.participant_token}` }
+      headers: { authorization: `Bearer ${member.participant_token}` },
     });
-    expect(memberEvents.json().events.some((ev: { type: string }) => ev.type === "claude.session_catalog.updated")).toBe(false);
+    expect(
+      memberEvents
+        .json()
+        .events.some(
+          (ev: { type: string }) => ev.type === "claude.session_catalog.updated"
+        )
+    ).toBe(false);
 
     await app.close();
   });
@@ -194,7 +261,7 @@ describe("Claude session room routes", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/claude/session-previews`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { agent_id: agent.agent_id, session_id: "session_1" }
+      payload: { agent_id: agent.agent_id, session_id: "session_1" },
     });
     expect(previewRequest.statusCode).toBe(201);
     const preview = previewRequest.json() as { preview_id: string };
@@ -203,32 +270,50 @@ describe("Claude session room routes", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/claude/session-previews/${preview.preview_id}/messages`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: [{
-        preview_id: preview.preview_id,
-        agent_id: agent.agent_id,
-        session_id: "session_1",
-        sequence: 0,
-        author_role: "user",
-        source_kind: "user",
-        text: "Full owner-only preview content"
-      }]
+      payload: [
+        {
+          preview_id: preview.preview_id,
+          agent_id: agent.agent_id,
+          session_id: "session_1",
+          sequence: 0,
+          author_role: "user",
+          source_kind: "user",
+          text: "Full owner-only preview content",
+        },
+      ],
     });
     expect(previewMessages.statusCode).toBe(201);
 
-    const ownerEvents = (await app.inject({
-      method: "GET",
-      url: `/rooms/${room.room_id}/events`,
-      headers: { authorization: `Bearer ${room.owner_token}` }
-    })).json().events as Array<{ type: string }>;
-    expect(ownerEvents.some((event) => event.type === "claude.session_preview.requested")).toBe(true);
-    expect(ownerEvents.some((event) => event.type === "claude.session_preview.message")).toBe(true);
+    const ownerEvents = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: { authorization: `Bearer ${room.owner_token}` },
+      })
+    ).json().events as Array<{ type: string }>;
+    expect(
+      ownerEvents.some(
+        (event) => event.type === "claude.session_preview.requested"
+      )
+    ).toBe(true);
+    expect(
+      ownerEvents.some(
+        (event) => event.type === "claude.session_preview.message"
+      )
+    ).toBe(true);
 
-    const memberEvents = (await app.inject({
-      method: "GET",
-      url: `/rooms/${room.room_id}/events`,
-      headers: { authorization: `Bearer ${member.participant_token}` }
-    })).json().events as Array<{ type: string }>;
-    expect(memberEvents.some((event) => event.type.startsWith("claude.session_preview."))).toBe(false);
+    const memberEvents = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: { authorization: `Bearer ${member.participant_token}` },
+      })
+    ).json().events as Array<{ type: string }>;
+    expect(
+      memberEvents.some((event) =>
+        event.type.startsWith("claude.session_preview.")
+      )
+    ).toBe(false);
 
     await app.close();
   });
@@ -242,25 +327,31 @@ describe("Claude session room routes", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/claude/session-previews`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { agent_id: agent.agent_id, session_id: "session_1" }
+      payload: { agent_id: agent.agent_id, session_id: "session_1" },
     });
     expect(previewRequest.statusCode).toBe(201);
     const preview = previewRequest.json() as { preview_id: string };
 
-    expect((await app.inject({
-      method: "POST",
-      url: `/rooms/${room.room_id}/claude/session-previews/${preview.preview_id}/messages`,
-      headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: [{
-        preview_id: preview.preview_id,
-        agent_id: agent.agent_id,
-        session_id: "session_1",
-        sequence: 0,
-        author_role: "user",
-        source_kind: "user",
-        text: "Only one preview message"
-      }]
-    })).statusCode).toBe(201);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/rooms/${room.room_id}/claude/session-previews/${preview.preview_id}/messages`,
+          headers: { authorization: `Bearer ${agent.agent_token}` },
+          payload: [
+            {
+              preview_id: preview.preview_id,
+              agent_id: agent.agent_id,
+              session_id: "session_1",
+              sequence: 0,
+              author_role: "user",
+              source_kind: "user",
+              text: "Only one preview message",
+            },
+          ],
+        })
+      ).statusCode
+    ).toBe(201);
 
     const incomplete = await app.inject({
       method: "POST",
@@ -271,15 +362,14 @@ describe("Claude session room routes", () => {
         agent_id: agent.agent_id,
         session_id: "session_1",
         previewed_message_count: 2,
-        completed_at: "2026-04-29T00:00:00.000Z"
-      }
+        completed_at: "2026-04-29T00:00:00.000Z",
+      },
     });
     expect(incomplete.statusCode).toBe(409);
     expect(incomplete.json()).toMatchObject({ error: "preview_incomplete" });
 
     await app.close();
   });
-
 
   it("lets only the selected Claude connector report session readiness", async () => {
     const { app, room } = await createRoomAndOwner();
@@ -290,7 +380,7 @@ describe("Claude session room routes", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/claude/session-selection`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { agent_id: agent.agent_id, mode: "fresh" }
+      payload: { agent_id: agent.agent_id, mode: "fresh" },
     });
     expect(selection.statusCode).toBe(201);
 
@@ -298,7 +388,12 @@ describe("Claude session room routes", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/claude/session-ready`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { agent_id: agent.agent_id, mode: "fresh", session_id: "session_1", ready_at: "2026-04-29T00:00:00.000Z" }
+      payload: {
+        agent_id: agent.agent_id,
+        mode: "fresh",
+        session_id: "session_1",
+        ready_at: "2026-04-29T00:00:00.000Z",
+      },
     });
     expect(ownerReady.statusCode).toBe(403);
 
@@ -306,7 +401,12 @@ describe("Claude session room routes", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/claude/session-ready`,
       headers: { authorization: `Bearer ${other.agent_token}` },
-      payload: { agent_id: other.agent_id, mode: "fresh", session_id: "session_2", ready_at: "2026-04-29T00:00:00.000Z" }
+      payload: {
+        agent_id: other.agent_id,
+        mode: "fresh",
+        session_id: "session_2",
+        ready_at: "2026-04-29T00:00:00.000Z",
+      },
     });
     expect(inactiveReady.statusCode).toBe(403);
 
@@ -314,16 +414,32 @@ describe("Claude session room routes", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/claude/session-ready`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: { agent_id: agent.agent_id, mode: "fresh", session_id: "session_1", ready_at: "2026-04-29T00:00:00.000Z" }
+      payload: {
+        agent_id: agent.agent_id,
+        mode: "fresh",
+        session_id: "session_1",
+        ready_at: "2026-04-29T00:00:00.000Z",
+      },
     });
     expect(ready.statusCode).toBe(201);
 
-    const events = (await app.inject({
-      method: "GET",
-      url: `/rooms/${room.room_id}/events`,
-      headers: { authorization: `Bearer ${room.owner_token}` }
-    })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
-    expect(events.some((event) => event.type === "claude.session_ready" && event.payload.agent_id === agent.agent_id)).toBe(true);
+    const events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: { authorization: `Bearer ${room.owner_token}` },
+      })
+    ).json().events as Array<{
+      type: string;
+      payload: Record<string, unknown>;
+    }>;
+    expect(
+      events.some(
+        (event) =>
+          event.type === "claude.session_ready" &&
+          event.payload.agent_id === agent.agent_id
+      )
+    ).toBe(true);
 
     await app.close();
   });
@@ -335,7 +451,11 @@ describe("Claude session room routes", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/claude/session-selection`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: { agent_id: agent.agent_id, mode: "resume", session_id: "session_1" }
+      payload: {
+        agent_id: agent.agent_id,
+        mode: "resume",
+        session_id: "session_1",
+      },
     });
     expect(agentSelect.statusCode).toBe(403);
 
@@ -344,7 +464,11 @@ describe("Claude session room routes", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/claude/session-selection`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { agent_id: agent.agent_id, mode: "resume", session_id: "session_1" }
+      payload: {
+        agent_id: agent.agent_id,
+        mode: "resume",
+        session_id: "session_1",
+      },
     });
     expect(ownerSelect.statusCode).toBe(201);
     expect(ownerSelect.json()).toEqual({ ok: true });
@@ -353,16 +477,33 @@ describe("Claude session room routes", () => {
 
   it("rejects Claude session selection for inactive or non-Claude agents", async () => {
     const { app, room } = await createRoomAndOwner();
-    const activeClaude = await registerAgent(app, room.room_id, room.owner_token);
-    await selectAgent(app, room.room_id, room.owner_token, activeClaude.agent_id);
-    const inactiveClaude = await registerAgent(app, room.room_id, room.owner_token);
-    const nonClaude = await registerNonClaudeAgent(app, room.room_id, room.owner_token);
+    const activeClaude = await registerAgent(
+      app,
+      room.room_id,
+      room.owner_token
+    );
+    await selectAgent(
+      app,
+      room.room_id,
+      room.owner_token,
+      activeClaude.agent_id
+    );
+    const inactiveClaude = await registerAgent(
+      app,
+      room.room_id,
+      room.owner_token
+    );
+    const nonClaude = await registerNonClaudeAgent(
+      app,
+      room.room_id,
+      room.owner_token
+    );
 
     const inactiveSelect = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/claude/session-selection`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { agent_id: inactiveClaude.agent_id, mode: "fresh" }
+      payload: { agent_id: inactiveClaude.agent_id, mode: "fresh" },
     });
     expect(inactiveSelect.statusCode).toBe(403);
     expect(inactiveSelect.json()).toMatchObject({ error: "not_active_agent" });
@@ -372,10 +513,12 @@ describe("Claude session room routes", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/claude/session-selection`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { agent_id: nonClaude.agent_id, mode: "fresh" }
+      payload: { agent_id: nonClaude.agent_id, mode: "fresh" },
     });
     expect(nonClaudeSelect.statusCode).toBe(403);
-    expect(nonClaudeSelect.json()).toMatchObject({ error: "missing_claude_code_capability" });
+    expect(nonClaudeSelect.json()).toMatchObject({
+      error: "missing_claude_code_capability",
+    });
 
     await app.close();
   });
@@ -391,50 +534,68 @@ describe("Claude session room routes", () => {
       session_id: "session_1",
       title: "Imported",
       message_count: 1,
-      started_at: "2026-04-29T00:00:00.000Z"
+      started_at: "2026-04-29T00:00:00.000Z",
     };
 
     const beforeSelection = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/claude/session-imports/start`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload
+      payload,
     });
     expect(beforeSelection.statusCode).toBe(409);
-    expect(beforeSelection.json()).toMatchObject({ error: "claude_resume_session_not_selected" });
+    expect(beforeSelection.json()).toMatchObject({
+      error: "claude_resume_session_not_selected",
+    });
 
     const freshSelection = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/claude/session-selection`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { agent_id: agent.agent_id, mode: "fresh" }
+      payload: { agent_id: agent.agent_id, mode: "fresh" },
     });
     expect(freshSelection.statusCode).toBe(201);
     const afterFreshSelection = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/claude/session-imports/start`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload
+      payload,
     });
     expect(afterFreshSelection.statusCode).toBe(409);
-    expect(afterFreshSelection.json()).toMatchObject({ error: "claude_resume_session_not_selected" });
+    expect(afterFreshSelection.json()).toMatchObject({
+      error: "claude_resume_session_not_selected",
+    });
 
-    await selectClaudeSession(app, room.room_id, room.owner_token, agent.agent_id, "session_2");
+    await selectClaudeSession(
+      app,
+      room.room_id,
+      room.owner_token,
+      agent.agent_id,
+      "session_2"
+    );
     const mismatch = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/claude/session-imports/start`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload
+      payload,
     });
     expect(mismatch.statusCode).toBe(409);
-    expect(mismatch.json()).toMatchObject({ error: "claude_resume_session_mismatch" });
+    expect(mismatch.json()).toMatchObject({
+      error: "claude_resume_session_mismatch",
+    });
 
-    await selectClaudeSession(app, room.room_id, room.owner_token, agent.agent_id, "session_1");
+    await selectClaudeSession(
+      app,
+      room.room_id,
+      room.owner_token,
+      agent.agent_id,
+      "session_1"
+    );
     const matching = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/claude/session-imports/start`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload
+      payload,
     });
     expect(matching.statusCode).toBe(201);
 
@@ -445,7 +606,13 @@ describe("Claude session room routes", () => {
     const { app, room } = await createRoomAndOwner();
     const agent = await registerAgent(app, room.room_id, room.owner_token);
     await selectAgent(app, room.room_id, room.owner_token, agent.agent_id);
-    await selectClaudeSession(app, room.room_id, room.owner_token, agent.agent_id, "session_1");
+    await selectClaudeSession(
+      app,
+      room.room_id,
+      room.owner_token,
+      agent.agent_id,
+      "session_1"
+    );
 
     const importStart = await app.inject({
       method: "POST",
@@ -457,8 +624,8 @@ describe("Claude session room routes", () => {
         session_id: "session_1",
         title: "Imported",
         message_count: 2,
-        started_at: "2026-04-29T00:00:00.000Z"
-      }
+        started_at: "2026-04-29T00:00:00.000Z",
+      },
     });
     expect(importStart.statusCode).toBe(201);
 
@@ -466,15 +633,17 @@ describe("Claude session room routes", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/claude/session-imports/import_incomplete/messages`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: [{
-        import_id: "import_incomplete",
-        agent_id: agent.agent_id,
-        session_id: "session_1",
-        sequence: 0,
-        author_role: "assistant",
-        source_kind: "assistant",
-        text: "Only first imported message"
-      }]
+      payload: [
+        {
+          import_id: "import_incomplete",
+          agent_id: agent.agent_id,
+          session_id: "session_1",
+          sequence: 0,
+          author_role: "assistant",
+          source_kind: "assistant",
+          text: "Only first imported message",
+        },
+      ],
     });
     expect(firstMessage.statusCode).toBe(201);
 
@@ -487,11 +656,13 @@ describe("Claude session room routes", () => {
         agent_id: agent.agent_id,
         session_id: "session_1",
         imported_message_count: 1,
-        completed_at: "2026-04-29T00:00:01.000Z"
-      }
+        completed_at: "2026-04-29T00:00:01.000Z",
+      },
     });
     expect(incompleteComplete.statusCode).toBe(409);
-    expect(incompleteComplete.json()).toMatchObject({ error: "import_incomplete" });
+    expect(incompleteComplete.json()).toMatchObject({
+      error: "import_incomplete",
+    });
 
     await app.close();
   });
@@ -505,20 +676,31 @@ describe("Claude session room routes", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/claude/session-selection`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { agent_id: agent.agent_id, mode: "fresh" }
+      payload: { agent_id: agent.agent_id, mode: "fresh" },
     });
     await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/claude/session-ready`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: { agent_id: agent.agent_id, mode: "fresh", session_id: "session_1", ready_at: "2026-04-29T00:00:00.000Z" }
+      payload: {
+        agent_id: agent.agent_id,
+        mode: "fresh",
+        session_id: "session_1",
+        ready_at: "2026-04-29T00:00:00.000Z",
+      },
     });
 
     const noTurn = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/agent-runs/turn_missing/start`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: { run_id: "turn_missing", turn_id: "turn_missing", agent_id: agent.agent_id, provider: "claude-code", started_at: "2026-04-29T00:00:01.000Z" }
+      payload: {
+        run_id: "turn_missing",
+        turn_id: "turn_missing",
+        agent_id: agent.agent_id,
+        provider: "claude-code",
+        started_at: "2026-04-29T00:00:01.000Z",
+      },
     });
     expect(noTurn.statusCode).toBe(403);
     expect(noTurn.json()).toMatchObject({ error: "no_active_turn" });
@@ -527,21 +709,30 @@ describe("Claude session room routes", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/messages`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "Run now" }
+      payload: { text: "Run now" },
     });
-    const events = (await app.inject({
-      method: "GET",
-      url: `/rooms/${room.room_id}/events`,
-      headers: { authorization: `Bearer ${room.owner_token}` }
-    })).json().events as Array<{ type: string; payload: { turn_id?: string } }>;
-    const turnId = events.find((event) => event.type === "agent.turn.requested")?.payload.turn_id;
+    const events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: { authorization: `Bearer ${room.owner_token}` },
+      })
+    ).json().events as Array<{ type: string; payload: { turn_id?: string } }>;
+    const turnId = events.find((event) => event.type === "agent.turn.requested")
+      ?.payload.turn_id;
     expect(turnId).toBeTruthy();
 
     const ownerStart = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/agent-runs/${turnId}/start`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { run_id: turnId, turn_id: turnId, agent_id: agent.agent_id, provider: "claude-code", started_at: "2026-04-29T00:00:02.000Z" }
+      payload: {
+        run_id: turnId,
+        turn_id: turnId,
+        agent_id: agent.agent_id,
+        provider: "claude-code",
+        started_at: "2026-04-29T00:00:02.000Z",
+      },
     });
     expect(ownerStart.statusCode).toBe(403);
     expect(ownerStart.json()).toMatchObject({ error: "forbidden" });
@@ -550,7 +741,13 @@ describe("Claude session room routes", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/agent-runs/${turnId}/start`,
       headers: { authorization: `Bearer ${other.agent_token}` },
-      payload: { run_id: turnId, turn_id: turnId, agent_id: other.agent_id, provider: "claude-code", started_at: "2026-04-29T00:00:02.000Z" }
+      payload: {
+        run_id: turnId,
+        turn_id: turnId,
+        agent_id: other.agent_id,
+        provider: "claude-code",
+        started_at: "2026-04-29T00:00:02.000Z",
+      },
     });
     expect(otherStart.statusCode).toBe(403);
     expect(otherStart.json()).toMatchObject({ error: "no_active_turn" });
@@ -559,7 +756,13 @@ describe("Claude session room routes", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/agent-runs/${turnId}/start`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: { run_id: turnId, turn_id: "turn_other", agent_id: agent.agent_id, provider: "claude-code", started_at: "2026-04-29T00:00:02.000Z" }
+      payload: {
+        run_id: turnId,
+        turn_id: "turn_other",
+        agent_id: agent.agent_id,
+        provider: "claude-code",
+        started_at: "2026-04-29T00:00:02.000Z",
+      },
     });
     expect(wrongTurn.statusCode).toBe(400);
     expect(wrongTurn.json()).toMatchObject({ error: "run_turn_mismatch" });
@@ -568,7 +771,13 @@ describe("Claude session room routes", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/agent-runs/${turnId}/start`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: { run_id: turnId, turn_id: turnId, agent_id: agent.agent_id, provider: "claude-code", started_at: "2026-04-29T00:00:02.000Z" }
+      payload: {
+        run_id: turnId,
+        turn_id: turnId,
+        agent_id: agent.agent_id,
+        provider: "claude-code",
+        started_at: "2026-04-29T00:00:02.000Z",
+      },
     });
     expect(ok.statusCode).toBe(201);
 
@@ -579,10 +788,26 @@ describe("Claude session room routes", () => {
     const { app, room } = await createRoomAndOwner();
     const agent = await registerAgent(app, room.room_id, room.owner_token);
     await selectAgent(app, room.room_id, room.owner_token, agent.agent_id);
-    await selectClaudeSession(app, room.room_id, room.owner_token, agent.agent_id, "session_1");
+    await selectClaudeSession(
+      app,
+      room.room_id,
+      room.owner_token,
+      agent.agent_id,
+      "session_1"
+    );
 
-    const allowedMember = await inviteMember(app, room.room_id, room.owner_token, "allowed");
-    const deniedMember = await inviteMember(app, room.room_id, room.owner_token, "denied");
+    const allowedMember = await inviteMember(
+      app,
+      room.room_id,
+      room.owner_token,
+      "allowed"
+    );
+    const deniedMember = await inviteMember(
+      app,
+      room.room_id,
+      room.owner_token,
+      "denied"
+    );
     const observer = await inviteObserver(app, room.room_id, room.owner_token);
 
     const importStart = await app.inject({
@@ -595,8 +820,8 @@ describe("Claude session room routes", () => {
         session_id: "session_1",
         title: "Imported",
         message_count: 1,
-        started_at: "2026-04-29T00:00:00.000Z"
-      }
+        started_at: "2026-04-29T00:00:00.000Z",
+      },
     });
     expect(importStart.statusCode).toBe(201);
 
@@ -604,44 +829,65 @@ describe("Claude session room routes", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/claude/session-imports/import_vis/messages`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: [{
-        import_id: "import_vis",
-        agent_id: agent.agent_id,
-        session_id: "session_1",
-        sequence: 0,
-        author_role: "assistant",
-        source_kind: "assistant",
-        text: "Secret imported message"
-      }]
+      payload: [
+        {
+          import_id: "import_vis",
+          agent_id: agent.agent_id,
+          session_id: "session_1",
+          sequence: 0,
+          author_role: "assistant",
+          source_kind: "assistant",
+          text: "Secret imported message",
+        },
+      ],
     });
 
-    const ownerEvents = (await app.inject({
-      method: "GET",
-      url: `/rooms/${room.room_id}/events`,
-      headers: { authorization: `Bearer ${room.owner_token}` }
-    })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
-    expect(ownerEvents.some((e) => e.type === "claude.session_import.message")).toBe(true);
+    const ownerEvents = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: { authorization: `Bearer ${room.owner_token}` },
+      })
+    ).json().events as Array<{
+      type: string;
+      payload: Record<string, unknown>;
+    }>;
+    expect(
+      ownerEvents.some((e) => e.type === "claude.session_import.message")
+    ).toBe(true);
 
-    const allowedEvents = (await app.inject({
-      method: "GET",
-      url: `/rooms/${room.room_id}/events`,
-      headers: { authorization: `Bearer ${allowedMember.participant_token}` }
-    })).json().events as Array<{ type: string }>;
-    expect(allowedEvents.some((e) => e.type === "claude.session_import.message")).toBe(true);
+    const allowedEvents = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: { authorization: `Bearer ${allowedMember.participant_token}` },
+      })
+    ).json().events as Array<{ type: string }>;
+    expect(
+      allowedEvents.some((e) => e.type === "claude.session_import.message")
+    ).toBe(true);
 
-    const deniedEvents = (await app.inject({
-      method: "GET",
-      url: `/rooms/${room.room_id}/events`,
-      headers: { authorization: `Bearer ${deniedMember.participant_token}` }
-    })).json().events as Array<{ type: string }>;
-    expect(deniedEvents.some((e) => e.type === "claude.session_import.message")).toBe(false);
+    const deniedEvents = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: { authorization: `Bearer ${deniedMember.participant_token}` },
+      })
+    ).json().events as Array<{ type: string }>;
+    expect(
+      deniedEvents.some((e) => e.type === "claude.session_import.message")
+    ).toBe(false);
 
-    const observerEvents = (await app.inject({
-      method: "GET",
-      url: `/rooms/${room.room_id}/events`,
-      headers: { authorization: `Bearer ${observer.participant_token}` }
-    })).json().events as Array<{ type: string }>;
-    expect(observerEvents.some((e) => e.type === "claude.session_import.message")).toBe(false);
+    const observerEvents = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: { authorization: `Bearer ${observer.participant_token}` },
+      })
+    ).json().events as Array<{ type: string }>;
+    expect(
+      observerEvents.some((e) => e.type === "claude.session_import.message")
+    ).toBe(false);
 
     await app.close();
   });

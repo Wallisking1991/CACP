@@ -4,8 +4,18 @@ import type { AgentRunNodeView } from "../room-state.js";
 export interface AgentRunInteractionCardProps {
   runId: string;
   node: AgentRunNodeView;
-  onResolveApproval?: (runId: string, nodeId: string, decision: "allow" | "deny", reason?: string) => void;
-  onResolveElicitation?: (runId: string, nodeId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => void;
+  onResolveApproval?: (
+    runId: string,
+    nodeId: string,
+    decision: "allow" | "deny",
+    reason?: string
+  ) => void;
+  onResolveElicitation?: (
+    runId: string,
+    nodeId: string,
+    action: "accept" | "decline" | "cancel",
+    content?: Record<string, unknown>
+  ) => void;
 }
 
 interface QuestionItem {
@@ -16,8 +26,14 @@ interface QuestionItem {
 }
 
 function isQuestionArray(value: unknown): value is QuestionItem[] {
-  return Array.isArray(value) && value.every((q) =>
-    q && typeof q === "object" && typeof (q as Record<string, unknown>).question === "string"
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (q) =>
+        q &&
+        typeof q === "object" &&
+        typeof (q as Record<string, unknown>).question === "string"
+    )
   );
 }
 
@@ -25,13 +41,23 @@ export function AgentRunInteractionCard({
   runId,
   node,
   onResolveApproval,
-  onResolveElicitation
+  onResolveElicitation,
 }: AgentRunInteractionCardProps) {
   if (node.kind === "approval") {
     return (
       <div className="agent-run-interaction">
-        <button type="button" onClick={() => onResolveApproval?.(runId, node.node_id, "allow")}>Allow</button>
-        <button type="button" onClick={() => onResolveApproval?.(runId, node.node_id, "deny")}>Deny</button>
+        <button
+          type="button"
+          onClick={() => onResolveApproval?.(runId, node.node_id, "allow")}
+        >
+          Allow
+        </button>
+        <button
+          type="button"
+          onClick={() => onResolveApproval?.(runId, node.node_id, "deny")}
+        >
+          Deny
+        </button>
       </div>
     );
   }
@@ -51,9 +77,26 @@ export function AgentRunInteractionCard({
 
     return (
       <div className="agent-run-interaction">
-        <button type="button" onClick={() => onResolveElicitation?.(runId, node.node_id, "accept", {})}>Accept</button>
-        <button type="button" onClick={() => onResolveElicitation?.(runId, node.node_id, "decline")}>Decline</button>
-        <button type="button" onClick={() => onResolveElicitation?.(runId, node.node_id, "cancel")}>Cancel</button>
+        <button
+          type="button"
+          onClick={() =>
+            onResolveElicitation?.(runId, node.node_id, "accept", {})
+          }
+        >
+          Accept
+        </button>
+        <button
+          type="button"
+          onClick={() => onResolveElicitation?.(runId, node.node_id, "decline")}
+        >
+          Decline
+        </button>
+        <button
+          type="button"
+          onClick={() => onResolveElicitation?.(runId, node.node_id, "cancel")}
+        >
+          Cancel
+        </button>
       </div>
     );
   }
@@ -65,10 +108,20 @@ interface KimiQuestionFormProps {
   runId: string;
   nodeId: string;
   questions: QuestionItem[];
-  onResolveElicitation?: (runId: string, nodeId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => void;
+  onResolveElicitation?: (
+    runId: string,
+    nodeId: string,
+    action: "accept" | "decline" | "cancel",
+    content?: Record<string, unknown>
+  ) => void;
 }
 
-function KimiQuestionForm({ runId, nodeId, questions, onResolveElicitation }: KimiQuestionFormProps) {
+function KimiQuestionForm({
+  runId,
+  nodeId,
+  questions,
+  onResolveElicitation,
+}: KimiQuestionFormProps) {
   const [answers, setAnswers] = useState<Record<number, string>>(() => {
     const initial: Record<number, string> = {};
     for (let i = 0; i < questions.length; i++) {
@@ -77,12 +130,20 @@ function KimiQuestionForm({ runId, nodeId, questions, onResolveElicitation }: Ki
     return initial;
   });
 
-  const handleOptionChange = (questionIndex: number, label: string, multiSelect: boolean) => {
+  const handleOptionChange = (
+    questionIndex: number,
+    label: string,
+    multiSelect: boolean
+  ) => {
     setAnswers((prev) => {
       if (multiSelect) {
-        const current = prev[questionIndex] ? prev[questionIndex].split(",") : [];
+        const current = prev[questionIndex]
+          ? prev[questionIndex].split(",")
+          : [];
         const exists = current.includes(label);
-        const next = exists ? current.filter((l) => l !== label) : [...current, label];
+        const next = exists
+          ? current.filter((l) => l !== label)
+          : [...current, label];
         return { ...prev, [questionIndex]: next.join(",") };
       }
       return { ...prev, [questionIndex]: label };
@@ -98,7 +159,9 @@ function KimiQuestionForm({ runId, nodeId, questions, onResolveElicitation }: Ki
     for (let i = 0; i < questions.length; i++) {
       payloadAnswers[String(i)] = answers[i] ?? "";
     }
-    onResolveElicitation?.(runId, nodeId, "accept", { answers: payloadAnswers });
+    onResolveElicitation?.(runId, nodeId, "accept", {
+      answers: payloadAnswers,
+    });
   };
 
   const handleCancel = () => {
@@ -112,22 +175,35 @@ function KimiQuestionForm({ runId, nodeId, questions, onResolveElicitation }: Ki
         const isMulti = !!q.multi_select;
         return (
           <div key={qi} className="agent-run-interaction__question">
-            <div className="agent-run-interaction__question-text">{q.question}</div>
+            <div className="agent-run-interaction__question-text">
+              {q.question}
+            </div>
             {hasOptions ? (
               <div className="agent-run-interaction__options">
                 {q.options!.map((opt) => (
-                  <label key={opt.label} className="agent-run-interaction__option">
+                  <label
+                    key={opt.label}
+                    className="agent-run-interaction__option"
+                  >
                     <input
                       type={isMulti ? "checkbox" : "radio"}
                       name={`question_${nodeId}_${qi}`}
                       value={opt.label}
-                      checked={isMulti
-                        ? (answers[qi] ?? "").split(",").includes(opt.label)
-                        : answers[qi] === opt.label}
-                      onChange={() => handleOptionChange(qi, opt.label, isMulti)}
+                      checked={
+                        isMulti
+                          ? (answers[qi] ?? "").split(",").includes(opt.label)
+                          : answers[qi] === opt.label
+                      }
+                      onChange={() =>
+                        handleOptionChange(qi, opt.label, isMulti)
+                      }
                     />
                     <span>{opt.label}</span>
-                    {opt.description && <span className="agent-run-interaction__option-desc">{opt.description}</span>}
+                    {opt.description && (
+                      <span className="agent-run-interaction__option-desc">
+                        {opt.description}
+                      </span>
+                    )}
                   </label>
                 ))}
               </div>
@@ -144,8 +220,12 @@ function KimiQuestionForm({ runId, nodeId, questions, onResolveElicitation }: Ki
         );
       })}
       <div className="agent-run-interaction__actions">
-        <button type="button" onClick={handleSubmit}>Submit</button>
-        <button type="button" onClick={handleCancel}>Cancel</button>
+        <button type="button" onClick={handleSubmit}>
+          Submit
+        </button>
+        <button type="button" onClick={handleCancel}>
+          Cancel
+        </button>
       </div>
     </div>
   );

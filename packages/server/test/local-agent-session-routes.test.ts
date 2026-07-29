@@ -1,91 +1,135 @@
+import { testConnectorCompatibility } from "./test-compatibility.js";
 import { describe, expect, it } from "vitest";
 import { buildServer } from "../src/server.js";
 
 async function createRoomAndOwner() {
   const app = await buildServer({ dbPath: ":memory:" });
-  const roomResponse = await app.inject({ method: "POST", url: "/rooms", payload: { name: "Agent Room", display_name: "Owner" } });
-  const room = roomResponse.json() as { room_id: string; owner_token: string; owner_id: string };
+  const roomResponse = await app.inject({
+    method: "POST",
+    url: "/rooms",
+    payload: { name: "Agent Room", display_name: "Owner" },
+  });
+  const room = roomResponse.json() as {
+    room_id: string;
+    owner_token: string;
+    owner_id: string;
+  };
   return { app, room };
 }
 
-async function registerLocalAgent(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerToken: string, provider: "claude-code" | "codex-cli") {
+async function registerLocalAgent(
+  app: Awaited<ReturnType<typeof buildServer>>,
+  roomId: string,
+  ownerToken: string,
+  provider: "claude-code" | "codex-cli"
+) {
   const response = await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/agents/register`,
     headers: { authorization: `Bearer ${ownerToken}` },
     payload: {
+      compatibility: testConnectorCompatibility,
       name: provider === "codex-cli" ? "Codex CLI Agent" : "Claude Code Agent",
-      capabilities: provider === "codex-cli"
-        ? ["codex-cli", "code-agent.persistent_session", "code-agent.local_execution"]
-        : ["claude-code", "claude.persistent_session"]
-    }
+      capabilities:
+        provider === "codex-cli"
+          ? [
+              "codex-cli",
+              "code-agent.persistent_session",
+              "code-agent.local_execution",
+            ]
+          : ["claude-code", "claude.persistent_session"],
+    },
   });
   expect(response.statusCode).toBe(201);
   return response.json() as { agent_id: string; agent_token: string };
 }
 
-async function selectAgent(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerToken: string, agentId: string) {
+async function selectAgent(
+  app: Awaited<ReturnType<typeof buildServer>>,
+  roomId: string,
+  ownerToken: string,
+  agentId: string
+) {
   const response = await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/agents/select`,
     headers: { authorization: `Bearer ${ownerToken}` },
-    payload: { agent_id: agentId }
+    payload: { agent_id: agentId },
   });
   expect(response.statusCode).toBe(201);
 }
 
-async function inviteMember(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerToken: string, historyAccess?: "allowed" | "denied") {
-  const body: Record<string, unknown> = { role: "member", expires_in_seconds: 3600, max_uses: 1 };
+async function inviteMember(
+  app: Awaited<ReturnType<typeof buildServer>>,
+  roomId: string,
+  ownerToken: string,
+  historyAccess?: "allowed" | "denied"
+) {
+  const body: Record<string, unknown> = {
+    role: "member",
+    expires_in_seconds: 3600,
+    max_uses: 1,
+  };
   if (historyAccess) body.main_thread_history_access = historyAccess;
   const inviteResponse = await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/invites`,
     headers: { authorization: `Bearer ${ownerToken}` },
-    payload: body
+    payload: body,
   });
   const invite = inviteResponse.json() as { invite_token: string };
   const pending = await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/join-requests`,
-    payload: { invite_token: invite.invite_token, display_name: "Member" }
+    payload: { invite_token: invite.invite_token, display_name: "Member" },
   });
-  const request = pending.json() as { request_id: string; request_token: string };
+  const request = pending.json() as {
+    request_id: string;
+    request_token: string;
+  };
   await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/join-requests/${request.request_id}/approve`,
     headers: { authorization: `Bearer ${ownerToken}` },
-    payload: {}
+    payload: {},
   });
   const status = await app.inject({
     method: "GET",
-    url: `/rooms/${roomId}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}`
+    url: `/rooms/${roomId}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}`,
   });
   return status.json() as { participant_token: string };
 }
 
-async function inviteObserver(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerToken: string) {
+async function inviteObserver(
+  app: Awaited<ReturnType<typeof buildServer>>,
+  roomId: string,
+  ownerToken: string
+) {
   const inviteResponse = await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/invites`,
     headers: { authorization: `Bearer ${ownerToken}` },
-    payload: { role: "observer", expires_in_seconds: 3600, max_uses: 1 }
+    payload: { role: "observer", expires_in_seconds: 3600, max_uses: 1 },
   });
   const invite = inviteResponse.json() as { invite_token: string };
   const pending = await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/join-requests`,
-    payload: { invite_token: invite.invite_token, display_name: "Observer" }
+    payload: { invite_token: invite.invite_token, display_name: "Observer" },
   });
-  const request = pending.json() as { request_id: string; request_token: string };
+  const request = pending.json() as {
+    request_id: string;
+    request_token: string;
+  };
   await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/join-requests/${request.request_id}/approve`,
     headers: { authorization: `Bearer ${ownerToken}` },
-    payload: {}
+    payload: {},
   });
   const status = await app.inject({
     method: "GET",
-    url: `/rooms/${roomId}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}`
+    url: `/rooms/${roomId}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}`,
   });
   return status.json() as { participant_token: string };
 }
@@ -93,7 +137,12 @@ async function inviteObserver(app: Awaited<ReturnType<typeof buildServer>>, room
 describe("generic local agent session routes", () => {
   it("lets a Codex connector publish a generic session catalog", async () => {
     const { app, room } = await createRoomAndOwner();
-    const agent = await registerLocalAgent(app, room.room_id, room.owner_token, "codex-cli");
+    const agent = await registerLocalAgent(
+      app,
+      room.room_id,
+      room.owner_token,
+      "codex-cli"
+    );
     await selectAgent(app, room.room_id, room.owner_token, agent.agent_id);
 
     const response = await app.inject({
@@ -104,32 +153,47 @@ describe("generic local agent session routes", () => {
         agent_id: agent.agent_id,
         provider: "codex-cli",
         working_dir: "D:\\Development\\2",
-        sessions: [{
-          session_id: "019de11a-76d4-7ca3-96ea-27ad77a12187",
-          title: "Codex thread 019de11a",
-          project_dir: "D:\\Development\\2",
-          updated_at: "2026-05-01T01:15:01.643Z",
-          message_count: 3,
-          byte_size: 71545,
-          importable: true,
-          provider: "codex-cli"
-        }]
-      }
+        sessions: [
+          {
+            session_id: "019de11a-76d4-7ca3-96ea-27ad77a12187",
+            title: "Codex thread 019de11a",
+            project_dir: "D:\\Development\\2",
+            updated_at: "2026-05-01T01:15:01.643Z",
+            message_count: 3,
+            byte_size: 71545,
+            importable: true,
+            provider: "codex-cli",
+          },
+        ],
+      },
     });
 
     expect(response.statusCode).toBe(201);
-    const events = (await app.inject({
-      method: "GET",
-      url: `/rooms/${room.room_id}/events`,
-      headers: { authorization: `Bearer ${room.owner_token}` }
-    })).json().events as Array<{ type: string; payload: { provider?: string } }>;
-    expect(events.some((event) => event.type === "agent.session_catalog.updated" && event.payload.provider === "codex-cli")).toBe(true);
+    const events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: { authorization: `Bearer ${room.owner_token}` },
+      })
+    ).json().events as Array<{ type: string; payload: { provider?: string } }>;
+    expect(
+      events.some(
+        (event) =>
+          event.type === "agent.session_catalog.updated" &&
+          event.payload.provider === "codex-cli"
+      )
+    ).toBe(true);
     await app.close();
   });
 
   it("rejects provider mismatch for generic session catalog publishing", async () => {
     const { app, room } = await createRoomAndOwner();
-    const agent = await registerLocalAgent(app, room.room_id, room.owner_token, "codex-cli");
+    const agent = await registerLocalAgent(
+      app,
+      room.room_id,
+      room.owner_token,
+      "codex-cli"
+    );
     await selectAgent(app, room.room_id, room.owner_token, agent.agent_id);
 
     const response = await app.inject({
@@ -140,8 +204,8 @@ describe("generic local agent session routes", () => {
         agent_id: agent.agent_id,
         provider: "claude-code",
         working_dir: "D:\\Development\\2",
-        sessions: []
-      }
+        sessions: [],
+      },
     });
 
     expect(response.statusCode).toBe(403);
@@ -151,9 +215,24 @@ describe("generic local agent session routes", () => {
 
   it("rejects generic session publishing from an inactive local agent", async () => {
     const { app, room } = await createRoomAndOwner();
-    const activeAgent = await registerLocalAgent(app, room.room_id, room.owner_token, "codex-cli");
-    const inactiveAgent = await registerLocalAgent(app, room.room_id, room.owner_token, "codex-cli");
-    await selectAgent(app, room.room_id, room.owner_token, activeAgent.agent_id);
+    const activeAgent = await registerLocalAgent(
+      app,
+      room.room_id,
+      room.owner_token,
+      "codex-cli"
+    );
+    const inactiveAgent = await registerLocalAgent(
+      app,
+      room.room_id,
+      room.owner_token,
+      "codex-cli"
+    );
+    await selectAgent(
+      app,
+      room.room_id,
+      room.owner_token,
+      activeAgent.agent_id
+    );
 
     const response = await app.inject({
       method: "POST",
@@ -163,8 +242,8 @@ describe("generic local agent session routes", () => {
         agent_id: inactiveAgent.agent_id,
         provider: "codex-cli",
         working_dir: "D:\\Development\\2",
-        sessions: []
-      }
+        sessions: [],
+      },
     });
 
     expect(response.statusCode).toBe(403);
@@ -174,7 +253,12 @@ describe("generic local agent session routes", () => {
 
   it("lets managers select a generic Codex session and the connector report readiness", async () => {
     const { app, room } = await createRoomAndOwner();
-    const agent = await registerLocalAgent(app, room.room_id, room.owner_token, "codex-cli");
+    const agent = await registerLocalAgent(
+      app,
+      room.room_id,
+      room.owner_token,
+      "codex-cli"
+    );
     await selectAgent(app, room.room_id, room.owner_token, agent.agent_id);
 
     const selection = await app.inject({
@@ -185,8 +269,8 @@ describe("generic local agent session routes", () => {
         agent_id: agent.agent_id,
         provider: "codex-cli",
         mode: "resume",
-        session_id: "019de11a-76d4-7ca3-96ea-27ad77a12187"
-      }
+        session_id: "019de11a-76d4-7ca3-96ea-27ad77a12187",
+      },
     });
     expect(selection.statusCode).toBe(201);
 
@@ -199,8 +283,8 @@ describe("generic local agent session routes", () => {
         provider: "codex-cli",
         mode: "resume",
         session_id: "019de11a-76d4-7ca3-96ea-27ad77a12187",
-        ready_at: "2026-05-01T01:15:02.000Z"
-      }
+        ready_at: "2026-05-01T01:15:02.000Z",
+      },
     });
     expect(ready.statusCode).toBe(201);
 
@@ -209,7 +293,12 @@ describe("generic local agent session routes", () => {
 
   it("supports generic Codex preview, import, and run trace routes", async () => {
     const { app, room } = await createRoomAndOwner();
-    const agent = await registerLocalAgent(app, room.room_id, room.owner_token, "codex-cli");
+    const agent = await registerLocalAgent(
+      app,
+      room.room_id,
+      room.owner_token,
+      "codex-cli"
+    );
     await selectAgent(app, room.room_id, room.owner_token, agent.agent_id);
 
     const previewRequest = await app.inject({
@@ -219,8 +308,8 @@ describe("generic local agent session routes", () => {
       payload: {
         agent_id: agent.agent_id,
         provider: "codex-cli",
-        session_id: "session_codex"
-      }
+        session_id: "session_codex",
+      },
     });
     expect(previewRequest.statusCode).toBe(201);
     const preview = previewRequest.json() as { preview_id: string };
@@ -229,16 +318,18 @@ describe("generic local agent session routes", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/agent-sessions/previews/${preview.preview_id}/messages`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: [{
-        preview_id: preview.preview_id,
-        agent_id: agent.agent_id,
-        provider: "codex-cli",
-        session_id: "session_codex",
-        sequence: 0,
-        author_role: "assistant",
-        source_kind: "assistant",
-        text: "Preview answer"
-      }]
+      payload: [
+        {
+          preview_id: preview.preview_id,
+          agent_id: agent.agent_id,
+          provider: "codex-cli",
+          session_id: "session_codex",
+          sequence: 0,
+          author_role: "assistant",
+          source_kind: "assistant",
+          text: "Preview answer",
+        },
+      ],
     });
     expect(previewMessages.statusCode).toBe(201);
 
@@ -252,8 +343,8 @@ describe("generic local agent session routes", () => {
         provider: "codex-cli",
         session_id: "session_codex",
         previewed_message_count: 1,
-        completed_at: "2026-05-01T01:15:03.000Z"
-      }
+        completed_at: "2026-05-01T01:15:03.000Z",
+      },
     });
     expect(previewComplete.statusCode).toBe(201);
 
@@ -265,8 +356,8 @@ describe("generic local agent session routes", () => {
         agent_id: agent.agent_id,
         provider: "codex-cli",
         mode: "resume",
-        session_id: "session_codex"
-      }
+        session_id: "session_codex",
+      },
     });
     expect(resumeSelection.statusCode).toBe(201);
 
@@ -281,8 +372,8 @@ describe("generic local agent session routes", () => {
         session_id: "session_codex",
         title: "Codex session",
         message_count: 1,
-        started_at: "2026-05-01T01:15:04.000Z"
-      }
+        started_at: "2026-05-01T01:15:04.000Z",
+      },
     });
     expect(importStart.statusCode).toBe(201);
 
@@ -290,16 +381,18 @@ describe("generic local agent session routes", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/agent-sessions/imports/import_codex/messages`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: [{
-        import_id: "import_codex",
-        agent_id: agent.agent_id,
-        provider: "codex-cli",
-        session_id: "session_codex",
-        sequence: 0,
-        author_role: "assistant",
-        source_kind: "assistant",
-        text: "Imported answer"
-      }]
+      payload: [
+        {
+          import_id: "import_codex",
+          agent_id: agent.agent_id,
+          provider: "codex-cli",
+          session_id: "session_codex",
+          sequence: 0,
+          author_role: "assistant",
+          source_kind: "assistant",
+          text: "Imported answer",
+        },
+      ],
     });
     expect(importMessages.statusCode).toBe(201);
 
@@ -313,8 +406,8 @@ describe("generic local agent session routes", () => {
         provider: "codex-cli",
         session_id: "session_codex",
         imported_message_count: 1,
-        completed_at: "2026-05-01T01:15:05.000Z"
-      }
+        completed_at: "2026-05-01T01:15:05.000Z",
+      },
     });
     expect(importComplete.statusCode).toBe(201);
 
@@ -327,22 +420,28 @@ describe("generic local agent session routes", () => {
         provider: "codex-cli",
         mode: "resume",
         session_id: "session_codex",
-        ready_at: "2026-05-01T01:15:06.000Z"
-      }
+        ready_at: "2026-05-01T01:15:06.000Z",
+      },
     });
     expect(ready.statusCode).toBe(201);
     await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/messages`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "Run Codex" }
+      payload: { text: "Run Codex" },
     });
-    const events = (await app.inject({
-      method: "GET",
-      url: `/rooms/${room.room_id}/events`,
-      headers: { authorization: `Bearer ${room.owner_token}` }
-    })).json().events as Array<{ type: string; payload: { turn_id?: string; provider?: string } }>;
-    const turnId = events.find((event) => event.type === "agent.turn.requested")?.payload.turn_id;
+    const events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: { authorization: `Bearer ${room.owner_token}` },
+      })
+    ).json().events as Array<{
+      type: string;
+      payload: { turn_id?: string; provider?: string };
+    }>;
+    const turnId = events.find((event) => event.type === "agent.turn.requested")
+      ?.payload.turn_id;
     expect(turnId).toBeTruthy();
 
     const runStart = await app.inject({
@@ -354,8 +453,8 @@ describe("generic local agent session routes", () => {
         turn_id: turnId,
         agent_id: agent.agent_id,
         provider: "codex-cli",
-        started_at: "2026-05-01T01:15:07.000Z"
-      }
+        started_at: "2026-05-01T01:15:07.000Z",
+      },
     });
     expect(runStart.statusCode).toBe(201);
 
@@ -373,8 +472,8 @@ describe("generic local agent session routes", () => {
         status: "running",
         title: "Codex running command: Get-ChildItem",
         started_at: "2026-05-01T01:15:07.000Z",
-        updated_at: "2026-05-01T01:15:08.000Z"
-      }
+        updated_at: "2026-05-01T01:15:08.000Z",
+      },
     });
     expect(nodeStart.statusCode).toBe(201);
 
@@ -383,7 +482,12 @@ describe("generic local agent session routes", () => {
 
   it("rejects generic preview message batches with mixed sessions", async () => {
     const { app, room } = await createRoomAndOwner();
-    const agent = await registerLocalAgent(app, room.room_id, room.owner_token, "codex-cli");
+    const agent = await registerLocalAgent(
+      app,
+      room.room_id,
+      room.owner_token,
+      "codex-cli"
+    );
     await selectAgent(app, room.room_id, room.owner_token, agent.agent_id);
 
     const previewRequest = await app.inject({
@@ -393,8 +497,8 @@ describe("generic local agent session routes", () => {
       payload: {
         agent_id: agent.agent_id,
         provider: "codex-cli",
-        session_id: "session_codex"
-      }
+        session_id: "session_codex",
+      },
     });
     expect(previewRequest.statusCode).toBe(201);
     const preview = previewRequest.json() as { preview_id: string };
@@ -412,7 +516,7 @@ describe("generic local agent session routes", () => {
           sequence: 0,
           author_role: "assistant",
           source_kind: "assistant",
-          text: "Preview answer"
+          text: "Preview answer",
         },
         {
           preview_id: preview.preview_id,
@@ -422,65 +526,98 @@ describe("generic local agent session routes", () => {
           sequence: 1,
           author_role: "assistant",
           source_kind: "assistant",
-          text: "Other preview answer"
-        }
-      ]
+          text: "Other preview answer",
+        },
+      ],
     });
 
     expect(mixedBatch.statusCode).toBe(400);
-    expect(mixedBatch.json()).toMatchObject({ error: "preview_session_mismatch" });
+    expect(mixedBatch.json()).toMatchObject({
+      error: "preview_session_mismatch",
+    });
     await app.close();
   });
 
   it("does not request Codex turns until generic session readiness is reported", async () => {
     const { app, room } = await createRoomAndOwner();
-    const agent = await registerLocalAgent(app, room.room_id, room.owner_token, "codex-cli");
+    const agent = await registerLocalAgent(
+      app,
+      room.room_id,
+      room.owner_token,
+      "codex-cli"
+    );
     await selectAgent(app, room.room_id, room.owner_token, agent.agent_id);
 
     await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/messages`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "before ready" }
+      payload: { text: "before ready" },
     });
-    let events = (await app.inject({
-      method: "GET",
-      url: `/rooms/${room.room_id}/events`,
-      headers: { authorization: `Bearer ${room.owner_token}` }
-    })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
-    expect(events.filter((event) => event.type === "agent.turn.requested")).toHaveLength(0);
+    let events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: { authorization: `Bearer ${room.owner_token}` },
+      })
+    ).json().events as Array<{
+      type: string;
+      payload: Record<string, unknown>;
+    }>;
+    expect(
+      events.filter((event) => event.type === "agent.turn.requested")
+    ).toHaveLength(0);
 
     await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/agent-sessions/selection`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { agent_id: agent.agent_id, provider: "codex-cli", mode: "fresh" }
+      payload: {
+        agent_id: agent.agent_id,
+        provider: "codex-cli",
+        mode: "fresh",
+      },
     });
     await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/agent-sessions/ready`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: { agent_id: agent.agent_id, provider: "codex-cli", mode: "fresh", ready_at: "2026-05-01T01:15:02.000Z" }
+      payload: {
+        agent_id: agent.agent_id,
+        provider: "codex-cli",
+        mode: "fresh",
+        ready_at: "2026-05-01T01:15:02.000Z",
+      },
     });
     await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/messages`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "after ready" }
+      payload: { text: "after ready" },
     });
-    events = (await app.inject({
-      method: "GET",
-      url: `/rooms/${room.room_id}/events`,
-      headers: { authorization: `Bearer ${room.owner_token}` }
-    })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
-    const requested = events.filter((event) => event.type === "agent.turn.requested");
+    events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: { authorization: `Bearer ${room.owner_token}` },
+      })
+    ).json().events as Array<{
+      type: string;
+      payload: Record<string, unknown>;
+    }>;
+    const requested = events.filter(
+      (event) => event.type === "agent.turn.requested"
+    );
     expect(requested).toHaveLength(1);
     expect(requested[0].payload).toMatchObject({
       agent_id: agent.agent_id,
-      message_text: "after ready",
+      content: {
+        text: "after ready",
+        attachments: [],
+      },
       speaker_name: "Owner",
       speaker_role: "owner",
-      mode: "normal"
+      mode: "normal",
     });
 
     await app.close();
@@ -488,7 +625,12 @@ describe("generic local agent session routes", () => {
 
   it("keeps generic local session catalogs hidden from non-managers", async () => {
     const { app, room } = await createRoomAndOwner();
-    const agent = await registerLocalAgent(app, room.room_id, room.owner_token, "codex-cli");
+    const agent = await registerLocalAgent(
+      app,
+      room.room_id,
+      room.owner_token,
+      "codex-cli"
+    );
     await selectAgent(app, room.room_id, room.owner_token, agent.agent_id);
     await app.inject({
       method: "POST",
@@ -498,70 +640,110 @@ describe("generic local agent session routes", () => {
         agent_id: agent.agent_id,
         provider: "codex-cli",
         working_dir: "D:\\SecretProject",
-        sessions: [{
-          session_id: "session_private",
-          title: "Private Codex thread",
-          project_dir: "D:\\SecretProject",
-          updated_at: "2026-05-01T01:15:02.000Z",
-          message_count: 1,
-          byte_size: 100,
-          importable: true,
-          provider: "codex-cli"
-        }]
-      }
+        sessions: [
+          {
+            session_id: "session_private",
+            title: "Private Codex thread",
+            project_dir: "D:\\SecretProject",
+            updated_at: "2026-05-01T01:15:02.000Z",
+            message_count: 1,
+            byte_size: 100,
+            importable: true,
+            provider: "codex-cli",
+          },
+        ],
+      },
     });
 
-    const invite = (await app.inject({
-      method: "POST",
-      url: `/rooms/${room.room_id}/invites`,
-      headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { role: "member", expires_in_seconds: 3600, max_uses: 1 }
-    })).json() as { invite_token: string };
-    const joinRequest = (await app.inject({
-      method: "POST",
-      url: `/rooms/${room.room_id}/join-requests`,
-      payload: { invite_token: invite.invite_token, display_name: "Member" }
-    })).json() as { request_id: string; request_token: string };
+    const invite = (
+      await app.inject({
+        method: "POST",
+        url: `/rooms/${room.room_id}/invites`,
+        headers: { authorization: `Bearer ${room.owner_token}` },
+        payload: { role: "member", expires_in_seconds: 3600, max_uses: 1 },
+      })
+    ).json() as { invite_token: string };
+    const joinRequest = (
+      await app.inject({
+        method: "POST",
+        url: `/rooms/${room.room_id}/join-requests`,
+        payload: { invite_token: invite.invite_token, display_name: "Member" },
+      })
+    ).json() as { request_id: string; request_token: string };
     await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/join-requests/${joinRequest.request_id}/approve`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: {}
+      payload: {},
     });
-    const approved = (await app.inject({
-      method: "GET",
-      url: `/rooms/${room.room_id}/join-requests/${joinRequest.request_id}?request_token=${joinRequest.request_token}`
-    })).json() as { participant_token: string };
-    const memberEvents = (await app.inject({
-      method: "GET",
-      url: `/rooms/${room.room_id}/events`,
-      headers: { authorization: `Bearer ${approved.participant_token}` }
-    })).json().events as Array<{ type: string }>;
+    const approved = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/join-requests/${joinRequest.request_id}?request_token=${joinRequest.request_token}`,
+      })
+    ).json() as { participant_token: string };
+    const memberEvents = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: { authorization: `Bearer ${approved.participant_token}` },
+      })
+    ).json().events as Array<{ type: string }>;
 
-    expect(memberEvents.some((event) => event.type === "agent.session_catalog.updated")).toBe(false);
+    expect(
+      memberEvents.some(
+        (event) => event.type === "agent.session_catalog.updated"
+      )
+    ).toBe(false);
     await app.close();
   });
 
   it("hides agent import messages from members with denied history access and observers", async () => {
     const { app, room } = await createRoomAndOwner();
-    const agent = await registerLocalAgent(app, room.room_id, room.owner_token, "codex-cli");
+    const agent = await registerLocalAgent(
+      app,
+      room.room_id,
+      room.owner_token,
+      "codex-cli"
+    );
     await selectAgent(app, room.room_id, room.owner_token, agent.agent_id);
 
     await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/agent-sessions/selection`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { agent_id: agent.agent_id, provider: "codex-cli", mode: "resume", session_id: "session_codex" }
+      payload: {
+        agent_id: agent.agent_id,
+        provider: "codex-cli",
+        mode: "resume",
+        session_id: "session_codex",
+      },
     });
     await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/agent-sessions/ready`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: { agent_id: agent.agent_id, provider: "codex-cli", mode: "resume", session_id: "session_codex", ready_at: "2026-05-01T01:15:02.000Z" }
+      payload: {
+        agent_id: agent.agent_id,
+        provider: "codex-cli",
+        mode: "resume",
+        session_id: "session_codex",
+        ready_at: "2026-05-01T01:15:02.000Z",
+      },
     });
 
-    const allowedMember = await inviteMember(app, room.room_id, room.owner_token, "allowed");
-    const deniedMember = await inviteMember(app, room.room_id, room.owner_token, "denied");
+    const allowedMember = await inviteMember(
+      app,
+      room.room_id,
+      room.owner_token,
+      "allowed"
+    );
+    const deniedMember = await inviteMember(
+      app,
+      room.room_id,
+      room.owner_token,
+      "denied"
+    );
     const observer = await inviteObserver(app, room.room_id, room.owner_token);
 
     await app.inject({
@@ -575,53 +757,71 @@ describe("generic local agent session routes", () => {
         session_id: "session_codex",
         title: "Imported",
         message_count: 1,
-        started_at: "2026-04-29T00:00:00.000Z"
-      }
+        started_at: "2026-04-29T00:00:00.000Z",
+      },
     });
 
     await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/agent-sessions/imports/import_vis_agent/messages`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: [{
-        import_id: "import_vis_agent",
-        agent_id: agent.agent_id,
-        provider: "codex-cli",
-        session_id: "session_codex",
-        sequence: 0,
-        author_role: "assistant",
-        source_kind: "assistant",
-        text: "Secret agent import message"
-      }]
+      payload: [
+        {
+          import_id: "import_vis_agent",
+          agent_id: agent.agent_id,
+          provider: "codex-cli",
+          session_id: "session_codex",
+          sequence: 0,
+          author_role: "assistant",
+          source_kind: "assistant",
+          text: "Secret agent import message",
+        },
+      ],
     });
 
-    const ownerEvents = (await app.inject({
-      method: "GET",
-      url: `/rooms/${room.room_id}/events`,
-      headers: { authorization: `Bearer ${room.owner_token}` }
-    })).json().events as Array<{ type: string }>;
-    expect(ownerEvents.some((e) => e.type === "agent.session_import.message")).toBe(true);
+    const ownerEvents = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: { authorization: `Bearer ${room.owner_token}` },
+      })
+    ).json().events as Array<{ type: string }>;
+    expect(
+      ownerEvents.some((e) => e.type === "agent.session_import.message")
+    ).toBe(true);
 
-    const allowedEvents = (await app.inject({
-      method: "GET",
-      url: `/rooms/${room.room_id}/events`,
-      headers: { authorization: `Bearer ${allowedMember.participant_token}` }
-    })).json().events as Array<{ type: string }>;
-    expect(allowedEvents.some((e) => e.type === "agent.session_import.message")).toBe(true);
+    const allowedEvents = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: { authorization: `Bearer ${allowedMember.participant_token}` },
+      })
+    ).json().events as Array<{ type: string }>;
+    expect(
+      allowedEvents.some((e) => e.type === "agent.session_import.message")
+    ).toBe(true);
 
-    const deniedEvents = (await app.inject({
-      method: "GET",
-      url: `/rooms/${room.room_id}/events`,
-      headers: { authorization: `Bearer ${deniedMember.participant_token}` }
-    })).json().events as Array<{ type: string }>;
-    expect(deniedEvents.some((e) => e.type === "agent.session_import.message")).toBe(false);
+    const deniedEvents = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: { authorization: `Bearer ${deniedMember.participant_token}` },
+      })
+    ).json().events as Array<{ type: string }>;
+    expect(
+      deniedEvents.some((e) => e.type === "agent.session_import.message")
+    ).toBe(false);
 
-    const observerEvents = (await app.inject({
-      method: "GET",
-      url: `/rooms/${room.room_id}/events`,
-      headers: { authorization: `Bearer ${observer.participant_token}` }
-    })).json().events as Array<{ type: string }>;
-    expect(observerEvents.some((e) => e.type === "agent.session_import.message")).toBe(false);
+    const observerEvents = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: { authorization: `Bearer ${observer.participant_token}` },
+      })
+    ).json().events as Array<{ type: string }>;
+    expect(
+      observerEvents.some((e) => e.type === "agent.session_import.message")
+    ).toBe(false);
 
     await app.close();
   });

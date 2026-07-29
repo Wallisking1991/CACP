@@ -5,8 +5,18 @@ import { LangProvider } from "../src/i18n/LangProvider.js";
 import { NotificationPanel } from "../src/components/NotificationPanel.js";
 
 const joinRequests = [
-  { request_id: "jr_1", display_name: "Alice", created_at: "2026-05-01T10:00:00Z" },
-  { request_id: "jr_2", display_name: "Bob", created_at: "2026-05-01T10:05:00Z" },
+  {
+    request_id: "jr_1",
+    display_name: "Alice",
+    status: "pending" as const,
+    created_at: "2026-05-01T10:00:00Z",
+  },
+  {
+    request_id: "jr_2",
+    display_name: "Bob",
+    status: "pending" as const,
+    created_at: "2026-05-01T10:05:00Z",
+  },
 ];
 
 describe("NotificationPanel", () => {

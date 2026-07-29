@@ -1,0 +1,255 @@
+{
+  "packages/cli-adapter/src/claude/types.ts": {
+    "@typescript-eslint/no-empty-object-type": {
+      "count": 2
+    }
+  },
+  "packages/cli-adapter/src/codex/codex-sdk.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "packages/cli-adapter/src/copilot/copilot-sdk.ts": {
+    "@typescript-eslint/ban-ts-comment": {
+      "count": 1
+    }
+  },
+  "packages/cli-adapter/src/copilot/runtime.ts": {
+    "prefer-const": {
+      "count": 1
+    }
+  },
+  "packages/cli-adapter/src/index.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "packages/cli-adapter/src/kimi/kimi-sdk.ts": {
+    "@typescript-eslint/ban-ts-comment": {
+      "count": 1
+    }
+  },
+  "packages/cli-adapter/src/kimi/runtime.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    }
+  },
+  "packages/cli-adapter/test-ws-agent.cjs": {
+    "@typescript-eslint/no-require-imports": {
+      "count": 1
+    }
+  },
+  "packages/cli-adapter/test-ws-exact.cjs": {
+    "@typescript-eslint/no-require-imports": {
+      "count": 1
+    }
+  },
+  "packages/cli-adapter/test/kimi-sdk.test.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 3
+    }
+  },
+  "packages/cli-adapter/test/main-ledger.test.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "packages/server/src/conversation.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "packages/server/src/event-bus.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "packages/server/src/server.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 9
+    }
+  },
+  "packages/server/test-ws.js": {
+    "@typescript-eslint/no-require-imports": {
+      "count": 1
+    }
+  },
+  "packages/server/test/connection-code-server.test.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    }
+  },
+  "packages/server/test/conversation.test.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "packages/server/test/participant-role-update.test.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    },
+    "no-empty": {
+      "count": 1
+    }
+  },
+  "packages/server/test/server-conversation.test.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "packages/server/test/server-orbit-open-discussion.test.ts": {
+    "no-empty": {
+      "count": 1
+    }
+  },
+  "packages/server/test/server-room-ended.test.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "packages/server/test/server-snapshot.test.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "packages/server/test/server.test.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "packages/web/src/App.tsx": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 3
+    },
+    "react-hooks/exhaustive-deps": {
+      "count": 2
+    },
+    "react-hooks/refs": {
+      "count": 1
+    },
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "packages/web/src/components/AgentAvatarPopover.tsx": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "packages/web/src/components/AgentRippleOverlay.tsx": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    }
+  },
+  "packages/web/src/components/AgentSessionPicker.tsx": {
+    "react-hooks/exhaustive-deps": {
+      "count": 1
+    }
+  },
+  "packages/web/src/components/ClaudeSessionPicker.tsx": {
+    "react-hooks/exhaustive-deps": {
+      "count": 1
+    }
+  },
+  "packages/web/src/components/Header.tsx": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "packages/web/src/components/Landing.tsx": {
+    "react-hooks/set-state-in-effect": {
+      "count": 2
+    }
+  },
+  "packages/web/src/components/MentionDropdown.tsx": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "packages/web/src/components/OrbitBubble.tsx": {
+    "react-hooks/refs": {
+      "count": 1
+    }
+  },
+  "packages/web/src/components/OrbitPromoteModal.tsx": {
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "packages/web/src/components/Popover.tsx": {
+    "react-hooks/refs": {
+      "count": 1
+    }
+  },
+  "packages/web/src/components/RoomIdentity.tsx": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 6
+    }
+  },
+  "packages/web/src/components/Sidebar.tsx": {
+    "react-refresh/only-export-components": {
+      "count": 1
+    }
+  },
+  "packages/web/src/components/Thread.tsx": {
+    "react-hooks/exhaustive-deps": {
+      "count": 3
+    }
+  },
+  "packages/web/src/components/Workspace.tsx": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 8
+    },
+    "react-hooks/refs": {
+      "count": 4
+    },
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "packages/web/src/components/agent-run-format.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "packages/web/src/i18n/LangProvider.tsx": {
+    "react-refresh/only-export-components": {
+      "count": 3
+    }
+  },
+  "packages/web/src/room-state.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 3
+    }
+  },
+  "packages/web/test/api.test.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "packages/web/test/app-routing.test.tsx": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    }
+  },
+  "packages/web/test/popover.test.tsx": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    }
+  },
+  "packages/web/test/thread-queued.test.tsx": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "packages/web/test/workspace-agent-readiness.test.tsx": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "scripts/package-connector.mjs": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    }
+  }
+}

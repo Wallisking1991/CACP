@@ -1,14 +1,29 @@
 import { useState } from "react";
 import type { AgentRunNodeView } from "../room-state.js";
 import { AgentRunInteractionCard } from "./AgentRunInteractionCard.js";
-import { combinedChunks, nodeKindLabel, nodeStatusLabel, shouldRenderNodeSummary } from "./agent-run-format.js";
+import {
+  combinedChunks,
+  nodeKindLabel,
+  nodeStatusLabel,
+  shouldRenderNodeSummary,
+} from "./agent-run-format.js";
 
 export interface AgentRunNodeListProps {
   runId: string;
   nodes: AgentRunNodeView[];
   thinkingEnabled?: boolean;
-  onResolveApproval?: (runId: string, nodeId: string, decision: "allow" | "deny", reason?: string) => void;
-  onResolveElicitation?: (runId: string, nodeId: string, action: "accept" | "decline" | "cancel", content?: Record<string, unknown>) => void;
+  onResolveApproval?: (
+    runId: string,
+    nodeId: string,
+    decision: "allow" | "deny",
+    reason?: string
+  ) => void;
+  onResolveElicitation?: (
+    runId: string,
+    nodeId: string,
+    action: "accept" | "decline" | "cancel",
+    content?: Record<string, unknown>
+  ) => void;
 }
 
 const LongNodeOutputThreshold = 1000;
@@ -18,13 +33,16 @@ export function AgentRunNodeList({
   nodes,
   thinkingEnabled,
   onResolveApproval,
-  onResolveElicitation
+  onResolveElicitation,
 }: AgentRunNodeListProps) {
-  const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(() => new Set());
+  const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(
+    () => new Set()
+  );
 
-  const visibleNodes = thinkingEnabled === false
-    ? nodes.filter((node) => node.kind !== "reasoning_summary")
-    : nodes;
+  const visibleNodes =
+    thinkingEnabled === false
+      ? nodes.filter((node) => node.kind !== "reasoning_summary")
+      : nodes;
 
   if (visibleNodes.length === 0) return null;
 
@@ -47,20 +65,35 @@ export function AgentRunNodeList({
         const outputClassName = [
           "agent-run-node__text",
           "agent-run-node__text-preview",
-          isExpanded ? "agent-run-node__text-preview--expanded" : "agent-run-node__text-preview--collapsed",
-          node.kind === "reasoning_summary" ? "agent-run-node__text--thinking" : ""
-        ].filter(Boolean).join(" ");
+          isExpanded
+            ? "agent-run-node__text-preview--expanded"
+            : "agent-run-node__text-preview--collapsed",
+          node.kind === "reasoning_summary"
+            ? "agent-run-node__text--thinking"
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
         return (
-          <li key={node.node_id} className={`agent-run-node agent-run-node--${node.status}${isWaiting ? " agent-run-node--waiting" : ""}`}>
+          <li
+            key={node.node_id}
+            className={`agent-run-node agent-run-node--${node.status}${isWaiting ? " agent-run-node--waiting" : ""}`}
+          >
             <div className="agent-run-node__main">
-              <span className="agent-run-node__kind">{nodeKindLabel(node)}</span>
+              <span className="agent-run-node__kind">
+                {nodeKindLabel(node)}
+              </span>
               <span className="agent-run-node__title">{node.title}</span>
               {(() => {
                 const label = nodeStatusLabel(node);
-                return label ? <span className="agent-run-node__status">{label}</span> : null;
+                return label ? (
+                  <span className="agent-run-node__status">{label}</span>
+                ) : null;
               })()}
             </div>
-            {node.text && <div className="agent-run-node__text">{node.text}</div>}
+            {node.text && (
+              <div className="agent-run-node__text">{node.text}</div>
+            )}
             {chunks && (
               <>
                 <div className={outputClassName}>{chunks}</div>
@@ -75,8 +108,12 @@ export function AgentRunNodeList({
                 )}
               </>
             )}
-            {shouldRenderNodeSummary(node) && <div className="agent-run-node__summary">{node.summary}</div>}
-            {node.error && <div className="agent-run-node__error">{node.error}</div>}
+            {shouldRenderNodeSummary(node) && (
+              <div className="agent-run-node__summary">{node.summary}</div>
+            )}
+            {node.error && (
+              <div className="agent-run-node__error">{node.error}</div>
+            )}
             {isWaiting && (
               <AgentRunInteractionCard
                 runId={runId}

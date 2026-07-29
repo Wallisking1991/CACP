@@ -5,9 +5,34 @@ import { RoleAvatarRail } from "../src/components/RoleAvatarRail.js";
 import type { AvatarStatusView } from "../src/room-state.js";
 
 const avatars: AvatarStatusView[] = [
-  { id: "user_1", display_name: "Alice", role: "owner", kind: "human", group: "humans", status: "online", active: false },
-  { id: "user_2", display_name: "Bob", role: "member", kind: "human", group: "humans", status: "typing", active: true },
-  { id: "agent_1", display_name: "Claude Code Agent", role: "agent", kind: "agent", group: "agents", status: "working", capabilities: ["repo.read"], active: true }
+  {
+    id: "user_1",
+    display_name: "Alice",
+    role: "owner",
+    kind: "human",
+    group: "humans",
+    status: "online",
+    active: false,
+  },
+  {
+    id: "user_2",
+    display_name: "Bob",
+    role: "member",
+    kind: "human",
+    group: "humans",
+    status: "typing",
+    active: true,
+  },
+  {
+    id: "agent_1",
+    display_name: "Claude Code Agent",
+    role: "agent",
+    kind: "agent",
+    group: "agents",
+    status: "working",
+    capabilities: ["repo.read"],
+    active: true,
+  },
 ];
 
 describe("RoleAvatarRail", () => {
@@ -15,11 +40,26 @@ describe("RoleAvatarRail", () => {
     render(<RoleAvatarRail avatars={avatars} maxVisible={6} />);
 
     expect(screen.getByLabelText("Bob, Member, typing")).toBeInTheDocument();
-    expect(screen.getByLabelText("Claude Code Agent, AI, working")).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Claude Code Agent, AI, working")
+    ).toBeInTheDocument();
   });
 
   it("folds inactive overflow into a count", () => {
-    render(<RoleAvatarRail avatars={[...avatars, ...avatars.map((item, index) => ({ ...item, id: `${item.id}_${index}`, active: false, status: "idle" as const }))]} maxVisible={3} />);
+    render(
+      <RoleAvatarRail
+        avatars={[
+          ...avatars,
+          ...avatars.map((item, index) => ({
+            ...item,
+            id: `${item.id}_${index}`,
+            active: false,
+            status: "idle" as const,
+          })),
+        ]}
+        maxVisible={3}
+      />
+    );
     expect(screen.getByText(/\+3/)).toBeInTheDocument();
   });
 
@@ -33,7 +73,9 @@ describe("RoleAvatarRail", () => {
       />
     );
 
-    const bobStack = screen.getByLabelText("Bob, Member, typing").closest(".role-avatar-stack") as HTMLElement;
+    const bobStack = screen
+      .getByLabelText("Bob, Member, typing")
+      .closest(".role-avatar-stack") as HTMLElement;
     fireEvent.click(bobStack);
 
     expect(onClickHumanAvatar).toHaveBeenCalled();
@@ -49,7 +91,9 @@ describe("RoleAvatarRail", () => {
       />
     );
 
-    const agentStack = screen.getByLabelText("Claude Code Agent, AI, working").closest(".role-avatar-stack") as HTMLElement;
+    const agentStack = screen
+      .getByLabelText("Claude Code Agent, AI, working")
+      .closest(".role-avatar-stack") as HTMLElement;
     fireEvent.click(agentStack);
 
     expect(onClickAgentAvatar).toHaveBeenCalled();
@@ -67,7 +111,9 @@ describe("RoleAvatarRail", () => {
       />
     );
 
-    const bobStack = screen.getByLabelText("Bob, Member, typing").closest(".role-avatar-stack") as HTMLElement;
+    const bobStack = screen
+      .getByLabelText("Bob, Member, typing")
+      .closest(".role-avatar-stack") as HTMLElement;
     fireEvent.mouseEnter(bobStack);
 
     const buttons = screen.queryAllByRole("button", { name: /remove/i });
@@ -86,7 +132,9 @@ describe("RoleAvatarRail", () => {
       />
     );
 
-    const aliceStack = screen.getByLabelText("Alice, Owner, online").closest(".role-avatar-stack") as HTMLElement;
+    const aliceStack = screen
+      .getByLabelText("Alice, Owner, online")
+      .closest(".role-avatar-stack") as HTMLElement;
     fireEvent.mouseEnter(aliceStack);
 
     const aliceBtn = aliceStack.querySelector(".role-avatar__delete");
@@ -105,10 +153,14 @@ describe("RoleAvatarRail", () => {
       />
     );
 
-    const aliceStack = screen.getByLabelText("Alice, Owner, online").closest(".role-avatar-stack") as HTMLElement;
+    const aliceStack = screen
+      .getByLabelText("Alice, Owner, online")
+      .closest(".role-avatar-stack") as HTMLElement;
     fireEvent.mouseEnter(aliceStack);
 
-    expect(screen.queryByRole("button", { name: /remove/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /remove/i })
+    ).not.toBeInTheDocument();
   });
 
   it("renders agents before humans in the rail", () => {
@@ -116,8 +168,12 @@ describe("RoleAvatarRail", () => {
 
     const rail = document.querySelector(".role-avatar-rail") as HTMLElement;
     const stacks = Array.from(rail.querySelectorAll(".role-avatar-stack"));
-    const firstAgentIndex = stacks.findIndex((s) => s.querySelector('[aria-label*="Claude Code Agent"]'));
-    const firstHumanIndex = stacks.findIndex((s) => s.querySelector('[aria-label*="Alice"]'));
+    const firstAgentIndex = stacks.findIndex((s) =>
+      s.querySelector('[aria-label*="Claude Code Agent"]')
+    );
+    const firstHumanIndex = stacks.findIndex((s) =>
+      s.querySelector('[aria-label*="Alice"]')
+    );
     expect(firstAgentIndex).toBeLessThan(firstHumanIndex);
   });
 
@@ -125,17 +181,23 @@ describe("RoleAvatarRail", () => {
     render(<RoleAvatarRail avatars={avatars} maxVisible={6} />);
 
     const names = Array.from(document.querySelectorAll(".role-avatar__name"));
-    expect(names.map((n) => n.textContent)).toEqual(["Claude Code Agent", "Bob", "Alice"]);
+    expect(names.map((n) => n.textContent)).toEqual([
+      "Claude Code Agent",
+      "Bob",
+      "Alice",
+    ]);
   });
 
   it("renders orbit bubble for matching avatar", () => {
-    const bubbles = new Map([
-      ["user_2", "Bob's orbit note"],
-    ]);
-    render(<RoleAvatarRail avatars={avatars} maxVisible={6} orbitBubbles={bubbles} />);
+    const bubbles = new Map([["user_2", "Bob's orbit note"]]);
+    render(
+      <RoleAvatarRail avatars={avatars} maxVisible={6} orbitBubbles={bubbles} />
+    );
 
     expect(document.querySelector(".orbit-bubble")).toBeInTheDocument();
-    expect(document.querySelector(".orbit-bubble__text")).toHaveTextContent("Bob's orbit note");
+    expect(document.querySelector(".orbit-bubble__text")).toHaveTextContent(
+      "Bob's orbit note"
+    );
   });
 
   it("does not render orbit bubble when no match", () => {

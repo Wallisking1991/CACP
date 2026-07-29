@@ -1,17 +1,33 @@
 import { describe, expect, it, vi } from "vitest";
 import { ClaudeRuntime } from "../src/claude/runtime.js";
 import { CodexRuntime } from "../src/codex/runtime.js";
+import type { ClaudeSdk } from "../src/claude/types.js";
+import type { CodexSdk, CodexThreadEvent } from "../src/codex/types.js";
 
 describe("Claude runtime prompt format", () => {
   it("formats turn prompt with speakerName(speakerRole): message", async () => {
     const prompts: string[] = [];
-    const sdk = {
-      query: ({ prompt }: { prompt: string }) => {
+    const sdk: Pick<ClaudeSdk, "query"> = {
+      query: ({ prompt }) => {
+        if (typeof prompt !== "string") {
+          throw new Error("Expected a text-only prompt in this test");
+        }
         prompts.push(prompt);
         return {
           async *[Symbol.asyncIterator]() {
-            yield { type: "system", subtype: "init", session_id: "session_1", uuid: "init_1" };
-            yield { type: "assistant", parent_tool_use_id: null, uuid: "assistant_1", session_id: "session_1", message: { content: [{ type: "text", text: "answer" }] } };
+            yield {
+              type: "system",
+              subtype: "init",
+              session_id: "session_1",
+              uuid: "init_1",
+            };
+            yield {
+              type: "assistant",
+              parent_tool_use_id: null,
+              uuid: "assistant_1",
+              session_id: "session_1",
+              message: { content: [{ type: "text", text: "answer" }] },
+            };
             yield {
               type: "result",
               subtype: "success",
@@ -26,12 +42,12 @@ describe("Claude runtime prompt format", () => {
               modelUsage: {},
               permission_denials: [],
               uuid: "result_1",
-              session_id: "session_1"
+              session_id: "session_1",
             };
           },
-          close: vi.fn()
+          close: vi.fn(),
         };
-      }
+      },
     };
     const runtime = new ClaudeRuntime({
       sdk,
@@ -45,8 +61,16 @@ describe("Claude runtime prompt format", () => {
       updateNode: async () => undefined,
       completeNode: async () => undefined,
       failNode: async () => undefined,
-      requestApproval: async () => ({ decision: "allow", resolved_by: "user_1", resolved_at: "2026-05-05T00:00:00.000Z" }),
-      requestElicitation: async () => ({ action: "cancel", resolved_by: "user_1", resolved_at: "2026-05-05T00:00:00.000Z" })
+      requestApproval: async () => ({
+        decision: "allow",
+        resolved_by: "user_1",
+        resolved_at: "2026-05-05T00:00:00.000Z",
+      }),
+      requestElicitation: async () => ({
+        action: "cancel",
+        resolved_by: "user_1",
+        resolved_at: "2026-05-05T00:00:00.000Z",
+      }),
     });
 
     await runtime.selectSession({ mode: "fresh" });
@@ -56,7 +80,7 @@ describe("Claude runtime prompt format", () => {
       speakerName: "Owner",
       speakerRole: "owner",
       modeLabel: "normal",
-      text: "hello"
+      text: "hello",
     });
 
     const prompt = prompts[0];
@@ -69,20 +93,37 @@ describe("Codex runtime prompt format", () => {
     const prompts: string[] = [];
     const mockThread = {
       id: "thread_1",
-      runStreamed: async (prompt: string, _options: unknown) => {
+      runStreamed: async (
+        input: Parameters<ReturnType<CodexSdk["startThread"]>["runStreamed"]>[0]
+      ) => {
+        if (typeof input !== "string") {
+          throw new Error("Expected a text-only prompt in this test");
+        }
+        const prompt = input;
         prompts.push(prompt);
         return {
-          events: (async function* () {
+          events: (async function* (): AsyncGenerator<CodexThreadEvent> {
             yield { type: "turn.started" };
-            yield { type: "item.completed", item: { type: "agent_message", text: "ok" } };
-            yield { type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1, reasoning_output_tokens: 0 } };
-          })()
+            yield {
+              type: "item.completed",
+              item: { type: "agent_message", text: "ok" },
+            };
+            yield {
+              type: "turn.completed",
+              usage: {
+                input_tokens: 1,
+                cached_input_tokens: 0,
+                output_tokens: 1,
+                reasoning_output_tokens: 0,
+              },
+            };
+          })(),
         };
-      }
+      },
     };
-    const mockSdk = {
+    const mockSdk: CodexSdk = {
       startThread: () => mockThread,
-      resumeThread: () => mockThread
+      resumeThread: () => mockThread,
     };
     const runtime = new CodexRuntime({
       sdk: mockSdk,
@@ -94,7 +135,7 @@ describe("Codex runtime prompt format", () => {
       appendNodeDelta: async () => undefined,
       updateNode: async () => undefined,
       completeNode: async () => undefined,
-      failNode: async () => undefined
+      failNode: async () => undefined,
     });
 
     await runtime.selectSession({ mode: "fresh" });
@@ -104,7 +145,7 @@ describe("Codex runtime prompt format", () => {
       speakerName: "Owner",
       speakerRole: "owner",
       modeLabel: "normal",
-      text: "hello"
+      text: "hello",
     });
 
     const prompt = prompts[0];

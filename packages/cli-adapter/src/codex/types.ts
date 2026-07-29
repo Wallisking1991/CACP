@@ -4,7 +4,7 @@ import type {
   AgentRunNodeDeltaPayload,
   AgentRunNodeFailedPayload,
   AgentRunNodeStartedPayload,
-  AgentRunNodeUpdatedPayload
+  AgentRunNodeUpdatedPayload,
 } from "@cacp/protocol";
 
 export interface CodexSdk {
@@ -14,8 +14,17 @@ export interface CodexSdk {
 
 export interface CodexThread {
   id: string | null;
-  runStreamed(input: string, options?: { signal?: AbortSignal }): Promise<{ events: AsyncGenerator<CodexThreadEvent> }>;
+  runStreamed(
+    input: CodexInput,
+    options?: { signal?: AbortSignal }
+  ): Promise<{ events: AsyncGenerator<CodexThreadEvent> }>;
 }
+
+export type CodexInput =
+  | string
+  | Array<
+      { type: "text"; text: string } | { type: "local_image"; path: string }
+    >;
 
 export type CodexThreadOptions = {
   model?: string;
@@ -57,6 +66,7 @@ export interface CodexTurnInput {
   speakerRole: string;
   modeLabel: string;
   text: string;
+  attachments?: import("../connector/attachment-materializer.js").MaterializedAttachment[];
 }
 
 export interface CodexTurnResult {
@@ -83,7 +93,11 @@ export interface CodexRuntimeInput extends CodexRunTraceSink {
   model?: string;
 }
 
-export function toCodexThreadOptions(input: { workingDir: string; permissionLevel: string; model?: string }): CodexThreadOptions {
+export function toCodexThreadOptions(input: {
+  workingDir: string;
+  permissionLevel: string;
+  model?: string;
+}): CodexThreadOptions {
   const sandboxMode: CodexThreadOptions["sandboxMode"] =
     input.permissionLevel === "read_only"
       ? "read-only"
@@ -98,6 +112,6 @@ export function toCodexThreadOptions(input: { workingDir: string; permissionLeve
     sandboxMode,
     approvalPolicy: "never",
     webSearchMode: "disabled",
-    networkAccessEnabled: input.permissionLevel === "full_access"
+    networkAccessEnabled: input.permissionLevel === "full_access",
   };
 }

@@ -1,3 +1,7 @@
+import {
+  markTestAgentReady,
+  testConnectorCompatibility,
+} from "./test-compatibility.js";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -15,10 +19,17 @@ function tempDbPath() {
   return join(dir, "cacp.db");
 }
 
-function updateParticipantRole(dbPath: string, roomId: string, participantId: string, role: "admin" | "member" | "observer") {
+function updateParticipantRole(
+  dbPath: string,
+  roomId: string,
+  participantId: string,
+  role: "admin" | "member" | "observer"
+) {
   const db = new Database(dbPath);
   try {
-    db.prepare("UPDATE participants SET role = ? WHERE room_id = ? AND participant_id = ?").run(role, roomId, participantId);
+    db.prepare(
+      "UPDATE participants SET role = ? WHERE room_id = ? AND participant_id = ?"
+    ).run(role, roomId, participantId);
   } finally {
     db.close();
   }
@@ -26,7 +37,9 @@ function updateParticipantRole(dbPath: string, roomId: string, participantId: st
 
 afterAll(() => {
   for (const dir of tempDirs) {
-    try { rmSync(dir, { recursive: true, force: true }); } catch {}
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {}
   }
 });
 
@@ -34,9 +47,13 @@ async function ownerAndRoom(app: FastifyInstance) {
   const created = await app.inject({
     method: "POST",
     url: "/rooms",
-    payload: { name: "Room", display_name: "Owner" }
+    payload: { name: "Room", display_name: "Owner" },
   });
-  return created.json() as { room_id: string; owner_token: string; owner_id: string };
+  return created.json() as {
+    room_id: string;
+    owner_token: string;
+    owner_id: string;
+  };
 }
 
 async function setupRoomWithReadyAgent(app: FastifyInstance) {
@@ -45,15 +62,26 @@ async function setupRoomWithReadyAgent(app: FastifyInstance) {
     method: "POST",
     url: `/rooms/${room.room_id}/agents/register`,
     headers: { authorization: `Bearer ${room.owner_token}` },
-    payload: { name: "TestAgent", capabilities: ["llm-api"] }
+    payload: {
+      compatibility: testConnectorCompatibility,
+      name: "TestAgent",
+      capabilities: ["kimi-cli"],
+    },
   });
   const agent = agentReg.json() as { agent_id: string; agent_token: string };
   await app.inject({
     method: "POST",
     url: `/rooms/${room.room_id}/agents/select`,
     headers: { authorization: `Bearer ${room.owner_token}` },
-    payload: { agent_id: agent.agent_id }
+    payload: { agent_id: agent.agent_id },
   });
+  await markTestAgentReady(
+    app,
+    room.room_id,
+    room.owner_token,
+    agent.agent_id,
+    agent.agent_token
+  );
   return { room, agent };
 }
 
@@ -68,27 +96,36 @@ async function inviteWithRole(
     method: "POST",
     url: `/rooms/${roomId}/invites`,
     headers: { authorization: `Bearer ${ownerToken}` },
-    payload: { role }
+    payload: { role },
   });
   const invite = invRes.json() as { invite_token: string };
   const pending = await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/join-requests`,
-    payload: { invite_token: invite.invite_token, display_name: displayName }
+    payload: { invite_token: invite.invite_token, display_name: displayName },
   });
-  const requestObj = pending.json() as { request_id: string; request_token: string };
+  const requestObj = pending.json() as {
+    request_id: string;
+    request_token: string;
+  };
   await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/join-requests/${requestObj.request_id}/approve`,
     headers: { authorization: `Bearer ${ownerToken}` },
-    payload: {}
+    payload: {},
   });
   const status = await app.inject({
     method: "GET",
-    url: `/rooms/${roomId}/join-requests/${requestObj.request_id}?request_token=${encodeURIComponent(requestObj.request_token)}`
+    url: `/rooms/${roomId}/join-requests/${requestObj.request_id}?request_token=${encodeURIComponent(requestObj.request_token)}`,
   });
-  const finalised = status.json() as { participant_token: string; participant_id: string };
-  return { participant_id: finalised.participant_id, token: finalised.participant_token };
+  const finalised = status.json() as {
+    participant_token: string;
+    participant_id: string;
+  };
+  return {
+    participant_id: finalised.participant_id,
+    token: finalised.participant_token,
+  };
 }
 
 async function inviteAdmin(
@@ -98,25 +135,38 @@ async function inviteAdmin(
   ownerToken: string,
   displayName: string
 ) {
-  const member = await inviteWithRole(app, roomId, ownerToken, "member", displayName);
+  const member = await inviteWithRole(
+    app,
+    roomId,
+    ownerToken,
+    "member",
+    displayName
+  );
   updateParticipantRole(dbPath, roomId, member.participant_id, "admin");
   return member;
 }
 
 function addressOf(app: Awaited<ReturnType<typeof buildServer>>): string {
   const address = app.server.address();
-  if (!address || typeof address === "string") throw new Error("server did not bind to a TCP port");
+  if (!address || typeof address === "string")
+    throw new Error("server did not bind to a TCP port");
   return `127.0.0.1:${address.port}`;
 }
 
 function waitForOpen(socket: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {
     socket.addEventListener("open", () => resolve(), { once: true });
-    socket.addEventListener("error", () => reject(new Error("websocket failed to open")), { once: true });
+    socket.addEventListener(
+      "error",
+      () => reject(new Error("websocket failed to open")),
+      { once: true }
+    );
   });
 }
 
-function collectWsEvents(ws: WebSocket): Array<{ type: string; payload: Record<string, unknown> }> {
+function collectWsEvents(
+  ws: WebSocket
+): Array<{ type: string; payload: Record<string, unknown> }> {
   const arr: Array<{ type: string; payload: Record<string, unknown> }> = [];
   ws.addEventListener("message", (msg) => {
     arr.push(JSON.parse(msg.data as string));
@@ -126,7 +176,10 @@ function collectWsEvents(ws: WebSocket): Array<{ type: string; payload: Record<s
 
 async function waitForEvent(
   events: Array<{ type: string; payload: Record<string, unknown> }>,
-  predicate: (ev: { type: string; payload: Record<string, unknown> }) => boolean,
+  predicate: (ev: {
+    type: string;
+    payload: Record<string, unknown>;
+  }) => boolean,
   timeoutMs = 1500
 ): Promise<void> {
   const start = Date.now();
@@ -134,10 +187,15 @@ async function waitForEvent(
     if (events.some(predicate)) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  throw new Error(`timed out waiting for predicate; received: ${events.map((e) => e.type).join(",")}`);
+  throw new Error(
+    `timed out waiting for predicate; received: ${events.map((e) => e.type).join(",")}`
+  );
 }
 
-async function drainReplay(ws: WebSocket, ms = 1500): Promise<Array<{ type: string; payload: Record<string, unknown> }>> {
+async function drainReplay(
+  ws: WebSocket,
+  ms = 1500
+): Promise<Array<{ type: string; payload: Record<string, unknown> }>> {
   const replay: Array<{ type: string; payload: Record<string, unknown> }> = [];
   ws.addEventListener("message", (msg) => {
     replay.push(JSON.parse(msg.data as string));
@@ -148,14 +206,19 @@ async function drainReplay(ws: WebSocket, ms = 1500): Promise<Array<{ type: stri
 
 describe("POST /rooms/:roomId/orbit/notes — flat pool (no round_id)", () => {
   let app: FastifyInstance | undefined;
-  afterEach(async () => { await app?.close(); app = undefined; });
+  afterEach(async () => {
+    await app?.close();
+    app = undefined;
+  });
 
   it("publishes orbit.note.created without round_id", async () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     await app.listen({ host: "127.0.0.1", port: 0 });
     const room = await ownerAndRoom(app);
 
-    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws);
     const received = collectWsEvents(ws);
 
@@ -163,7 +226,7 @@ describe("POST /rooms/:roomId/orbit/notes — flat pool (no round_id)", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/orbit/notes`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "flat note" }
+      payload: { text: "flat note" },
     });
     expect(res.statusCode).toBe(201);
 
@@ -177,7 +240,10 @@ describe("POST /rooms/:roomId/orbit/notes — flat pool (no round_id)", () => {
 
 describe("POST /rooms/:roomId/orbit/clear", () => {
   let app: FastifyInstance | undefined;
-  afterEach(async () => { await app?.close(); app = undefined; });
+  afterEach(async () => {
+    await app?.close();
+    app = undefined;
+  });
 
   it("owner can clear (201, { ok: true })", async () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
@@ -187,7 +253,7 @@ describe("POST /rooms/:roomId/orbit/clear", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/orbit/clear`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: {}
+      payload: {},
     });
     expect(res.statusCode).toBe(201);
     expect(res.json()).toEqual({ ok: true });
@@ -197,13 +263,19 @@ describe("POST /rooms/:roomId/orbit/clear", () => {
     const dbPath = tempDbPath();
     app = await buildServer({ dbPath, config: localTestConfig() });
     const room = await ownerAndRoom(app);
-    const admin = await inviteAdmin(app, dbPath, room.room_id, room.owner_token, "Admin");
+    const admin = await inviteAdmin(
+      app,
+      dbPath,
+      room.room_id,
+      room.owner_token,
+      "Admin"
+    );
 
     const res = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/orbit/clear`,
       headers: { authorization: `Bearer ${admin.token}` },
-      payload: {}
+      payload: {},
     });
     expect(res.statusCode).toBe(201);
     expect(res.json()).toEqual({ ok: true });
@@ -212,13 +284,19 @@ describe("POST /rooms/:roomId/orbit/clear", () => {
   it("member is rejected with 403", async () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     const room = await ownerAndRoom(app);
-    const member = await inviteWithRole(app, room.room_id, room.owner_token, "member", "Mem");
+    const member = await inviteWithRole(
+      app,
+      room.room_id,
+      room.owner_token,
+      "member",
+      "Mem"
+    );
 
     const res = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/orbit/clear`,
       headers: { authorization: `Bearer ${member.token}` },
-      payload: {}
+      payload: {},
     });
     expect(res.statusCode).toBe(403);
   });
@@ -226,13 +304,19 @@ describe("POST /rooms/:roomId/orbit/clear", () => {
   it("observer is rejected with 403", async () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     const room = await ownerAndRoom(app);
-    const observer = await inviteWithRole(app, room.room_id, room.owner_token, "observer", "Obs");
+    const observer = await inviteWithRole(
+      app,
+      room.room_id,
+      room.owner_token,
+      "observer",
+      "Obs"
+    );
 
     const res = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/orbit/clear`,
       headers: { authorization: `Bearer ${observer.token}` },
-      payload: {}
+      payload: {},
     });
     expect(res.statusCode).toBe(403);
   });
@@ -245,7 +329,7 @@ describe("POST /rooms/:roomId/orbit/clear", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/orbit/clear`,
       headers: { authorization: `Bearer ${agent.agent_token}` },
-      payload: {}
+      payload: {},
     });
     expect(res.statusCode).toBe(403);
   });
@@ -255,7 +339,9 @@ describe("POST /rooms/:roomId/orbit/clear", () => {
     await app.listen({ host: "127.0.0.1", port: 0 });
     const room = await ownerAndRoom(app);
 
-    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws);
     const received = collectWsEvents(ws);
 
@@ -263,7 +349,7 @@ describe("POST /rooms/:roomId/orbit/clear", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/orbit/clear`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: {}
+      payload: {},
     });
     expect(res.statusCode).toBe(201);
 
@@ -284,7 +370,7 @@ describe("POST /rooms/:roomId/orbit/clear", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/orbit/notes`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "to be cleared" }
+      payload: { text: "to be cleared" },
     });
     expect(noteRes.statusCode).toBe(201);
 
@@ -292,12 +378,14 @@ describe("POST /rooms/:roomId/orbit/clear", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/orbit/clear`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: {}
+      payload: {},
     });
     expect(clearRes.statusCode).toBe(201);
 
     // Reconnect a fresh WS — the replay should be empty for orbit.*
-    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws);
     const replay = await drainReplay(ws);
     ws.close();
@@ -308,14 +396,19 @@ describe("POST /rooms/:roomId/orbit/clear", () => {
 
 describe("POST /rooms/:roomId/orbit/promote — flat pool", () => {
   let app: FastifyInstance | undefined;
-  afterEach(async () => { await app?.close(); app = undefined; });
+  afterEach(async () => {
+    await app?.close();
+    app = undefined;
+  });
 
   it("happy path: promotes a single note and broadcasts orbit.notes.quoted", async () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     await app.listen({ host: "127.0.0.1", port: 0 });
     const { room } = await setupRoomWithReadyAgent(app);
 
-    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws);
     const received = collectWsEvents(ws);
 
@@ -323,7 +416,7 @@ describe("POST /rooms/:roomId/orbit/promote — flat pool", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/orbit/notes`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "promote-me" }
+      payload: { text: "promote-me" },
     });
     const note = noteRes.json() as { note_id: string };
 
@@ -331,11 +424,15 @@ describe("POST /rooms/:roomId/orbit/promote — flat pool", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/orbit/promote`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { note_ids: [note.note_id] }
+      payload: { note_ids: [note.note_id] },
     });
 
     expect(promoteRes.statusCode).toBe(201);
-    const body = promoteRes.json() as { input_id: string; status: string; note_count: number };
+    const body = promoteRes.json() as {
+      input_id: string;
+      status: string;
+      note_count: number;
+    };
     expect(body.input_id).toMatch(/^input_/);
     expect(body.note_count).toBe(1);
     expect(body.status).toBe("triggered");
@@ -355,7 +452,7 @@ describe("POST /rooms/:roomId/orbit/promote — flat pool", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/orbit/notes`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "single-shot" }
+      payload: { text: "single-shot" },
     });
     const note = noteRes.json() as { note_id: string };
 
@@ -363,7 +460,7 @@ describe("POST /rooms/:roomId/orbit/promote — flat pool", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/orbit/promote`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { note_ids: [note.note_id] }
+      payload: { note_ids: [note.note_id] },
     });
     expect(first.statusCode).toBe(201);
 
@@ -371,7 +468,7 @@ describe("POST /rooms/:roomId/orbit/promote — flat pool", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/orbit/promote`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { note_ids: [note.note_id] }
+      payload: { note_ids: [note.note_id] },
     });
     expect(second.statusCode).toBe(409);
     expect(second.json()).toMatchObject({ error: "all_already_quoted" });
@@ -389,7 +486,7 @@ describe("POST /rooms/:roomId/orbit/promote — flat pool", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/orbit/promote`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { note_ids: ["note_does_not_exist"] }
+      payload: { note_ids: ["note_does_not_exist"] },
     });
     expect(res.statusCode).toBe(409);
     expect(res.json()).toMatchObject({ error: "no_notes_selected" });

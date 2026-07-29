@@ -1,29 +1,54 @@
+import {
+  markTestAgentReady,
+  testConnectorCompatibility,
+} from "./test-compatibility.js";
 import { afterEach, describe, expect, it } from "vitest";
+import { StructuredMessageContentSchema } from "@cacp/protocol";
 import type { FastifyInstance } from "fastify";
 import { buildServer } from "../src/server.js";
 import { localTestConfig } from "./test-config.js";
 
+function contentOf(payload: Record<string, unknown>) {
+  return StructuredMessageContentSchema.parse(payload.content);
+}
+
 async function ownerAndRoom(app: FastifyInstance) {
-  const created = await app.inject({ method: "POST", url: "/rooms", payload: { name: "Room", display_name: "Owner" } });
-  return created.json() as { room_id: string; owner_token: string; owner_id: string };
+  const created = await app.inject({
+    method: "POST",
+    url: "/rooms",
+    payload: { name: "Room", display_name: "Owner" },
+  });
+  return created.json() as {
+    room_id: string;
+    owner_token: string;
+    owner_id: string;
+  };
 }
 
 function addressOf(app: Awaited<ReturnType<typeof buildServer>>): string {
   const address = app.server.address();
-  if (!address || typeof address === "string") throw new Error("server did not bind to a TCP port");
+  if (!address || typeof address === "string")
+    throw new Error("server did not bind to a TCP port");
   return `127.0.0.1:${address.port}`;
 }
 
 function waitForOpen(socket: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {
     socket.addEventListener("open", () => resolve(), { once: true });
-    socket.addEventListener("error", () => reject(new Error("websocket failed to open")), { once: true });
+    socket.addEventListener(
+      "error",
+      () => reject(new Error("websocket failed to open")),
+      { once: true }
+    );
   });
 }
 
 describe("POST /rooms/:roomId/main-inputs", () => {
   let app: FastifyInstance | undefined;
-  afterEach(async () => { await app?.close(); app = undefined; });
+  afterEach(async () => {
+    await app?.close();
+    app = undefined;
+  });
 
   it("returns 409 when no active agent exists", async () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
@@ -33,7 +58,7 @@ describe("POST /rooms/:roomId/main-inputs", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/main-inputs`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "Hello agent" }
+      payload: { text: "Hello agent" },
     });
 
     expect(res.statusCode).toBe(409);
@@ -48,7 +73,11 @@ describe("POST /rooms/:roomId/main-inputs", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/agents/register`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { name: "Claude", capabilities: ["claude-code"] }
+      payload: {
+        compatibility: testConnectorCompatibility,
+        name: "Claude",
+        capabilities: ["claude-code"],
+      },
     });
     expect(agentRes.statusCode).toBe(201);
     const agent = agentRes.json() as { agent_id: string };
@@ -57,14 +86,13 @@ describe("POST /rooms/:roomId/main-inputs", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/agents/select`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { agent_id: agent.agent_id }
+      payload: { agent_id: agent.agent_id },
     });
-
     const res = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/main-inputs`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "Hello agent" }
+      payload: { text: "Hello agent" },
     });
 
     expect(res.statusCode).toBe(409);
@@ -80,22 +108,41 @@ describe("POST /rooms/:roomId/main-inputs", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/agents/register`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { name: "LLM Agent", capabilities: ["llm-api"] }
+      payload: {
+        compatibility: testConnectorCompatibility,
+        name: "Kimi Agent",
+        capabilities: ["kimi-cli"],
+      },
     });
     expect(agentRes.statusCode).toBe(201);
-    const agent = agentRes.json() as { agent_id: string };
+    const agent = agentRes.json() as {
+      agent_id: string;
+      agent_token: string;
+    };
 
     await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/agents/select`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { agent_id: agent.agent_id }
+      payload: { agent_id: agent.agent_id },
     });
+    await markTestAgentReady(
+      app,
+      room.room_id,
+      room.owner_token,
+      agent.agent_id,
+      agent.agent_token
+    );
 
-    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws);
 
-    const receivedEvents: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const receivedEvents: Array<{
+      type: string;
+      payload: Record<string, unknown>;
+    }> = [];
     ws.addEventListener("message", (msg) => {
       receivedEvents.push(JSON.parse(msg.data as string));
     });
@@ -104,7 +151,7 @@ describe("POST /rooms/:roomId/main-inputs", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/main-inputs`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "Trigger turn" }
+      payload: { text: "Trigger turn" },
     });
 
     expect(res.statusCode).toBe(201);
@@ -112,8 +159,12 @@ describe("POST /rooms/:roomId/main-inputs", () => {
     await new Promise((resolve) => setTimeout(resolve, 200));
     ws.close();
 
-    expect(receivedEvents.some((e) => e.type === "orbit.round.opened")).toBe(false);
-    expect(receivedEvents.some((e) => e.type === "orbit.round.promoted")).toBe(false);
+    expect(receivedEvents.some((e) => e.type === "orbit.round.opened")).toBe(
+      false
+    );
+    expect(receivedEvents.some((e) => e.type === "orbit.round.promoted")).toBe(
+      false
+    );
   });
 
   it("persists main_input lifecycle events so reconnecting clients see queue state", async () => {
@@ -121,21 +172,39 @@ describe("POST /rooms/:roomId/main-inputs", () => {
     await app.listen({ host: "127.0.0.1", port: 0 });
     const { room } = await setupRoomWithReadyAgent(app);
 
-    const ws1 = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws1 = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws1);
     const received1 = collectWsEvents(ws1);
 
-    const r1 = await postMainInput(app, room.room_id, room.owner_token, "first");
+    const r1 = await postMainInput(
+      app,
+      room.room_id,
+      room.owner_token,
+      "first"
+    );
     expect(r1.statusCode).toBe(201);
     await waitForEvent(received1, (e) => e.type === "agent.turn.requested");
 
-    const r2 = await postMainInput(app, room.room_id, room.owner_token, "second");
+    const r2 = await postMainInput(
+      app,
+      room.room_id,
+      room.owner_token,
+      "second"
+    );
     expect((r2.json() as { status: string }).status).toBe("queued");
     const secondInput = (r2.json() as { input_id: string }).input_id;
-    await waitForEvent(received1, (e) => e.type === "main_input.queued" && e.payload.input_id === secondInput);
+    await waitForEvent(
+      received1,
+      (e) =>
+        e.type === "main_input.queued" && e.payload.input_id === secondInput
+    );
     ws1.close();
 
-    const ws2 = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws2 = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws2);
     const received2 = collectWsEvents(ws2);
     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -150,40 +219,59 @@ describe("POST /rooms/:roomId/main-inputs", () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     await app.listen({ host: "127.0.0.1", port: 0 });
     const { room } = await setupRoomWithReadyAgent(app);
-    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws);
     const received = collectWsEvents(ws);
 
-    const res = await postMainInput(app, room.room_id, room.owner_token, "direct main input");
+    const res = await postMainInput(
+      app,
+      room.room_id,
+      room.owner_token,
+      "direct main input"
+    );
 
     expect(res.statusCode).toBe(201);
     await waitForEvent(received, (e) => e.type === "agent.turn.requested");
     const requested = received.find((e) => e.type === "agent.turn.requested")!;
-    expect(requested.payload.context_prompt).toBe("direct main input");
-    expect(requested.payload.message_text).toBeUndefined();
+    expect(requested.payload.content).toEqual({
+      text: "direct main input",
+      attachments: [],
+    });
 
     ws.close();
   });
 
-  it("uses the submitted main input text as the immediate local-agent message_text", async () => {
+  it("uses the submitted main input text as structured local-agent content", async () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     await app.listen({ host: "127.0.0.1", port: 0 });
     const { room, agent } = await setupRoomWithReadyLocalAgent(app);
-    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws);
     const received = collectWsEvents(ws);
 
-    const res = await postMainInput(app, room.room_id, room.owner_token, "direct codex input");
+    const res = await postMainInput(
+      app,
+      room.room_id,
+      room.owner_token,
+      "direct codex input"
+    );
 
     expect(res.statusCode).toBe(201);
     await waitForEvent(received, (e) => e.type === "agent.turn.requested");
     const requested = received.find((e) => e.type === "agent.turn.requested")!;
     expect(requested.payload).toMatchObject({
       agent_id: agent.agent_id,
-      message_text: "direct codex input",
+      content: {
+        text: "direct codex input",
+        attachments: [],
+      },
       speaker_name: "Owner",
       speaker_role: "owner",
-      source: "composer"
+      source: "composer",
     });
     expect(requested.payload.context_prompt).toBeUndefined();
 
@@ -196,24 +284,33 @@ describe("POST /rooms/:roomId/main-inputs", () => {
     const { room } = await setupRoomWithReadyAgent(app);
 
     // First connection: send main input, then disconnect.
-    const ws1 = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws1 = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws1);
     const received1 = collectWsEvents(ws1);
 
-    const res = await postMainInput(app, room.room_id, room.owner_token, "hello for persistence");
+    const res = await postMainInput(
+      app,
+      room.room_id,
+      room.owner_token,
+      "hello for persistence"
+    );
     expect(res.statusCode).toBe(201);
     await waitForEvent(received1, (e) => e.type === "agent.turn.requested");
     ws1.close();
 
     // Second connection: replay should include the durable message.created.
-    const ws2 = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws2 = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws2);
     const received2 = collectWsEvents(ws2);
     await new Promise((resolve) => setTimeout(resolve, 200));
 
     expect(received2.some((e) => e.type === "message.created")).toBe(true);
     const msgEvent = received2.find((e) => e.type === "message.created")!;
-    expect(msgEvent.payload.text).toBe("hello for persistence");
+    expect(contentOf(msgEvent.payload).text).toBe("hello for persistence");
     expect(msgEvent.payload.kind).toBe("human");
     ws2.close();
   });
@@ -222,7 +319,9 @@ describe("POST /rooms/:roomId/main-inputs", () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     await app.listen({ host: "127.0.0.1", port: 0 });
     const { room } = await setupRoomWithReadyAgent(app);
-    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws);
     const received = collectWsEvents(ws);
 
@@ -230,7 +329,7 @@ describe("POST /rooms/:roomId/main-inputs", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/orbit/notes`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "Budget risk needs detail" }
+      payload: { text: "Budget risk needs detail" },
     });
     expect(noteRes.statusCode).toBe(201);
     const note = noteRes.json() as { note_id: string };
@@ -239,14 +338,18 @@ describe("POST /rooms/:roomId/main-inputs", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/orbit/promote`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { note_ids: [note.note_id] }
+      payload: { note_ids: [note.note_id] },
     });
 
     expect(promoteRes.statusCode).toBe(201);
     await waitForEvent(received, (e) => e.type === "agent.turn.requested");
     const requested = received.find((e) => e.type === "agent.turn.requested")!;
-    expect(String(requested.payload.context_prompt)).toContain("Owner(owner): Budget risk needs detail");
-    expect(String(requested.payload.context_prompt)).toContain("Budget risk needs detail");
+    expect(contentOf(requested.payload).text).toContain(
+      "Owner(owner): Budget risk needs detail"
+    );
+    expect(contentOf(requested.payload).text).toContain(
+      "Budget risk needs detail"
+    );
     expect(requested.payload.source).toBe("orbit_promote");
 
     ws.close();
@@ -255,7 +358,10 @@ describe("POST /rooms/:roomId/main-inputs", () => {
 
 describe("POST /rooms/:roomId/main-inputs/:inputId/cancel", () => {
   let app: FastifyInstance | undefined;
-  afterEach(async () => { await app?.close(); app = undefined; });
+  afterEach(async () => {
+    await app?.close();
+    app = undefined;
+  });
 
   it("requires owner/admin to cancel", async () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
@@ -265,7 +371,7 @@ describe("POST /rooms/:roomId/main-inputs/:inputId/cancel", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/main-inputs/input_1/cancel`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: {}
+      payload: {},
     });
 
     expect(res.statusCode).toBe(409);
@@ -279,15 +385,26 @@ async function setupRoomWithReadyAgent(app: FastifyInstance) {
     method: "POST",
     url: `/rooms/${room.room_id}/agents/register`,
     headers: { authorization: `Bearer ${room.owner_token}` },
-    payload: { name: "TestAgent", capabilities: ["llm-api"] }
+    payload: {
+      compatibility: testConnectorCompatibility,
+      name: "TestAgent",
+      capabilities: ["kimi-cli"],
+    },
   });
   const agent = agentReg.json() as { agent_id: string; agent_token: string };
   await app.inject({
     method: "POST",
     url: `/rooms/${room.room_id}/agents/select`,
     headers: { authorization: `Bearer ${room.owner_token}` },
-    payload: { agent_id: agent.agent_id }
+    payload: { agent_id: agent.agent_id },
   });
+  await markTestAgentReady(
+    app,
+    room.room_id,
+    room.owner_token,
+    agent.agent_id,
+    agent.agent_token
+  );
   return { room, agent };
 }
 
@@ -297,68 +414,105 @@ async function setupRoomWithReadyLocalAgent(app: FastifyInstance) {
     method: "POST",
     url: `/rooms/${room.room_id}/agents/register`,
     headers: { authorization: `Bearer ${room.owner_token}` },
-    payload: { name: "Codex", capabilities: ["codex-cli", "code-agent.persistent_session", "code-agent.local_execution"] }
+    payload: {
+      compatibility: testConnectorCompatibility,
+      name: "Codex",
+      capabilities: [
+        "codex-cli",
+        "code-agent.persistent_session",
+        "code-agent.local_execution",
+      ],
+    },
   });
   const agent = agentReg.json() as { agent_id: string; agent_token: string };
   await app.inject({
     method: "POST",
     url: `/rooms/${room.room_id}/agents/select`,
     headers: { authorization: `Bearer ${room.owner_token}` },
-    payload: { agent_id: agent.agent_id }
+    payload: { agent_id: agent.agent_id },
   });
   await app.inject({
     method: "POST",
     url: `/rooms/${room.room_id}/agent-sessions/selection`,
     headers: { authorization: `Bearer ${room.owner_token}` },
-    payload: { agent_id: agent.agent_id, provider: "codex-cli", mode: "fresh" }
+    payload: { agent_id: agent.agent_id, provider: "codex-cli", mode: "fresh" },
   });
   await app.inject({
     method: "POST",
     url: `/rooms/${room.room_id}/agent-sessions/ready`,
     headers: { authorization: `Bearer ${agent.agent_token}` },
-    payload: { agent_id: agent.agent_id, provider: "codex-cli", mode: "fresh", ready_at: "2026-05-01T00:00:00.000Z" }
+    payload: {
+      agent_id: agent.agent_id,
+      provider: "codex-cli",
+      mode: "fresh",
+      ready_at: "2026-05-01T00:00:00.000Z",
+    },
   });
   return { room, agent };
 }
 
-async function postMainInput(app: FastifyInstance, roomId: string, ownerToken: string, text: string) {
+async function postMainInput(
+  app: FastifyInstance,
+  roomId: string,
+  ownerToken: string,
+  text: string
+) {
   return app.inject({
     method: "POST",
     url: `/rooms/${roomId}/main-inputs`,
     headers: { authorization: `Bearer ${ownerToken}` },
-    payload: { text }
+    payload: { text },
   });
 }
 
-async function startTurn(app: FastifyInstance, roomId: string, agentToken: string, turnId: string) {
+async function startTurn(
+  app: FastifyInstance,
+  roomId: string,
+  agentToken: string,
+  turnId: string
+) {
   const res = await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/agent-turns/${turnId}/start`,
     headers: { authorization: `Bearer ${agentToken}` },
-    payload: {}
+    payload: {},
   });
   expect(res.statusCode).toBe(201);
 }
 
-async function completeTurn(app: FastifyInstance, roomId: string, agentToken: string, turnId: string, finalText = "done") {
+async function completeTurn(
+  app: FastifyInstance,
+  roomId: string,
+  agentToken: string,
+  turnId: string,
+  finalText = "done"
+) {
   return app.inject({
     method: "POST",
     url: `/rooms/${roomId}/agent-turns/${turnId}/complete`,
     headers: { authorization: `Bearer ${agentToken}` },
-    payload: { final_text: finalText, exit_code: 0 }
+    payload: { final_text: finalText, exit_code: 0 },
   });
 }
 
-async function failTurn(app: FastifyInstance, roomId: string, agentToken: string, turnId: string, error: string) {
+async function failTurn(
+  app: FastifyInstance,
+  roomId: string,
+  agentToken: string,
+  turnId: string,
+  error: string
+) {
   return app.inject({
     method: "POST",
     url: `/rooms/${roomId}/agent-turns/${turnId}/fail`,
     headers: { authorization: `Bearer ${agentToken}` },
-    payload: { error }
+    payload: { error },
   });
 }
 
-function collectWsEvents(ws: WebSocket): Array<{ type: string; payload: Record<string, unknown> }> {
+function collectWsEvents(
+  ws: WebSocket
+): Array<{ type: string; payload: Record<string, unknown> }> {
   const arr: Array<{ type: string; payload: Record<string, unknown> }> = [];
   ws.addEventListener("message", (msg) => {
     arr.push(JSON.parse(msg.data as string));
@@ -366,65 +520,134 @@ function collectWsEvents(ws: WebSocket): Array<{ type: string; payload: Record<s
   return arr;
 }
 
-async function waitForEvent(events: Array<{ type: string; payload: Record<string, unknown> }>, predicate: (ev: { type: string; payload: Record<string, unknown> }) => boolean, timeoutMs = 1500): Promise<void> {
+async function waitForEvent(
+  events: Array<{ type: string; payload: Record<string, unknown> }>,
+  predicate: (ev: {
+    type: string;
+    payload: Record<string, unknown>;
+  }) => boolean,
+  timeoutMs = 1500
+): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     if (events.some(predicate)) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  throw new Error(`timed out waiting for predicate; received: ${events.map((e) => e.type).join(",")}`);
+  throw new Error(
+    `timed out waiting for predicate; received: ${events.map((e) => e.type).join(",")}`
+  );
 }
 
 describe("FIFO main-input auto-trigger on agent turn completion (T5)", () => {
   let app: FastifyInstance | undefined;
-  afterEach(async () => { await app?.close(); app = undefined; });
+  afterEach(async () => {
+    await app?.close();
+    app = undefined;
+  });
 
   it("triggers FIFO head after agent.turn.completed and keeps remaining queued", async () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     await app.listen({ host: "127.0.0.1", port: 0 });
     const { room, agent } = await setupRoomWithReadyAgent(app);
-    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws);
     const received = collectWsEvents(ws);
 
-    const r1 = await postMainInput(app, room.room_id, room.owner_token, "first");
+    const r1 = await postMainInput(
+      app,
+      room.room_id,
+      room.owner_token,
+      "first"
+    );
     expect(r1.statusCode).toBe(201);
     expect((r1.json() as { status: string }).status).toBe("triggered");
     const firstInput = (r1.json() as { input_id: string }).input_id;
 
     await waitForEvent(received, (e) => e.type === "agent.turn.requested");
-    const firstTurnReq = received.find((e) => e.type === "agent.turn.requested")!;
+    const firstTurnReq = received.find(
+      (e) => e.type === "agent.turn.requested"
+    )!;
     const firstTurnId = String(firstTurnReq.payload.turn_id);
 
     // Queue input #2 and #3 while turn #1 is in flight.
-    const r2 = await postMainInput(app, room.room_id, room.owner_token, "second");
+    const r2 = await postMainInput(
+      app,
+      room.room_id,
+      room.owner_token,
+      "second"
+    );
     expect((r2.json() as { status: string }).status).toBe("queued");
     const secondInput = (r2.json() as { input_id: string }).input_id;
-    const r3 = await postMainInput(app, room.room_id, room.owner_token, "third");
+    const r3 = await postMainInput(
+      app,
+      room.room_id,
+      room.owner_token,
+      "third"
+    );
     expect((r3.json() as { status: string }).status).toBe("queued");
     const thirdInput = (r3.json() as { input_id: string }).input_id;
 
     await startTurn(app, room.room_id, agent.agent_token, firstTurnId);
     received.length = 0;
 
-    const completeRes = await completeTurn(app, room.room_id, agent.agent_token, firstTurnId);
+    const completeRes = await completeTurn(
+      app,
+      room.room_id,
+      agent.agent_token,
+      firstTurnId
+    );
     expect(completeRes.statusCode).toBe(201);
 
-    await waitForEvent(received, (e) => e.type === "main_input.triggered" && e.payload.input_id === secondInput);
-    const triggered = received.find((e) => e.type === "main_input.triggered" && e.payload.input_id === secondInput)!;
-    await waitForEvent(received, (e) => e.type === "agent.turn.requested" && e.payload.turn_id === triggered.payload.trigger_turn_id);
-    const newTurnReq = received.find((e) => e.type === "agent.turn.requested" && e.payload.turn_id === triggered.payload.trigger_turn_id)!;
-    expect(newTurnReq.payload.message_text).toBe("second");
+    await waitForEvent(
+      received,
+      (e) =>
+        e.type === "main_input.triggered" && e.payload.input_id === secondInput
+    );
+    const triggered = received.find(
+      (e) =>
+        e.type === "main_input.triggered" && e.payload.input_id === secondInput
+    )!;
+    await waitForEvent(
+      received,
+      (e) =>
+        e.type === "agent.turn.requested" &&
+        e.payload.turn_id === triggered.payload.trigger_turn_id
+    );
+    const newTurnReq = received.find(
+      (e) =>
+        e.type === "agent.turn.requested" &&
+        e.payload.turn_id === triggered.payload.trigger_turn_id
+    )!;
+    expect(contentOf(newTurnReq.payload).text).toBe("second");
     // Ordering: agent.turn.requested should arrive before main_input.triggered.
-    const reqIdx = received.findIndex((e) => e.type === "agent.turn.requested" && e.payload.turn_id === triggered.payload.trigger_turn_id);
-    const trigIdx = received.findIndex((e) => e.type === "main_input.triggered" && e.payload.input_id === secondInput);
+    const reqIdx = received.findIndex(
+      (e) =>
+        e.type === "agent.turn.requested" &&
+        e.payload.turn_id === triggered.payload.trigger_turn_id
+    );
+    const trigIdx = received.findIndex(
+      (e) =>
+        e.type === "main_input.triggered" && e.payload.input_id === secondInput
+    );
     expect(reqIdx).toBeLessThan(trigIdx);
 
     // Third should still be queued (not yet triggered).
-    expect(received.some((e) => e.type === "main_input.triggered" && e.payload.input_id === thirdInput)).toBe(false);
+    expect(
+      received.some(
+        (e) =>
+          e.type === "main_input.triggered" && e.payload.input_id === thirdInput
+      )
+    ).toBe(false);
 
     // Sanity: first input is not re-triggered.
-    expect(received.filter((e) => e.type === "main_input.triggered" && e.payload.input_id === firstInput)).toHaveLength(0);
+    expect(
+      received.filter(
+        (e) =>
+          e.type === "main_input.triggered" && e.payload.input_id === firstInput
+      )
+    ).toHaveLength(0);
 
     ws.close();
   });
@@ -433,16 +656,35 @@ describe("FIFO main-input auto-trigger on agent turn completion (T5)", () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     await app.listen({ host: "127.0.0.1", port: 0 });
     const { room, agent } = await setupRoomWithReadyAgent(app);
-    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws);
     const received = collectWsEvents(ws);
 
-    const r1 = await postMainInput(app, room.room_id, room.owner_token, "first");
+    const r1 = await postMainInput(
+      app,
+      room.room_id,
+      room.owner_token,
+      "first"
+    );
     await waitForEvent(received, (e) => e.type === "agent.turn.requested");
-    const firstTurnId = String(received.find((e) => e.type === "agent.turn.requested")!.payload.turn_id);
-    const r2 = await postMainInput(app, room.room_id, room.owner_token, "second");
+    const firstTurnId = String(
+      received.find((e) => e.type === "agent.turn.requested")!.payload.turn_id
+    );
+    const r2 = await postMainInput(
+      app,
+      room.room_id,
+      room.owner_token,
+      "second"
+    );
     const secondInput = (r2.json() as { input_id: string }).input_id;
-    const r3 = await postMainInput(app, room.room_id, room.owner_token, "third");
+    const r3 = await postMainInput(
+      app,
+      room.room_id,
+      room.owner_token,
+      "third"
+    );
     const thirdInput = (r3.json() as { input_id: string }).input_id;
 
     expect(r1.statusCode).toBe(201);
@@ -451,21 +693,51 @@ describe("FIFO main-input auto-trigger on agent turn completion (T5)", () => {
     received.length = 0;
     await completeTurn(app, room.room_id, agent.agent_token, firstTurnId);
 
-    await waitForEvent(received, (e) => e.type === "main_input.triggered" && e.payload.input_id === secondInput);
-    const secondTriggered = received.find((e) => e.type === "main_input.triggered" && e.payload.input_id === secondInput)!;
+    await waitForEvent(
+      received,
+      (e) =>
+        e.type === "main_input.triggered" && e.payload.input_id === secondInput
+    );
+    const secondTriggered = received.find(
+      (e) =>
+        e.type === "main_input.triggered" && e.payload.input_id === secondInput
+    )!;
     const secondTurnId = String(secondTriggered.payload.trigger_turn_id);
     await startTurn(app, room.room_id, agent.agent_token, secondTurnId);
     received.length = 0;
     await completeTurn(app, room.room_id, agent.agent_token, secondTurnId);
 
-    await waitForEvent(received, (e) => e.type === "main_input.triggered" && e.payload.input_id === thirdInput);
-    const thirdTriggered = received.find((e) => e.type === "main_input.triggered" && e.payload.input_id === thirdInput)!;
-    await waitForEvent(received, (e) => e.type === "agent.turn.requested" && e.payload.turn_id === thirdTriggered.payload.trigger_turn_id);
-    const thirdTurnReq = received.find((e) => e.type === "agent.turn.requested" && e.payload.turn_id === thirdTriggered.payload.trigger_turn_id)!;
-    expect(thirdTurnReq.payload.message_text).toBe("third");
+    await waitForEvent(
+      received,
+      (e) =>
+        e.type === "main_input.triggered" && e.payload.input_id === thirdInput
+    );
+    const thirdTriggered = received.find(
+      (e) =>
+        e.type === "main_input.triggered" && e.payload.input_id === thirdInput
+    )!;
+    await waitForEvent(
+      received,
+      (e) =>
+        e.type === "agent.turn.requested" &&
+        e.payload.turn_id === thirdTriggered.payload.trigger_turn_id
+    );
+    const thirdTurnReq = received.find(
+      (e) =>
+        e.type === "agent.turn.requested" &&
+        e.payload.turn_id === thirdTriggered.payload.trigger_turn_id
+    )!;
+    expect(contentOf(thirdTurnReq.payload).text).toBe("third");
     // Ordering: agent.turn.requested should arrive before main_input.triggered.
-    const reqIdx3 = received.findIndex((e) => e.type === "agent.turn.requested" && e.payload.turn_id === thirdTriggered.payload.trigger_turn_id);
-    const trigIdx3 = received.findIndex((e) => e.type === "main_input.triggered" && e.payload.input_id === thirdInput);
+    const reqIdx3 = received.findIndex(
+      (e) =>
+        e.type === "agent.turn.requested" &&
+        e.payload.turn_id === thirdTriggered.payload.trigger_turn_id
+    );
+    const trigIdx3 = received.findIndex(
+      (e) =>
+        e.type === "main_input.triggered" && e.payload.input_id === thirdInput
+    );
     expect(reqIdx3).toBeLessThan(trigIdx3);
     // Now complete the third turn → queue should be empty, no new triggered.
     const thirdTurnId = String(thirdTriggered.payload.trigger_turn_id);
@@ -483,22 +755,41 @@ describe("FIFO main-input auto-trigger on agent turn completion (T5)", () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     await app.listen({ host: "127.0.0.1", port: 0 });
     const { room, agent } = await setupRoomWithReadyAgent(app);
-    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws);
     const received = collectWsEvents(ws);
 
     await postMainInput(app, room.room_id, room.owner_token, "first");
     await waitForEvent(received, (e) => e.type === "agent.turn.requested");
-    const firstTurnId = String(received.find((e) => e.type === "agent.turn.requested")!.payload.turn_id);
-    const r2 = await postMainInput(app, room.room_id, room.owner_token, "second");
+    const firstTurnId = String(
+      received.find((e) => e.type === "agent.turn.requested")!.payload.turn_id
+    );
+    const r2 = await postMainInput(
+      app,
+      room.room_id,
+      room.owner_token,
+      "second"
+    );
     const secondInput = (r2.json() as { input_id: string }).input_id;
 
     await startTurn(app, room.room_id, agent.agent_token, firstTurnId);
     received.length = 0;
-    const failRes = await failTurn(app, room.room_id, agent.agent_token, firstTurnId, "internal_error");
+    const failRes = await failTurn(
+      app,
+      room.room_id,
+      agent.agent_token,
+      firstTurnId,
+      "internal_error"
+    );
     expect(failRes.statusCode).toBe(201);
 
-    await waitForEvent(received, (e) => e.type === "main_input.triggered" && e.payload.input_id === secondInput);
+    await waitForEvent(
+      received,
+      (e) =>
+        e.type === "main_input.triggered" && e.payload.input_id === secondInput
+    );
 
     ws.close();
   });
@@ -507,16 +798,26 @@ describe("FIFO main-input auto-trigger on agent turn completion (T5)", () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     await app.listen({ host: "127.0.0.1", port: 0 });
     const { room, agent } = await setupRoomWithReadyAgent(app);
-    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws);
     const received = collectWsEvents(ws);
 
     await postMainInput(app, room.room_id, room.owner_token, "first");
     await waitForEvent(received, (e) => e.type === "agent.turn.requested");
-    const firstTurnId = String(received.find((e) => e.type === "agent.turn.requested")!.payload.turn_id);
+    const firstTurnId = String(
+      received.find((e) => e.type === "agent.turn.requested")!.payload.turn_id
+    );
 
     // Do NOT call startTurn. Fail immediately from requested state.
-    const failRes = await failTurn(app, room.room_id, agent.agent_token, firstTurnId, "model_connection_failed");
+    const failRes = await failTurn(
+      app,
+      room.room_id,
+      agent.agent_token,
+      firstTurnId,
+      "model_connection_failed"
+    );
     expect(failRes.statusCode).toBe(201);
 
     ws.close();
@@ -526,23 +827,44 @@ describe("FIFO main-input auto-trigger on agent turn completion (T5)", () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     await app.listen({ host: "127.0.0.1", port: 0 });
     const { room, agent } = await setupRoomWithReadyAgent(app);
-    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws);
     const received = collectWsEvents(ws);
 
     await postMainInput(app, room.room_id, room.owner_token, "first");
     await waitForEvent(received, (e) => e.type === "agent.turn.requested");
-    const firstTurnId = String(received.find((e) => e.type === "agent.turn.requested")!.payload.turn_id);
-    const r2 = await postMainInput(app, room.room_id, room.owner_token, "second");
+    const firstTurnId = String(
+      received.find((e) => e.type === "agent.turn.requested")!.payload.turn_id
+    );
+    const r2 = await postMainInput(
+      app,
+      room.room_id,
+      room.owner_token,
+      "second"
+    );
     const secondInput = (r2.json() as { input_id: string }).input_id;
 
     await startTurn(app, room.room_id, agent.agent_token, firstTurnId);
     received.length = 0;
-    await failTurn(app, room.room_id, agent.agent_token, firstTurnId, "active_agent_offline");
+    await failTurn(
+      app,
+      room.room_id,
+      agent.agent_token,
+      firstTurnId,
+      "active_agent_offline"
+    );
 
     // Give some time for any spurious trigger to land.
     await new Promise((resolve) => setTimeout(resolve, 150));
-    expect(received.some((e) => e.type === "main_input.triggered" && e.payload.input_id === secondInput)).toBe(false);
+    expect(
+      received.some(
+        (e) =>
+          e.type === "main_input.triggered" &&
+          e.payload.input_id === secondInput
+      )
+    ).toBe(false);
 
     ws.close();
   });
@@ -551,16 +873,30 @@ describe("FIFO main-input auto-trigger on agent turn completion (T5)", () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     await app.listen({ host: "127.0.0.1", port: 0 });
     const { room, agent } = await setupRoomWithReadyAgent(app);
-    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws);
     const received = collectWsEvents(ws);
 
     await postMainInput(app, room.room_id, room.owner_token, "first");
     await waitForEvent(received, (e) => e.type === "agent.turn.requested");
-    const firstTurnId = String(received.find((e) => e.type === "agent.turn.requested")!.payload.turn_id);
-    const r2 = await postMainInput(app, room.room_id, room.owner_token, "second");
+    const firstTurnId = String(
+      received.find((e) => e.type === "agent.turn.requested")!.payload.turn_id
+    );
+    const r2 = await postMainInput(
+      app,
+      room.room_id,
+      room.owner_token,
+      "second"
+    );
     const secondInput = (r2.json() as { input_id: string }).input_id;
-    const r3 = await postMainInput(app, room.room_id, room.owner_token, "third");
+    const r3 = await postMainInput(
+      app,
+      room.room_id,
+      room.owner_token,
+      "third"
+    );
     const thirdInput = (r3.json() as { input_id: string }).input_id;
 
     // Cancel the second input.
@@ -568,7 +904,7 @@ describe("FIFO main-input auto-trigger on agent turn completion (T5)", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/main-inputs/${secondInput}/cancel`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: {}
+      payload: {},
     });
     expect(cancelRes.statusCode).toBe(201);
 
@@ -576,15 +912,44 @@ describe("FIFO main-input auto-trigger on agent turn completion (T5)", () => {
     received.length = 0;
     await completeTurn(app, room.room_id, agent.agent_token, firstTurnId);
 
-    await waitForEvent(received, (e) => e.type === "main_input.triggered" && e.payload.input_id === thirdInput);
-    expect(received.some((e) => e.type === "main_input.triggered" && e.payload.input_id === secondInput)).toBe(false);
-    const triggered = received.find((e) => e.type === "main_input.triggered" && e.payload.input_id === thirdInput)!;
-    await waitForEvent(received, (e) => e.type === "agent.turn.requested" && e.payload.turn_id === triggered.payload.trigger_turn_id);
-    const newTurnReq = received.find((e) => e.type === "agent.turn.requested" && e.payload.turn_id === triggered.payload.trigger_turn_id)!;
-    expect(newTurnReq.payload.message_text).toBe("third");
+    await waitForEvent(
+      received,
+      (e) =>
+        e.type === "main_input.triggered" && e.payload.input_id === thirdInput
+    );
+    expect(
+      received.some(
+        (e) =>
+          e.type === "main_input.triggered" &&
+          e.payload.input_id === secondInput
+      )
+    ).toBe(false);
+    const triggered = received.find(
+      (e) =>
+        e.type === "main_input.triggered" && e.payload.input_id === thirdInput
+    )!;
+    await waitForEvent(
+      received,
+      (e) =>
+        e.type === "agent.turn.requested" &&
+        e.payload.turn_id === triggered.payload.trigger_turn_id
+    );
+    const newTurnReq = received.find(
+      (e) =>
+        e.type === "agent.turn.requested" &&
+        e.payload.turn_id === triggered.payload.trigger_turn_id
+    )!;
+    expect(contentOf(newTurnReq.payload).text).toBe("third");
     // Ordering: agent.turn.requested should arrive before main_input.triggered.
-    const reqIdx = received.findIndex((e) => e.type === "agent.turn.requested" && e.payload.turn_id === triggered.payload.trigger_turn_id);
-    const trigIdx = received.findIndex((e) => e.type === "main_input.triggered" && e.payload.input_id === thirdInput);
+    const reqIdx = received.findIndex(
+      (e) =>
+        e.type === "agent.turn.requested" &&
+        e.payload.turn_id === triggered.payload.trigger_turn_id
+    );
+    const trigIdx = received.findIndex(
+      (e) =>
+        e.type === "main_input.triggered" && e.payload.input_id === thirdInput
+    );
     expect(reqIdx).toBeLessThan(trigIdx);
     ws.close();
   });
@@ -593,13 +958,17 @@ describe("FIFO main-input auto-trigger on agent turn completion (T5)", () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     await app.listen({ host: "127.0.0.1", port: 0 });
     const { room, agent } = await setupRoomWithReadyAgent(app);
-    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws);
     const received = collectWsEvents(ws);
 
     await postMainInput(app, room.room_id, room.owner_token, "first");
     await waitForEvent(received, (e) => e.type === "agent.turn.requested");
-    const firstTurnId = String(received.find((e) => e.type === "agent.turn.requested")!.payload.turn_id);
+    const firstTurnId = String(
+      received.find((e) => e.type === "agent.turn.requested")!.payload.turn_id
+    );
     await startTurn(app, room.room_id, agent.agent_token, firstTurnId);
     received.length = 0;
     await completeTurn(app, room.room_id, agent.agent_token, firstTurnId);

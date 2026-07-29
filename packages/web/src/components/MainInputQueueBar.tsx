@@ -51,7 +51,9 @@ export function MainInputQueueBar({ queue, onCancel }: MainInputQueueBarProps) {
                   >
                     ×
                   </button>
-                  <span className="main-input-queue-bar__text">{item.text}</span>
+                  <span className="main-input-queue-bar__text">
+                    {item.text}
+                  </span>
                 </div>
               ))}
             </div>

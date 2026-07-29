@@ -19,8 +19,10 @@ export interface KimiSessionCatalogResult {
  * Sessions with zero events are visible but cannot be resumed, matching the
  * Codex behaviour of `messageCount > 0`.
  */
-export async function listKimiSessions(input: KimiSessionCatalogInput): Promise<KimiSessionCatalogResult> {
-  const sdk = input.sdk ?? await loadKimiSdk();
+export async function listKimiSessions(
+  input: KimiSessionCatalogInput
+): Promise<KimiSessionCatalogResult> {
+  const sdk = input.sdk ?? (await loadKimiSdk());
   const rawSessions = await sdk.listSessions(input.workingDir);
 
   const sessions = await Promise.all(
@@ -36,7 +38,7 @@ export async function listKimiSessions(input: KimiSessionCatalogInput): Promise<
         message_count: messageCount,
         byte_size: 0, // Kimi SDK does not expose session size; placeholder for UI consistency
         importable: messageCount > 0,
-        provider: "kimi-cli" as const
+        provider: "kimi-cli" as const,
       };
     })
   );

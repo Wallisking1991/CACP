@@ -44,7 +44,10 @@ export class MainThreadLedger {
       try {
         const parsed = JSON.parse(trimmed) as ConnectorLedgerEntry;
         this.entries.push(parsed);
-        if (Number.isInteger(parsed.sequence) && parsed.sequence >= this.nextSequence) {
+        if (
+          Number.isInteger(parsed.sequence) &&
+          parsed.sequence >= this.nextSequence
+        ) {
           this.nextSequence = parsed.sequence + 1;
         }
       } catch {
@@ -53,7 +56,17 @@ export class MainThreadLedger {
     }
   }
 
-  append(input: Omit<ConnectorLedgerEntry, "ledger_version" | "room_id" | "connector_id" | "agent_id" | "sequence" | "entry_id">): ConnectorLedgerEntry {
+  append(
+    input: Omit<
+      ConnectorLedgerEntry,
+      | "ledger_version"
+      | "room_id"
+      | "connector_id"
+      | "agent_id"
+      | "sequence"
+      | "entry_id"
+    >
+  ): ConnectorLedgerEntry {
     const sequence = this.nextSequence;
     const entry: ConnectorLedgerEntry = {
       ledger_version: 1,
@@ -63,7 +76,7 @@ export class MainThreadLedger {
       sequence,
       entry_id: `entry_${randomUUID()}`,
       ...input,
-      text: sanitizeTokenLikeStrings(input.text)
+      text: sanitizeTokenLikeStrings(input.text),
     };
     this.entries.push(entry);
     appendFileSync(this.ledgerPath, JSON.stringify(entry) + "\n");
@@ -76,6 +89,8 @@ export class MainThreadLedger {
   }
 
   getLatestSequence(): number {
-    return this.entries.length > 0 ? this.entries[this.entries.length - 1].sequence : -1;
+    return this.entries.length > 0
+      ? this.entries[this.entries.length - 1].sequence
+      : -1;
   }
 }

@@ -1,14 +1,60 @@
-import { useState, useEffect, useMemo, useRef, useLayoutEffect } from "react";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  useLayoutEffect,
+  useCallback,
+} from "react";
 import gsap from "gsap";
 import type { CacpEvent } from "@cacp/protocol";
 import type { RoomSession } from "../api.js";
-import { startTyping, stopTyping, updatePresence, createAgentPairing } from "../api.js";
+import {
+  startTyping,
+  stopTyping,
+  updatePresence,
+  createAgentPairing,
+} from "../api.js";
 import { roomPermissionsForRole } from "../role-permissions.js";
-import { deriveRoomState, humanParticipants, isTurnInFlight, computeAgentReadiness, claudeSelectionIsReady, agentSelectionIsReady } from "../room-state.js";
-import type { AgentSessionReadyView, AgentSessionSelectionView, ClaudeSessionReadyView, ClaudeSessionSelectionView } from "../room-state.js";
-import { requestClaudeSessionPreview, selectClaudeSession, requestAgentSessionPreview, selectAgentSession, sendOrbitNote, likeOrbitNote, unlikeOrbitNote, promoteOrbitNotes, sendMainInput, cancelMainInput, clearOrbit, resolveAgentRunApproval, resolveAgentRunElicitation } from "../api.js";
-import { createTypingActivityController, type TypingActivityController } from "../activity-client.js";
-import { createRoomSoundController, shouldPlayCueForMessage } from "../room-sound.js";
+import {
+  deriveRoomState,
+  humanParticipants,
+  isTurnInFlight,
+  computeAgentReadiness,
+  claudeSelectionIsReady,
+  agentSelectionIsReady,
+} from "../room-state.js";
+import type {
+  AgentSessionReadyView,
+  AgentSessionSelectionView,
+  ClaudeSessionReadyView,
+  ClaudeSessionSelectionView,
+} from "../room-state.js";
+import {
+  requestClaudeSessionPreview,
+  selectClaudeSession,
+  requestAgentSessionPreview,
+  selectAgentSession,
+  sendOrbitNote,
+  likeOrbitNote,
+  unlikeOrbitNote,
+  promoteOrbitNotes,
+  sendMainInput,
+  cancelMainInput,
+  clearOrbit,
+  resolveAgentRunApproval,
+  resolveAgentRunElicitation,
+  fetchAttachmentBlob,
+  uploadAttachment,
+} from "../api.js";
+import {
+  createTypingActivityController,
+  type TypingActivityController,
+} from "../activity-client.js";
+import {
+  createRoomSoundController,
+  shouldPlayCueForMessage,
+} from "../room-sound.js";
 import { useT } from "../i18n/useT.js";
 import Header from "./Header.js";
 import Thread from "./Thread.js";
@@ -32,16 +78,29 @@ export interface WorkspaceProps {
   onLeaveRoom: () => void;
   onSendMessage: (text: string) => void;
   onSelectAgent: (agentId: string) => void;
-  onCreateInvite: (role: string, ttl: number, maxUses: number) => Promise<string | undefined>;
+  onCreateInvite: (
+    role: string,
+    ttl: number,
+    maxUses: number
+  ) => Promise<string | undefined>;
   onApproveJoinRequest: (requestId: string) => void;
   onRejectJoinRequest: (requestId: string) => void;
   onRemoveParticipant: (participantId: string) => void;
   onUpdateParticipantRole?: (participantId: string, role: string) => void;
   onUpdateAgentThinking?: (agentId: string, enabled: boolean) => void;
-  createdInvite?: { url: string; role: string; ttl: number };
+  createdInvite?: {
+    url: string;
+    role: string;
+    ttl: number;
+    max_uses: number;
+  };
   error?: string;
   cloudMode?: boolean;
-  createdPairing?: { connection_code: string; download_url: string; expires_at: string };
+  createdPairing?: {
+    connection_code: string;
+    download_url: string;
+    expires_at: string;
+  };
 }
 
 export default function Workspace({
@@ -63,14 +122,28 @@ export default function Workspace({
 }: WorkspaceProps) {
   const t = useT();
   const room = useMemo(
-    () => deriveRoomState(events, { now: new Date().toISOString(), currentParticipantId: session.participant_id }),
+    () =>
+      deriveRoomState(events, {
+        now: new Date().toISOString(),
+        currentParticipantId: session.participant_id,
+      }),
     [events, session.participant_id]
   );
   const permissions = roomPermissionsForRole(session.role);
   const isOwner = session.role === "owner";
-  const peopleParticipants = useMemo(() => humanParticipants(room.participants), [room.participants]);
+  const peopleParticipants = useMemo(
+    () => humanParticipants(room.participants),
+    [room.participants]
+  );
 
-  const activeAgent = room.agents.find((a) => a.agent_id === room.activeAgentId);
+  const activeAgent = room.agents.find(
+    (a) => a.agent_id === room.activeAgentId
+  );
+  const loadAttachment = useCallback(
+    (attachment: { attachment_id: string }) =>
+      fetchAttachmentBlob(session, attachment.attachment_id),
+    [session]
+  );
   const activeAgentProvider = activeAgent?.capabilities.includes("kimi-cli")
     ? "kimi-cli"
     : activeAgent?.capabilities.includes("github-copilot")
@@ -97,9 +170,15 @@ export default function Workspace({
   }, [room.participants, room.agents]);
 
   const soundControllerRef = useRef(createRoomSoundController());
-  const [soundEnabled, setSoundEnabled] = useState(soundControllerRef.current.enabled());
-  const [soundVolume, setSoundVolume] = useState(soundControllerRef.current.volume());
-  const typingControllerRef = useRef<TypingActivityController | undefined>();
+  const [soundEnabled, setSoundEnabled] = useState(
+    soundControllerRef.current.enabled()
+  );
+  const [soundVolume, setSoundVolume] = useState(
+    soundControllerRef.current.volume()
+  );
+  const typingControllerRef = useRef<TypingActivityController | undefined>(
+    undefined
+  );
   const prevEventsRef = useRef<CacpEvent[]>([]);
   const initialLoadCompleteRef = useRef(false);
   const growthTimerRef = useRef<number>(0);
@@ -112,16 +191,22 @@ export default function Workspace({
   const [promoteModalOpen, setPromoteModalOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const panelOpenRef = useRef(panelOpen);
-  useEffect(() => { panelOpenRef.current = panelOpen; }, [panelOpen]);
+  useEffect(() => {
+    panelOpenRef.current = panelOpen;
+  }, [panelOpen]);
   const [unreadOrbit, setUnreadOrbit] = useState(0);
   const [unreadMentions, setUnreadMentions] = useState(0);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
-  const [pendingAgentName, setPendingAgentName] = useState<string | undefined>();
+  const [pendingAgentName, setPendingAgentName] = useState<
+    string | undefined
+  >();
   const [replyToNoteId, setReplyToNoteId] = useState<string | undefined>();
   const seenOrbitEventIdsRef = useRef<Set<string>>(new Set());
   const orbitUnreadBaselineReadyRef = useRef(false);
 
-  const [orbitBubbles, setOrbitBubbles] = useState<Map<string, { text: string; id: string }>>(new Map());
+  const [orbitBubbles, setOrbitBubbles] = useState<
+    Map<string, { text: string; id: string }>
+  >(new Map());
   const orbitBubbleTimersRef = useRef<Map<string, number>>(new Map());
 
   const pendingNotificationCount = useMemo(() => {
@@ -137,8 +222,12 @@ export default function Workspace({
   useEffect(() => {
     if (events.length === 0) return;
     const known = seenOrbitEventIdsRef.current;
-    const orbitNoteEvents = events.filter((event) => event.type === "orbit.note.created");
-    const newOrbitEvents = orbitNoteEvents.filter((event) => !known.has(event.event_id));
+    const orbitNoteEvents = events.filter(
+      (event) => event.type === "orbit.note.created"
+    );
+    const newOrbitEvents = orbitNoteEvents.filter(
+      (event) => !known.has(event.event_id)
+    );
     for (const event of orbitNoteEvents) known.add(event.event_id);
     if (!orbitUnreadBaselineReadyRef.current) {
       orbitUnreadBaselineReadyRef.current = true;
@@ -154,24 +243,49 @@ export default function Workspace({
       const foreignCount = newOrbitEvents.filter((event) => {
         if (event.actor_id === session.participant_id) return false;
         const payload = event.payload as { created_at?: string };
-        const noteCreatedAt = payload.created_at ? Date.parse(payload.created_at) : Date.parse(event.created_at);
+        const noteCreatedAt = payload.created_at
+          ? Date.parse(payload.created_at)
+          : Date.parse(event.created_at);
         return noteCreatedAt >= myJoinTime;
       }).length;
       if (foreignCount > 0) setUnreadOrbit((current) => current + foreignCount);
 
-      const myName = peopleParticipants.find((p) => p.id === session.participant_id)?.display_name;
+      const myName = peopleParticipants.find(
+        (p) => p.id === session.participant_id
+      )?.display_name;
       const mentionCount = newOrbitEvents.filter((event) => {
         if (event.actor_id === session.participant_id) return false;
-        const payload = event.payload as { created_at?: string; text?: string; reply_to?: string };
-        const noteCreatedAt = payload.created_at ? Date.parse(payload.created_at) : Date.parse(event.created_at);
+        const payload = event.payload as {
+          created_at?: string;
+          text?: string;
+          reply_to?: string;
+        };
+        const noteCreatedAt = payload.created_at
+          ? Date.parse(payload.created_at)
+          : Date.parse(event.created_at);
         if (noteCreatedAt < myJoinTime) return false;
-        const isMentioned = myName ? new RegExp("@" + myName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).test(payload.text ?? "") : false;
-        const isReplyToMe = room.orbitNotes.some((n) => n.note_id === payload.reply_to && n.created_by === session.participant_id);
+        const isMentioned = myName
+          ? new RegExp(
+              "@" + myName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+            ).test(payload.text ?? "")
+          : false;
+        const isReplyToMe = room.orbitNotes.some(
+          (n) =>
+            n.note_id === payload.reply_to &&
+            n.created_by === session.participant_id
+        );
         return isMentioned || isReplyToMe;
       }).length;
-      if (mentionCount > 0) setUnreadMentions((current) => current + mentionCount);
+      if (mentionCount > 0)
+        setUnreadMentions((current) => current + mentionCount);
     }
-  }, [events, panelOpen, session.participant_id, peopleParticipants, room.orbitNotes]);
+  }, [
+    events,
+    panelOpen,
+    session.participant_id,
+    peopleParticipants,
+    room.orbitNotes,
+  ]);
 
   useEffect(() => {
     if (panelOpen) {
@@ -183,14 +297,18 @@ export default function Workspace({
   useEffect(() => {
     typingControllerRef.current?.dispose();
     typingControllerRef.current = createTypingActivityController({
-      startTyping: () => { void startTyping(session).catch(() => {}); },
-      stopTyping: () => { void stopTyping(session).catch(() => {}); }
+      startTyping: () => {
+        void startTyping(session).catch(() => {});
+      },
+      stopTyping: () => {
+        void stopTyping(session).catch(() => {});
+      },
     });
     void updatePresence(session, "online").catch(() => {});
     return () => {
       typingControllerRef.current?.dispose();
     };
-  }, [session.room_id, session.token, session.participant_id]);
+  }, [session]);
 
   useEffect(() => {
     return () => window.clearTimeout(growthTimerRef.current);
@@ -205,14 +323,18 @@ export default function Workspace({
     }
 
     const prevEvents = prevEventsRef.current;
-    const newEvents = events.filter((e) => !prevEvents.some((pe) => pe.event_id === e.event_id));
+    const newEvents = events.filter(
+      (e) => !prevEvents.some((pe) => pe.event_id === e.event_id)
+    );
     const grew = newEvents.length > 0;
     prevEventsRef.current = events;
 
     if (grew) {
       window.clearTimeout(growthTimerRef.current);
       if (!initialLoadCompleteRef.current) {
-        const hasRecent = newEvents.some((e) => Date.now() - Date.parse(e.created_at) < 10000);
+        const hasRecent = newEvents.some(
+          (e) => Date.now() - Date.parse(e.created_at) < 10000
+        );
         if (hasRecent) {
           initialLoadCompleteRef.current = true;
         } else {
@@ -228,40 +350,90 @@ export default function Workspace({
     for (const event of newEvents) {
       switch (event.type) {
         case "message.created": {
-          if (shouldPlayCueForMessage({ actorId: event.actor_id, currentParticipantId: session.participant_id })) {
-            const kind = typeof event.payload.kind === "string" ? event.payload.kind : "human";
-            soundControllerRef.current.play(kind === "agent" ? "message" : "message");
+          if (
+            shouldPlayCueForMessage({
+              actorId: event.actor_id,
+              currentParticipantId: session.participant_id,
+            })
+          ) {
+            const kind =
+              typeof event.payload.kind === "string"
+                ? event.payload.kind
+                : "human";
+            soundControllerRef.current.play(
+              kind === "agent" ? "message" : "message"
+            );
           }
           break;
         }
         case "orbit.note.created": {
-          const orbitText = typeof event.payload.text === "string" ? event.payload.text : "";
-          const orbitReplyTo = typeof event.payload.reply_to === "string" ? event.payload.reply_to : undefined;
-          const myName = peopleParticipants.find((p) => p.id === session.participant_id)?.display_name;
-          const isMentioned = myName ? new RegExp("@" + myName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).test(orbitText) : false;
-          const isReplyToMe = room.orbitNotes.some((n) => n.note_id === orbitReplyTo && n.created_by === session.participant_id);
+          const orbitText =
+            typeof event.payload.text === "string" ? event.payload.text : "";
+          const orbitReplyTo =
+            typeof event.payload.reply_to === "string"
+              ? event.payload.reply_to
+              : undefined;
+          const myName = peopleParticipants.find(
+            (p) => p.id === session.participant_id
+          )?.display_name;
+          const isMentioned = myName
+            ? new RegExp(
+                "@" + myName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+              ).test(orbitText)
+            : false;
+          const isReplyToMe = room.orbitNotes.some(
+            (n) =>
+              n.note_id === orbitReplyTo &&
+              n.created_by === session.participant_id
+          );
           const isDirectedAtMe = isMentioned || isReplyToMe;
 
-          if (shouldPlayCueForMessage({ actorId: event.actor_id, currentParticipantId: session.participant_id })) {
-            soundControllerRef.current.play(isDirectedAtMe ? "mention" : "message");
+          if (
+            shouldPlayCueForMessage({
+              actorId: event.actor_id,
+              currentParticipantId: session.participant_id,
+            })
+          ) {
+            soundControllerRef.current.play(
+              isDirectedAtMe ? "mention" : "message"
+            );
           }
 
           // Browser notification for @mention / reply when page not focused
-          if (isDirectedAtMe && event.actor_id !== session.participant_id && document.visibilityState === "hidden") {
+          if (
+            isDirectedAtMe &&
+            event.actor_id !== session.participant_id &&
+            document.visibilityState === "hidden"
+          ) {
             const senderName = actorNames.get(event.actor_id) || event.actor_id;
-            const actionLabel = isReplyToMe ? t("notification.replyToYou") : t("notification.mentionedYou");
-            const bodyText = orbitText.slice(0, 60) + (orbitText.length > 60 ? "…" : "");
-            if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-              const notification = new Notification(`${senderName} ${actionLabel}`, { body: bodyText });
+            const actionLabel = isReplyToMe
+              ? t("notification.replyToYou")
+              : t("notification.mentionedYou");
+            const bodyText =
+              orbitText.slice(0, 60) + (orbitText.length > 60 ? "…" : "");
+            if (
+              typeof Notification !== "undefined" &&
+              Notification.permission === "granted"
+            ) {
+              const notification = new Notification(
+                `${senderName} ${actionLabel}`,
+                { body: bodyText }
+              );
               notification.onclick = () => {
                 window.focus();
                 setPanelOpen(true);
                 notification.close();
               };
-            } else if (typeof Notification !== "undefined" && Notification.permission === "default") {
+            } else if (
+              typeof Notification !== "undefined" &&
+              Notification.permission === "default"
+            ) {
               void Notification.requestPermission().then((permission) => {
                 if (permission === "granted") {
-                  const notification = new Notification(`${senderName} ${actionLabel}`, { body: bodyText });
+                  const notification = new Notification(
+                    `${senderName} ${actionLabel}`,
+                    { body: bodyText }
+                  );
                   notification.onclick = () => {
                     window.focus();
                     setPanelOpen(true);
@@ -273,7 +445,11 @@ export default function Workspace({
           }
 
           // Show bubble if not self and orbit panel is closed
-          if (event.actor_id !== session.participant_id && !panelOpenRef.current && typeof event.payload.text === "string") {
+          if (
+            event.actor_id !== session.participant_id &&
+            !panelOpenRef.current &&
+            typeof event.payload.text === "string"
+          ) {
             const avatarId = event.actor_id;
             const text = event.payload.text;
             const bubbleId = `${avatarId}-${Date.now()}`;
@@ -317,7 +493,15 @@ export default function Workspace({
         }
       }
     }
-  }, [events, session.room_id, session.participant_id, peopleParticipants, room.orbitNotes]);
+  }, [
+    events,
+    session.room_id,
+    session.participant_id,
+    peopleParticipants,
+    room.orbitNotes,
+    actorNames,
+    t,
+  ]);
 
   const shellRef = useRef<HTMLDivElement>(null);
 
@@ -333,7 +517,9 @@ export default function Workspace({
     if (prefersReduced) return;
 
     const ctx = gsap.context(() => {
-      const targets = gsap.utils.toArray<HTMLElement>(".workspace-header, .thread, .main-composer");
+      const targets = gsap.utils.toArray<HTMLElement>(
+        ".workspace-header, .thread, .main-composer"
+      );
       const orbitPanel = shell.querySelector<HTMLElement>(".orbit-panel");
       if (orbitPanel) targets.push(orbitPanel);
 
@@ -356,9 +542,14 @@ export default function Workspace({
     return () => ctx.revert();
   }, []);
 
-  const myDisplayName = peopleParticipants.find((p) => p.id === session.participant_id)?.display_name;
+  const myDisplayName = peopleParticipants.find(
+    (p) => p.id === session.participant_id
+  )?.display_name;
 
-  const serverUrl = typeof window !== "undefined" ? window.location.origin : "http://localhost:3737";
+  const serverUrl =
+    typeof window !== "undefined"
+      ? window.location.origin
+      : "http://localhost:3737";
 
   const agentReadiness = computeAgentReadiness(room, activeAgentProvider);
   const agentReady = agentReadiness === "ready";
@@ -368,7 +559,11 @@ export default function Workspace({
     room.activeAgentId &&
     room.claudeSessionCatalog &&
     room.claudeSessionCatalog.agent_id === room.activeAgentId &&
-    !claudeSelectionIsReady(room.activeAgentId, room.claudeSessionSelection, room.claudeSessionReady);
+    !claudeSelectionIsReady(
+      room.activeAgentId,
+      room.claudeSessionSelection,
+      room.claudeSessionReady
+    );
 
   const needsGenericSessionSelection =
     permissions.canManageControls &&
@@ -377,13 +572,20 @@ export default function Workspace({
     room.agentSessionCatalog &&
     room.agentSessionCatalog.agent_id === room.activeAgentId &&
     room.agentSessionCatalog.provider === activeAgentProvider &&
-    !agentSelectionIsReady(room.activeAgentId, activeAgentProvider, room.agentSessionSelection, room.agentSessionReady);
+    !agentSelectionIsReady(
+      room.activeAgentId,
+      activeAgentProvider,
+      room.agentSessionSelection,
+      room.agentSessionReady
+    );
 
   const canPromoteOrbit = permissions.canManageControls;
   const canClearOrbit = permissions.canManageControls;
   const promotableOrbitNotes = room.orbitNotes.filter((note) => !note.quoted);
 
-  const replyToNote = replyToNoteId ? room.orbitNotes.find((n) => n.note_id === replyToNoteId) : undefined;
+  const replyToNote = replyToNoteId
+    ? room.orbitNotes.find((n) => n.note_id === replyToNoteId)
+    : undefined;
 
   const orbitPanel = panelOpen ? (
     <div className="orbit-panel">
@@ -394,8 +596,12 @@ export default function Workspace({
         actorNames={actorNames}
         actorKinds={actorKinds}
         canReact={permissions.canSendOrbitNotes}
-        onLike={(noteId) => { void likeOrbitNote(session, noteId).catch(() => {}); }}
-        onUnlike={(noteId) => { void unlikeOrbitNote(session, noteId).catch(() => {}); }}
+        onLike={(noteId) => {
+          void likeOrbitNote(session, noteId).catch(() => {});
+        }}
+        onUnlike={(noteId) => {
+          void unlikeOrbitNote(session, noteId).catch(() => {});
+        }}
         onReply={(noteId) => setReplyToNoteId(noteId)}
         canPromote={canPromoteOrbit}
         hasPromotable={promotableOrbitNotes.length > 0}
@@ -407,7 +613,9 @@ export default function Workspace({
         open={promoteModalOpen}
         notes={promotableOrbitNotes}
         canPromote={canPromoteOrbit}
-        onPromote={(noteIds) => { void promoteOrbitNotes(session, noteIds).catch(() => {}); }}
+        onPromote={(noteIds) => {
+          void promoteOrbitNotes(session, noteIds).catch(() => {});
+        }}
         onClose={() => setPromoteModalOpen(false)}
       />
       <OrbitComposer
@@ -417,13 +625,21 @@ export default function Workspace({
           void sendOrbitNote(session, text, replyTo).catch(() => {});
           setReplyToNoteId(undefined);
         }}
-        onTypingInput={(value) => typingControllerRef.current?.inputChanged(value)}
+        onTypingInput={(value) =>
+          typingControllerRef.current?.inputChanged(value)
+        }
         onStopTyping={() => typingControllerRef.current?.stopNow()}
-        replyTo={replyToNote ? {
-          noteId: replyToNote.note_id,
-          authorName: actorNames.get(replyToNote.created_by) || replyToNote.created_by,
-          text: replyToNote.text,
-        } : undefined}
+        replyTo={
+          replyToNote
+            ? {
+                noteId: replyToNote.note_id,
+                authorName:
+                  actorNames.get(replyToNote.created_by) ||
+                  replyToNote.created_by,
+                text: replyToNote.text,
+              }
+            : undefined
+        }
         onCancelReply={() => setReplyToNoteId(undefined)}
       />
     </div>
@@ -431,10 +647,21 @@ export default function Workspace({
 
   return (
     <div className="workspace-shell" ref={shellRef}>
-      <div className="workspace-orb workspace-orb--primary" aria-hidden="true" />
-      <div className="workspace-orb workspace-orb--secondary" aria-hidden="true" />
-      <AgentRippleOverlay avatarStatuses={room.avatarStatuses} turnInFlight={turnInFlight} />
-      <div className={`workspace-grid${panelOpen ? " workspace-grid--with-orbit" : ""}`}>
+      <div
+        className="workspace-orb workspace-orb--primary"
+        aria-hidden="true"
+      />
+      <div
+        className="workspace-orb workspace-orb--secondary"
+        aria-hidden="true"
+      />
+      <AgentRippleOverlay
+        avatarStatuses={room.avatarStatuses}
+        turnInFlight={turnInFlight}
+      />
+      <div
+        className={`workspace-grid${panelOpen ? " workspace-grid--with-orbit" : ""}`}
+      >
         <div className="chat-panel">
           <Header
             roomName={room.roomName ?? session.room_id}
@@ -443,7 +670,9 @@ export default function Workspace({
             userRole={session.role}
             isOwner={isOwner}
             avatarStatuses={room.avatarStatuses}
-            onCopyRoomId={(roomId) => void navigator.clipboard.writeText(roomId).catch(() => {})}
+            onCopyRoomId={(roomId) =>
+              void navigator.clipboard.writeText(roomId).catch(() => {})
+            }
             onLeaveRoom={onLeaveRoom}
             onCreatePairing={async (agentType, permissionLevel) => {
               const result = await createAgentPairing(session, {
@@ -476,10 +705,18 @@ export default function Workspace({
             railRef={railRef}
             createdInvite={createdInvite}
             invites={room.invites}
-            orbitBubbles={new Map(Array.from(orbitBubbles.entries()).map(([k, v]) => [k, v.text]))}
+            orbitBubbles={
+              new Map(
+                Array.from(orbitBubbles.entries()).map(([k, v]) => [k, v.text])
+              )
+            }
           />
 
-          <AgentStatusBanner status={agentReadiness} isOwner={isOwner} providerLabel={activeAgent ? activeAgent.name : undefined} />
+          <AgentStatusBanner
+            status={agentReadiness}
+            isOwner={isOwner}
+            providerLabel={activeAgent ? activeAgent.name : undefined}
+          />
 
           <Thread
             currentParticipantId={session.participant_id}
@@ -491,11 +728,28 @@ export default function Workspace({
             claudeImports={room.claudeImports}
             agentImports={room.agentImports}
             pendingAgentName={pendingAgentName}
+            loadAttachment={loadAttachment}
             onResolveApproval={(runId, nodeId, decision, reason) => {
-              void resolveAgentRunApproval({ serverUrl, roomId: session.room_id, token: session.token, runId, nodeId, decision, reason }).catch(() => {});
+              void resolveAgentRunApproval({
+                serverUrl,
+                roomId: session.room_id,
+                token: session.token,
+                runId,
+                nodeId,
+                decision,
+                reason,
+              }).catch(() => {});
             }}
             onResolveElicitation={(runId, nodeId, action, content) => {
-              void resolveAgentRunElicitation({ serverUrl, roomId: session.room_id, token: session.token, runId, nodeId, action, content }).catch(() => {});
+              void resolveAgentRunElicitation({
+                serverUrl,
+                roomId: session.room_id,
+                token: session.token,
+                runId,
+                nodeId,
+                action,
+                content,
+              }).catch(() => {});
             }}
           />
 
@@ -511,55 +765,104 @@ export default function Workspace({
             turnInFlight={turnInFlight}
             agents={room.agents}
             agentReady={agentReady}
-            onSendMainInput={(text) => {
-              const agent = room.agents.find((a) => a.agent_id === room.activeAgentId);
+            attachmentCapabilities={activeAgent?.input_capabilities}
+            onUploadAttachment={(file) => uploadAttachment(session, file)}
+            onSendMainInput={async (text, attachments) => {
+              const agent = room.agents.find(
+                (a) => a.agent_id === room.activeAgentId
+              );
               if (!turnInFlight) {
                 setPendingAgentName(agent?.name ?? t("message.ai"));
               }
-              void sendMainInput(session, text).catch(() => {});
+              try {
+                await sendMainInput(
+                  session,
+                  text,
+                  attachments.map((attachment) => attachment.attachment_id)
+                );
+              } catch (cause) {
+                if (!turnInFlight) setPendingAgentName(undefined);
+                throw cause;
+              }
             }}
-            onTypingInput={(value) => typingControllerRef.current?.inputChanged(value)}
+            onTypingInput={(value) =>
+              typingControllerRef.current?.inputChanged(value)
+            }
             onStopTyping={() => typingControllerRef.current?.stopNow()}
           />
 
-          {needsClaudeSessionSelection && room.activeAgentId && room.claudeSessionCatalog && (
-            <div className="agent-session-inline">
-              <AgentSessionRequiredModal
-                agentId={room.activeAgentId}
-                provider="claude-code"
-                inline
-                catalog={room.claudeSessionCatalog}
-                previews={room.claudeSessionPreviews}
-                onRequestPreview={(sessionId) =>
-                  requestClaudeSessionPreview({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId, sessionId })
-                }
-                onSelect={(selection) =>
-                  selectClaudeSession({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId, ...selection })
-                }
-              />
-            </div>
-          )}
+          {needsClaudeSessionSelection &&
+            room.activeAgentId &&
+            room.claudeSessionCatalog && (
+              <div className="agent-session-inline">
+                <AgentSessionRequiredModal
+                  agentId={room.activeAgentId}
+                  provider="claude-code"
+                  inline
+                  catalog={room.claudeSessionCatalog}
+                  previews={room.claudeSessionPreviews}
+                  onRequestPreview={(sessionId) =>
+                    requestClaudeSessionPreview({
+                      serverUrl,
+                      roomId: session.room_id,
+                      token: session.token,
+                      agentId: room.activeAgentId!,
+                      sessionId,
+                    })
+                  }
+                  onSelect={(selection) =>
+                    selectClaudeSession({
+                      serverUrl,
+                      roomId: session.room_id,
+                      token: session.token,
+                      agentId: room.activeAgentId!,
+                      ...selection,
+                    })
+                  }
+                />
+              </div>
+            )}
 
-          {needsGenericSessionSelection && room.activeAgentId && room.agentSessionCatalog && activeAgentProvider && (
-            <div className="agent-session-inline">
-              <AgentSessionRequiredModal
-                agentId={room.activeAgentId}
-                provider={activeAgentProvider}
-                inline
-                catalog={room.agentSessionCatalog}
-                previews={room.agentSessionPreviews}
-                onRequestPreview={(sessionId) =>
-                  requestAgentSessionPreview({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId, provider: activeAgentProvider, sessionId })
-                }
-                onSelect={(selection) =>
-                  selectAgentSession({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId, provider: activeAgentProvider, ...selection })
-                }
-              />
-            </div>
-          )}
+          {needsGenericSessionSelection &&
+            room.activeAgentId &&
+            room.agentSessionCatalog &&
+            activeAgentProvider && (
+              <div className="agent-session-inline">
+                <AgentSessionRequiredModal
+                  agentId={room.activeAgentId}
+                  provider={activeAgentProvider}
+                  inline
+                  catalog={room.agentSessionCatalog}
+                  previews={room.agentSessionPreviews}
+                  onRequestPreview={(sessionId) =>
+                    requestAgentSessionPreview({
+                      serverUrl,
+                      roomId: session.room_id,
+                      token: session.token,
+                      agentId: room.activeAgentId!,
+                      provider: activeAgentProvider,
+                      sessionId,
+                    })
+                  }
+                  onSelect={(selection) =>
+                    selectAgentSession({
+                      serverUrl,
+                      roomId: session.room_id,
+                      token: session.token,
+                      agentId: room.activeAgentId!,
+                      provider: activeAgentProvider,
+                      ...selection,
+                    })
+                  }
+                />
+              </div>
+            )}
 
           {error && (
-            <p className="error inline-error" style={{ padding: "0 16px 12px" }}>
+            <p
+              className="error inline-error"
+              style={{ padding: "0 16px 12px" }}
+            >
               {error}
             </p>
           )}
@@ -568,7 +871,11 @@ export default function Workspace({
         {orbitPanel}
       </div>
 
-      <Popover triggerRef={railRef} open={peoplePopoverOpen} onClose={() => setPeoplePopoverOpen(false)}>
+      <Popover
+        triggerRef={railRef}
+        open={peoplePopoverOpen}
+        onClose={() => setPeoplePopoverOpen(false)}
+      >
         <PeopleAvatarPopover
           participants={peopleParticipants}
           isOwner={isOwner}
@@ -579,7 +886,11 @@ export default function Workspace({
         />
       </Popover>
 
-      <Popover triggerRef={railRef} open={agentPopoverOpen} onClose={() => setAgentPopoverOpen(false)}>
+      <Popover
+        triggerRef={railRef}
+        open={agentPopoverOpen}
+        onClose={() => setAgentPopoverOpen(false)}
+      >
         <AgentAvatarPopover
           agents={room.agents}
           activeAgentId={room.activeAgentId}
@@ -599,16 +910,42 @@ export default function Workspace({
           wantsReselect={wantsReselect}
           onReselectChange={setWantsReselect}
           onRequestClaudeSessionPreview={(sessionId) =>
-            requestClaudeSessionPreview({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId ?? "", sessionId })
+            requestClaudeSessionPreview({
+              serverUrl,
+              roomId: session.room_id,
+              token: session.token,
+              agentId: room.activeAgentId ?? "",
+              sessionId,
+            })
           }
           onSelectClaudeSession={(selection) =>
-            selectClaudeSession({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId ?? "", ...selection })
+            selectClaudeSession({
+              serverUrl,
+              roomId: session.room_id,
+              token: session.token,
+              agentId: room.activeAgentId ?? "",
+              ...selection,
+            })
           }
           onRequestAgentSessionPreview={(sessionId) =>
-            requestAgentSessionPreview({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId ?? "", provider: activeAgentProvider ?? "claude-code", sessionId })
+            requestAgentSessionPreview({
+              serverUrl,
+              roomId: session.room_id,
+              token: session.token,
+              agentId: room.activeAgentId ?? "",
+              provider: activeAgentProvider ?? "claude-code",
+              sessionId,
+            })
           }
           onSelectAgentSession={(selection) =>
-            selectAgentSession({ serverUrl, roomId: session.room_id, token: session.token, agentId: room.activeAgentId ?? "", provider: activeAgentProvider ?? "claude-code", ...selection })
+            selectAgentSession({
+              serverUrl,
+              roomId: session.room_id,
+              token: session.token,
+              agentId: room.activeAgentId ?? "",
+              provider: activeAgentProvider ?? "claude-code",
+              ...selection,
+            })
           }
         />
       </Popover>

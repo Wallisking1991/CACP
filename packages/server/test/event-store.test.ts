@@ -9,13 +9,13 @@ import { EventStore } from "../src/event-store.js";
 function testEvent(eventId: string, type: CacpEvent["type"]): CacpEvent {
   return {
     protocol: "cacp",
-    version: "0.1.0",
+    version: "0.3.0",
     event_id: eventId,
     room_id: "room_order",
     type,
     actor_id: "user_owner",
     created_at: "2026-04-25T10:00:00.000Z",
-    payload: {}
+    payload: {},
   };
 }
 
@@ -27,13 +27,17 @@ describe("EventStore", () => {
     store.appendEvent(testEvent("evt_a", "agent.turn.requested"));
     store.appendEvent(testEvent("evt_m", "proposal.created"));
 
-    expect(store.listEvents("room_order").map((event) => event.event_id)).toEqual(["evt_z", "evt_a", "evt_m"]);
+    expect(
+      store.listEvents("room_order").map((event) => event.event_id)
+    ).toEqual(["evt_z", "evt_a", "evt_m"]);
 
     store.close();
   });
 
   it("preserves claimed pairing participant_id while migrating old agent type constraints", () => {
-    const tempDir = mkdtempSync(join(tmpdir(), "cacp-event-store-participant-migrate-"));
+    const tempDir = mkdtempSync(
+      join(tmpdir(), "cacp-event-store-participant-migrate-")
+    );
     const dbPath = join(tempDir, "participant.db");
 
     try {
@@ -63,7 +67,9 @@ describe("EventStore", () => {
 
       const store = new EventStore(dbPath);
       try {
-        expect(store.getAgentPairingById("pair_claimed")?.participant_id).toBe("agent_123");
+        expect(store.getAgentPairingById("pair_claimed")?.participant_id).toBe(
+          "agent_123"
+        );
       } finally {
         store.close();
       }
@@ -84,7 +90,7 @@ describe("EventStore", () => {
         permission_level: "limited_write",
         working_dir: "D:\\Development\\2",
         created_at: "2026-05-01T00:00:00.000Z",
-        expires_at: "2026-05-01T00:15:00.000Z"
+        expires_at: "2026-05-01T00:15:00.000Z",
       });
       expect(stored.agent_type).toBe("codex-cli");
     } finally {

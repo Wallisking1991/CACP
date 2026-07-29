@@ -3,20 +3,40 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { buildConnectionCode } from "@cacp/protocol";
-import { defaultConnectorHomeDir, defaultConnectorWorkingDir, loadRuntimeConfigFromArgs, parseAdapterArgs, resolveConnectorWorkingDir } from "../src/config.js";
+import {
+  defaultConnectorHomeDir,
+  defaultConnectorWorkingDir,
+  loadRuntimeConfigFromArgs,
+  parseAdapterArgs,
+  resolveConnectorWorkingDir,
+} from "../src/config.js";
 
 describe("adapter config arguments", () => {
   it("parses pairing mode arguments with raw token", () => {
-    expect(parseAdapterArgs(["--server", "http://127.0.0.1:3737", "--pair", "cacp_pair"])).toEqual({ mode: "pair", server_url: "http://127.0.0.1:3737", pairing_token: "cacp_pair" });
+    expect(
+      parseAdapterArgs([
+        "--server",
+        "http://127.0.0.1:3737",
+        "--pair",
+        "cacp_pair",
+      ])
+    ).toEqual({
+      mode: "pair",
+      server_url: "http://127.0.0.1:3737",
+      pairing_token: "cacp_pair",
+    });
   });
 
   it("parses --connect connection codes", () => {
     const code = buildConnectionCode({
       server_url: "https://cacp.example.com",
       pairing_token: "cacp_pair",
-      expires_at: "2026-04-27T08:15:00.000Z"
+      expires_at: "2026-04-27T08:15:00.000Z",
     });
-    expect(parseAdapterArgs(["--connect", code])).toEqual({ mode: "connect", connection_code: code });
+    expect(parseAdapterArgs(["--connect", code])).toEqual({
+      mode: "connect",
+      connection_code: code,
+    });
   });
 
   it("uses prompt mode when double-clicked without args", () => {
@@ -24,31 +44,67 @@ describe("adapter config arguments", () => {
   });
 
   it("claims pairing tokens and returns a runtime config without manual room token", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
-      room_id: "room_1",
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            room_id: "room_1",
+            agent_id: "agent_1",
+            agent_token: "agent_token",
+            agent: {
+              name: "Claude Code Agent",
+              command: "claude",
+              args: [],
+              working_dir: ".",
+              capabilities: ["claude-code", "claude.persistent_session"],
+            },
+          }),
+          { status: 201, headers: { "content-type": "application/json" } }
+        )
+    );
+
+    const config = await loadRuntimeConfigFromArgs(
+      ["--server", "http://127.0.0.1:3737", "--pair", "pair_1"],
+      fetchMock as unknown as typeof fetch
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:3737/agent-pairings/pair_1/claim?server_url=http%3A%2F%2F127.0.0.1%3A3737",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(config.registered_agent).toEqual({
       agent_id: "agent_1",
       agent_token: "agent_token",
-      agent: { name: "Claude Code Agent", command: "claude", args: [], working_dir: ".", capabilities: ["claude-code", "claude.persistent_session"] }
-    }), { status: 201, headers: { "content-type": "application/json" } }));
-
-    const config = await loadRuntimeConfigFromArgs(["--server", "http://127.0.0.1:3737", "--pair", "pair_1"], fetchMock as unknown as typeof fetch);
-
-    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:3737/agent-pairings/pair_1/claim?server_url=http%3A%2F%2F127.0.0.1%3A3737", expect.objectContaining({ method: "POST" }));
-    expect(config.registered_agent).toEqual({ agent_id: "agent_1", agent_token: "agent_token" });
+    });
     expect(config.room_id).toBe("room_1");
     expect(config.agent.name).toBe("Claude Code Agent");
   });
 
   it("extracts permission_level from pairing claim response", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
-      room_id: "room_1",
-      agent_id: "agent_1",
-      agent_token: "agent_token",
-      agent: { name: "Claude Code Agent", command: "claude", args: [], working_dir: ".", capabilities: ["claude-code"] },
-      permission_level: "read_only"
-    }), { status: 201, headers: { "content-type": "application/json" } }));
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            room_id: "room_1",
+            agent_id: "agent_1",
+            agent_token: "agent_token",
+            agent: {
+              name: "Claude Code Agent",
+              command: "claude",
+              args: [],
+              working_dir: ".",
+              capabilities: ["claude-code"],
+            },
+            permission_level: "read_only",
+          }),
+          { status: 201, headers: { "content-type": "application/json" } }
+        )
+    );
 
-    const config = await loadRuntimeConfigFromArgs(["--server", "http://127.0.0.1:3737", "--pair", "pair_1"], fetchMock as unknown as typeof fetch);
+    const config = await loadRuntimeConfigFromArgs(
+      ["--server", "http://127.0.0.1:3737", "--pair", "pair_1"],
+      fetchMock as unknown as typeof fetch
+    );
     expect(config.permission_level).toBe("read_only");
   });
 
@@ -56,48 +112,102 @@ describe("adapter config arguments", () => {
     const code = buildConnectionCode({
       server_url: "https://cacp.example.com",
       pairing_token: "cacp_pair",
-      expires_at: "2026-04-27T08:15:00.000Z"
+      expires_at: "2026-04-27T08:15:00.000Z",
     });
     const fetchImpl = vi.fn(async (url: string) => {
-      expect(url).toBe("https://cacp.example.com/agent-pairings/cacp_pair/claim?server_url=https%3A%2F%2Fcacp.example.com");
-      return new Response(JSON.stringify({
-        room_id: "room_alpha",
-        agent_id: "agent_alpha",
-        agent_token: "cacp_agent",
-        agent: { name: "Claude Code Agent", command: "claude", args: [], working_dir: ".", capabilities: ["claude-code", "claude.persistent_session", "repo.read"] }
-      }), { status: 201, headers: { "content-type": "application/json" } });
+      expect(url).toBe(
+        "https://cacp.example.com/agent-pairings/cacp_pair/claim?server_url=https%3A%2F%2Fcacp.example.com"
+      );
+      return new Response(
+        JSON.stringify({
+          room_id: "room_alpha",
+          agent_id: "agent_alpha",
+          agent_token: "cacp_agent",
+          agent: {
+            name: "Claude Code Agent",
+            command: "claude",
+            args: [],
+            working_dir: ".",
+            capabilities: [
+              "claude-code",
+              "claude.persistent_session",
+              "repo.read",
+            ],
+          },
+        }),
+        { status: 201, headers: { "content-type": "application/json" } }
+      );
     }) as typeof fetch;
-    const config = await loadRuntimeConfigFromArgs(["--connect", code], fetchImpl);
+    const config = await loadRuntimeConfigFromArgs(
+      ["--connect", code],
+      fetchImpl
+    );
     expect(config.registered_agent?.agent_token).toBe("cacp_agent");
   });
 
   it("rejects invalid connection code during load", async () => {
-    await expect(loadRuntimeConfigFromArgs(["--connect", "CACP-CONNECT:v1:invalid"])).rejects.toThrow();
+    await expect(
+      loadRuntimeConfigFromArgs(["--connect", "CACP-CONNECT:v1:invalid"])
+    ).rejects.toThrow();
   });
 
   it("parses --cwd for pairing mode", () => {
-    expect(parseAdapterArgs(["--server", "http://127.0.0.1:3737", "--pair", "cacp_pair", "--cwd", "D:\\Projects\\my-app"])).toEqual({
+    expect(
+      parseAdapterArgs([
+        "--server",
+        "http://127.0.0.1:3737",
+        "--pair",
+        "cacp_pair",
+        "--cwd",
+        "D:\\Projects\\my-app",
+      ])
+    ).toEqual({
       mode: "pair",
       server_url: "http://127.0.0.1:3737",
       pairing_token: "cacp_pair",
-      cwd: "D:\\Projects\\my-app"
+      cwd: "D:\\Projects\\my-app",
     });
   });
 
   it("sends resolved working_dir while claiming a pairing", async () => {
     const tempDir = mkdtempSync(join(tmpdir(), "cacp-cli-cwd-"));
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
-      expect(JSON.parse(String(init?.body))).toEqual({ working_dir: tempDir });
-      return new Response(JSON.stringify({
-        room_id: "room_1",
-        agent_id: "agent_1",
-        agent_token: "agent_token",
-        agent: { name: "Claude Code Agent", command: "claude", args: [], working_dir: tempDir, capabilities: ["claude-code", "claude.persistent_session"] }
-      }), { status: 201, headers: { "content-type": "application/json" } });
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        working_dir: tempDir,
+        compatibility: {
+          protocol_version: "0.3.0",
+          connector_version: "0.5.0",
+        },
+      });
+      return new Response(
+        JSON.stringify({
+          room_id: "room_1",
+          agent_id: "agent_1",
+          agent_token: "agent_token",
+          agent: {
+            name: "Claude Code Agent",
+            command: "claude",
+            args: [],
+            working_dir: tempDir,
+            capabilities: ["claude-code", "claude.persistent_session"],
+          },
+        }),
+        { status: 201, headers: { "content-type": "application/json" } }
+      );
     }) as unknown as typeof fetch;
 
     try {
-      const config = await loadRuntimeConfigFromArgs(["--server", "http://127.0.0.1:3737", "--pair", "pair_1", "--cwd", tempDir], fetchMock);
+      const config = await loadRuntimeConfigFromArgs(
+        [
+          "--server",
+          "http://127.0.0.1:3737",
+          "--pair",
+          "pair_1",
+          "--cwd",
+          tempDir,
+        ],
+        fetchMock
+      );
       expect(config.agent.working_dir).toBe(tempDir);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
@@ -105,41 +215,73 @@ describe("adapter config arguments", () => {
   });
 
   it("uses parent directory for zip-bundle connector default cwd", () => {
-    expect(defaultConnectorWorkingDir({
-      argv: ["C:\\Program Files\\nodejs\\node.exe", "D:\\Projects\\my-app\\CACP-Local-Connector\\index.cjs"],
-      cwd: () => "D:\\Shell",
-      execPath: "C:\\Program Files\\nodejs\\node.exe"
-    })).toBe("D:\\Projects\\my-app");
+    expect(
+      defaultConnectorWorkingDir({
+        argv: [
+          "C:\\Program Files\\nodejs\\node.exe",
+          "D:\\Projects\\my-app\\CACP-Local-Connector\\index.cjs",
+        ],
+        cwd: () => "D:\\Shell",
+        execPath: "C:\\Program Files\\nodejs\\node.exe",
+      })
+    ).toBe("D:\\Projects\\my-app");
   });
 
   it("uses process cwd for developer CLI default cwd", () => {
-    expect(defaultConnectorWorkingDir({
-      argv: ["C:\\Program Files\\nodejs\\node.exe", "D:\\Development\\2\\packages\\cli-adapter\\dist\\index.js"],
-      cwd: () => "D:\\Development\\2",
-      execPath: "C:\\Program Files\\nodejs\\node.exe"
-    })).toBe("D:\\Development\\2");
+    expect(
+      defaultConnectorWorkingDir({
+        argv: [
+          "C:\\Program Files\\nodejs\\node.exe",
+          "D:\\Development\\2\\packages\\cli-adapter\\dist\\index.js",
+        ],
+        cwd: () => "D:\\Development\\2",
+        execPath: "C:\\Program Files\\nodejs\\node.exe",
+      })
+    ).toBe("D:\\Development\\2");
   });
 
   it("returns connector directory as home for zip-bundle", () => {
-    expect(defaultConnectorHomeDir({
-      argv: ["C:\\Program Files\\nodejs\\node.exe", "D:\\Projects\\my-app\\CACP-Local-Connector\\index.cjs"],
-      cwd: () => "D:\\Shell",
-      execPath: "C:\\Program Files\\nodejs\\node.exe"
-    })).toBe("D:\\Projects\\my-app\\CACP-Local-Connector");
+    expect(
+      defaultConnectorHomeDir({
+        argv: [
+          "C:\\Program Files\\nodejs\\node.exe",
+          "D:\\Projects\\my-app\\CACP-Local-Connector\\index.cjs",
+        ],
+        cwd: () => "D:\\Shell",
+        execPath: "C:\\Program Files\\nodejs\\node.exe",
+      })
+    ).toBe("D:\\Projects\\my-app\\CACP-Local-Connector");
   });
 
   it("returns process cwd as home for developer CLI", () => {
-    expect(defaultConnectorHomeDir({
-      argv: ["C:\\Program Files\\nodejs\\node.exe", "D:\\Development\\2\\packages\\cli-adapter\\dist\\index.js"],
-      cwd: () => "D:\\Development\\2",
-      execPath: "C:\\Program Files\\nodejs\\node.exe"
-    })).toBe("D:\\Development\\2");
+    expect(
+      defaultConnectorHomeDir({
+        argv: [
+          "C:\\Program Files\\nodejs\\node.exe",
+          "D:\\Development\\2\\packages\\cli-adapter\\dist\\index.js",
+        ],
+        cwd: () => "D:\\Development\\2",
+        execPath: "C:\\Program Files\\nodejs\\node.exe",
+      })
+    ).toBe("D:\\Development\\2");
   });
 
   it("rejects invalid --cwd before claiming", async () => {
     const missingDir = join(tmpdir(), "cacp-missing-dir-for-test");
     const fetchMock = vi.fn();
-    await expect(loadRuntimeConfigFromArgs(["--server", "http://127.0.0.1:3737", "--pair", "pair_1", "--cwd", missingDir], fetchMock as unknown as typeof fetch)).rejects.toThrow("working directory does not exist");
+    await expect(
+      loadRuntimeConfigFromArgs(
+        [
+          "--server",
+          "http://127.0.0.1:3737",
+          "--pair",
+          "pair_1",
+          "--cwd",
+          missingDir,
+        ],
+        fetchMock as unknown as typeof fetch
+      )
+    ).rejects.toThrow("working directory does not exist");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -153,29 +295,67 @@ describe("adapter config arguments", () => {
   });
 
   it("claims a pairing from a connection code without LLM configuration", async () => {
-    const code = buildConnectionCode({ server_url: "https://cacp.example.com", pairing_token: "cacp_pair", expires_at: "2026-04-27T08:15:00.000Z" });
+    const code = buildConnectionCode({
+      server_url: "https://cacp.example.com",
+      pairing_token: "cacp_pair",
+      expires_at: "2026-04-27T08:15:00.000Z",
+    });
     const fetchImpl = vi.fn(async (url: string) => {
-      expect(url).toBe("https://cacp.example.com/agent-pairings/cacp_pair/claim?server_url=https%3A%2F%2Fcacp.example.com");
-      return new Response(JSON.stringify({
-        room_id: "room_alpha",
-        agent_id: "agent_alpha",
-        agent_token: "cacp_agent",
-        agent: { name: "Claude Code Agent", command: "claude", args: [], working_dir: ".", capabilities: ["claude-code", "claude.persistent_session", "repo.read"] }
-      }), { status: 201, headers: { "content-type": "application/json" } });
+      expect(url).toBe(
+        "https://cacp.example.com/agent-pairings/cacp_pair/claim?server_url=https%3A%2F%2Fcacp.example.com"
+      );
+      return new Response(
+        JSON.stringify({
+          room_id: "room_alpha",
+          agent_id: "agent_alpha",
+          agent_token: "cacp_agent",
+          agent: {
+            name: "Claude Code Agent",
+            command: "claude",
+            args: [],
+            working_dir: ".",
+            capabilities: [
+              "claude-code",
+              "claude.persistent_session",
+              "repo.read",
+            ],
+          },
+        }),
+        { status: 201, headers: { "content-type": "application/json" } }
+      );
     }) as typeof fetch;
-    const config = await loadRuntimeConfigFromArgs(["--connect", code], fetchImpl);
+    const config = await loadRuntimeConfigFromArgs(
+      ["--connect", code],
+      fetchImpl
+    );
     expect(config.registered_agent?.agent_token).toBe("cacp_agent");
   });
 
   it("accepts agent thinking flag in pairing claim response", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
-      room_id: "room_1",
-      agent_id: "agent_1",
-      agent_token: "agent_token",
-      agent: { name: "Kimi Agent", command: "kimi", args: [], working_dir: ".", capabilities: ["kimi-cli"], thinking: true }
-    }), { status: 201, headers: { "content-type": "application/json" } }));
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            room_id: "room_1",
+            agent_id: "agent_1",
+            agent_token: "agent_token",
+            agent: {
+              name: "Kimi Agent",
+              command: "kimi",
+              args: [],
+              working_dir: ".",
+              capabilities: ["kimi-cli"],
+              thinking: true,
+            },
+          }),
+          { status: 201, headers: { "content-type": "application/json" } }
+        )
+    );
 
-    const config = await loadRuntimeConfigFromArgs(["--server", "http://127.0.0.1:3737", "--pair", "pair_1"], fetchMock as unknown as typeof fetch);
+    const config = await loadRuntimeConfigFromArgs(
+      ["--server", "http://127.0.0.1:3737", "--pair", "pair_1"],
+      fetchMock as unknown as typeof fetch
+    );
     expect(config.agent.thinking).toBe(true);
   });
 });

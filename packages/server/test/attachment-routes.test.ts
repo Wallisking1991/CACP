@@ -1,0 +1,249 @@
+import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import type { FastifyInstance } from "fastify";
+import { buildServer } from "../src/server.js";
+import { FileSystemAttachmentStore } from "../src/attachment-store.js";
+import { localTestConfig } from "./test-config.js";
+import {
+  markTestAgentReady,
+  testConnectorCompatibility,
+} from "./test-compatibility.js";
+
+const OnePixelPng = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+  "base64"
+);
+
+function multipartFile(
+  name: string,
+  mediaType: string,
+  bytes: Buffer
+): { headers: Record<string, string>; payload: Buffer } {
+  const boundary = "cacp-attachment-boundary";
+  return {
+    headers: {
+      "content-type": `multipart/form-data; boundary=${boundary}`,
+    },
+    payload: Buffer.concat([
+      Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${name}"\r\nContent-Type: ${mediaType}\r\n\r\n`
+      ),
+      bytes,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]),
+  };
+}
+
+async function createRoom(app: FastifyInstance) {
+  const response = await app.inject({
+    method: "POST",
+    url: "/rooms",
+    payload: { name: "Attachment Room", display_name: "Owner" },
+  });
+  expect(response.statusCode).toBe(201);
+  return response.json() as {
+    room_id: string;
+    owner_id: string;
+    owner_token: string;
+  };
+}
+
+async function upload(
+  app: FastifyInstance,
+  roomId: string,
+  token: string,
+  name = "pixel.png",
+  mediaType = "image/png",
+  bytes = OnePixelPng
+) {
+  const multipart = multipartFile(name, mediaType, bytes);
+  return await app.inject({
+    method: "POST",
+    url: `/rooms/${roomId}/attachments`,
+    headers: {
+      ...multipart.headers,
+      authorization: `Bearer ${token}`,
+    },
+    payload: multipart.payload,
+  });
+}
+
+describe("ephemeral room attachments", () => {
+  const apps: FastifyInstance[] = [];
+  const roots: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(apps.splice(0).map((app) => app.close()));
+    for (const root of roots.splice(0))
+      rmSync(root, { recursive: true, force: true });
+  });
+
+  async function fixture(overrides = {}) {
+    const root = mkdtempSync(join(tmpdir(), "cacp-attachments-"));
+    roots.push(root);
+    const attachmentStore = new FileSystemAttachmentStore(root);
+    const app = await buildServer({
+      dbPath: ":memory:",
+      config: localTestConfig(overrides),
+      attachmentStore,
+    });
+    apps.push(app);
+    const room = await createRoom(app);
+    return { app, room, attachmentStore };
+  }
+
+  it("uploads, authenticates, binds, and downloads a verified image", async () => {
+    const { app, room } = await fixture();
+    const uploaded = await upload(app, room.room_id, room.owner_token);
+    expect(uploaded.statusCode).toBe(201);
+    const attachment = uploaded.json().attachment as {
+      attachment_id: string;
+      name: string;
+      media_type: string;
+      size_bytes: number;
+      sha256: string;
+      kind: string;
+      disposition: string;
+    };
+    expect(attachment).toEqual({
+      attachment_id: expect.stringMatching(/^att_/u),
+      name: "pixel.png",
+      media_type: "image/png",
+      size_bytes: OnePixelPng.length,
+      sha256: createHash("sha256").update(OnePixelPng).digest("hex"),
+      kind: "image",
+      disposition: "inline",
+    });
+
+    const anonymousDownload = await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/attachments/${attachment.attachment_id}`,
+    });
+    expect(anonymousDownload.statusCode).toBe(401);
+
+    const agentResponse = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agents/register`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: {
+        compatibility: testConnectorCompatibility,
+        name: "Kimi",
+        capabilities: ["kimi-cli"],
+      },
+    });
+    expect(agentResponse.statusCode).toBe(201);
+    const agent = agentResponse.json() as {
+      agent_id: string;
+      agent_token: string;
+    };
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agents/select`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: { agent_id: agent.agent_id },
+    });
+    await markTestAgentReady(
+      app,
+      room.room_id,
+      room.owner_token,
+      agent.agent_id,
+      agent.agent_token
+    );
+
+    const sent = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/main-inputs`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: {
+        text: "Describe this image.",
+        attachment_ids: [attachment.attachment_id],
+      },
+    });
+    expect(sent.statusCode).toBe(201);
+
+    const events = await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/events`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+    });
+    const message = (
+      events.json().events as Array<{
+        type: string;
+        payload: Record<string, unknown>;
+      }>
+    ).find(
+      (event) =>
+        event.type === "message.created" &&
+        event.payload.message_id ===
+          (sent.json() as { input_id: string }).input_id
+    );
+    expect(message?.payload.content as Record<string, unknown>).toMatchObject({
+      text: "Describe this image.",
+      attachments: [{ attachment_id: attachment.attachment_id }],
+    });
+
+    const download = await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/attachments/${attachment.attachment_id}`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+    });
+    expect(download.statusCode).toBe(200);
+    expect(download.rawPayload).toEqual(OnePixelPng);
+    expect(download.headers["cache-control"]).toBe("private, no-store");
+    expect(download.headers["x-content-type-options"]).toBe("nosniff");
+  });
+
+  it("deletes attachment bytes before owner leave completes", async () => {
+    const { app, room, attachmentStore } = await fixture();
+    const uploaded = await upload(app, room.room_id, room.owner_token);
+    expect(uploaded.statusCode).toBe(201);
+    expect(await attachmentStore.storedFiles()).toHaveLength(1);
+
+    const left = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/leave`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: {},
+    });
+    expect(left.statusCode).toBe(201);
+    expect(await attachmentStore.storedFiles()).toEqual([]);
+  });
+
+  it("rejects oversized uploads without leaving staged bytes", async () => {
+    const { app, room, attachmentStore } = await fixture({
+      maxAttachmentBytes: 16,
+    });
+    const response = await upload(
+      app,
+      room.room_id,
+      room.owner_token,
+      "notes.txt",
+      "text/plain",
+      Buffer.from("This payload is definitely larger than sixteen bytes.")
+    );
+    expect(response.statusCode).toBe(413);
+    expect(response.json()).toMatchObject({ error: "attachment_too_large" });
+    expect(await attachmentStore.storedFiles()).toEqual([]);
+  });
+
+  it("keeps active content safe by making SVG download-only", async () => {
+    const { app, room } = await fixture();
+    const response = await upload(
+      app,
+      room.room_id,
+      room.owner_token,
+      "diagram.svg",
+      "image/svg+xml",
+      Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+    );
+    expect(response.statusCode).toBe(201);
+    expect(response.json().attachment).toMatchObject({
+      media_type: "image/svg+xml",
+      kind: "file",
+      disposition: "download",
+    });
+  });
+});

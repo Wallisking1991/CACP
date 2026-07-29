@@ -9,7 +9,10 @@ import {
   loadInitialSession,
 } from "../src/session-storage.js";
 
-class MemoryStorage implements Pick<Storage, "getItem" | "removeItem" | "setItem"> {
+class MemoryStorage implements Pick<
+  Storage,
+  "getItem" | "removeItem" | "setItem"
+> {
   readonly values = new Map<string, string>();
 
   getItem(key: string): string | null {
@@ -25,7 +28,10 @@ class MemoryStorage implements Pick<Storage, "getItem" | "removeItem" | "setItem
   }
 }
 
-function makeSession(roomId: string, overrides: Partial<RoomSession> = {}): RoomSession {
+function makeSession(
+  roomId: string,
+  overrides: Partial<RoomSession> = {}
+): RoomSession {
   return {
     room_id: roomId,
     token: `token-${roomId}`,
@@ -88,7 +94,9 @@ describe("session-storage (multi-session)", () => {
     it("writes sessions to storage", () => {
       const sessions = { roomA: makeSession("roomA") };
       saveAllSessions(storage, sessions);
-      expect(storage.getItem("cacp.sessions")).toEqual(JSON.stringify(sessions));
+      expect(storage.getItem("cacp.sessions")).toEqual(
+        JSON.stringify(sessions)
+      );
     });
   });
 
@@ -101,7 +109,10 @@ describe("session-storage (multi-session)", () => {
     });
 
     it("returns undefined for unknown roomId", () => {
-      storage.setItem("cacp.sessions", JSON.stringify({ roomA: makeSession("roomA") }));
+      storage.setItem(
+        "cacp.sessions",
+        JSON.stringify({ roomA: makeSession("roomA") })
+      );
       const result = loadStoredSession(storage, "roomZ");
       expect(result).toBeUndefined();
     });
@@ -122,7 +133,10 @@ describe("session-storage (multi-session)", () => {
 
     it("overwrites existing session for same room", () => {
       saveStoredSession(storage, makeSession("roomA"));
-      saveStoredSession(storage, makeSession("roomA", { token: "updated-token" }));
+      saveStoredSession(
+        storage,
+        makeSession("roomA", { token: "updated-token" })
+      );
       const result = loadStoredSession(storage, "roomA");
       expect(result?.token).toBe("updated-token");
     });
@@ -149,7 +163,10 @@ describe("session-storage (multi-session)", () => {
     it("ignores stored sessions when invite target is present", () => {
       saveStoredSession(storage, makeSession("room_host", { role: "owner" }));
 
-      const result = loadInitialSession(storage, { room_id: "room_invited", invite_token: "invite_token" });
+      const result = loadInitialSession(storage, {
+        room_id: "room_invited",
+        invite_token: "invite_token",
+      });
       expect(result).toBeUndefined();
     });
 

@@ -4,21 +4,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-CACP (Collaborative Agent Communication Protocol) is a local-first collaborative AI room. The public server hosts room state and the web UI; agent execution stays local through the Local Connector. Multiple humans can join the same room, talk freely via Orbit side-channel notes, and dispatch ordered AI turns through a Send-to-Agent FIFO queue. The connected agent can be a local Claude Code / Codex CLI session or an LLM API agent.
+CACP (Collaborative Agent Communication Protocol) is a local-first collaborative AI room. The public server hosts room state and the web UI; agent execution stays local through the Local Connector. Multiple humans can join the same room, talk freely via Orbit side-channel notes, and dispatch ordered AI turns through a Send-to-Agent FIFO queue. Supported agents are Claude Code, Codex CLI, GitHub Copilot CLI, and Kimi Code. HTTP-based LLM API agents are intentionally out of scope.
 
 Live demo: https://cacp.zuchongai.com/
 
 ## Context Management
+
 - When resuming compacted sessions, start fresh rather than continuing if context is large
 - Avoid re-exploring or re-planning when a plan document already exists - read it and execute
 - Prefer concise execution over verbose planning phases
 
 ## Testing Discipline
+
 - Always run tests after multi-file changes; report pass count (e.g., '709/709 passing')
 - Scope test runs to affected packages when possible to save time
 - Fix failing tests before committing
 
 ## Cross-Platform Shell
+
 - This environment is Windows; do NOT use PowerShell env var syntax in bash commands
 - For packaging/transfer, prefer Python/paramiko fallback over tar append (which fails on Windows)
 - PowerShell ConstrainedLanguage mode blocks UTF-8 encoding setup - use alternatives
@@ -54,13 +57,13 @@ The repository has ~120 test files across four packages. Running the full matrix
 
 **Tier the runs by what you changed:**
 
-| Change | Iterate with | Verify with |
-|---|---|---|
-| Comments, i18n strings, CSS, dead-code removal | Read the diff; no tests needed | Affected package's `test` script |
-| One pure helper / one component | Single test file | Affected package's `test` script |
-| Cross-module change inside one package | Affected package's `test` script | Same |
-| Schema / protocol contract change | `protocol` + `server` + `web` | Full `corepack pnpm check` |
-| Refactor, server↔web integration, anything risky | Affected package's `test` script | Full `corepack pnpm check` |
+| Change                                           | Iterate with                     | Verify with                      |
+| ------------------------------------------------ | -------------------------------- | -------------------------------- |
+| Comments, i18n strings, CSS, dead-code removal   | Read the diff; no tests needed   | Affected package's `test` script |
+| One pure helper / one component                  | Single test file                 | Affected package's `test` script |
+| Cross-module change inside one package           | Affected package's `test` script | Same                             |
+| Schema / protocol contract change                | `protocol` + `server` + `web`    | Full `corepack pnpm check`       |
+| Refactor, server↔web integration, anything risky | Affected package's `test` script | Full `corepack pnpm check`       |
 
 **Single-file iteration (skips the redundant protocol rebuild that each package's `test` script prepends):**
 
@@ -91,28 +94,32 @@ This is a pnpm workspace monorepo with four packages under `packages/`:
 - `@cacp/protocol` — Shared TypeScript types, Zod schemas, policy engine, and connection-code encoding. **All protocol contracts live here.**
 - `@cacp/server` — Fastify HTTP/WebSocket server with SQLite storage (better-sqlite3). Uses event sourcing: all state changes append immutable events to SQLite and broadcast over WebSockets.
 - `@cacp/web` — React + Vite frontend. Derives all UI state by replaying the event log (shared logic with server). Connects to the server via WebSocket for real-time updates.
-- `@cacp/cli-adapter` — Local CLI agent connector. Connects to a room via WebSocket and either runs a local Claude Code / Codex session, runs shell commands, or calls LLM APIs through a provider adapter registry.
+- `@cacp/cli-adapter` — Local tool-agent connector. Connects to a room via WebSocket and runs Claude Code, Codex CLI, GitHub Copilot CLI, or Kimi Code sessions.
 
 ## Development Commands
 
-Prerequisites: Node 20+, Corepack enabled (`corepack enable`).
+Prerequisites: Node 22.12+ (Node 24 recommended), Corepack enabled (`corepack enable`).
 
 Install dependencies:
+
 ```bash
 corepack pnpm install
 ```
 
 Run validation (tests + build, same as CI):
+
 ```bash
 corepack pnpm check
 ```
 
 Run all tests:
+
 ```bash
 corepack pnpm test
 ```
 
 Run tests for a single package:
+
 ```bash
 corepack pnpm --filter @cacp/server test
 corepack pnpm --filter @cacp/web test
@@ -120,27 +127,32 @@ corepack pnpm --filter @cacp/cli-adapter test
 ```
 
 Run a single test file (use `exec vitest run` to skip the protocol rebuild that the `test` script prepends — only build protocol once per session, when `packages/protocol/src/` has actually changed):
+
 ```bash
 corepack pnpm --filter @cacp/server exec vitest run test/server.test.ts
 corepack pnpm --filter @cacp/web   exec vitest run test/room-state.test.ts
 ```
 
 Run only tests affected by uncommitted changes:
+
 ```bash
 corepack pnpm --filter @cacp/server exec vitest run --changed
 ```
 
 Build all packages:
+
 ```bash
 corepack pnpm build
 ```
 
 Build a specific package:
+
 ```bash
 corepack pnpm --filter @cacp/protocol build
 ```
 
 Development servers (each in its own terminal):
+
 ```bash
 # Terminal 1 — server on http://127.0.0.1:3737
 corepack pnpm dev:server
@@ -152,9 +164,10 @@ corepack pnpm dev:web
 corepack pnpm dev:adapter
 ```
 
-Build the Windows Local Connector SEA executable:
+Build the cross-platform Local Connector bundle:
+
 ```bash
-corepack pnpm build:connector:win
+corepack pnpm package:connector
 ```
 
 ## Architecture
@@ -164,6 +177,7 @@ corepack pnpm build:connector:win
 All room state is stored as an append-only log of `CacpEvent` records in SQLite. The server never mutates existing events; every action appends new events. Both the server and the web client derive current state by replaying the event log.
 
 Key event families:
+
 - **Room/participant lifecycle** — `room.created`, `participant.joined`, `participant.left`, `participant.removed`
 - **Messages** — `message.created` (human or agent)
 - **Agent turn streaming** — `agent.turn.requested`, `agent.turn.started`, `agent.output.delta`, `agent.turn.completed`, `agent.turn.failed`
@@ -184,6 +198,7 @@ Source of truth for all schemas. `src/schemas.ts` defines every Zod schema and e
 ### Server (`packages/server`)
 
 `src/server.ts` builds the Fastify app and wires together:
+
 - `EventStore` (`event-store.ts`) — SQLite persistence for events, participants, rooms, invites, agent pairings, join requests
 - `EventBus` (`event-bus.ts`) — in-memory pub/sub for WebSocket broadcasting
 - `relay.ts` — relay-only and targeted-delivery envelopes for orbit/snapshot events that should not be persisted (includes `publishRelayOnly`, `publishTargeted`, `roleDelivery` helpers)
@@ -194,6 +209,7 @@ Source of truth for all schemas. `src/schemas.ts` defines every Zod schema and e
 - `config.ts` — environment-based server configuration (`CACP_DEPLOYMENT_MODE`, `CACP_TOKEN_SECRET`, etc.)
 
 The server supports two deployment modes:
+
 - **local** — default, enables local agent auto-launch, permissive CORS
 - **cloud** — requires `CACP_PUBLIC_ORIGIN` and `CACP_TOKEN_SECRET`, disables local launch
 
@@ -208,6 +224,7 @@ The server supports two deployment modes:
 `vite.config.ts` proxies `/rooms` and `/health` to `http://127.0.0.1:3737` during development.
 
 The web build mode is controlled by `VITE_CACP_DEPLOYMENT_MODE`:
+
 - `local` (default) — shows local-agent launch UI
 - `cloud` — shows connection-code modal and Local Connector download
 
@@ -215,16 +232,19 @@ The composer offers two send actions: **Send to People** posts an Orbit note (hu
 
 ### CLI Adapter (`packages/cli-adapter`)
 
-`src/index.ts` is the entry point. It connects to the room WebSocket and routes events to one of three runtimes:
+`src/index.ts` is the entry point. It connects to the room WebSocket and routes events to one of four local tool-agent runtimes:
+
 - `src/claude/` — local Claude Code session runner with fresh-mode session selection and resume
 - `src/codex/` — Codex CLI session runner; `findCodexPath` searches PATH, the pnpm virtual store, and npm globals so the SEA-bundled connector can locate `@openai/codex` binaries at runtime
-- `src/llm/runner.ts` — LLM API agent runner using the provider adapter registry
+- `src/copilot/` — GitHub Copilot CLI session runner using the current SDK stdio transport
+- `src/kimi/` — Kimi Code session runner and transcript importer
 
-`src/llm/providers/registry.ts` maps provider IDs to adapters. Supported providers include OpenAI, Anthropic, DeepSeek, Kimi, MiniMax, SiliconFlow, GLM, and custom OpenAI/Anthropic-compatible endpoints. All adapters follow a consistent pattern: `buildRequest`, `extractTextDelta`, `extractProviderError`, `isTerminalEvent`.
+`src/agent-compatibility.ts` publishes the protocol and attachment capability manifest. `src/connector/attachment-materializer.ts` downloads room attachments, verifies their size and SHA-256 digest, and exposes only the verified local paths to the selected runtime.
 
-The adapter handles two server event types directly: `task.created` (run a shell command and report output) and `agent.turn.requested` (run shell or LLM, streaming deltas back).
+The adapter handles agent turn requests, streams run events back to the room, and cleans the room attachment directory when the connection closes.
 
 Adapter startup modes:
+
 - Config file: `cacp-cli-adapter config.json`
 - Connection code: `cacp-cli-adapter --connect <code>`
 - Interactive prompt (double-click): pastes a connection code
@@ -237,7 +257,7 @@ Server tests should prefer in-memory SQLite by passing `dbPath: ":memory:"` to `
 
 Tests live in `packages/*/test/` as `*.test.ts` or `*.test.tsx`. Add or update tests when changing protocol events, role permissions, invite/pairing flows, room-state derivation, local connector behavior, or user-visible UI.
 
-For the discipline around **which** tests to run during iteration vs. before committing, see *Working Style → Run tests with the right scope* above.
+For the discipline around **which** tests to run during iteration vs. before committing, see _Working Style → Run tests with the right scope_ above.
 
 ## Code Style
 

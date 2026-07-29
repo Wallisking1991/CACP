@@ -5,38 +5,70 @@ describe("Claude session catalog", () => {
   it("normalizes SDK sessions and sorts newest first", async () => {
     const sdk = {
       listSessions: async () => [
-        { sessionId: "old", summary: "Old", lastModified: 1764268800000, fileSize: 10, cwd: "D:\\Development\\2" },
-        { sessionId: "new", summary: "New", lastModified: 1764355200000, fileSize: 20, cwd: "D:\\Development\\2" }
+        {
+          sessionId: "old",
+          summary: "Old",
+          lastModified: 1764268800000,
+          fileSize: 10,
+          cwd: "D:\\Development\\2",
+        },
+        {
+          sessionId: "new",
+          summary: "New",
+          lastModified: 1764355200000,
+          fileSize: 20,
+          cwd: "D:\\Development\\2",
+        },
       ],
-      getSessionMessages: async (_sessionId: string, _input: { dir: string }) => [
-        { uuid: "m1", type: "user", message: { content: "hello" } }
-      ]
+      getSessionMessages: async (
+        _sessionId: string,
+        _input: { dir: string }
+      ) => [{ uuid: "m1", type: "user", message: { content: "hello" } }],
     };
 
-    const catalog = await listClaudeSessions({ workingDir: "D:\\Development\\2", sdk });
+    const catalog = await listClaudeSessions({
+      workingDir: "D:\\Development\\2",
+      sdk,
+    });
 
     expect(catalog.workingDir).toBe("D:\\Development\\2");
-    expect(catalog.sessions.map((session) => session.session_id)).toEqual(["new", "old"]);
+    expect(catalog.sessions.map((session) => session.session_id)).toEqual([
+      "new",
+      "old",
+    ]);
     expect(catalog.sessions[0]).toMatchObject({
       title: "New",
       importable: true,
       message_count: 1,
-      byte_size: 20
+      byte_size: 20,
     });
   });
 
   it("keeps the catalog metadata-only and does not include transcript previews", async () => {
     const sdk = {
       listSessions: async () => [
-        { sessionId: "session_1", summary: "Planning", lastModified: 1764355200000, fileSize: 20, cwd: "D:\\Development\\2" }
+        {
+          sessionId: "session_1",
+          summary: "Planning",
+          lastModified: 1764355200000,
+          fileSize: 20,
+          cwd: "D:\\Development\\2",
+        },
       ],
       getSessionMessages: async () => [
         { uuid: "m1", type: "user", message: { content: "sensitive prompt" } },
-        { uuid: "a1", type: "assistant", message: { content: [{ type: "text", text: "sensitive answer" }] } }
-      ]
+        {
+          uuid: "a1",
+          type: "assistant",
+          message: { content: [{ type: "text", text: "sensitive answer" }] },
+        },
+      ],
     };
 
-    const catalog = await listClaudeSessions({ workingDir: "D:\\Development\\2", sdk });
+    const catalog = await listClaudeSessions({
+      workingDir: "D:\\Development\\2",
+      sdk,
+    });
 
     expect(catalog.sessions[0].message_count).toBe(2);
     expect(catalog.sessions[0]).not.toHaveProperty("messages");

@@ -6,9 +6,8 @@ import type {
   PermissionMode as ClaudeSdkPermissionMode,
   PermissionResult as ClaudeSdkPermissionResult,
   SDKSessionInfo as ClaudeSdkSessionSummary,
-  SessionMessage as ClaudeSdkSessionMessage,
   SettingSource as ClaudeSdkSettingSource,
-  ToolConfig as ClaudeSdkToolConfig
+  ToolConfig as ClaudeSdkToolConfig,
 } from "@anthropic-ai/claude-agent-sdk";
 import type {
   AgentRunApprovalRequestBody,
@@ -21,10 +20,22 @@ import type {
   AgentRunNodeUpdatedPayload,
   ClaudeSessionImportMessagePayload,
   ClaudeSessionPreviewMessagePayload,
-  ClaudeSessionSummary
+  ClaudeSessionSummary,
 } from "@cacp/protocol";
 
-export type { ClaudeSdkSessionMessage, ClaudeSdkSessionSummary };
+export type { ClaudeSdkSessionSummary };
+
+// Keep the boundary limited to the fields the connector reads. Newer Claude
+// SDK releases add required bookkeeping fields to SessionMessage, but those
+// fields are irrelevant to cataloging and transcript import.
+export interface ClaudeSdkSessionMessage {
+  uuid?: string;
+  type?: string;
+  message: unknown;
+  session_id?: string;
+  parent_tool_use_id?: string | null;
+  parent_agent_id?: string | null;
+}
 
 export interface ClaudeSessionCatalogInput {
   workingDir: string;
@@ -63,8 +74,17 @@ export interface ClaudeQueryOptions {
 }
 
 export interface ClaudeQueryInput {
-  prompt: string;
+  prompt: string | AsyncIterable<ClaudeSdkUserMessage>;
   options: ClaudeQueryOptions;
+}
+
+export interface ClaudeSdkUserMessage {
+  type: "user";
+  message: {
+    role: "user";
+    content: unknown[];
+  };
+  parent_tool_use_id: null;
 }
 
 export type ClaudeQuery = AsyncIterable<unknown> & {
@@ -74,7 +94,10 @@ export type ClaudeQuery = AsyncIterable<unknown> & {
 export interface ClaudeSdk {
   query(input: ClaudeQueryInput): ClaudeQuery;
   listSessions(input: { dir: string }): Promise<ClaudeSdkSessionSummary[]>;
-  getSessionMessages(sessionId: string, input: { dir: string; includeSystemMessages?: boolean }): Promise<ClaudeSdkSessionMessage[]>;
+  getSessionMessages(
+    sessionId: string,
+    input: { dir: string; includeSystemMessages?: boolean }
+  ): Promise<ClaudeSdkSessionMessage[]>;
 }
 
 export type ClaudePermissionResult = ClaudeSdkPermissionResult;
@@ -104,6 +127,12 @@ export interface ClaudeRunTraceSink {
   updateNode(payload: AgentRunNodeUpdatedPayload): Promise<void>;
   completeNode(payload: AgentRunNodeCompletedPayload): Promise<void>;
   failNode(payload: AgentRunNodeFailedPayload): Promise<void>;
-  requestApproval(nodeId: string, payload: AgentRunApprovalRequestBody): Promise<ClaudeApprovalDecision>;
-  requestElicitation(nodeId: string, payload: AgentRunElicitationRequestBody): Promise<ClaudeElicitationDecision>;
+  requestApproval(
+    nodeId: string,
+    payload: AgentRunApprovalRequestBody
+  ): Promise<ClaudeApprovalDecision>;
+  requestElicitation(
+    nodeId: string,
+    payload: AgentRunElicitationRequestBody
+  ): Promise<ClaudeElicitationDecision>;
 }

@@ -1,4 +1,12 @@
-import type { AgentView, ClaudeSessionCatalogView, ClaudeSessionSelectionView, ClaudeSessionPreviewView, AgentSessionCatalogView, AgentSessionSelectionView, AgentSessionPreviewView } from "../room-state.js";
+import type {
+  AgentView,
+  ClaudeSessionCatalogView,
+  ClaudeSessionSelectionView,
+  ClaudeSessionPreviewView,
+  AgentSessionCatalogView,
+  AgentSessionSelectionView,
+  AgentSessionPreviewView,
+} from "../room-state.js";
 import { useT } from "../i18n/useT.js";
 import { ClaudeSessionPicker } from "./ClaudeSessionPicker.js";
 import { AgentSessionPicker } from "./AgentSessionPicker.js";
@@ -7,7 +15,7 @@ export interface AgentAvatarPopoverProps {
   agents: AgentView[];
   activeAgentId?: string;
   canManageRoom: boolean;
-  isOwner: boolean;
+  isOwner?: boolean;
   onSelectAgent?: (agentId: string) => void;
   onUpdateAgentThinking?: (agentId: string, enabled: boolean) => void;
   claudeSessionCatalog?: ClaudeSessionCatalogView;
@@ -19,10 +27,14 @@ export interface AgentAvatarPopoverProps {
   serverUrl: string;
   roomSessionToken: string;
   roomSessionParticipantId: string;
-  onRequestClaudeSessionPreview?: (sessionId: string) => Promise<void>;
-  onSelectClaudeSession?: (selection: { mode: "fresh" } | { mode: "resume"; sessionId: string }) => Promise<void>;
-  onRequestAgentSessionPreview?: (sessionId: string) => Promise<void>;
-  onSelectAgentSession?: (selection: { mode: "fresh" } | { mode: "resume"; sessionId: string }) => Promise<void>;
+  onRequestClaudeSessionPreview?: (sessionId: string) => Promise<unknown>;
+  onSelectClaudeSession?: (
+    selection: { mode: "fresh" } | { mode: "resume"; sessionId: string }
+  ) => Promise<unknown>;
+  onRequestAgentSessionPreview?: (sessionId: string) => Promise<unknown>;
+  onSelectAgentSession?: (
+    selection: { mode: "fresh" } | { mode: "resume"; sessionId: string }
+  ) => Promise<unknown>;
   wantsReselect?: boolean;
   onReselectChange?: (next: boolean) => void;
 }
@@ -59,12 +71,18 @@ export function AgentAvatarPopover({
           ? "claude-code"
           : undefined;
 
-  const hasGenericCatalog = activeAgentProvider && agentSessionCatalog && agentSessionCatalog.agent_id === activeAgentId;
-  const hasClaudeCatalog = claudeSessionCatalog && claudeSessionCatalog.agent_id === activeAgentId;
+  const hasGenericCatalog =
+    activeAgentProvider &&
+    agentSessionCatalog &&
+    agentSessionCatalog.agent_id === activeAgentId;
+  const hasClaudeCatalog =
+    claudeSessionCatalog && claudeSessionCatalog.agent_id === activeAgentId;
 
   return (
     <div className="popover-content agent-popover">
-      <h3 className="popover-title">{activeAgent?.name ?? t("sidebar.noActiveAgent")}</h3>
+      <h3 className="popover-title">
+        {activeAgent?.name ?? t("sidebar.noActiveAgent")}
+      </h3>
       <p className="popover-subtitle">
         {activeAgent
           ? `${activeAgent.status} · ${activeAgent.capabilities.join(" · ") || t("sidebar.noCapabilities")}`
@@ -92,9 +110,16 @@ export function AgentAvatarPopover({
           aria-checked={activeAgent.thinking_enabled !== false}
           className="btn btn-ghost"
           style={{ padding: "4px 8px", fontSize: 11, marginTop: 8 }}
-          onClick={() => onUpdateAgentThinking(activeAgent.agent_id, activeAgent.thinking_enabled === false)}
+          onClick={() =>
+            onUpdateAgentThinking(
+              activeAgent.agent_id,
+              activeAgent.thinking_enabled === false
+            )
+          }
         >
-          {activeAgent.thinking_enabled !== false ? t("sidebar.thinkingOn") : t("sidebar.thinkingOff")}
+          {activeAgent.thinking_enabled !== false
+            ? t("sidebar.thinkingOn")
+            : t("sidebar.thinkingOff")}
         </button>
       )}
 

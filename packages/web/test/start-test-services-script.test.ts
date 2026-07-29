@@ -18,7 +18,9 @@ describe("start-test-services.ps1", () => {
     expect(script).toContain("5173");
     expect(script).toContain("Stop-TestServices");
     expect(script).toContain("[switch]$Foreground");
-    expect(script).toContain("Press Ctrl+C or close this window to stop services");
+    expect(script).toContain(
+      "Press Ctrl+C or close this window to stop services"
+    );
     expect(script).toContain("finally");
     expect(existsSync(cmdWrapperPath)).toBe(true);
     expect(cmd).toContain("-Foreground");
@@ -26,7 +28,9 @@ describe("start-test-services.ps1", () => {
 
   it("guards the whole foreground lifecycle with cleanup", () => {
     const script = readFileSync(scriptPath, "utf8");
-    const lifecycleStart = script.indexOf("function Invoke-ForegroundLifecycle");
+    const lifecycleStart = script.indexOf(
+      "function Invoke-ForegroundLifecycle"
+    );
     const lifecycleEnd = script.indexOf("if ($Foreground)", lifecycleStart);
 
     expect(lifecycleStart).toBeGreaterThanOrEqual(0);

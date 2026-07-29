@@ -8,15 +8,20 @@
   "scripts": {
     "build": "tsc --noEmit -p tsconfig.json",
     "build:prod": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "start": "node dist/index.js",
     "dev": "corepack pnpm --filter @cacp/protocol build && tsx src/index.ts",
-    "test": "corepack pnpm --filter @cacp/protocol build && vitest run"
+    "test": "corepack pnpm --filter @cacp/protocol build && vitest run --reporter=dot",
+    "test:unit": "vitest run --reporter=dot",
+    "test:coverage": "vitest run --coverage --reporter=dot"
   },
   "dependencies": {
     "@cacp/protocol": "workspace:*",
+    "@fastify/multipart": "10.1.0",
     "@fastify/websocket": "^11.0.1",
     "better-sqlite3": "^12.9.0",
     "fastify": "^5.2.1",
+    "file-type": "22.0.1",
     "zod": "^3.24.1"
   },
   "devDependencies": {

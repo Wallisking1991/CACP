@@ -6,7 +6,7 @@ import type {
   AgentRunNodeDeltaPayload,
   AgentRunNodeFailedPayload,
   AgentRunNodeStartedPayload,
-  AgentRunNodeUpdatedPayload
+  AgentRunNodeUpdatedPayload,
 } from "@cacp/protocol";
 
 export interface KimiRuntimeInput {
@@ -29,8 +29,25 @@ export interface KimiRuntimeInput {
   updateNode: (payload: AgentRunNodeUpdatedPayload) => Promise<void>;
   completeNode: (payload: AgentRunNodeCompletedPayload) => Promise<void>;
   failNode: (payload: AgentRunNodeFailedPayload) => Promise<void>;
-  requestApproval: (nodeId: string, payload: AgentRunApprovalRequestBody) => Promise<{ decision: "allow" | "deny"; resolved_by: string; resolved_at: string; reason?: string }>;
-  requestElicitation?: (nodeId: string, payload: AgentRunElicitationRequestBody) => Promise<{ action: "accept" | "decline" | "cancel"; content?: Record<string, unknown>; resolved_by: string; resolved_at: string; reason?: string }>;
+  requestApproval: (
+    nodeId: string,
+    payload: AgentRunApprovalRequestBody
+  ) => Promise<{
+    decision: "allow" | "deny";
+    resolved_by: string;
+    resolved_at: string;
+    reason?: string;
+  }>;
+  requestElicitation?: (
+    nodeId: string,
+    payload: AgentRunElicitationRequestBody
+  ) => Promise<{
+    action: "accept" | "decline" | "cancel";
+    content?: Record<string, unknown>;
+    resolved_by: string;
+    resolved_at: string;
+    reason?: string;
+  }>;
 }
 
 export interface KimiTurnResult {
@@ -67,11 +84,25 @@ export interface KimiSdkSession {
 }
 
 export interface KimiSdkTurn {
-  [Symbol.asyncIterator](): AsyncIterator<KimiSdkStreamEvent, { status: "finished" | "cancelled" | "max_steps_reached"; steps?: number }, undefined>;
+  [Symbol.asyncIterator](): AsyncIterator<
+    KimiSdkStreamEvent,
+    unknown,
+    undefined
+  >;
   interrupt(): Promise<void>;
-  approve(requestId: string, response: "approve" | "approve_for_session" | "reject"): Promise<void>;
-  respondQuestion(rpcRequestId: string, questionRequestId: string, answers: Record<string, string>): Promise<void>;
-  readonly result: Promise<{ status: "finished" | "cancelled" | "max_steps_reached"; steps?: number }>;
+  approve(
+    requestId: string,
+    response: "approve" | "approve_for_session" | "reject"
+  ): Promise<void>;
+  respondQuestion(
+    rpcRequestId: string,
+    questionRequestId: string,
+    answers: Record<string, string>
+  ): Promise<void>;
+  readonly result: Promise<{
+    status: "finished" | "cancelled" | "max_steps_reached";
+    steps?: number;
+  }>;
 }
 
 export interface KimiSdkSessionInfo {
@@ -86,13 +117,62 @@ export type KimiSdkStreamEvent =
   | { type: "TurnBegin"; payload: { user_input: string | unknown[] } }
   | { type: "StepBegin"; payload: { n: number } }
   | { type: "StepInterrupted"; payload: Record<string, never> }
-  | { type: "ContentPart"; payload: { type: "text"; text: string } | { type: "think"; think: string; encrypted?: string | null } }
-  | { type: "ToolCall"; payload: { type: "function"; id: string; function: { name: string; arguments: string | null }; extras?: Record<string, unknown> | null } }
+  | {
+      type: "ContentPart";
+      payload:
+        | { type: "text"; text: string }
+        | { type: "think"; think: string; encrypted?: string | null };
+    }
+  | {
+      type: "ToolCall";
+      payload: {
+        type: "function";
+        id: string;
+        function: { name: string; arguments: string | null };
+        extras?: Record<string, unknown> | null;
+      };
+    }
   | { type: "ToolCallPart"; payload: { arguments_part: string } }
-  | { type: "ToolResult"; payload: { tool_call_id: string; return_value: { is_error: boolean; output: string | unknown[]; message: string; display: unknown[]; extras?: Record<string, unknown> | null } } }
-  | { type: "StatusUpdate"; payload: { token_usage?: { input_other: number; output: number }; context_usage?: number } }
+  | {
+      type: "ToolResult";
+      payload: {
+        tool_call_id: string;
+        return_value: {
+          is_error: boolean;
+          output: string | unknown[];
+          message: string;
+          display: unknown[];
+          extras?: Record<string, unknown> | null;
+        };
+      };
+    }
+  | {
+      type: "StatusUpdate";
+      payload: {
+        token_usage?: { input_other: number; output: number };
+        context_usage?: number;
+      };
+    }
   | { type: "CompactionBegin"; payload: Record<string, never> }
   | { type: "CompactionEnd"; payload: Record<string, never> }
-  | { type: "ApprovalRequest"; payload: { id: string; action: string; description: string } }
-  | { type: "QuestionRequest"; payload: { id: string; tool_call_id: string; questions: Array<{ question: string; header?: string; options: Array<{ label: string; description?: string }>; multi_select?: boolean }> } }
-  | { type: "SubagentEvent"; payload: { parent_tool_call_id: string; event: unknown } };
+  | {
+      type: "ApprovalRequest";
+      payload: { id: string; action: string; description: string };
+    }
+  | {
+      type: "QuestionRequest";
+      payload: {
+        id: string;
+        tool_call_id: string;
+        questions: Array<{
+          question: string;
+          header?: string;
+          options: Array<{ label: string; description?: string }>;
+          multi_select?: boolean;
+        }>;
+      };
+    }
+  | {
+      type: "SubagentEvent";
+      payload: { parent_tool_call_id: string; event: unknown };
+    };

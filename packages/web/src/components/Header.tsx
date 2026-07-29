@@ -1,7 +1,11 @@
 import { useCallback, useContext, useRef, useState } from "react";
 import { useT } from "../i18n/useT.js";
 import { LangContext, type Lang } from "../i18n/LangProvider.js";
-import type { AvatarStatusView, InviteView, JoinRequestView } from "../room-state.js";
+import type {
+  AvatarStatusView,
+  InviteView,
+  JoinRequestView,
+} from "../room-state.js";
 import { RoomIdentity } from "./RoomIdentity.js";
 import CacpRoomLogo from "./CacpRoomLogo.js";
 import { RoleAvatarRail } from "./RoleAvatarRail.js";
@@ -18,8 +22,15 @@ export interface HeaderProps {
   isOwner?: boolean;
   avatarStatuses: AvatarStatusView[];
   onCopyRoomId: (roomId: string) => void;
-  onCreatePairing?: (agentType: string, permissionLevel: string) => Promise<string>;
-  onCreateInvite?: (role: string, ttl: number, maxUses: number) => Promise<string | undefined>;
+  onCreatePairing?: (
+    agentType: string,
+    permissionLevel: string
+  ) => Promise<string>;
+  onCreateInvite?: (
+    role: string,
+    ttl: number,
+    maxUses: number
+  ) => Promise<string | undefined>;
   onRemoveAvatar?: (id: string) => void;
   currentParticipantId?: string;
   onLeaveRoom?: () => void;
@@ -129,7 +140,9 @@ export default function Header({
         >
           <BellIcon />
           {pendingNotificationCount > 0 && (
-            <span className="notification-badge">{pendingNotificationCount}</span>
+            <span className="notification-badge">
+              {pendingNotificationCount}
+            </span>
           )}
         </button>
         <Popover

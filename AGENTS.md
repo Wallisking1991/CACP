@@ -1,6 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
+
 CACP is a pnpm workspace for a local-first collaborative AI room. Source lives under `packages/*/src`, with package tests in `packages/*/test`.
 
 - `packages/protocol`: shared TypeScript types, Zod schemas, and protocol contracts.
@@ -10,7 +11,8 @@ CACP is a pnpm workspace for a local-first collaborative AI room. Source lives u
 - `docs/`: protocol docs, diagrams, examples, and deployment notes; `scripts/` contains repo utilities.
 
 ## Build, Test, and Development Commands
-Use Node 20+, Corepack, and the pinned pnpm version.
+
+Use Node 22.12+ (Node 24 recommended), Corepack, and the pinned pnpm version.
 
 ```powershell
 corepack enable
@@ -26,17 +28,20 @@ corepack pnpm dev:adapter  # starts the generic local CLI adapter example
 For focused work, run `corepack pnpm --filter @cacp/server test` or replace the package name.
 
 ## Coding Style & Naming Conventions
+
 Use strict TypeScript, ESM, and NodeNext-compatible relative imports with `.js` extensions. Follow the existing style: two-space indentation, double quotes, semicolons, and small testable helpers. Keep protocol schema changes centralized in `packages/protocol/src/schemas.ts`; update server and web room-state logic when event contracts change.
 
 ## Testing Guidelines
+
 Vitest is the test framework. Name tests `*.test.ts` or `*.test.tsx` in each package's `test/` directory. Add or update tests for protocol events, role permissions, invite/pairing flows, room-state derivation, local connector behavior, and user-visible UI changes. Prefer in-memory SQLite (`dbPath: ":memory:"`) for server tests.
 
 ## Commit & Pull Request Guidelines
+
 Git history follows Conventional Commits, for example `feat(server): ...`, `fix(web): ...`, `docs: ...`, and `chore: ...`. Keep commits focused and imperative. Pull requests should include a summary, validation commands, linked issue or context when available, screenshots or recordings for UI changes, and notes for protocol, security, deployment, or connector risk.
 
 ## Security & Configuration Tips
-Only the room server is public; agent execution should stay local through the connector. Never commit secrets or local deployment artifacts: `.env`, `.deploy/*`, `docs/Server info.md`, `docs/deploy-cloud.md`, `docs/examples/*.local.json`, SQLite `*.db*` files, SSH keys, tokens, or production config. Avoid exposing room, invite, pairing, participant, or connector secrets in logs and screenshots.
 
+Only the room server is public; agent execution should stay local through the connector. Never commit secrets or local deployment artifacts: `.env`, `.deploy/*`, `docs/Server info.md`, `docs/deploy-cloud.md`, `docs/examples/*.local.json`, SQLite `*.db*` files, SSH keys, tokens, or production config. Avoid exposing room, invite, pairing, participant, or connector secrets in logs and screenshots.
 
 <claude-mem-context>
 # Memory Context
@@ -50,6 +55,7 @@ Fetch details: get_observations([IDs]) | Search: mem-search skill
 Stats: 50 obs (24,079t read) | 617,273t work | 96% savings
 
 ### May 1, 2026
+
 S102 Codex CLI integration final validation — confirm Tasks 9 + 10 complete, inspect git log/status, and identify any leftover uncommitted work (May 1, 5:27 PM)
 S103 Final status report for the 10-task Codex CLI integration plan — confirm full automated completion and remaining manual verification (May 1, 6:02 PM)
 S104 Re-confirm Codex CLI integration completion — 10/10 tasks done, branch state stable, awaiting decision on manual smoke-test follow-up (May 1, 6:02 PM)
@@ -94,7 +100,9 @@ S109 systematic-debugging: production cloud rooms — connecting via Codex paste
 164 11:51p 🔵 Connector fresh-mode session selection has no error reporting path to web UI
 165 11:52p 🔴 Fresh-mode session selection failures now surface to web UI via runtime-status "failed" events
 S110 Two-part work: (1) Fix CACP-Local-Connector silent crash and missing web session-selection error when starting a Codex session in cloud production (resolved at commit 0b8f3c2). (2) Redeploy the project to cacp.zuchongai.com per docs/deploy-cloud.md so the fix reaches end users (now in flight). (May 1, 11:52 PM)
+
 ### May 2, 2026
+
 S111 Two-part request fulfilled in one trajectory: (1) systematic-debugging fix for the CACP-Local-Connector silent crash on Codex session start (root-caused at `@openai/codex-sdk` `findCodexPath()` failing in SEA/bundled-CJS environments) plus the missing web-side error path when the connector failed mid-handshake; (2) redeploy of the resulting commit to cacp.zuchongai.com per `docs/deploy-cloud.md`. Both halves are now LIVE on production. (May 2, 12:04 AM)
 166 12:30a 🔵 CACP cloud deployment runbook reviewed for redeployment
 167 12:31a 🔵 Pre-deployment local state inspection for CACP cloud redeploy

@@ -86,7 +86,16 @@ export function MoreMenu({
               className="more-menu-item"
               onClick={() => setSubPanel("logs")}
             >
-              <span style={{ fontSize: 14, fontWeight: 700, width: 18, textAlign: "center" }}>L</span>
+              <span
+                style={{
+                  fontSize: 14,
+                  fontWeight: 700,
+                  width: 18,
+                  textAlign: "center",
+                }}
+              >
+                L
+              </span>
               <span>Logs</span>
             </button>
             <div className="more-menu-divider" />
@@ -96,7 +105,9 @@ export function MoreMenu({
               onClick={handleToggleLang}
             >
               <GlobeIcon />
-              <span>{langLabel}: {langCode}</span>
+              <span>
+                {langLabel}: {langCode}
+              </span>
             </button>
             <div className="more-menu-divider" />
             <button

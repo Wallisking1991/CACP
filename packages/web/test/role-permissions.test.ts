@@ -10,7 +10,7 @@ describe("room role permissions", () => {
       canSendOrbitNotes: true,
       canManageJoinRequests: true,
       canRemoveParticipants: true,
-      canUpdateRoles: true
+      canUpdateRoles: true,
     });
   });
 
@@ -22,7 +22,7 @@ describe("room role permissions", () => {
       canSendOrbitNotes: true,
       canManageJoinRequests: true,
       canRemoveParticipants: true,
-      canUpdateRoles: false
+      canUpdateRoles: false,
     });
   });
 
@@ -34,7 +34,7 @@ describe("room role permissions", () => {
       canSendOrbitNotes: true,
       canManageJoinRequests: false,
       canRemoveParticipants: false,
-      canUpdateRoles: false
+      canUpdateRoles: false,
     });
   });
 
@@ -46,7 +46,7 @@ describe("room role permissions", () => {
       canSendOrbitNotes: false,
       canManageJoinRequests: false,
       canRemoveParticipants: false,
-      canUpdateRoles: false
+      canUpdateRoles: false,
     });
   });
 });

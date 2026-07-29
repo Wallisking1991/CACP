@@ -24,17 +24,23 @@ describe("connector index source", () => {
   });
 
   it("silently ignores task.created for all agents instead of calling fail", () => {
-    expect(indexSource).toContain("Ignoring task.created because this connector no longer runs generic local command tasks.");
+    expect(indexSource).toContain(
+      "Ignoring task.created because this connector no longer runs generic local command tasks."
+    );
   });
 
   it("handles claude.session_selected events for persistent session management", () => {
-    expect(indexSource).toContain('parsed.data.type === "claude.session_selected"');
+    expect(indexSource).toContain(
+      'parsed.data.type === "claude.session_selected"'
+    );
     expect(indexSource).toContain("claudeRuntime.selectSession");
   });
 
   it("passes the server-provided room name into Claude turn prompts", () => {
     expect(indexSource).toContain("room_name?: string");
-    expect(indexSource).toContain('roomName: typeof payload.room_name === "string" ? payload.room_name');
+    expect(indexSource).toMatch(
+      /roomName:\s+typeof payload\.room_name === "string"\s+\? payload\.room_name/
+    );
   });
 
   it("publishes provider-neutral run-trace lifecycle around Claude and Codex turns", () => {
@@ -75,7 +81,9 @@ describe("connector index source", () => {
   });
 
   it("handles connector.snapshot.requested events by streaming ledger snapshots", () => {
-    expect(indexSource).toContain('parsed.data.type === "connector.snapshot.requested"');
+    expect(indexSource).toContain(
+      'parsed.data.type === "connector.snapshot.requested"'
+    );
     expect(indexSource).toContain("ledger.snapshotSince");
     expect(indexSource).toContain("roomClient.startSnapshot");
     expect(indexSource).toContain("roomClient.uploadSnapshotEntry");
@@ -83,14 +91,20 @@ describe("connector index source", () => {
   });
 
   it("detects and instantiates Codex CLI runtime when agent has codex-cli capability", () => {
-    expect(indexSource).toContain('config.agent.capabilities.includes("codex-cli")');
+    expect(indexSource).toContain(
+      'config.agent.capabilities.includes("codex-cli")'
+    );
     expect(indexSource).toContain("CodexRuntime");
     expect(indexSource).toContain("listCodexSessions");
   });
 
   it("handles generic agent.session_selected for Codex session management", () => {
-    expect(indexSource).toContain('parsed.data.type === "agent.session_selected"');
-    expect(indexSource).toContain('parsed.data.type === "agent.session_preview.requested"');
+    expect(indexSource).toContain(
+      'parsed.data.type === "agent.session_selected"'
+    );
+    expect(indexSource).toContain(
+      'parsed.data.type === "agent.session_preview.requested"'
+    );
     expect(indexSource).toContain("codexRuntime.selectSession");
   });
 
@@ -111,9 +125,18 @@ describe("connector index source", () => {
   });
 
   it("reports Claude session readiness only after the SDK session is selected", () => {
-    const selectIndex = indexSource.indexOf('await claudeRuntime.selectSession({ mode: "resume", sessionId: payload.session_id });');
-    const completeIndex = indexSource.indexOf("await roomClient.completeImport(importId");
-    const readyIndex = indexSource.indexOf("await roomClient.publishSessionReady", completeIndex);
+    const selectMatch =
+      /await claudeRuntime\.selectSession\(\{\s+mode: "resume",\s+sessionId: payload\.session_id,\s+\}\);/.exec(
+        indexSource
+      );
+    const selectIndex = selectMatch?.index ?? -1;
+    const completeIndex = indexSource.indexOf(
+      "await roomClient.completeImport(importId"
+    );
+    const readyIndex = indexSource.indexOf(
+      "await roomClient.publishSessionReady",
+      completeIndex
+    );
     expect(selectIndex).toBeGreaterThan(-1);
     expect(completeIndex).toBeGreaterThan(-1);
     expect(readyIndex).toBeGreaterThan(-1);
@@ -124,7 +147,10 @@ describe("connector index source", () => {
   it("truncates Copilot session summaries to 200 characters for catalog titles", () => {
     const copilotCatalogIndex = indexSource.indexOf("if (isCopilotCli)");
     expect(copilotCatalogIndex).toBeGreaterThan(-1);
-    const copilotCatalogBlock = indexSource.slice(copilotCatalogIndex, copilotCatalogIndex + 2000);
+    const copilotCatalogBlock = indexSource.slice(
+      copilotCatalogIndex,
+      copilotCatalogIndex + 2000
+    );
     expect(copilotCatalogBlock).toContain(".slice(0, 200)");
   });
 
@@ -136,14 +162,20 @@ describe("connector index source", () => {
   it("calls gracefulShutdown from the websocket close handler", () => {
     const closeHandlerIndex = indexSource.indexOf('ws.on("close",');
     expect(closeHandlerIndex).toBeGreaterThan(-1);
-    const closeHandlerBlock = indexSource.slice(closeHandlerIndex, closeHandlerIndex + 200);
+    const closeHandlerBlock = indexSource.slice(
+      closeHandlerIndex,
+      closeHandlerIndex + 200
+    );
     expect(closeHandlerBlock).toContain("gracefulShutdown");
   });
 
   it("calls gracefulShutdown from the websocket error handler instead of only logging", () => {
     const errorHandlerIndex = indexSource.indexOf('ws.on("error",');
     expect(errorHandlerIndex).toBeGreaterThan(-1);
-    const errorHandlerBlock = indexSource.slice(errorHandlerIndex, errorHandlerIndex + 300);
+    const errorHandlerBlock = indexSource.slice(
+      errorHandlerIndex,
+      errorHandlerIndex + 300
+    );
     expect(errorHandlerBlock).toContain("gracefulShutdown");
   });
 
@@ -158,16 +190,25 @@ describe("connector index source", () => {
     expect(indexSource).toContain("ws.terminate()");
     const terminateIndex = indexSource.indexOf("ws.terminate()");
     expect(terminateIndex).toBeGreaterThan(-1);
-    const terminateBlock = indexSource.slice(terminateIndex, terminateIndex + 100);
+    const terminateBlock = indexSource.slice(
+      terminateIndex,
+      terminateIndex + 100
+    );
     expect(terminateBlock).toContain("gracefulShutdown");
   });
 
   it("clears heartbeat timers in the websocket close handler", () => {
     const firstCloseHandlerIndex = indexSource.indexOf('ws.on("close",');
     expect(firstCloseHandlerIndex).toBeGreaterThan(-1);
-    const secondCloseHandlerIndex = indexSource.indexOf('ws.on("close",', firstCloseHandlerIndex + 1);
+    const secondCloseHandlerIndex = indexSource.indexOf(
+      'ws.on("close",',
+      firstCloseHandlerIndex + 1
+    );
     expect(secondCloseHandlerIndex).toBeGreaterThan(-1);
-    const closeHandlerBlock = indexSource.slice(secondCloseHandlerIndex, secondCloseHandlerIndex + 400);
+    const closeHandlerBlock = indexSource.slice(
+      secondCloseHandlerIndex,
+      secondCloseHandlerIndex + 400
+    );
     expect(closeHandlerBlock).toContain("heartbeatInterval");
     expect(closeHandlerBlock).toContain("heartbeatTimeout");
   });

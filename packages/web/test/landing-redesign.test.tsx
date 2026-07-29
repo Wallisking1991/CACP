@@ -1,9 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LangProvider } from "../src/i18n/LangProvider.js";
 import Landing from "../src/components/Landing.js";
 
-function renderLanding(props: Partial<React.ComponentProps<typeof Landing>> = {}) {
+function renderLanding(
+  props: Partial<React.ComponentProps<typeof Landing>> = {}
+) {
   const onCreate = vi.fn();
   const onJoin = vi.fn();
   render(
@@ -32,10 +34,14 @@ describe("Landing redesign", () => {
     renderLanding();
 
     expect(screen.getByTestId("landing-create-card")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Create a collaborative AI room" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Create a collaborative AI room" })
+    ).toBeInTheDocument();
     expect(screen.getByLabelText("Your name")).toBeRequired();
     expect(screen.getByLabelText("Room name")).toHaveValue("CACP AI Room");
-    expect(screen.queryByRole("button", { name: "Join with invite" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Join with invite" })
+    ).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Invite link")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Room ID")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Invite token")).not.toBeInTheDocument();
@@ -44,10 +50,14 @@ describe("Landing redesign", () => {
   it("keeps advanced agent and permission controls collapsed until requested", () => {
     renderLanding();
 
-    expect(screen.getByLabelText("Agent type", { hidden: true })).not.toBeVisible();
-    expect(screen.getByLabelText("Permission", { hidden: true })).not.toBeVisible();
+    expect(document.getElementById("landing-agent-type")).not.toBeVisible();
+    expect(
+      document.getElementById("landing-permission-level")
+    ).not.toBeVisible();
 
-    const toggle = screen.getByRole("button", { name: "Advanced options: Agent type and permission" });
+    const toggle = screen.getByRole("button", {
+      name: "Advanced options: Agent type and permission",
+    });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
 
     fireEvent.click(toggle);
@@ -60,11 +70,15 @@ describe("Landing redesign", () => {
   it("removes collapsed advanced controls from the accessibility tree and tab order", () => {
     renderLanding();
 
-    const panel = screen.getByLabelText("Agent type", { hidden: true }).closest("#landing-advanced-options") as HTMLElement;
+    const panel = document.getElementById(
+      "landing-advanced-options"
+    ) as HTMLElement;
     expect(panel).toHaveAttribute("aria-hidden", "true");
     expect(panel).toHaveAttribute("inert");
 
-    const toggle = screen.getByRole("button", { name: "Advanced options: Agent type and permission" });
+    const toggle = screen.getByRole("button", {
+      name: "Advanced options: Agent type and permission",
+    });
     fireEvent.click(toggle);
 
     expect(panel).not.toHaveAttribute("aria-hidden");
@@ -74,8 +88,12 @@ describe("Landing redesign", () => {
   it("submits the quick-create defaults through the existing create handler", () => {
     const { onCreate } = renderLanding();
 
-    fireEvent.change(screen.getByLabelText("Your name"), { target: { value: "Owner" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create room and start agent" }));
+    fireEvent.change(screen.getByLabelText("Your name"), {
+      target: { value: "Owner" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create room and start agent" })
+    );
 
     expect(onCreate).toHaveBeenCalledWith({
       roomName: "CACP AI Room",
@@ -88,21 +106,27 @@ describe("Landing redesign", () => {
   it("switches to an invite join card when opened from an invite link", async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ valid: true })
+      json: async () => ({ valid: true }),
     });
 
     const { onJoin } = renderLandingWithInviteUrl();
 
     expect(screen.getByTestId("landing-invite-card")).toBeInTheDocument();
     expect(screen.queryByTestId("landing-create-card")).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Join a shared AI room" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Join a shared AI room" })
+    ).toBeInTheDocument();
     expect(screen.getByText("Invited room: room_123")).toBeInTheDocument();
     expect(screen.queryByLabelText("Invite token")).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Your name"), { target: { value: "Guest" } });
+    fireEvent.change(screen.getByLabelText("Your name"), {
+      target: { value: "Guest" },
+    });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Join shared room" })).not.toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: "Join shared room" })
+      ).not.toBeDisabled();
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Join shared room" }));
@@ -117,7 +141,7 @@ describe("Landing redesign", () => {
   it("disables join button and shows error for expired invite", async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ valid: false, reason: "expired" })
+      json: async () => ({ valid: false, reason: "expired" }),
     });
 
     renderLandingWithInviteUrl();
@@ -126,14 +150,18 @@ describe("Landing redesign", () => {
       expect(screen.getByTestId("landing-invite-error")).toBeInTheDocument();
     });
 
-    expect(screen.getByTestId("landing-invite-error")).toHaveTextContent(/expired/i);
-    expect(screen.getByRole("button", { name: "Join shared room" })).toBeDisabled();
+    expect(screen.getByTestId("landing-invite-error")).toHaveTextContent(
+      /expired/i
+    );
+    expect(
+      screen.getByRole("button", { name: "Join shared room" })
+    ).toBeDisabled();
   });
 
   it("disables join button and shows error for revoked invite", async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ valid: false, reason: "revoked" })
+      json: async () => ({ valid: false, reason: "revoked" }),
     });
 
     renderLandingWithInviteUrl();
@@ -142,14 +170,18 @@ describe("Landing redesign", () => {
       expect(screen.getByTestId("landing-invite-error")).toBeInTheDocument();
     });
 
-    expect(screen.getByTestId("landing-invite-error")).toHaveTextContent(/revoked/i);
-    expect(screen.getByRole("button", { name: "Join shared room" })).toBeDisabled();
+    expect(screen.getByTestId("landing-invite-error")).toHaveTextContent(
+      /revoked/i
+    );
+    expect(
+      screen.getByRole("button", { name: "Join shared room" })
+    ).toBeDisabled();
   });
 
   it("disables join button and shows error when invite limit is reached", async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ valid: false, reason: "limit_reached" })
+      json: async () => ({ valid: false, reason: "limit_reached" }),
     });
 
     renderLandingWithInviteUrl();
@@ -158,14 +190,18 @@ describe("Landing redesign", () => {
       expect(screen.getByTestId("landing-invite-error")).toBeInTheDocument();
     });
 
-    expect(screen.getByTestId("landing-invite-error")).toHaveTextContent(/limit/i);
-    expect(screen.getByRole("button", { name: "Join shared room" })).toBeDisabled();
+    expect(screen.getByTestId("landing-invite-error")).toHaveTextContent(
+      /limit/i
+    );
+    expect(
+      screen.getByRole("button", { name: "Join shared room" })
+    ).toBeDisabled();
   });
 
   it("disables join button and shows translated error when invite is not found", async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ valid: false, reason: "not_found" })
+      json: async () => ({ valid: false, reason: "not_found" }),
     });
 
     renderLandingWithInviteUrl();
@@ -180,7 +216,9 @@ describe("Landing redesign", () => {
     expect(errorEl.textContent ?? "").not.toMatch(/landing\.join\.invite/);
     expect(errorEl.textContent ?? "").not.toMatch(/inviteNot_found/);
     expect(errorEl).toHaveTextContent(/invalid|does not exist/i);
-    expect(screen.getByRole("button", { name: "Join shared room" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Join shared room" })
+    ).toBeDisabled();
   });
 });
 

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { hashToken, openSecret, prefixedId, safeTokenEquals, sealSecret, token } from "../src/ids.js";
+import {
+  hashToken,
+  openSecret,
+  prefixedId,
+  safeTokenEquals,
+  sealSecret,
+  token,
+} from "../src/ids.js";
 
 describe("ID and token helpers", () => {
   it("generates non-enumerable prefixed ids", () => {

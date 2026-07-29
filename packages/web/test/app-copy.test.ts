@@ -3,15 +3,30 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("App room copy and layout source", () => {
-  const appSource = () => readFileSync(resolve(process.cwd(), "src/App.tsx"), "utf8");
-  const workspaceSource = () => readFileSync(resolve(process.cwd(), "src/components/Workspace.tsx"), "utf8");
-  const headerSource = () => readFileSync(resolve(process.cwd(), "src/components/Header.tsx"), "utf8");
-  const sidebarSource = () => readFileSync(resolve(process.cwd(), "src/components/Sidebar.tsx"), "utf8");
-  const threadSource = () => readFileSync(resolve(process.cwd(), "src/components/Thread.tsx"), "utf8");
-  const mainComposerSource = () => readFileSync(resolve(process.cwd(), "src/components/MainComposer.tsx"), "utf8");
-  const landingSource = () => readFileSync(resolve(process.cwd(), "src/components/Landing.tsx"), "utf8");
-  const i18nSource = () => readFileSync(resolve(process.cwd(), "src/i18n/messages.en.json"), "utf8");
-  const cssSource = () => readFileSync(resolve(process.cwd(), "src/App.css"), "utf8");
+  const appSource = () =>
+    readFileSync(resolve(process.cwd(), "src/App.tsx"), "utf8");
+  const workspaceSource = () =>
+    readFileSync(
+      resolve(process.cwd(), "src/components/Workspace.tsx"),
+      "utf8"
+    );
+  const headerSource = () =>
+    readFileSync(resolve(process.cwd(), "src/components/Header.tsx"), "utf8");
+  const sidebarSource = () =>
+    readFileSync(resolve(process.cwd(), "src/components/Sidebar.tsx"), "utf8");
+  const threadSource = () =>
+    readFileSync(resolve(process.cwd(), "src/components/Thread.tsx"), "utf8");
+  const mainComposerSource = () =>
+    readFileSync(
+      resolve(process.cwd(), "src/components/MainComposer.tsx"),
+      "utf8"
+    );
+  const landingSource = () =>
+    readFileSync(resolve(process.cwd(), "src/components/Landing.tsx"), "utf8");
+  const i18nSource = () =>
+    readFileSync(resolve(process.cwd(), "src/i18n/messages.en.json"), "utf8");
+  const cssSource = () =>
+    readFileSync(resolve(process.cwd(), "src/App.css"), "utf8");
 
   const allSource = () =>
     appSource() +
@@ -42,8 +57,12 @@ describe("App room copy and layout source", () => {
   it("does not keep Chinese labels or mojibake from the previous UI", () => {
     const source = allSource();
 
-    expect(source).not.toMatch(/只读|参与者|受限写入|完整权限|房主批准|多数通过|全员一致/);
-    expect(source).not.toMatch(/åªè¯»|å—é™å†™å…¥|å®Œæ•´æƒé™|å‚ä¸Žè€…|æˆ¿ä¸»|å¤šæ•°|å…¨å‘˜/);
+    expect(source).not.toMatch(
+      /只读|参与者|受限写入|完整权限|房主批准|多数通过|全员一致/
+    );
+    expect(source).not.toMatch(
+      /åªè¯»|å—é™å†™å…¥|å®Œæ•´æƒé™|å‚ä¸Žè€…|æˆ¿ä¸»|å¤šæ•°|å…¨å‘˜/
+    );
   });
 
   it("uses room management APIs without manual question or decision responses", () => {
@@ -57,7 +76,7 @@ describe("App room copy and layout source", () => {
     const source = allSource();
 
     expect(source).toContain('aria-label={t("mainComposer.placeholder")}');
-    expect(source).toContain('aria-label={`Active agent ${activeAgent.name}`}');
+    expect(source).toContain("aria-label={`Active agent ${activeAgent.name}`}");
   });
 
   it("keeps the chat workspace fixed height with internally scrolling timeline", () => {
@@ -72,16 +91,21 @@ describe("App room copy and layout source", () => {
 
     expect(source).toContain(":focus-visible");
     expect(source).not.toContain("body { overflow: auto; }");
-    expect(source).not.toContain("height: auto; min-height: 100vh; overflow: visible;");
+    expect(source).not.toContain(
+      "height: auto; min-height: 100vh; overflow: visible;"
+    );
     expect(source).not.toContain("height: auto; max-height: none;");
   });
-
 
   it("keeps Claude session history and transcript preview independently scrollable", () => {
     const source = cssSource();
 
-    expect(source).toMatch(/\.claude-session-list\s*\{[^}]*max-height:[^;}]+;[^}]*overflow-y:\s*auto/s);
-    expect(source).toMatch(/\.claude-session-preview-messages\s*\{[^}]*overflow-y:\s*auto/s);
+    expect(source).toMatch(
+      /\.claude-session-list\s*\{[^}]*max-height:[^;}]+;[^}]*overflow-y:\s*auto/s
+    );
+    expect(source).toMatch(
+      /\.claude-session-preview-messages\s*\{[^}]*overflow-y:\s*auto/s
+    );
   });
 
   it("uses a premium workspace shell", () => {

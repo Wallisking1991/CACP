@@ -1,4 +1,11 @@
-import { copyFile, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -46,7 +53,7 @@ if %errorlevel% neq 0 (
     echo ============================================
     echo   Node.js is not installed.
     echo.
-    echo   Please download Node.js 20+ from:
+    echo   Please download Node.js 22.12+ from:
     echo   https://nodejs.org/
     echo ============================================
     echo.
@@ -54,11 +61,11 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-for /f "tokens=1 delims=." %%a in ('node -p "process.version.match(/^v(\\d+)/)[1]"') do set NODE_MAJOR=%%a
-if %NODE_MAJOR% LSS 20 (
+node -e "const [major, minor] = process.versions.node.split('.').map(Number); process.exit(major > 22 || (major === 22 && minor >= 12) ? 0 : 1)"
+if %errorlevel% neq 0 (
     echo ============================================
-    echo   Node.js version is too old ^(%NODE_MAJOR%^).
-    echo   Node.js 20+ is required.
+    echo   Node.js version is too old.
+    echo   Node.js 22.12+ is required ^(Node.js 24 recommended^).
     echo   Please upgrade from https://nodejs.org/
     echo ============================================
     pause
@@ -86,7 +93,7 @@ if ! command -v node &> /dev/null; then
     echo "============================================"
     echo "  Node.js is not installed."
     echo ""
-    echo "  Please download Node.js 20+ from:"
+    echo "  Please download Node.js 22.12+ from:"
     echo "  https://nodejs.org/"
     echo "============================================"
     echo ""
@@ -94,11 +101,10 @@ if ! command -v node &> /dev/null; then
     exit 1
 fi
 
-NODE_MAJOR=$(node -p 'process.version.match(/^v(\\d+)/)[1]')
-if [ "$NODE_MAJOR" -lt 20 ]; then
+if ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 22 || (major === 22 && minor >= 12) ? 0 : 1)'; then
     echo "============================================"
-    echo "  Node.js version is too old ($NODE_MAJOR)."
-    echo "  Node.js 20+ is required."
+    echo "  Node.js version is too old ($(node --version))."
+    echo "  Node.js 22.12+ is required (Node.js 24 recommended)."
     echo "  Please upgrade from https://nodejs.org/"
     echo "============================================"
     echo ""
@@ -125,7 +131,7 @@ if ! command -v node &> /dev/null; then
     echo "============================================"
     echo "  Node.js is not installed."
     echo ""
-    echo "  Please download Node.js 20+ from:"
+    echo "  Please download Node.js 22.12+ from:"
     echo "  https://nodejs.org/"
     echo "============================================"
     echo ""
@@ -133,11 +139,10 @@ if ! command -v node &> /dev/null; then
     exit 1
 fi
 
-NODE_MAJOR=$(node -p 'process.version.match(/^v(\\d+)/)[1]')
-if [ "$NODE_MAJOR" -lt 20 ]; then
+if ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 22 || (major === 22 && minor >= 12) ? 0 : 1)'; then
     echo "============================================"
-    echo "  Node.js version is too old ($NODE_MAJOR)."
-    echo "  Node.js 20+ is required."
+    echo "  Node.js version is too old ($(node --version))."
+    echo "  Node.js 22.12+ is required (Node.js 24 recommended)."
     echo "  Please upgrade from https://nodejs.org/"
     echo "============================================"
     echo ""

@@ -6,7 +6,11 @@ export interface MobileDrawerProps extends SidebarProps {
   onClose: () => void;
 }
 
-export default function MobileDrawer({ open, onClose, ...sidebarProps }: MobileDrawerProps) {
+export default function MobileDrawer({
+  open,
+  onClose,
+  ...sidebarProps
+}: MobileDrawerProps) {
   if (!open) return null;
 
   return (

@@ -1,4 +1,5 @@
 import { CacpEventSchema, type CacpEvent } from "@cacp/protocol";
+export { fetchAttachmentBlob, uploadAttachment } from "./attachment-api.js";
 
 export interface RoomSession {
   room_id: string;
@@ -29,90 +30,192 @@ export interface RoomWithLocalAgentResult {
   launch_error?: string;
 }
 
-async function postJson<T>(path: string, token: string | undefined, body: unknown): Promise<T> {
+async function postJson<T>(
+  path: string,
+  token: string | undefined,
+  body: unknown
+): Promise<T> {
   const response = await fetch(path, {
     method: "POST",
-    headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
-    body: JSON.stringify(body)
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
   });
   if (!response.ok) throw new Error(await response.text());
   return (await response.json()) as T;
 }
 
-export async function createRoom(name: string, displayName: string): Promise<RoomSession> {
-  const result = await postJson<{ room_id: string; owner_id: string; owner_token: string }>("/rooms", undefined, { name, display_name: displayName });
-  return { room_id: result.room_id, token: result.owner_token, participant_id: result.owner_id, role: "owner" };
+export async function createRoom(
+  name: string,
+  displayName: string
+): Promise<RoomSession> {
+  const result = await postJson<{
+    room_id: string;
+    owner_id: string;
+    owner_token: string;
+  }>("/rooms", undefined, { name, display_name: displayName });
+  return {
+    room_id: result.room_id,
+    token: result.owner_token,
+    participant_id: result.owner_id,
+    role: "owner",
+  };
 }
 
-export async function createRoomWithLocalAgent(name: string, displayName: string, agent: AgentSetupInput): Promise<RoomWithLocalAgentResult> {
+export async function createRoomWithLocalAgent(
+  name: string,
+  displayName: string,
+  agent: AgentSetupInput
+): Promise<RoomWithLocalAgentResult> {
   const session = await createRoom(name, displayName);
   try {
     const launch = await createLocalAgentLaunch(session, agent);
     return { session, launch };
   } catch (cause) {
-    return { session, launch_error: cause instanceof Error ? cause.message : String(cause) };
+    return {
+      session,
+      launch_error: cause instanceof Error ? cause.message : String(cause),
+    };
   }
 }
 
 export type MainThreadHistoryAccess = "allowed" | "denied";
 
-export async function createInvite(session: RoomSession, role: "member" | "observer", expiresInSeconds: number, maxUses: number, mainThreadHistoryAccess?: MainThreadHistoryAccess): Promise<{ invite_token: string; role: string; main_thread_history_access: string; expires_at: string; max_uses: number }> {
-  const body: Record<string, unknown> = { role, expires_in_seconds: expiresInSeconds, max_uses: maxUses };
-  if (mainThreadHistoryAccess) body.main_thread_history_access = mainThreadHistoryAccess;
-  return await postJson(`/rooms/${session.room_id}/invites`, session.token, body);
+export async function createInvite(
+  session: RoomSession,
+  role: "member" | "observer",
+  expiresInSeconds: number,
+  maxUses: number,
+  mainThreadHistoryAccess?: MainThreadHistoryAccess
+): Promise<{
+  invite_token: string;
+  role: string;
+  main_thread_history_access: string;
+  expires_at: string;
+  max_uses: number;
+}> {
+  const body: Record<string, unknown> = {
+    role,
+    expires_in_seconds: expiresInSeconds,
+    max_uses: maxUses,
+  };
+  if (mainThreadHistoryAccess)
+    body.main_thread_history_access = mainThreadHistoryAccess;
+  return await postJson(
+    `/rooms/${session.room_id}/invites`,
+    session.token,
+    body
+  );
 }
 
-export async function sendMessage(session: RoomSession, text: string): Promise<void> {
+export async function sendMessage(
+  session: RoomSession,
+  text: string
+): Promise<void> {
   await postJson(`/rooms/${session.room_id}/messages`, session.token, { text });
 }
 
-export async function sendOrbitNote(session: RoomSession, text: string, replyTo?: string): Promise<{ note_id: string }> {
-  return await postJson(`/rooms/${session.room_id}/orbit/notes`, session.token, { text, reply_to: replyTo });
+export async function sendOrbitNote(
+  session: RoomSession,
+  text: string,
+  replyTo?: string
+): Promise<{ note_id: string }> {
+  return await postJson(
+    `/rooms/${session.room_id}/orbit/notes`,
+    session.token,
+    { text, reply_to: replyTo }
+  );
 }
 
-export async function likeOrbitNote(session: RoomSession, noteId: string): Promise<{ liked: boolean; count: number }> {
-  return await postJson(`/rooms/${session.room_id}/orbit/notes/${noteId}/like`, session.token, {});
+export async function likeOrbitNote(
+  session: RoomSession,
+  noteId: string
+): Promise<{ liked: boolean; count: number }> {
+  return await postJson(
+    `/rooms/${session.room_id}/orbit/notes/${noteId}/like`,
+    session.token,
+    {}
+  );
 }
 
-export async function unlikeOrbitNote(session: RoomSession, noteId: string): Promise<{ liked: boolean; count: number }> {
+export async function unlikeOrbitNote(
+  session: RoomSession,
+  noteId: string
+): Promise<{ liked: boolean; count: number }> {
   return await fetch(`/rooms/${session.room_id}/orbit/notes/${noteId}/like`, {
     method: "DELETE",
-    headers: { authorization: `Bearer ${session.token}` }
+    headers: { authorization: `Bearer ${session.token}` },
   }).then((r) => r.json());
 }
 
-export async function promoteOrbitNotes(session: RoomSession, noteIds?: string[]): Promise<{ input_id: string; status: string; note_count: number }> {
-  return await postJson(`/rooms/${session.room_id}/orbit/promote`, session.token, { note_ids: noteIds });
+export async function promoteOrbitNotes(
+  session: RoomSession,
+  noteIds?: string[]
+): Promise<{ input_id: string; status: string; note_count: number }> {
+  return await postJson(
+    `/rooms/${session.room_id}/orbit/promote`,
+    session.token,
+    { note_ids: noteIds }
+  );
 }
 
 export async function clearOrbit(session: RoomSession): Promise<{ ok: true }> {
-  return await postJson(`/rooms/${session.room_id}/orbit/clear`, session.token, {});
+  return await postJson(
+    `/rooms/${session.room_id}/orbit/clear`,
+    session.token,
+    {}
+  );
 }
 
-export async function sendMainInput(session: RoomSession, text: string): Promise<{ input_id: string; status: string }> {
-  return await postJson(`/rooms/${session.room_id}/main-inputs`, session.token, { text });
+export async function sendMainInput(
+  session: RoomSession,
+  text: string,
+  attachmentIds: string[] = []
+): Promise<{ input_id: string; status: string }> {
+  return await postJson(
+    `/rooms/${session.room_id}/main-inputs`,
+    session.token,
+    { text, attachment_ids: attachmentIds }
+  );
 }
 
-export async function cancelMainInput(session: RoomSession, inputId: string): Promise<void> {
-  await postJson(`/rooms/${session.room_id}/main-inputs/${inputId}/cancel`, session.token, {});
+export async function cancelMainInput(
+  session: RoomSession,
+  inputId: string
+): Promise<void> {
+  await postJson(
+    `/rooms/${session.room_id}/main-inputs/${inputId}/cancel`,
+    session.token,
+    {}
+  );
 }
 
-export async function requestConnectorSnapshot(session: RoomSession, sinceSequence = 0): Promise<{ request_id: string }> {
-  const response = await fetch(`/rooms/${session.room_id}/connector-snapshots`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${session.token}`
-    },
-    body: JSON.stringify({ since_sequence: sinceSequence })
-  });
+export async function requestConnectorSnapshot(
+  session: RoomSession,
+  sinceSequence = 0
+): Promise<{ request_id: string }> {
+  const response = await fetch(
+    `/rooms/${session.room_id}/connector-snapshots`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${session.token}`,
+      },
+      body: JSON.stringify({ since_sequence: sinceSequence }),
+    }
+  );
   if (!response.ok) throw new Error(await response.text());
-  return await response.json() as { request_id: string };
+  return (await response.json()) as { request_id: string };
 }
 
-export async function fetchRoomEvents(session: RoomSession): Promise<CacpEvent[]> {
+export async function fetchRoomEvents(
+  session: RoomSession
+): Promise<CacpEvent[]> {
   const response = await fetch(`/rooms/${session.room_id}/events`, {
-    headers: { authorization: `Bearer ${session.token}` }
+    headers: { authorization: `Bearer ${session.token}` },
   });
   if (!response.ok) throw new Error(await response.text());
   const body = (await response.json()) as { events: CacpEvent[] };
@@ -125,24 +228,50 @@ export async function leaveRoom(session: RoomSession): Promise<void> {
 
 export type ParticipantPresence = "online" | "idle" | "offline";
 
-export async function updatePresence(session: RoomSession, presence: ParticipantPresence): Promise<void> {
-  await postJson(`/rooms/${session.room_id}/activity/presence`, session.token, { presence });
+export async function updatePresence(
+  session: RoomSession,
+  presence: ParticipantPresence
+): Promise<void> {
+  await postJson(`/rooms/${session.room_id}/activity/presence`, session.token, {
+    presence,
+  });
 }
 
 export async function startTyping(session: RoomSession): Promise<void> {
-  await postJson(`/rooms/${session.room_id}/activity/typing/start`, session.token, {});
+  await postJson(
+    `/rooms/${session.room_id}/activity/typing/start`,
+    session.token,
+    {}
+  );
 }
 
 export async function stopTyping(session: RoomSession): Promise<void> {
-  await postJson(`/rooms/${session.room_id}/activity/typing/stop`, session.token, {});
+  await postJson(
+    `/rooms/${session.room_id}/activity/typing/stop`,
+    session.token,
+    {}
+  );
 }
 
-export async function selectAgent(session: RoomSession, agentId: string): Promise<void> {
-  await postJson(`/rooms/${session.room_id}/agents/select`, session.token, { agent_id: agentId });
+export async function selectAgent(
+  session: RoomSession,
+  agentId: string
+): Promise<void> {
+  await postJson(`/rooms/${session.room_id}/agents/select`, session.token, {
+    agent_id: agentId,
+  });
 }
 
-export async function updateAgentThinking(session: RoomSession, agentId: string, thinkingEnabled: boolean): Promise<void> {
-  await postJson(`/rooms/${session.room_id}/agents/${agentId}/thinking`, session.token, { thinking_enabled: thinkingEnabled });
+export async function updateAgentThinking(
+  session: RoomSession,
+  agentId: string,
+  thinkingEnabled: boolean
+): Promise<void> {
+  await postJson(
+    `/rooms/${session.room_id}/agents/${agentId}/thinking`,
+    session.token,
+    { thinking_enabled: thinkingEnabled }
+  );
 }
 
 export async function selectClaudeSession(input: {
@@ -153,20 +282,26 @@ export async function selectClaudeSession(input: {
   mode: "fresh" | "resume";
   sessionId?: string;
 }): Promise<{ ok: true }> {
-  const response = await fetch(`${input.serverUrl}/rooms/${input.roomId}/claude/session-selection`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${input.token}`
-    },
-    body: JSON.stringify({
-      agent_id: input.agentId,
-      mode: input.mode,
-      ...(input.mode === "resume" ? { session_id: input.sessionId } : {})
-    })
-  });
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}: ${await response.text()}`);
-  return await response.json() as { ok: true };
+  const response = await fetch(
+    `${input.serverUrl}/rooms/${input.roomId}/claude/session-selection`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${input.token}`,
+      },
+      body: JSON.stringify({
+        agent_id: input.agentId,
+        mode: input.mode,
+        ...(input.mode === "resume" ? { session_id: input.sessionId } : {}),
+      }),
+    }
+  );
+  if (!response.ok)
+    throw new Error(
+      `${response.status} ${response.statusText}: ${await response.text()}`
+    );
+  return (await response.json()) as { ok: true };
 }
 
 export async function requestClaudeSessionPreview(input: {
@@ -176,19 +311,25 @@ export async function requestClaudeSessionPreview(input: {
   agentId: string;
   sessionId: string;
 }): Promise<{ ok: true; preview_id: string }> {
-  const response = await fetch(`${input.serverUrl}/rooms/${input.roomId}/claude/session-previews`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${input.token}`
-    },
-    body: JSON.stringify({
-      agent_id: input.agentId,
-      session_id: input.sessionId
-    })
-  });
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}: ${await response.text()}`);
-  return await response.json() as { ok: true; preview_id: string };
+  const response = await fetch(
+    `${input.serverUrl}/rooms/${input.roomId}/claude/session-previews`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${input.token}`,
+      },
+      body: JSON.stringify({
+        agent_id: input.agentId,
+        session_id: input.sessionId,
+      }),
+    }
+  );
+  if (!response.ok)
+    throw new Error(
+      `${response.status} ${response.statusText}: ${await response.text()}`
+    );
+  return (await response.json()) as { ok: true; preview_id: string };
 }
 
 export async function selectAgentSession(input: {
@@ -200,21 +341,27 @@ export async function selectAgentSession(input: {
   mode: "fresh" | "resume";
   sessionId?: string;
 }): Promise<{ ok: true }> {
-  const response = await fetch(`${input.serverUrl}/rooms/${input.roomId}/agent-sessions/selection`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${input.token}`
-    },
-    body: JSON.stringify({
-      agent_id: input.agentId,
-      provider: input.provider,
-      mode: input.mode,
-      ...(input.mode === "resume" ? { session_id: input.sessionId } : {})
-    })
-  });
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}: ${await response.text()}`);
-  return await response.json() as { ok: true };
+  const response = await fetch(
+    `${input.serverUrl}/rooms/${input.roomId}/agent-sessions/selection`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${input.token}`,
+      },
+      body: JSON.stringify({
+        agent_id: input.agentId,
+        provider: input.provider,
+        mode: input.mode,
+        ...(input.mode === "resume" ? { session_id: input.sessionId } : {}),
+      }),
+    }
+  );
+  if (!response.ok)
+    throw new Error(
+      `${response.status} ${response.statusText}: ${await response.text()}`
+    );
+  return (await response.json()) as { ok: true };
 }
 
 export async function requestAgentSessionPreview(input: {
@@ -225,20 +372,26 @@ export async function requestAgentSessionPreview(input: {
   provider: "claude-code" | "codex-cli" | "github-copilot" | "kimi-cli";
   sessionId: string;
 }): Promise<{ ok: true; preview_id: string }> {
-  const response = await fetch(`${input.serverUrl}/rooms/${input.roomId}/agent-sessions/previews`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${input.token}`
-    },
-    body: JSON.stringify({
-      agent_id: input.agentId,
-      provider: input.provider,
-      session_id: input.sessionId
-    })
-  });
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}: ${await response.text()}`);
-  return await response.json() as { ok: true; preview_id: string };
+  const response = await fetch(
+    `${input.serverUrl}/rooms/${input.roomId}/agent-sessions/previews`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${input.token}`,
+      },
+      body: JSON.stringify({
+        agent_id: input.agentId,
+        provider: input.provider,
+        session_id: input.sessionId,
+      }),
+    }
+  );
+  if (!response.ok)
+    throw new Error(
+      `${response.status} ${response.statusText}: ${await response.text()}`
+    );
+  return (await response.json()) as { ok: true; preview_id: string };
 }
 
 export async function resolveAgentRunApproval(input: {
@@ -250,19 +403,25 @@ export async function resolveAgentRunApproval(input: {
   decision: "allow" | "deny";
   reason?: string;
 }): Promise<{ ok: true; decision: "allow" | "deny" }> {
-  const response = await fetch(`${input.serverUrl.replace(/\/$/, "")}/rooms/${input.roomId}/agent-runs/${input.runId}/approvals/${input.nodeId}/resolve`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${input.token}`
-    },
-    body: JSON.stringify({
-      decision: input.decision,
-      ...(input.reason ? { reason: input.reason } : {})
-    })
-  });
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}: ${await response.text()}`);
-  return await response.json() as { ok: true; decision: "allow" | "deny" };
+  const response = await fetch(
+    `${input.serverUrl.replace(/\/$/, "")}/rooms/${input.roomId}/agent-runs/${input.runId}/approvals/${input.nodeId}/resolve`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${input.token}`,
+      },
+      body: JSON.stringify({
+        decision: input.decision,
+        ...(input.reason ? { reason: input.reason } : {}),
+      }),
+    }
+  );
+  if (!response.ok)
+    throw new Error(
+      `${response.status} ${response.statusText}: ${await response.text()}`
+    );
+  return (await response.json()) as { ok: true; decision: "allow" | "deny" };
 }
 
 export async function resolveAgentRunElicitation(input: {
@@ -274,31 +433,47 @@ export async function resolveAgentRunElicitation(input: {
   action: "accept" | "decline" | "cancel";
   content?: Record<string, unknown>;
 }): Promise<{ ok: true; action: "accept" | "decline" | "cancel" }> {
-  const response = await fetch(`${input.serverUrl.replace(/\/$/, "")}/rooms/${input.roomId}/agent-runs/${input.runId}/elicitations/${input.nodeId}/resolve`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${input.token}`
-    },
-    body: JSON.stringify({
-      action: input.action,
-      ...(input.action === "accept" && input.content ? { content: input.content } : {})
-    })
-  });
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}: ${await response.text()}`);
-  return await response.json() as { ok: true; action: "accept" | "decline" | "cancel" };
+  const response = await fetch(
+    `${input.serverUrl.replace(/\/$/, "")}/rooms/${input.roomId}/agent-runs/${input.runId}/elicitations/${input.nodeId}/resolve`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${input.token}`,
+      },
+      body: JSON.stringify({
+        action: input.action,
+        ...(input.action === "accept" && input.content
+          ? { content: input.content }
+          : {}),
+      }),
+    }
+  );
+  if (!response.ok)
+    throw new Error(
+      `${response.status} ${response.statusText}: ${await response.text()}`
+    );
+  return (await response.json()) as {
+    ok: true;
+    action: "accept" | "decline" | "cancel";
+  };
 }
 
 export function pairingServerUrlFor(origin: string): string {
   const url = new URL(origin);
-  if ((url.hostname === "127.0.0.1" || url.hostname === "localhost") && (url.port === "5173" || url.port === "3000")) {
+  if (
+    (url.hostname === "127.0.0.1" || url.hostname === "localhost") &&
+    (url.port === "5173" || url.port === "3000")
+  ) {
     url.port = "3737";
   }
   return url.toString().replace(/\/$/, "");
 }
 
 function currentBrowserOrigin(): string {
-  return typeof window === "undefined" ? "http://localhost:3737" : window.location.origin;
+  return typeof window === "undefined"
+    ? "http://localhost:3737"
+    : window.location.origin;
 }
 
 export interface AgentPairingResult {
@@ -307,12 +482,19 @@ export interface AgentPairingResult {
   download_url: string;
 }
 
-export async function createAgentPairing(session: RoomSession, input: AgentSetupInput): Promise<AgentPairingResult> {
-  return await postJson(`/rooms/${session.room_id}/agent-pairings`, session.token, {
-    agent_type: input.agent_type,
-    permission_level: input.permission_level,
-    server_url: pairingServerUrlFor(currentBrowserOrigin())
-  });
+export async function createAgentPairing(
+  session: RoomSession,
+  input: AgentSetupInput
+): Promise<AgentPairingResult> {
+  return await postJson(
+    `/rooms/${session.room_id}/agent-pairings`,
+    session.token,
+    {
+      agent_type: input.agent_type,
+      permission_level: input.permission_level,
+      server_url: pairingServerUrlFor(currentBrowserOrigin()),
+    }
+  );
 }
 
 export interface JoinRequestResult {
@@ -329,66 +511,138 @@ export interface JoinRequestStatus {
   role?: RoomSession["role"];
 }
 
-export async function verifyInvite(inviteToken: string): Promise<{ valid: true } | { valid: false; reason: string }> {
-  const response = await fetch(`/invites/verify?token=${encodeURIComponent(inviteToken)}`);
+export async function verifyInvite(
+  inviteToken: string
+): Promise<{ valid: true } | { valid: false; reason: string }> {
+  const response = await fetch(
+    `/invites/verify?token=${encodeURIComponent(inviteToken)}`
+  );
   if (!response.ok) throw new Error(await response.text());
-  return (await response.json()) as { valid: true } | { valid: false; reason: string };
+  return (await response.json()) as
+    { valid: true } | { valid: false; reason: string };
 }
 
-export async function createJoinRequest(roomId: string, inviteToken: string, displayName: string): Promise<JoinRequestResult> {
-  return await postJson(`/rooms/${roomId}/join-requests`, undefined, { invite_token: inviteToken, display_name: displayName });
+export async function createJoinRequest(
+  roomId: string,
+  inviteToken: string,
+  displayName: string
+): Promise<JoinRequestResult> {
+  return await postJson(`/rooms/${roomId}/join-requests`, undefined, {
+    invite_token: inviteToken,
+    display_name: displayName,
+  });
 }
 
-export async function joinRequestStatus(roomId: string, requestId: string, requestToken: string): Promise<JoinRequestStatus> {
-  const response = await fetch(`/rooms/${roomId}/join-requests/${requestId}?request_token=${encodeURIComponent(requestToken)}`);
+export async function joinRequestStatus(
+  roomId: string,
+  requestId: string,
+  requestToken: string
+): Promise<JoinRequestStatus> {
+  const response = await fetch(
+    `/rooms/${roomId}/join-requests/${requestId}?request_token=${encodeURIComponent(requestToken)}`
+  );
   if (!response.ok) throw new Error(await response.text());
   return (await response.json()) as JoinRequestStatus;
 }
 
-export async function approveJoinRequest(session: RoomSession, requestId: string): Promise<void> {
-  await postJson(`/rooms/${session.room_id}/join-requests/${requestId}/approve`, session.token, {});
+export async function approveJoinRequest(
+  session: RoomSession,
+  requestId: string
+): Promise<void> {
+  await postJson(
+    `/rooms/${session.room_id}/join-requests/${requestId}/approve`,
+    session.token,
+    {}
+  );
 }
 
-export async function rejectJoinRequest(session: RoomSession, requestId: string): Promise<void> {
-  await postJson(`/rooms/${session.room_id}/join-requests/${requestId}/reject`, session.token, {});
+export async function rejectJoinRequest(
+  session: RoomSession,
+  requestId: string
+): Promise<void> {
+  await postJson(
+    `/rooms/${session.room_id}/join-requests/${requestId}/reject`,
+    session.token,
+    {}
+  );
 }
 
-export async function removeParticipant(session: RoomSession, participantId: string): Promise<void> {
-  await postJson(`/rooms/${session.room_id}/participants/${participantId}/remove`, session.token, {});
+export async function removeParticipant(
+  session: RoomSession,
+  participantId: string
+): Promise<void> {
+  await postJson(
+    `/rooms/${session.room_id}/participants/${participantId}/remove`,
+    session.token,
+    {}
+  );
 }
 
-export async function updateParticipantRole(session: RoomSession, participantId: string, role: string): Promise<void> {
-  await postJson(`/rooms/${session.room_id}/participants/${participantId}/role`, session.token, { role });
+export async function updateParticipantRole(
+  session: RoomSession,
+  participantId: string,
+  role: string
+): Promise<void> {
+  await postJson(
+    `/rooms/${session.room_id}/participants/${participantId}/role`,
+    session.token,
+    { role }
+  );
 }
 
-export async function createLocalAgentLaunch(session: RoomSession, input: AgentSetupInput): Promise<LocalAgentLaunch> {
-  return await postJson(`/rooms/${session.room_id}/agent-pairings/start-local`, session.token, {
-    agent_type: input.agent_type,
-    permission_level: input.permission_level,
-    server_url: pairingServerUrlFor(currentBrowserOrigin())
-  });
+export async function createLocalAgentLaunch(
+  session: RoomSession,
+  input: AgentSetupInput
+): Promise<LocalAgentLaunch> {
+  return await postJson(
+    `/rooms/${session.room_id}/agent-pairings/start-local`,
+    session.token,
+    {
+      agent_type: input.agent_type,
+      permission_level: input.permission_level,
+      server_url: pairingServerUrlFor(currentBrowserOrigin()),
+    }
+  );
 }
 
-export function inviteUrlFor(origin: string, roomId: string, inviteToken: string): string {
+export function inviteUrlFor(
+  origin: string,
+  roomId: string,
+  inviteToken: string
+): string {
   const url = new URL("/join", origin);
   url.searchParams.set("room", roomId);
   url.searchParams.set("token", inviteToken);
   return url.toString();
 }
 
-export async function getRoomMe(session: RoomSession): Promise<{ room_id: string; name: string; role: RoomSession["role"]; participant_id: string }> {
+export async function getRoomMe(session: RoomSession): Promise<{
+  room_id: string;
+  name: string;
+  role: RoomSession["role"];
+  participant_id: string;
+}> {
   const response = await fetch(`/rooms/${session.room_id}/me`, {
-    headers: { authorization: `Bearer ${session.token}` }
+    headers: { authorization: `Bearer ${session.token}` },
   });
   if (!response.ok) throw new Error(await response.text());
-  return (await response.json()) as { room_id: string; name: string; role: RoomSession["role"]; participant_id: string };
+  return (await response.json()) as {
+    room_id: string;
+    name: string;
+    role: RoomSession["role"];
+    participant_id: string;
+  };
 }
 
-export function parseInviteUrl(search: string): { room_id: string; invite_token: string } | undefined {
+export function parseInviteUrl(
+  search: string
+): { room_id: string; invite_token: string } | undefined {
   const params = new URLSearchParams(search);
   const roomId = params.get("room");
   const inviteToken = params.get("token");
-  return roomId && inviteToken ? { room_id: roomId, invite_token: inviteToken } : undefined;
+  return roomId && inviteToken
+    ? { room_id: roomId, invite_token: inviteToken }
+    : undefined;
 }
 
 export function parseCacpEventMessage(data: string): CacpEvent | undefined {
@@ -413,7 +667,10 @@ export function connectEvents(
   onEvent: (event: CacpEvent) => void,
   onClose?: (code: number, reason: string) => void
 ): WebSocket {
-  const url = new URL(`/rooms/${session.room_id}/stream`, window.location.origin);
+  const url = new URL(
+    `/rooms/${session.room_id}/stream`,
+    window.location.origin
+  );
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.searchParams.set("token", session.token);
   const socket = new WebSocket(url);

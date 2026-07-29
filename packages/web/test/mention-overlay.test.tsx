@@ -11,7 +11,10 @@ describe("MentionOverlay", () => {
 
   it("wraps @agent mentions in agent span", () => {
     const { container } = render(
-      <MentionOverlay text="Hello @Claude" mentions={[{ start: 6, end: 13, type: "agent" }]} />
+      <MentionOverlay
+        text="Hello @Claude"
+        mentions={[{ start: 6, end: 13, type: "agent" }]}
+      />
     );
     const span = container.querySelector(".mention-overlay__agent");
     expect(span).toBeInTheDocument();
@@ -20,7 +23,10 @@ describe("MentionOverlay", () => {
 
   it("wraps @user mentions in user span", () => {
     const { container } = render(
-      <MentionOverlay text="Hi @Alice" mentions={[{ start: 3, end: 9, type: "user" }]} />
+      <MentionOverlay
+        text="Hi @Alice"
+        mentions={[{ start: 3, end: 9, type: "user" }]}
+      />
     );
     const span = container.querySelector(".mention-overlay__user");
     expect(span).toBeInTheDocument();

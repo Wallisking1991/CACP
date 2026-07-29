@@ -4,23 +4,24 @@ import { MemoryRouter } from "react-router-dom";
 import App from "../src/App.js";
 
 vi.mock("../src/runtime-config.js", () => ({
-  isCloudMode: () => true
+  isCloudMode: () => true,
 }));
 
 vi.mock("../src/api.js", async () => {
-  const actual = await vi.importActual<typeof import("../src/api.js")>("../src/api.js");
+  const actual =
+    await vi.importActual<typeof import("../src/api.js")>("../src/api.js");
   return {
     ...actual,
     createRoom: vi.fn(async () => ({
       room_id: "room_1",
       token: "owner_secret",
       participant_id: "user_owner",
-      role: "owner"
+      role: "owner",
     })),
     createAgentPairing: vi.fn(async () => ({
       connection_code: "CACP-CONNECT:v1:full-secret-code",
       download_url: "/downloads/CACP-Local-Connector-v0.5.0.zip",
-      expires_at: "2026-04-28T04:30:00.000Z"
+      expires_at: "2026-04-28T04:30:00.000Z",
     })),
     getRoomMe: vi.fn(async () => ({
       room_id: "room_1",
@@ -31,9 +32,9 @@ vi.mock("../src/api.js", async () => {
     connectEvents: vi.fn(() => ({
       readyState: 1,
       close: vi.fn(),
-      addEventListener: vi.fn()
+      addEventListener: vi.fn(),
     })),
-    clearEventSocket: vi.fn()
+    clearEventSocket: vi.fn(),
   };
 });
 
@@ -42,20 +43,40 @@ describe("App connector onboarding modal", () => {
     window.localStorage.clear();
     Object.defineProperty(navigator, "clipboard", {
       value: { writeText: vi.fn(async () => undefined) },
-      configurable: true
+      configurable: true,
     });
     window.HTMLElement.prototype.scrollIntoView = vi.fn();
   });
 
   it("opens the connector modal after cloud room creation generates a connection code", async () => {
-    render(<MemoryRouter><App /></MemoryRouter>);
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>
+    );
 
-    fireEvent.change(screen.getByLabelText("Your name"), { target: { value: "Owner" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create room and generate connector command" }));
+    fireEvent.change(screen.getByLabelText("Your name"), {
+      target: { value: "Owner" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Create room and generate connector command",
+      })
+    );
 
-    expect(await screen.findByRole("dialog", { name: "Connect local Agent" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Download CACP-Local-Connector.zip" })).toHaveAttribute("href", "/downloads/CACP-Local-Connector-v0.5.0.zip");
-    fireEvent.click(screen.getByRole("button", { name: "Copy connection code" }));
-    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("CACP-CONNECT:v1:full-secret-code"));
+    expect(
+      await screen.findByRole("dialog", { name: "Connect local Agent" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Download CACP-Local-Connector.zip" })
+    ).toHaveAttribute("href", "/downloads/CACP-Local-Connector-v0.5.0.zip");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Copy connection code" })
+    );
+    await waitFor(() =>
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+        "CACP-CONNECT:v1:full-secret-code"
+      )
+    );
   });
 });

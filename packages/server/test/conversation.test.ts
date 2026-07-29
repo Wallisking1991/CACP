@@ -4,58 +4,101 @@ import {
   findActiveAgentId,
   findOpenTurn,
   hasQueuedFollowup,
-  recentConversationMessages
+  recentConversationMessages,
 } from "../src/conversation.js";
 
-function event(type: CacpEvent["type"], payload: Record<string, unknown>, sequence: number, actor_id = "user_1"): CacpEvent {
+function event(
+  type: CacpEvent["type"],
+  payload: Record<string, unknown>,
+  sequence: number,
+  actor_id = "user_1"
+): CacpEvent {
   return {
     protocol: "cacp",
-    version: "0.2.0",
+    version: "0.3.0",
     event_id: `evt_${sequence}`,
     room_id: "room_1",
     type,
     actor_id,
     created_at: `2026-04-25T00:00:${String(sequence).padStart(2, "0")}.000Z`,
-    payload
+    payload,
   };
 }
 
 describe("conversation helpers", () => {
   it("finds the latest active agent selection", () => {
-    expect(findActiveAgentId([
-      event("room.agent_selected", { agent_id: "agent_old" }, 1),
-      event("room.agent_selected", { agent_id: "agent_new" }, 2)
-    ])).toBe("agent_new");
+    expect(
+      findActiveAgentId([
+        event("room.agent_selected", { agent_id: "agent_old" }, 1),
+        event("room.agent_selected", { agent_id: "agent_new" }, 2),
+      ])
+    ).toBe("agent_new");
   });
 
   it("returns undefined when the latest selection is a deselection (empty agent_id)", () => {
-    expect(findActiveAgentId([
-      event("room.agent_selected", { agent_id: "agent_old" }, 1),
-      event("room.agent_selected", { agent_id: "" }, 2)
-    ])).toBeUndefined();
+    expect(
+      findActiveAgentId([
+        event("room.agent_selected", { agent_id: "agent_old" }, 1),
+        event("room.agent_selected", { agent_id: "" }, 2),
+      ])
+    ).toBeUndefined();
   });
 
   it("finds open turns and queued followups", () => {
     const open = [
-      event("agent.turn.requested", { turn_id: "turn_1", agent_id: "agent_1", context_prompt: "hi" }, 1),
-      event("agent.turn.started", { turn_id: "turn_1", agent_id: "agent_1" }, 2),
-      event("agent.turn.followup_queued", { turn_id: "turn_1", agent_id: "agent_1" }, 3)
+      event(
+        "agent.turn.requested",
+        { turn_id: "turn_1", agent_id: "agent_1", context_prompt: "hi" },
+        1
+      ),
+      event(
+        "agent.turn.started",
+        { turn_id: "turn_1", agent_id: "agent_1" },
+        2
+      ),
+      event(
+        "agent.turn.followup_queued",
+        { turn_id: "turn_1", agent_id: "agent_1" },
+        3
+      ),
     ];
-    expect(findOpenTurn(open, "agent_1")).toEqual({ turn_id: "turn_1", agent_id: "agent_1" });
+    expect(findOpenTurn(open, "agent_1")).toEqual({
+      turn_id: "turn_1",
+      agent_id: "agent_1",
+    });
     expect(hasQueuedFollowup(open, "turn_1")).toBe(true);
 
-    expect(findOpenTurn([
-      ...open,
-      event("agent.turn.completed", { turn_id: "turn_1", agent_id: "agent_1", message_id: "msg_1" }, 4)
-    ], "agent_1")).toBeUndefined();
+    expect(
+      findOpenTurn(
+        [
+          ...open,
+          event(
+            "agent.turn.completed",
+            { turn_id: "turn_1", agent_id: "agent_1", message_id: "msg_1" },
+            4
+          ),
+        ],
+        "agent_1"
+      )
+    ).toBeUndefined();
   });
 
   it("returns only the latest durable conversation messages", () => {
-    const events = Array.from({ length: 25 }, (_, index) => event("message.created", {
-      message_id: `msg_${index + 1}`,
-      text: `message ${index + 1}`,
-      kind: index % 2 === 0 ? "human" : "agent"
-    }, index + 1, index % 2 === 0 ? "user_1" : "agent_1"));
+    const events = Array.from({ length: 25 }, (_, index) =>
+      event(
+        "message.created",
+        {
+          message_id: `msg_${index + 1}`,
+          content: {
+            text: `message ${index + 1}`,
+            attachments: [],
+          },
+          kind: index % 2 === 0 ? "human" : "agent",
+        },
+        index + 1,
+        index % 2 === 0 ? "user_1" : "agent_1"
+      )
+    );
 
     const recent = recentConversationMessages(events, 20);
 
@@ -63,5 +106,4 @@ describe("conversation helpers", () => {
     expect(recent[0].text).toBe("message 6");
     expect(recent[19].text).toBe("message 25");
   });
-
 });

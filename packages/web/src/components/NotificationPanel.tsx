@@ -26,7 +26,9 @@ export function NotificationPanel({
           {joinRequests.map((req) => (
             <div key={req.request_id} className="popover-list-item">
               <span className="popover-list-item-name">{req.display_name}</span>
-              <span className="popover-list-item-meta">{t("sidebar.joinRequestLabel")}</span>
+              <span className="popover-list-item-meta">
+                {t("sidebar.joinRequestLabel")}
+              </span>
               <span className="popover-list-item-actions">
                 <button
                   type="button"

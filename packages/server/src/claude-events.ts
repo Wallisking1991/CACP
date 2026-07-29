@@ -12,45 +12,61 @@ import {
   ClaudeSessionReadyPayloadSchema,
   ClaudeSessionSelectedPayloadSchema,
   type CacpEvent,
-  type Participant
+  type Participant,
 } from "@cacp/protocol";
 import { event } from "./ids.js";
 
-export const ClaudeSessionCatalogBodySchema = ClaudeSessionCatalogUpdatedPayloadSchema;
-export const ClaudeSessionPreviewRequestBodySchema = ClaudeSessionPreviewRequestedPayloadSchema.pick({
-  agent_id: true,
-  session_id: true
-});
-export const ClaudeSessionPreviewMessagesBodySchema = ClaudeSessionPreviewMessagePayloadSchema.array().min(1).max(50);
-export const ClaudeSessionPreviewCompleteBodySchema = ClaudeSessionPreviewCompletedPayloadSchema;
-export const ClaudeSessionPreviewFailBodySchema = ClaudeSessionPreviewFailedPayloadSchema;
+export const ClaudeSessionCatalogBodySchema =
+  ClaudeSessionCatalogUpdatedPayloadSchema;
+export const ClaudeSessionPreviewRequestBodySchema =
+  ClaudeSessionPreviewRequestedPayloadSchema.pick({
+    agent_id: true,
+    session_id: true,
+  });
+export const ClaudeSessionPreviewMessagesBodySchema =
+  ClaudeSessionPreviewMessagePayloadSchema.array().min(1).max(50);
+export const ClaudeSessionPreviewCompleteBodySchema =
+  ClaudeSessionPreviewCompletedPayloadSchema;
+export const ClaudeSessionPreviewFailBodySchema =
+  ClaudeSessionPreviewFailedPayloadSchema;
 export const ClaudeSessionSelectionBodySchema = z.discriminatedUnion("mode", [
   z.object({
     agent_id: z.string().min(1),
-    mode: z.literal("fresh")
+    mode: z.literal("fresh"),
   }),
   z.object({
     agent_id: z.string().min(1),
     mode: z.literal("resume"),
-    session_id: z.string().min(1)
-  })
+    session_id: z.string().min(1),
+  }),
 ]);
 export const ClaudeSessionReadyBodySchema = ClaudeSessionReadyPayloadSchema;
 
-export const ClaudeSessionImportStartBodySchema = ClaudeSessionImportStartedPayloadSchema;
-export const ClaudeSessionImportMessagesBodySchema = ClaudeSessionImportMessagePayloadSchema.array().min(1).max(50);
-export const ClaudeSessionImportCompleteBodySchema = ClaudeSessionImportCompletedPayloadSchema;
-export const ClaudeSessionImportFailBodySchema = ClaudeSessionImportFailedPayloadSchema;
+export const ClaudeSessionImportStartBodySchema =
+  ClaudeSessionImportStartedPayloadSchema;
+export const ClaudeSessionImportMessagesBodySchema =
+  ClaudeSessionImportMessagePayloadSchema.array().min(1).max(50);
+export const ClaudeSessionImportCompleteBodySchema =
+  ClaudeSessionImportCompletedPayloadSchema;
+export const ClaudeSessionImportFailBodySchema =
+  ClaudeSessionImportFailedPayloadSchema;
 
 export function participantIsAgent(participant: Participant): boolean {
   return participant.role === "agent" && participant.type === "agent";
 }
 
-export function assertAgentOwnsPayload(participant: Participant, agentId: string): boolean {
+export function assertAgentOwnsPayload(
+  participant: Participant,
+  agentId: string
+): boolean {
   return participantIsAgent(participant) && participant.id === agentId;
 }
 
-export function claudeSelectionEvent(roomId: string, actorId: string, payload: unknown): CacpEvent {
+export function claudeSelectionEvent(
+  roomId: string,
+  actorId: string,
+  payload: unknown
+): CacpEvent {
   const parsed = ClaudeSessionSelectedPayloadSchema.parse(payload);
   return event(roomId, "claude.session_selected", actorId, parsed);
 }

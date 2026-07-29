@@ -2,24 +2,66 @@ import { describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { findCopilotCli, findCopilotPackage, createCopilotSdkFromModule } from "../src/copilot/copilot-sdk.js";
+import {
+  findCopilotCli,
+  findCopilotPackage,
+  createCopilotSdkFromModule,
+} from "../src/copilot/copilot-sdk.js";
 
 describe("Copilot SDK boundary", () => {
-  it("creates CopilotClient with an explicit cliPath", () => {
+  it("creates CopilotClient with an explicit stdio runtime connection", () => {
     const constructorOptions: unknown[] = [];
+    const connectionOptions: unknown[] = [];
     class FakeCopilotClient {
       constructor(options: unknown) {
         constructorOptions.push(options);
       }
-      async createSession() { return { sessionId: "s1", send: async () => "", abort: async () => {}, disconnect: async () => {}, on: () => () => {} }; }
-      async resumeSession() { return { sessionId: "s1", send: async () => "", abort: async () => {}, disconnect: async () => {}, on: () => () => {} }; }
-      async listSessions() { return []; }
+      async createSession() {
+        return {
+          sessionId: "s1",
+          send: async () => "",
+          abort: async () => {},
+          disconnect: async () => {},
+          on: () => () => {},
+        };
+      }
+      async resumeSession() {
+        return {
+          sessionId: "s1",
+          send: async () => "",
+          abort: async () => {},
+          disconnect: async () => {},
+          on: () => () => {},
+        };
+      }
+      async listSessions() {
+        return [];
+      }
       async start() {}
-      async stop() { return []; }
+      async stop() {
+        return [];
+      }
     }
 
-    const sdk = createCopilotSdkFromModule({ CopilotClient: FakeCopilotClient }, { cliPath: "/path/to/copilot/index.js" });
-    expect(constructorOptions[0]).toMatchObject({ cliPath: "/path/to/copilot/index.js", useStdio: true, autoStart: true });
+    const sdk = createCopilotSdkFromModule(
+      {
+        CopilotClient: FakeCopilotClient,
+        RuntimeConnection: {
+          forStdio(options: unknown) {
+            connectionOptions.push(options);
+            return { kind: "stdio", options };
+          },
+        },
+      },
+      { cliPath: "/path/to/copilot/index.js" }
+    );
+    expect(connectionOptions).toEqual([{ path: "/path/to/copilot/index.js" }]);
+    expect(constructorOptions[0]).toEqual({
+      connection: {
+        kind: "stdio",
+        options: { path: "/path/to/copilot/index.js" },
+      },
+    });
     expect(sdk).toBeDefined();
   });
 });
@@ -42,7 +84,8 @@ describe("findCopilotCli", () => {
       else delete process.env.PATH;
       if (originalAppData !== undefined) process.env.APPDATA = originalAppData;
       else delete process.env.APPDATA;
-      if (originalLocalAppData !== undefined) process.env.LOCALAPPDATA = originalLocalAppData;
+      if (originalLocalAppData !== undefined)
+        process.env.LOCALAPPDATA = originalLocalAppData;
       else delete process.env.LOCALAPPDATA;
       rmSync(tmp, { recursive: true, force: true });
     }
@@ -55,7 +98,15 @@ describe("findCopilotPackage", () => {
     const originalCwd = process.cwd();
     try {
       process.chdir(tmp);
-      const pkgDir = join(tmp, "node_modules", ".pnpm", "@github+copilot@1.0.43", "node_modules", "@github", "copilot");
+      const pkgDir = join(
+        tmp,
+        "node_modules",
+        ".pnpm",
+        "@github+copilot@1.0.43",
+        "node_modules",
+        "@github",
+        "copilot"
+      );
       mkdirSync(pkgDir, { recursive: true });
       writeFileSync(join(pkgDir, "index.js"), "// fake");
 
@@ -93,7 +144,13 @@ describe("findCopilotPackage", () => {
       process.chdir(tmp);
       process.env.APPDATA = join(tmp, "Roaming");
       process.env.LOCALAPPDATA = join(tmp, "Local");
-      const pkgDir = join(process.env.APPDATA, "npm", "node_modules", "@github", "copilot");
+      const pkgDir = join(
+        process.env.APPDATA,
+        "npm",
+        "node_modules",
+        "@github",
+        "copilot"
+      );
       mkdirSync(pkgDir, { recursive: true });
       writeFileSync(join(pkgDir, "index.js"), "// fake");
 
@@ -103,7 +160,8 @@ describe("findCopilotPackage", () => {
       process.chdir(originalCwd);
       if (originalAppData !== undefined) process.env.APPDATA = originalAppData;
       else delete process.env.APPDATA;
-      if (originalLocalAppData !== undefined) process.env.LOCALAPPDATA = originalLocalAppData;
+      if (originalLocalAppData !== undefined)
+        process.env.LOCALAPPDATA = originalLocalAppData;
       else delete process.env.LOCALAPPDATA;
       rmSync(tmp, { recursive: true, force: true });
     }
@@ -124,7 +182,8 @@ describe("findCopilotPackage", () => {
       process.chdir(originalCwd);
       if (originalAppData !== undefined) process.env.APPDATA = originalAppData;
       else delete process.env.APPDATA;
-      if (originalLocalAppData !== undefined) process.env.LOCALAPPDATA = originalLocalAppData;
+      if (originalLocalAppData !== undefined)
+        process.env.LOCALAPPDATA = originalLocalAppData;
       else delete process.env.LOCALAPPDATA;
       rmSync(tmp, { recursive: true, force: true });
     }

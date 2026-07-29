@@ -7,18 +7,22 @@
   },
   "scripts": {
     "build": "corepack pnpm --filter @cacp/protocol build && tsc -p tsconfig.json",
-    "bundle:connector": "corepack pnpm exec esbuild src/index.ts --bundle --platform=node --target=node20 --format=cjs --banner:js=\"const __import_meta_url = require('url').pathToFileURL(__filename).href;\" --define:import.meta.url=__import_meta_url --outfile=dist/connector/index.cjs",
+    "bundle:connector": "corepack pnpm exec esbuild src/index.ts --bundle --platform=node --target=node22 --format=cjs --banner:js=\"const __import_meta_url = require('url').pathToFileURL(__filename).href;\" --define:import.meta.url=__import_meta_url --outfile=dist/connector/index.cjs",
     "dev": "corepack pnpm --filter @cacp/protocol build && tsx src/index.ts",
-    "test": "corepack pnpm --filter @cacp/protocol build && vitest run"
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "test": "corepack pnpm --filter @cacp/protocol build && vitest run --reporter=dot",
+    "test:unit": "vitest run --reporter=dot",
+    "test:coverage": "vitest run --coverage --reporter=dot"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.128",
+    "@anthropic-ai/claude-agent-sdk": "0.3.220",
+    "@anthropic-ai/sdk": "0.115.0",
     "@cacp/protocol": "workspace:*",
-    "@github/copilot-sdk": "^0.3.0",
-    "@moonshot-ai/kimi-agent-sdk": "^0.1.8",
-    "@openai/codex-sdk": "0.128.0",
-    "ws": "^8.18.0",
-    "zod": "^3.24.1"
+    "@github/copilot-sdk": "1.0.8",
+    "@moonshot-ai/kimi-agent-sdk": "0.1.8",
+    "@openai/codex-sdk": "0.146.0",
+    "ws": "8.21.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/ws": "^8.5.13",

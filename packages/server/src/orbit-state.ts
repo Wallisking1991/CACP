@@ -65,18 +65,25 @@ export class OrbitRoomState {
   }
 
   getAllNotes(): OrbitNote[] {
-    return [...this.notes.values()].sort((a, b) => a.created_at.localeCompare(b.created_at));
+    return [...this.notes.values()].sort((a, b) =>
+      a.created_at.localeCompare(b.created_at)
+    );
   }
 
   getNote(noteId: string): OrbitNote | undefined {
     return this.notes.get(noteId);
   }
 
-  setLike(noteId: string, participantId: string, liked: boolean): { liked: boolean; count: number } {
+  setLike(
+    noteId: string,
+    participantId: string,
+    liked: boolean
+  ): { liked: boolean; count: number } {
     const key = `${noteId}:${participantId}`;
     const note = this.notes.get(noteId);
     if (!note) return { liked: false, count: 0 };
-    if (note.author_id === participantId) return { liked: false, count: this.getLikeCount(noteId) };
+    if (note.author_id === participantId)
+      return { liked: false, count: this.getLikeCount(noteId) };
     if (liked) {
       this.likes.set(key, true);
     } else {
@@ -136,10 +143,14 @@ export class OrbitRoomState {
    * survived both the per-note caps and the byte-cap, so the caller can
    * `markQuoted(payload.noteIds)` and only mark what actually got promoted.
    */
-  buildPromotionPayload(selectedNoteIds: string[]): OrbitPromotionPayload | null {
+  buildPromotionPayload(
+    selectedNoteIds: string[]
+  ): OrbitPromotionPayload | null {
     const allNotes = this.getAllNotes();
     const requested = new Set(selectedNoteIds);
-    let selected = allNotes.filter((n) => requested.has(n.note_id) && !this.quotedNoteIds.has(n.note_id));
+    let selected = allNotes.filter(
+      (n) => requested.has(n.note_id) && !this.quotedNoteIds.has(n.note_id)
+    );
     if (selected.length === 0) return null;
 
     if (selected.length > MAX_PROMOTION_NOTES) {
@@ -164,7 +175,10 @@ export class OrbitRoomState {
     const encoder = new TextEncoder();
     let text = lines.join("\n");
 
-    while (encoder.encode(text).length > MAX_PROMOTION_BYTES && lines.length > 0) {
+    while (
+      encoder.encode(text).length > MAX_PROMOTION_BYTES &&
+      lines.length > 0
+    ) {
       lines.pop();
       survivingIds.pop();
       text = lines.join("\n");
@@ -205,9 +219,10 @@ export class OrbitRoomState {
     const allNotes = this.getAllNotes();
     if (allNotes.length === 0 && this.quotedNoteIds.size === 0) return [];
 
-    const notes = allNotes.length > MAX_REPLAY_NOTES
-      ? allNotes.slice(-MAX_REPLAY_NOTES)
-      : allNotes;
+    const notes =
+      allNotes.length > MAX_REPLAY_NOTES
+        ? allNotes.slice(-MAX_REPLAY_NOTES)
+        : allNotes;
 
     const out: SyntheticOrbitEvent[] = [];
 
@@ -221,8 +236,8 @@ export class OrbitRoomState {
           author_name: note.author_name,
           author_role: note.author_role,
           text: note.text,
-          created_at: note.created_at
-        }
+          created_at: note.created_at,
+        },
       });
     }
 
@@ -236,8 +251,8 @@ export class OrbitRoomState {
           note_id: note.note_id,
           participant_id: participant.id,
           liked: this.hasParticipantLiked(note.note_id, participant.id),
-          likes: total
-        }
+          likes: total,
+        },
       });
     }
 
@@ -249,7 +264,7 @@ export class OrbitRoomState {
       out.push({
         type: "orbit.notes.quoted",
         actor_id: participant.id,
-        payload: { note_ids: noteIds }
+        payload: { note_ids: noteIds },
       });
     }
 

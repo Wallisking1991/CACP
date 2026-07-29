@@ -10,7 +10,7 @@ CACP 的全称是 Collaborative Agent Communication Protocol，我把它称为�
 
 现在大多数 AI 和 AI Agent 产品，默认仍然是一个人和一个 AI 对话。这个模式已经非常有价值，但现实世界里很多高价值问题并不是一个人独立解决的。产品设计、软件需求、开源项目规划、安全评审、业务决策和创意讨论，往往都需要不同专业背景的人先形成共同上下文，然后 AI 才能基于更完整的信息给出高质量结果。
 
-CACP 是对这层多人 AI 协作协议的开源探索。它提供一个共享 AI 房间，让多个人可以一起讨论，邀请成员或观察者，接入本地或 API 形式的 Agent，并通过 Orbit 侧信道笔记和"发送给 Agent"主输入队列把自由讨论与结构化 AI 回合结合起来。
+CACP 是对这层多人 AI 协作协议的开源探索。它提供一个共享 AI 房间，让多个人可以一起讨论，邀请成员或观察者，接入本地工具型 Agent，并通过 Orbit 侧信道笔记和"发送给 Agent"主输入队列把自由讨论与结构化 AI 回合结合起来。
 
 这是一个早期开源原型和协议实验。核心体验已经可以运行，适合试用、研究和贡献，但它还不是生产级协作平台。
 
@@ -24,18 +24,19 @@ CACP 是一个本地优先的多人协作 AI 房间。公共服务器只承载�
 
 - 一个 Web 房间，支持多个人进入同一个 AI 对话上下文。
 - 一个房间服务，用事件日志保存状态，并通过 WebSocket 实时广播。
-- 一个本地连接器，用来把 Web 房间连接到持久化 Claude Code 会话或 LLM API Agent。
+- 一个本地连接器，用来把 Web 房间连接到 Claude Code、Codex CLI、GitHub Copilot CLI 或 Kimi Code。
 - 一个协议包，定义共享事件类型、参与者角色、连接码和房间契约。
 - Orbit 侧信道笔记加上 FIFO 的"发送给 Agent"主输入队列：人类可以自由聊天，AI 回合按顺序触发，互不干扰。
+- 临时图片和文档附件；房间删除时会立即清理。
 
-本地执行以 Claude Code 为核心：
+本地执行支持四种工具型 Agent 适配器：
 
-- Claude Code 通过本地连接器运行在房主选择的项目目录中。
-- 连接器可以开启新会话，也可以恢复检测到的 Claude Code 会话。
-- 只有房主确认后，恢复的 Claude Code 会话历史才会上传到共享房间时间线。
-- 导入的 Claude Code 历史对所有房间成员可见，应视为共享房间内容。
+- Claude Code
+- Codex CLI
+- GitHub Copilot CLI
+- Kimi Code
 
-LLM API 智能体仍然保留，适用于纯对话场景。API Key 只保存在本地连接器中，并在配对前进行连通性验证。
+Agent 通过本地连接器运行在房主选择的项目目录中。如果底层工具支持，连接器可以新建或恢复会话。导入的历史对房间成员可见，应视为共享房间内容。当前产品不再支持基于 HTTP 的 LLM API Agent。
 
 ## 面向谁？
 
@@ -51,7 +52,7 @@ CACP 面向两类人。
 - 业务人员和技术人员一起讨论软件需求。
 - 从不同专业视角设计一个游戏、应用或创意项目。
 - 让观察者学习一个 AI 辅助项目讨论是如何展开的。
-- 测试本地 Claude Code 会话或 LLM API Agent 在共享房间里的表现。
+- 测试本地工具型 Agent 会话在共享房间里的表现。
 
 ### 开发者
 
@@ -63,8 +64,8 @@ CACP 面向两类人。
 - Fastify 和 WebSocket 房间服务。
 - SQLite 事件存储。
 - React + Vite 房间界面。
-- 本地连接器中的 Claude Code 运行时和 LLM API Provider 适配器。
-- LLM API Provider 适配器。
+- 本地连接器中的 Claude Code、Codex CLI、GitHub Copilot CLI 和 Kimi Code 运行时。
+- 附件能力协商和适配器兼容性。
 - 邀请、配对、参与者和房间治理流程。
 
 ## 在线体验
@@ -86,23 +87,18 @@ https://cacp.zuchongai.com/
 - 房间名称。
 - 你的显示名称。
 - 希望接入的 Agent 类型。
-- 如果选择本地 Claude Code 执行，还需要选择 Claude Code 权限级别。
+- 本地 Agent 的权限级别。
 
 ### 2. 选择 Agent 类型
 
 CACP 可以接入不同类型的 Agent。
 
-本地 Claude Code Agent：
+支持的本地工具型 Agent：
 
 - Claude Code
-
-LLM API Agent：
-
-- OpenAI 兼容接口
-- Anthropic 兼容接口
-- 一些模型服务商适配器，例如 DeepSeek、Kimi、MiniMax、SiliconFlow、GLM 等
-
-LLM API 连接器支持多个服务商适配器，例如 DeepSeek、Kimi、MiniMax、SiliconFlow、GLM 等。
+- Codex CLI
+- GitHub Copilot CLI
+- Kimi Code
 
 ### 3. 下载并启动 Local Connector
 
@@ -120,11 +116,11 @@ LLM API 连接器支持多个服务商适配器，例如 DeepSeek、Kimi、MiniM
 
 使用房间时请保持连接器窗口打开。关闭它会断开本地 Agent。
 
-### 4. 连接 LLM API Agent
+### 4. 添加图片或文档
 
-如果你选择 LLM API Agent，连接器会在本地询问 Provider、Base URL、模型名称和 API Key 等信息。
+房主和管理员可以在“发送给 Agent”的消息中附加受支持的图片、PDF、文本/源码和 Office 文档。服务端会验证类型、大小、扩展名和校验和；本地连接器在把文件交给 Agent 前还会再次校验。
 
-这些配置用于本地连接器。请不要在房间消息、截图、Issue、日志或公开讨论里暴露 API Key。
+附件只是临时房间数据，不作为永久文件库保存；房间删除时会立即清理。
 
 ### 5. 邀请成员或观察者
 
@@ -161,12 +157,12 @@ CACP 采用 local-first 的 Agent 边界设计，但用户仍然需要谨慎使�
 重要提醒：
 
 - 在线体验环境是实验性的，不要用于机密工作。
-- Claude Code 通过本地连接器运行在你的电脑上，可能访问你选择的工作目录。
+- 所选工具型 Agent 通过本地连接器运行在你的电脑上，可能访问你选择的工作目录。
 - 公开演示时建议优先使用只读权限，除非你明确希望 Agent 修改文件。
 - 不要在聊天、截图或日志里暴露 token、API Key、SSH Key、生产配置、私有房间链接或敏感文件。
 - 只在你信任的目录中连接 Agent。
 - 只邀请你信任的人进入包含有意义上下文的房间。
-- 如果不确定安全边界，建议使用 LLM API Agent 或测试目录，而不是给本地代码 Agent 写入权限。
+- 如果不确定安全边界，建议使用测试目录和只读权限，而不是给本地工具型 Agent 写入权限。
 
 ## CACP 不是什么
 
@@ -184,7 +180,7 @@ CACP 是一个早期开源实验，用来探索多个人类和 AI Agent 如何�
 packages/
   protocol      共享 TypeScript 类型、Zod schema、协议契约、连接码
   server        Fastify/WebSocket 房间服务、SQLite 事件存储、认证、配对、治理
-  cli-adapter   本地连接器，以及 Claude Code 会话和 LLM API Agent 的运行逻辑
+  cli-adapter   本地连接器，以及受支持本地工具型 Agent 的运行逻辑
   web           React + Vite 房间界面
 
 docs/
@@ -203,7 +199,7 @@ scripts/
 
 前置要求：
 
-- Node.js 20 或更高版本
+- Node.js 22.12 或更高版本（推荐 Node.js 24）
 - Corepack
 - 使用 `packageManager` 中固定的 pnpm 版本
 
@@ -248,10 +244,10 @@ corepack pnpm --filter @cacp/web test
 corepack pnpm --filter @cacp/cli-adapter test
 ```
 
-构建 Windows Local Connector 可执行文件：
+构建跨平台 Local Connector 压缩包：
 
 ```powershell
-corepack pnpm build:connector:win
+corepack pnpm package:connector
 ```
 
 ## 开发者说明
@@ -267,7 +263,8 @@ corepack pnpm build:connector:win
 - Web API 客户端：`packages/web/src/api.ts`
 - Web 房间状态派生：`packages/web/src/room-state.ts`
 - CLI Adapter 入口：`packages/cli-adapter/src/index.ts`
-- LLM Provider Registry：`packages/cli-adapter/src/llm/providers/registry.ts`
+- 适配器兼容清单：`packages/cli-adapter/src/agent-compatibility.ts`
+- 附件落盘逻辑：`packages/cli-adapter/src/connector/attachment-materializer.ts`
 
 如果修改协议事件契约，通常需要同步更新：
 
@@ -305,7 +302,7 @@ Agent 执行应当通过连接器留在用户本地。
 - 房间体验、Orbit 侧信道、发送给 Agent 队列等改进。
 - Local Connector 易用性。
 - Agent 适配兼容性。
-- LLM Provider 适配器。
+- 本地工具型 Agent 适配器。
 - 安全审查和加固。
 - 文档和示例。
 
@@ -318,4 +315,3 @@ Agent 执行应当通过连接器留在用户本地。
 - 453043662@qq.com
 - wangzuchong@gmail.com
 - 1023289914@qq.com
-

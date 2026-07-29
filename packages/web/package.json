@@ -5,15 +5,18 @@
   "scripts": {
     "build": "corepack pnpm --filter @cacp/protocol build && vite build",
     "dev": "corepack pnpm --filter @cacp/protocol build && vite --host 127.0.0.1 --port 5173",
-    "test": "corepack pnpm --filter @cacp/protocol build && vitest run"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "corepack pnpm --filter @cacp/protocol build && vitest run --reporter=dot",
+    "test:unit": "vitest run --reporter=dot",
+    "test:coverage": "vitest run --coverage --reporter=dot"
   },
   "dependencies": {
     "@cacp/protocol": "workspace:*",
     "gsap": "^3.15.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-router-dom": "^7.14.2",
-    "vite": "^6.0.7"
+    "react-router-dom": "6.30.4",
+    "vite": "6.4.3"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",

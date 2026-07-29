@@ -15,6 +15,7 @@ export class EventBus {
     };
   }
   publish(envelope: RelayEnvelope): void {
-    for (const listener of this.listeners.get(envelope.event.room_id) ?? []) listener(envelope);
+    for (const listener of this.listeners.get(envelope.event.room_id) ?? [])
+      listener(envelope);
   }
 }

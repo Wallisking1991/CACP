@@ -4,7 +4,9 @@ import React from "react";
 import OrbitComposer from "../src/components/OrbitComposer.js";
 import { LangProvider } from "../src/i18n/LangProvider.js";
 
-function renderOrbitComposer(props: React.ComponentProps<typeof OrbitComposer>) {
+function renderOrbitComposer(
+  props: React.ComponentProps<typeof OrbitComposer>
+) {
   return render(
     <LangProvider>
       <OrbitComposer {...props} />
@@ -27,7 +29,9 @@ describe("OrbitComposer", () => {
 
   it("renders textarea with orbit placeholder", () => {
     renderOrbitComposer(baseProps);
-    expect(screen.getByPlaceholderText(/Discussion space/i)).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText(/Discussion space/i)
+    ).toBeInTheDocument();
   });
 
   it("calls onSendOrbitNote on Enter", () => {
@@ -55,7 +59,9 @@ describe("OrbitComposer", () => {
 
   it("shows mention dropdown when @ is typed", () => {
     renderOrbitComposer(baseProps);
-    const textarea = screen.getByPlaceholderText(/Discussion space/i) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(
+      /Discussion space/i
+    ) as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "@", selectionStart: 1 } });
     expect(document.querySelector(".mention-dropdown")).toBeInTheDocument();
     expect(screen.getByText("Alice")).toBeInTheDocument();
@@ -64,7 +70,9 @@ describe("OrbitComposer", () => {
 
   it("filters mention dropdown by query", () => {
     renderOrbitComposer(baseProps);
-    const textarea = screen.getByPlaceholderText(/Discussion space/i) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(
+      /Discussion space/i
+    ) as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "@Al", selectionStart: 3 } });
     expect(document.querySelector(".mention-dropdown")).toBeInTheDocument();
     expect(screen.getByText("Alice")).toBeInTheDocument();
@@ -78,7 +86,9 @@ describe("OrbitComposer", () => {
       onCancelReply: vi.fn(),
     });
     expect(screen.getByText("Original message")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Cancel reply/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Cancel reply/i })
+    ).toBeInTheDocument();
   });
 
   it("calls onSendOrbitNote with replyTo noteId when sending a reply", () => {
@@ -108,7 +118,9 @@ describe("OrbitComposer", () => {
 
   it("focuses textarea when replyTo is provided", () => {
     const { rerender } = renderOrbitComposer(baseProps);
-    const textarea = screen.getByPlaceholderText(/Discussion space/i) as HTMLTextAreaElement;
+    const textarea = screen.getByPlaceholderText(
+      /Discussion space/i
+    ) as HTMLTextAreaElement;
     textarea.blur();
     expect(document.activeElement).not.toBe(textarea);
 

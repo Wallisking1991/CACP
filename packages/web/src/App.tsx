@@ -27,14 +27,33 @@ import {
   type RoomSession,
 } from "./api.js";
 import { mergeEvent } from "./event-log.js";
-import { clearStoredSession, loadAllSessions, saveAllSessions, saveStoredSession } from "./session-storage.js";
+import {
+  clearStoredSession,
+  loadAllSessions,
+  saveAllSessions,
+  saveStoredSession,
+} from "./session-storage.js";
 import { LangProvider } from "./i18n/LangProvider.js";
 import { isCloudMode } from "./runtime-config.js";
-import ConnectionCodeModal, { type ConnectionCodeModalPairing } from "./components/ConnectionCodeModal.js";
+import ConnectionCodeModal, {
+  type ConnectionCodeModalPairing,
+} from "./components/ConnectionCodeModal.js";
 import Landing from "./components/Landing.js";
 import Workspace from "./components/Workspace.js";
 import WaitingRoom from "./components/WaitingRoom.js";
 import "./App.css";
+
+const roomRoles: ReadonlySet<RoomSession["role"]> = new Set([
+  "owner",
+  "admin",
+  "member",
+  "observer",
+  "agent",
+]);
+
+function isRoomRole(value: string): value is RoomSession["role"] {
+  return roomRoles.has(value as RoomSession["role"]);
+}
 
 export default function App() {
   const navigate = useNavigate();
@@ -44,22 +63,45 @@ export default function App() {
 
   const inviteTarget = useMemo(() => {
     if (location.pathname === "/join") {
-      return parseInviteUrl(location.search) ?? parseInviteUrl(location.hash.replace(/^#/, "?"));
+      return (
+        parseInviteUrl(location.search) ??
+        parseInviteUrl(location.hash.replace(/^#/, "?"))
+      );
     }
     return undefined;
   }, [location.pathname, location.search, location.hash]);
 
-  const [allSessions, setAllSessions] = useState<Record<string, RoomSession>>(() => loadAllSessions(window.localStorage));
+  const [allSessions, setAllSessions] = useState<Record<string, RoomSession>>(
+    () => loadAllSessions(window.localStorage)
+  );
   const currentSession = urlRoomId ? allSessions[urlRoomId] : undefined;
 
   const [events, setEvents] = useState<CacpEvent[]>([]);
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(false);
-  const [createdInvite, setCreatedInvite] = useState<{ url: string; role: string; ttl: number; max_uses: number }>();
+  const [createdInvite, setCreatedInvite] = useState<{
+    url: string;
+    role: string;
+    ttl: number;
+    max_uses: number;
+  }>();
   const [localLaunch, setLocalLaunch] = useState<LocalAgentLaunch>();
-  const [createdPairing, setCreatedPairing] = useState<{ connection_code: string; download_url: string; expires_at: string }>();
-  const [connectorModalPairing, setConnectorModalPairing] = useState<ConnectionCodeModalPairing>();
-  const [waitingRoom, setWaitingRoom] = useState<{ roomId: string; requestId: string; requestToken: string; displayName: string } | undefined>();
+  const [createdPairing, setCreatedPairing] = useState<{
+    connection_code: string;
+    download_url: string;
+    expires_at: string;
+  }>();
+  const [connectorModalPairing, setConnectorModalPairing] =
+    useState<ConnectionCodeModalPairing>();
+  const [waitingRoom, setWaitingRoom] = useState<
+    | {
+        roomId: string;
+        requestId: string;
+        requestToken: string;
+        displayName: string;
+      }
+    | undefined
+  >();
   const [validating, setValidating] = useState(false);
   const [sessionValid, setSessionValid] = useState<boolean | undefined>();
   const waitingRoomRef = useRef(waitingRoom);
@@ -94,16 +136,23 @@ export default function App() {
         setEvents((current) => mergeEvent(current, event));
         // Session-selection events trigger a server-side purge of prior content events.
         // Re-fetch the authoritative event log so the client mirrors the new server state.
-        if (event.type === "claude.session_selected" || event.type === "agent.session_selected") {
+        if (
+          event.type === "claude.session_selected" ||
+          event.type === "agent.session_selected"
+        ) {
           void fetchRoomEvents(currentSession)
             .then((fresh) => setEvents(fresh))
             .catch(() => {});
         }
         if (event.type === "participant.role_updated") {
-          const payload = event.payload as { participant_id?: string; new_role?: string };
+          const payload = event.payload as {
+            participant_id?: string;
+            new_role?: string;
+          };
           if (
             payload.participant_id === currentSession.participant_id &&
             payload.new_role &&
+            isRoomRole(payload.new_role) &&
             payload.new_role !== currentSession.role
           ) {
             const updated = { ...currentSession, role: payload.new_role };
@@ -113,7 +162,11 @@ export default function App() {
         }
       },
       (code, reason) => {
-        if (code === 4001 || reason === "participant_removed" || reason === "owner_left_room") {
+        if (
+          code === 4001 ||
+          reason === "participant_removed" ||
+          reason === "owner_left_room"
+        ) {
           const next = { ...allSessions };
           delete next[currentSession.room_id];
           setAllSessions(next);
@@ -124,7 +177,11 @@ export default function App() {
           setCreatedPairing(undefined);
           setConnectorModalPairing(undefined);
           setWaitingRoom(undefined);
-          setError(reason === "owner_left_room" ? "The room owner closed the room." : "You have been removed from the room.");
+          setError(
+            reason === "owner_left_room"
+              ? "The room owner closed the room."
+              : "You have been removed from the room."
+          );
           navigate("/", { replace: true });
         }
       }
@@ -139,8 +196,17 @@ export default function App() {
     const poll = async () => {
       while (!cancelled && waitingRoomRef.current) {
         try {
-          const status = await joinRequestStatus(waitingRoomRef.current.roomId, waitingRoomRef.current.requestId, waitingRoomRef.current.requestToken);
-          if (status.status === "approved" && status.participant_id && status.participant_token && status.role) {
+          const status = await joinRequestStatus(
+            waitingRoomRef.current.roomId,
+            waitingRoomRef.current.requestId,
+            waitingRoomRef.current.requestToken
+          );
+          if (
+            status.status === "approved" &&
+            status.participant_id &&
+            status.participant_token &&
+            status.role
+          ) {
             const nextSession: RoomSession = {
               room_id: waitingRoomRef.current.roomId,
               token: status.participant_token,
@@ -148,7 +214,10 @@ export default function App() {
               role: status.role,
             };
             saveStoredSession(window.localStorage, nextSession);
-            setAllSessions((prev) => ({ ...prev, [nextSession.room_id]: nextSession }));
+            setAllSessions((prev) => ({
+              ...prev,
+              [nextSession.room_id]: nextSession,
+            }));
             setEvents([]);
             setCreatedInvite(undefined);
             setLocalLaunch(undefined);
@@ -159,7 +228,11 @@ export default function App() {
             return;
           }
           if (status.status === "rejected" || status.status === "expired") {
-            setError(status.status === "rejected" ? "Your join request was rejected by the room owner." : "Your join request has expired.");
+            setError(
+              status.status === "rejected"
+                ? "Your join request was rejected by the room owner."
+                : "Your join request has expired."
+            );
             setWaitingRoom(undefined);
             return;
           }
@@ -170,7 +243,9 @@ export default function App() {
       }
     };
     void poll();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [waitingRoom, navigate]);
 
   async function run(action: () => Promise<void>) {
@@ -185,17 +260,23 @@ export default function App() {
     }
   }
 
-  const activateSession = useCallback((nextSession: RoomSession): void => {
-    saveStoredSession(window.localStorage, nextSession);
-    setAllSessions((prev) => ({ ...prev, [nextSession.room_id]: nextSession }));
-    setEvents([]);
-    setCreatedInvite(undefined);
-    setLocalLaunch(undefined);
-    setCreatedPairing(undefined);
-    setConnectorModalPairing(undefined);
-    setWaitingRoom(undefined);
-    navigate(`/room/${nextSession.room_id}`, { replace: true });
-  }, [navigate]);
+  const activateSession = useCallback(
+    (nextSession: RoomSession): void => {
+      saveStoredSession(window.localStorage, nextSession);
+      setAllSessions((prev) => ({
+        ...prev,
+        [nextSession.room_id]: nextSession,
+      }));
+      setEvents([]);
+      setCreatedInvite(undefined);
+      setLocalLaunch(undefined);
+      setCreatedPairing(undefined);
+      setConnectorModalPairing(undefined);
+      setWaitingRoom(undefined);
+      navigate(`/room/${nextSession.room_id}`, { replace: true });
+    },
+    [navigate]
+  );
 
   const clearActiveRoomSession = useCallback((roomId: string): void => {
     clearStoredSession(window.localStorage, roomId);
@@ -227,134 +308,177 @@ export default function App() {
     });
   }, [clearActiveRoomSession, currentSession, navigate]);
 
-  const handleCreate = useCallback(async (params: {
-    roomName: string;
-    displayName: string;
-    agentType: string;
-    permissionLevel: string;
-  }) => {
-    await run(async () => {
-      if (isCloudMode()) {
-        const session = await createRoom(params.roomName, params.displayName);
-        activateSession(session);
-        const pairing = await createAgentPairing(session, {
-          agent_type: params.agentType,
-          permission_level: params.permissionLevel,
-        });
-        const modalPairing = {
-          connection_code: pairing.connection_code,
-          download_url: pairing.download_url,
-          expires_at: pairing.expires_at,
-        };
-        setCreatedPairing(modalPairing);
-        setConnectorModalPairing(modalPairing);
-      } else {
-        const result = await createRoomWithLocalAgent(
-          params.roomName,
-          params.displayName,
-          {
+  const handleCreate = useCallback(
+    async (params: {
+      roomName: string;
+      displayName: string;
+      agentType: string;
+      permissionLevel: string;
+    }) => {
+      await run(async () => {
+        if (isCloudMode()) {
+          const session = await createRoom(params.roomName, params.displayName);
+          activateSession(session);
+          const pairing = await createAgentPairing(session, {
             agent_type: params.agentType,
             permission_level: params.permissionLevel,
+          });
+          const modalPairing = {
+            connection_code: pairing.connection_code,
+            download_url: pairing.download_url,
+            expires_at: pairing.expires_at,
+          };
+          setCreatedPairing(modalPairing);
+          setConnectorModalPairing(modalPairing);
+        } else {
+          const result = await createRoomWithLocalAgent(
+            params.roomName,
+            params.displayName,
+            {
+              agent_type: params.agentType,
+              permission_level: params.permissionLevel,
+            }
+          );
+          activateSession(result.session);
+          if (result.launch) {
+            setLocalLaunch(result.launch);
           }
-        );
-        activateSession(result.session);
-        if (result.launch) {
-          setLocalLaunch(result.launch);
+          if (result.launch_error) {
+            setError(`Starting the local agent failed: ${result.launch_error}`);
+          }
         }
-        if (result.launch_error) {
-          setError(`Starting the local agent failed: ${result.launch_error}`);
-        }
-      }
-    });
-  }, [activateSession]);
-
-  const handleJoin = useCallback(async (params: {
-    roomId: string;
-    inviteToken: string;
-    displayName: string;
-  }) => {
-    await run(async () => {
-      const result = await createJoinRequest(params.roomId, params.inviteToken, params.displayName);
-      setWaitingRoom({
-        roomId: params.roomId,
-        requestId: result.request_id,
-        requestToken: result.request_token,
-        displayName: params.displayName,
       });
-    });
-  }, []);
+    },
+    [activateSession]
+  );
+
+  const handleJoin = useCallback(
+    async (params: {
+      roomId: string;
+      inviteToken: string;
+      displayName: string;
+    }) => {
+      await run(async () => {
+        const result = await createJoinRequest(
+          params.roomId,
+          params.inviteToken,
+          params.displayName
+        );
+        setWaitingRoom({
+          roomId: params.roomId,
+          requestId: result.request_id,
+          requestToken: result.request_token,
+          displayName: params.displayName,
+        });
+      });
+    },
+    []
+  );
 
   const handleCancelWaiting = useCallback(() => {
     setWaitingRoom(undefined);
     setError(undefined);
   }, []);
 
-  const handleSendMessage = useCallback(async (text: string) => {
-    if (!currentSession) return;
-    await run(async () => {
-      await sendMessage(currentSession, text);
-    });
-  }, [currentSession]);
+  const handleSendMessage = useCallback(
+    async (text: string) => {
+      if (!currentSession) return;
+      await run(async () => {
+        await sendMessage(currentSession, text);
+      });
+    },
+    [currentSession]
+  );
 
-  const handleSelectAgent = useCallback((agentId: string) => {
-    if (!currentSession) return;
-    void run(async () => {
-      await selectAgent(currentSession, agentId);
-    });
-  }, [currentSession]);
+  const handleSelectAgent = useCallback(
+    (agentId: string) => {
+      if (!currentSession) return;
+      void run(async () => {
+        await selectAgent(currentSession, agentId);
+      });
+    },
+    [currentSession]
+  );
 
-  const handleCreateInvite = useCallback(async (role: string, ttl: number, maxUses: number): Promise<string | undefined> => {
-    if (!currentSession) return undefined;
-    setError(undefined);
-    setLoading(true);
-    try {
-      if (role !== "member" && role !== "observer") throw new Error("Invalid invite role");
-      const invite = await createInvite(currentSession, role, ttl, maxUses);
-      const url = inviteUrlFor(window.location.origin, currentSession.room_id, invite.invite_token);
-      setCreatedInvite({ url, role, ttl, max_uses: invite.max_uses });
-      return url;
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-      return undefined;
-    } finally {
-      setLoading(false);
-    }
-  }, [currentSession]);
+  const handleCreateInvite = useCallback(
+    async (
+      role: string,
+      ttl: number,
+      maxUses: number
+    ): Promise<string | undefined> => {
+      if (!currentSession) return undefined;
+      setError(undefined);
+      setLoading(true);
+      try {
+        if (role !== "member" && role !== "observer")
+          throw new Error("Invalid invite role");
+        const invite = await createInvite(currentSession, role, ttl, maxUses);
+        const url = inviteUrlFor(
+          window.location.origin,
+          currentSession.room_id,
+          invite.invite_token
+        );
+        setCreatedInvite({ url, role, ttl, max_uses: invite.max_uses });
+        return url;
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : String(cause));
+        return undefined;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [currentSession]
+  );
 
-  const handleApproveJoinRequest = useCallback((requestId: string) => {
-    if (!currentSession) return;
-    void run(async () => {
-      await approveJoinRequest(currentSession, requestId);
-    });
-  }, [currentSession]);
+  const handleApproveJoinRequest = useCallback(
+    (requestId: string) => {
+      if (!currentSession) return;
+      void run(async () => {
+        await approveJoinRequest(currentSession, requestId);
+      });
+    },
+    [currentSession]
+  );
 
-  const handleRejectJoinRequest = useCallback((requestId: string) => {
-    if (!currentSession) return;
-    void run(async () => {
-      await rejectJoinRequest(currentSession, requestId);
-    });
-  }, [currentSession]);
+  const handleRejectJoinRequest = useCallback(
+    (requestId: string) => {
+      if (!currentSession) return;
+      void run(async () => {
+        await rejectJoinRequest(currentSession, requestId);
+      });
+    },
+    [currentSession]
+  );
 
-  const handleRemoveParticipant = useCallback((participantId: string) => {
-    if (!currentSession) return;
-    void run(async () => {
-      await removeParticipant(currentSession, participantId);
-    });
-  }, [currentSession]);
+  const handleRemoveParticipant = useCallback(
+    (participantId: string) => {
+      if (!currentSession) return;
+      void run(async () => {
+        await removeParticipant(currentSession, participantId);
+      });
+    },
+    [currentSession]
+  );
 
-  const handleUpdateParticipantRole = useCallback((participantId: string, role: string) => {
-    if (!currentSession) return;
-    void run(async () => {
-      await updateParticipantRole(currentSession, participantId, role);
-    });
-  }, [currentSession]);
+  const handleUpdateParticipantRole = useCallback(
+    (participantId: string, role: string) => {
+      if (!currentSession) return;
+      void run(async () => {
+        await updateParticipantRole(currentSession, participantId, role);
+      });
+    },
+    [currentSession]
+  );
 
-  const handleUpdateAgentThinking = useCallback((agentId: string, enabled: boolean) => {
-    if (!currentSession) return;
-    void run(async () => {
-      await updateAgentThinking(currentSession, agentId, enabled);
-    });
-  }, [currentSession]);
+  const handleUpdateAgentThinking = useCallback(
+    (agentId: string, enabled: boolean) => {
+      if (!currentSession) return;
+      void run(async () => {
+        await updateAgentThinking(currentSession, agentId, enabled);
+      });
+    },
+    [currentSession]
+  );
 
   // Redirect to root when on room route but no valid session
   useEffect(() => {
@@ -367,9 +491,21 @@ export default function App() {
     if (waitingRoom) {
       return (
         <>
-          <WaitingRoom displayName={waitingRoom.displayName} onCancel={handleCancelWaiting} />
+          <WaitingRoom
+            displayName={waitingRoom.displayName}
+            onCancel={handleCancelWaiting}
+          />
           {error && (
-            <div className="error banner" style={{ position: "fixed", bottom: 16, left: "50%", transform: "translateX(-50%)", zIndex: 100 }}>
+            <div
+              className="error banner"
+              style={{
+                position: "fixed",
+                bottom: 16,
+                left: "50%",
+                transform: "translateX(-50%)",
+                zIndex: 100,
+              }}
+            >
               {error}
             </div>
           )}
@@ -407,9 +543,22 @@ export default function App() {
 
     return (
       <>
-        <Landing onCreate={handleCreate} onJoin={handleJoin} loading={loading} />
+        <Landing
+          onCreate={handleCreate}
+          onJoin={handleJoin}
+          loading={loading}
+        />
         {error && (
-          <div className="error banner" style={{ position: "fixed", bottom: 16, left: "50%", transform: "translateX(-50%)", zIndex: 100 }}>
+          <div
+            className="error banner"
+            style={{
+              position: "fixed",
+              bottom: 16,
+              left: "50%",
+              transform: "translateX(-50%)",
+              zIndex: 100,
+            }}
+          >
             {error}
           </div>
         )}

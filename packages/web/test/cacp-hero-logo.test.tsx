@@ -56,7 +56,9 @@ describe("CacpHeroLogo", () => {
   it("renders the CACP protocol room logo with an accessible label", () => {
     render(<CacpHeroLogo />);
 
-    expect(screen.getByLabelText("CACP protocol room logo")).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("CACP protocol room logo")
+    ).toBeInTheDocument();
     expect(screen.getByText("CACP")).toBeInTheDocument();
   });
 
@@ -74,7 +76,9 @@ describe("CacpHeroLogo", () => {
 
     render(<CacpHeroLogo />);
 
-    const logo = screen.getByLabelText("CACP protocol room logo") as HTMLElement;
+    const logo = screen.getByLabelText(
+      "CACP protocol room logo"
+    ) as HTMLElement;
     expect(logo.dataset.motion).toBe("reduced");
     expect(gsapMocks.context).not.toHaveBeenCalled();
   });

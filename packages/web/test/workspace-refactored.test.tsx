@@ -8,26 +8,56 @@ import { LangProvider } from "../src/i18n/LangProvider.js";
 // jsdom does not implement scrollIntoView
 Element.prototype.scrollIntoView = vi.fn();
 
-function event(type: CacpEvent["type"], payload: Record<string, unknown>, sequence: number, actor_id = "user_1"): CacpEvent {
+function event(
+  type: CacpEvent["type"],
+  payload: Record<string, unknown>,
+  sequence: number,
+  actor_id = "user_1"
+): CacpEvent {
   return {
     protocol: "cacp",
-    version: "0.2.0",
+    version: "0.3.0",
     event_id: `evt_${sequence}`,
     room_id: "room_1",
     type,
     actor_id,
     created_at: `2026-04-30T00:00:${String(sequence).padStart(2, "0")}.000Z`,
-    payload
+    payload,
   };
 }
 
 const baseProps = {
-  session: { room_id: "room_1", token: "owner_secret", participant_id: "user_1", role: "owner" as const },
+  session: {
+    room_id: "room_1",
+    token: "owner_secret",
+    participant_id: "user_1",
+    role: "owner" as const,
+  },
   events: [
     event("room.created", { name: "CACP AI Room" }, 1),
-    event("participant.joined", { participant: { id: "user_1", display_name: "Wei", role: "owner", type: "human" } }, 2),
-    event("agent.registered", { agent_id: "agent_1", name: "Claude Code Agent", capabilities: ["repo.read"] }, 3, "agent_1"),
-    event("room.agent_selected", { agent_id: "agent_1" }, 4)
+    event(
+      "participant.joined",
+      {
+        participant: {
+          id: "user_1",
+          display_name: "Wei",
+          role: "owner",
+          type: "human",
+        },
+      },
+      2
+    ),
+    event(
+      "agent.registered",
+      {
+        agent_id: "agent_1",
+        name: "Claude Code Agent",
+        capabilities: ["repo.read"],
+      },
+      3,
+      "agent_1"
+    ),
+    event("room.agent_selected", { agent_id: "agent_1" }, 4),
   ],
   onLeaveRoom: vi.fn(),
   onSendMessage: vi.fn(),
@@ -35,24 +65,40 @@ const baseProps = {
   onCreateInvite: vi.fn(async () => "http://localhost/invite"),
   onApproveJoinRequest: vi.fn(),
   onRejectJoinRequest: vi.fn(),
-  onRemoveParticipant: vi.fn()
+  onRemoveParticipant: vi.fn(),
 };
 
 describe("Workspace refactored shell", () => {
   it("shows header with room name and MoreMenu button", () => {
-    render(<LangProvider><Workspace {...baseProps} /></LangProvider>);
+    render(
+      <LangProvider>
+        <Workspace {...baseProps} />
+      </LangProvider>
+    );
 
     expect(screen.getByText("CACP AI Room")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /more options/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /more options/i })
+    ).toBeInTheDocument();
   });
 
   it("does not show Room Control Center button", () => {
-    render(<LangProvider><Workspace {...baseProps} /></LangProvider>);
-    expect(screen.queryByRole("button", { name: /Room controls/i })).not.toBeInTheDocument();
+    render(
+      <LangProvider>
+        <Workspace {...baseProps} />
+      </LangProvider>
+    );
+    expect(
+      screen.queryByRole("button", { name: /Room controls/i })
+    ).not.toBeInTheDocument();
   });
 
   it("opens sound panel through MoreMenu", () => {
-    render(<LangProvider><Workspace {...baseProps} /></LangProvider>);
+    render(
+      <LangProvider>
+        <Workspace {...baseProps} />
+      </LangProvider>
+    );
 
     fireEvent.click(screen.getByRole("button", { name: /more options/i }));
     fireEvent.click(screen.getByText(/Sound/));
@@ -60,7 +106,11 @@ describe("Workspace refactored shell", () => {
   });
 
   it("opens log panel through MoreMenu", () => {
-    render(<LangProvider><Workspace {...baseProps} /></LangProvider>);
+    render(
+      <LangProvider>
+        <Workspace {...baseProps} />
+      </LangProvider>
+    );
 
     fireEvent.click(screen.getByRole("button", { name: /more options/i }));
     fireEvent.click(screen.getByText(/Logs/));
@@ -72,13 +122,34 @@ describe("Workspace refactored shell", () => {
       ...baseProps,
       events: [
         event("room.created", { name: "Room" }, 1),
-        event("participant.joined", { participant: { id: "user_1", display_name: "Owner", role: "owner", type: "human" } }, 2),
-        event("join_request.created", { request_id: "join_req_1", display_name: "Bob" }, 3)
-      ]
+        event(
+          "participant.joined",
+          {
+            participant: {
+              id: "user_1",
+              display_name: "Owner",
+              role: "owner",
+              type: "human",
+            },
+          },
+          2
+        ),
+        event(
+          "join_request.created",
+          { request_id: "join_req_1", display_name: "Bob" },
+          3
+        ),
+      ],
     };
-    render(<LangProvider><Workspace {...props} /></LangProvider>);
+    render(
+      <LangProvider>
+        <Workspace {...props} />
+      </LangProvider>
+    );
 
-    expect(screen.getByRole("button", { name: /notifications/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /notifications/i })
+    ).toBeInTheDocument();
     expect(screen.getByText("1")).toBeInTheDocument();
   });
 
@@ -87,13 +158,34 @@ describe("Workspace refactored shell", () => {
       ...baseProps,
       events: [
         event("room.created", { name: "Room" }, 1),
-        event("participant.joined", { participant: { id: "user_1", display_name: "Owner", role: "owner", type: "human" } }, 2),
-        event("join_request.created", { request_id: "join_req_1", display_name: "Bob" }, 3)
-      ]
+        event(
+          "participant.joined",
+          {
+            participant: {
+              id: "user_1",
+              display_name: "Owner",
+              role: "owner",
+              type: "human",
+            },
+          },
+          2
+        ),
+        event(
+          "join_request.created",
+          { request_id: "join_req_1", display_name: "Bob" },
+          3
+        ),
+      ],
     };
-    render(<LangProvider><Workspace {...props} /></LangProvider>);
+    render(
+      <LangProvider>
+        <Workspace {...props} />
+      </LangProvider>
+    );
 
-    expect(screen.queryByRole("dialog", { name: "Join request" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("dialog", { name: "Join request" })
+    ).not.toBeInTheDocument();
   });
 
   it("opens notification panel with join request when notification button is clicked", () => {
@@ -103,13 +195,32 @@ describe("Workspace refactored shell", () => {
       ...baseProps,
       events: [
         event("room.created", { name: "Room" }, 1),
-        event("participant.joined", { participant: { id: "user_1", display_name: "Owner", role: "owner", type: "human" } }, 2),
-        event("join_request.created", { request_id: "join_req_1", display_name: "Bob" }, 3)
+        event(
+          "participant.joined",
+          {
+            participant: {
+              id: "user_1",
+              display_name: "Owner",
+              role: "owner",
+              type: "human",
+            },
+          },
+          2
+        ),
+        event(
+          "join_request.created",
+          { request_id: "join_req_1", display_name: "Bob" },
+          3
+        ),
       ],
       onApproveJoinRequest,
-      onRejectJoinRequest
+      onRejectJoinRequest,
     };
-    render(<LangProvider><Workspace {...props} /></LangProvider>);
+    render(
+      <LangProvider>
+        <Workspace {...props} />
+      </LangProvider>
+    );
 
     fireEvent.click(screen.getByRole("button", { name: /notifications/i }));
     expect(screen.getByText("Bob")).toBeInTheDocument();
@@ -120,24 +231,40 @@ describe("Workspace refactored shell", () => {
   });
 
   it("opens people popover when human avatar is clicked", () => {
-    render(<LangProvider><Workspace {...baseProps} /></LangProvider>);
+    render(
+      <LangProvider>
+        <Workspace {...baseProps} />
+      </LangProvider>
+    );
 
-    const bobStack = screen.getByLabelText("Wei, Owner, online").closest(".role-avatar-stack") as HTMLElement;
+    const bobStack = screen
+      .getByLabelText("Wei, Owner, online")
+      .closest(".role-avatar-stack") as HTMLElement;
     fireEvent.click(bobStack);
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("People")).toBeInTheDocument();
-    expect(within(screen.getByRole("dialog")).getByText("Wei")).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("dialog")).getByText("Wei")
+    ).toBeInTheDocument();
   });
 
   it("opens agent popover when agent avatar is clicked", () => {
-    render(<LangProvider><Workspace {...baseProps} /></LangProvider>);
+    render(
+      <LangProvider>
+        <Workspace {...baseProps} />
+      </LangProvider>
+    );
 
-    const agentStack = screen.getByLabelText("Claude Code Agent, AI, idle").closest(".role-avatar-stack") as HTMLElement;
+    const agentStack = screen
+      .getByLabelText("Claude Code Agent, AI, idle")
+      .closest(".role-avatar-stack") as HTMLElement;
     fireEvent.click(agentStack);
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(within(screen.getByRole("dialog")).getByText("Claude Code Agent")).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("dialog")).getByText("Claude Code Agent")
+    ).toBeInTheDocument();
   });
 
   it("keeps the Codex session-required modal open after selection until the connector reports ready", () => {
@@ -145,44 +272,95 @@ describe("Workspace refactored shell", () => {
       ...baseProps,
       events: [
         event("room.created", { name: "CACP AI Room" }, 1),
-        event("participant.joined", { participant: { id: "user_1", display_name: "Wei", role: "owner", type: "human" } }, 2),
-        event("agent.registered", { agent_id: "agent_1", name: "Codex CLI Agent", capabilities: ["codex-cli"] }, 3, "agent_1"),
+        event(
+          "participant.joined",
+          {
+            participant: {
+              id: "user_1",
+              display_name: "Wei",
+              role: "owner",
+              type: "human",
+            },
+          },
+          2
+        ),
+        event(
+          "agent.registered",
+          {
+            agent_id: "agent_1",
+            name: "Codex CLI Agent",
+            capabilities: ["codex-cli"],
+          },
+          3,
+          "agent_1"
+        ),
         event("room.agent_selected", { agent_id: "agent_1" }, 4),
-        event("agent.session_catalog.updated" as CacpEvent["type"], {
-          agent_id: "agent_1",
-          provider: "codex-cli",
-          working_dir: "D:\\Development\\2",
-          sessions: []
-        }, 5, "agent_1"),
-        event("agent.session_selected" as CacpEvent["type"], {
-          agent_id: "agent_1",
-          provider: "codex-cli",
-          mode: "fresh",
-          selected_by: "user_1"
-        }, 6, "user_1")
-      ]
+        event(
+          "agent.session_catalog.updated" as CacpEvent["type"],
+          {
+            agent_id: "agent_1",
+            provider: "codex-cli",
+            working_dir: "D:\\Development\\2",
+            sessions: [],
+          },
+          5,
+          "agent_1"
+        ),
+        event(
+          "agent.session_selected" as CacpEvent["type"],
+          {
+            agent_id: "agent_1",
+            provider: "codex-cli",
+            mode: "fresh",
+            selected_by: "user_1",
+          },
+          6,
+          "user_1"
+        ),
+      ],
     };
 
-    render(<LangProvider><Workspace {...props} /></LangProvider>);
+    render(
+      <LangProvider>
+        <Workspace {...props} />
+      </LangProvider>
+    );
 
-    expect(screen.getByTestId("agent-status-banner")).toHaveAttribute("data-status", "selecting_session");
-    expect(screen.getByText(/Choose how Codex CLI joins this room/i)).toBeInTheDocument();
+    expect(screen.getByTestId("agent-status-banner")).toHaveAttribute(
+      "data-status",
+      "selecting_session"
+    );
+    expect(
+      screen.getByText(/Choose how Codex CLI joins this room/i)
+    ).toBeInTheDocument();
   });
 
   it("starts collapsed and toggles Orbit from the right-edge tab", () => {
-    render(<LangProvider><Workspace {...baseProps} /></LangProvider>);
+    render(
+      <LangProvider>
+        <Workspace {...baseProps} />
+      </LangProvider>
+    );
     expect(document.querySelector(".orbit-layer")).toBeNull();
     const toggle = screen.getByRole("button", { name: /Toggle discussion/i });
     expect(toggle).toHaveAttribute("aria-pressed", "false");
     fireEvent.click(toggle);
     expect(document.querySelector(".orbit-layer")).not.toBeNull();
-    expect(document.querySelector(".workspace-grid--with-orbit")).not.toBeNull();
+    expect(
+      document.querySelector(".workspace-grid--with-orbit")
+    ).not.toBeNull();
   });
 
   it("shows the main composer regardless of Orbit panel state", () => {
-    render(<LangProvider><Workspace {...baseProps} /></LangProvider>);
+    render(
+      <LangProvider>
+        <Workspace {...baseProps} />
+      </LangProvider>
+    );
 
-    expect(screen.getByRole("button", { name: /Trigger Agent/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Trigger Agent/i })
+    ).toBeInTheDocument();
     expect(screen.getByTestId("main-composer")).toBeInTheDocument();
     expect(screen.queryByTestId("orbit-composer")).not.toBeInTheDocument();
 
@@ -192,7 +370,11 @@ describe("Workspace refactored shell", () => {
   });
 
   it("keeps the Orbit panel inside the workspace grid when open so it cannot cover the composer", () => {
-    render(<LangProvider><Workspace {...baseProps} /></LangProvider>);
+    render(
+      <LangProvider>
+        <Workspace {...baseProps} />
+      </LangProvider>
+    );
 
     fireEvent.click(screen.getByRole("button", { name: /Toggle discussion/i }));
 
@@ -205,16 +387,44 @@ describe("Workspace refactored shell", () => {
   it("does not count initial replay as unread but counts later foreign notes", () => {
     const initial = [
       ...baseProps.events,
-      event("participant.joined", { participant: { id: "user_2", display_name: "Bob", role: "member", type: "human" } }, 4),
-      event("orbit.note.created", { note_id: "note_1", text: "Replay" }, 5, "user_2")
+      event(
+        "participant.joined",
+        {
+          participant: {
+            id: "user_2",
+            display_name: "Bob",
+            role: "member",
+            type: "human",
+          },
+        },
+        4
+      ),
+      event(
+        "orbit.note.created",
+        { note_id: "note_1", text: "Replay" },
+        5,
+        "user_2"
+      ),
     ];
-    const { rerender } = render(<LangProvider><Workspace {...baseProps} events={initial} /></LangProvider>);
+    const { rerender } = render(
+      <LangProvider>
+        <Workspace {...baseProps} events={initial} />
+      </LangProvider>
+    );
     expect(screen.queryByText("1")).not.toBeInTheDocument();
     rerender(
       <LangProvider>
         <Workspace
           {...baseProps}
-          events={[...initial, event("orbit.note.created", { note_id: "note_2", text: "Live" }, 6, "user_2")]}
+          events={[
+            ...initial,
+            event(
+              "orbit.note.created",
+              { note_id: "note_2", text: "Live" },
+              6,
+              "user_2"
+            ),
+          ]}
         />
       </LangProvider>
     );
@@ -234,28 +444,88 @@ describe("Workspace refactored shell", () => {
     const aliceJoinedAt = "2026-04-30T00:00:02.000Z";
     const bobJoinedAt = "2026-04-30T01:00:00.000Z";
     const replayDeliveredAt = "2026-04-30T02:00:00.000Z"; // server attaches NOW when replaying
-    const earlyAliceNote = event("orbit.note.created", { note_id: "early_1", text: "Before Bob", created_at: "2026-04-30T00:30:00.000Z" }, 5, "user_1");
+    const earlyAliceNote = event(
+      "orbit.note.created",
+      {
+        note_id: "early_1",
+        text: "Before Bob",
+        created_at: "2026-04-30T00:30:00.000Z",
+      },
+      5,
+      "user_1"
+    );
     earlyAliceNote.created_at = replayDeliveredAt;
-    const earlyAliceNote2 = event("orbit.note.created", { note_id: "early_2", text: "Before Bob 2", created_at: "2026-04-30T00:45:00.000Z" }, 6, "user_1");
+    const earlyAliceNote2 = event(
+      "orbit.note.created",
+      {
+        note_id: "early_2",
+        text: "Before Bob 2",
+        created_at: "2026-04-30T00:45:00.000Z",
+      },
+      6,
+      "user_1"
+    );
     earlyAliceNote2.created_at = replayDeliveredAt;
 
     const bobBaseProps = {
       ...baseProps,
-      session: { room_id: "room_1", token: "bob_secret", participant_id: "user_2", role: "member" as const }
+      session: {
+        room_id: "room_1",
+        token: "bob_secret",
+        participant_id: "user_2",
+        role: "member" as const,
+      },
     };
 
-    const { rerender } = render(<LangProvider><Workspace {...bobBaseProps} events={[]} /></LangProvider>);
+    const { rerender } = render(
+      <LangProvider>
+        <Workspace {...bobBaseProps} events={[]} />
+      </LangProvider>
+    );
     expect(screen.queryByText("1")).not.toBeInTheDocument();
 
     // Replay arrives one event at a time via WS.
-    const aliceJoin = event("participant.joined", { participant: { id: "user_1", display_name: "Alice", role: "owner", type: "human" } }, 2);
+    const aliceJoin = event(
+      "participant.joined",
+      {
+        participant: {
+          id: "user_1",
+          display_name: "Alice",
+          role: "owner",
+          type: "human",
+        },
+      },
+      2
+    );
     aliceJoin.created_at = aliceJoinedAt;
-    const bobJoin = event("participant.joined", { participant: { id: "user_2", display_name: "Bob", role: "member", type: "human" } }, 3, "user_2");
+    const bobJoin = event(
+      "participant.joined",
+      {
+        participant: {
+          id: "user_2",
+          display_name: "Bob",
+          role: "member",
+          type: "human",
+        },
+      },
+      3,
+      "user_2"
+    );
     bobJoin.created_at = bobJoinedAt;
 
-    const replayEvents = [event("room.created", { name: "Room" }, 1), aliceJoin, bobJoin, earlyAliceNote, earlyAliceNote2];
+    const replayEvents = [
+      event("room.created", { name: "Room" }, 1),
+      aliceJoin,
+      bobJoin,
+      earlyAliceNote,
+      earlyAliceNote2,
+    ];
     for (let i = 1; i <= replayEvents.length; i++) {
-      rerender(<LangProvider><Workspace {...bobBaseProps} events={replayEvents.slice(0, i)} /></LangProvider>);
+      rerender(
+        <LangProvider>
+          <Workspace {...bobBaseProps} events={replayEvents.slice(0, i)} />
+        </LangProvider>
+      );
     }
     expect(screen.queryByText("1")).not.toBeInTheDocument();
     expect(screen.queryByText("2")).not.toBeInTheDocument();
@@ -264,24 +534,73 @@ describe("Workspace refactored shell", () => {
   it("counts a foreign orbit note that arrives after the current participant joined", () => {
     const bobBaseProps = {
       ...baseProps,
-      session: { room_id: "room_1", token: "bob_secret", participant_id: "user_2", role: "member" as const }
+      session: {
+        room_id: "room_1",
+        token: "bob_secret",
+        participant_id: "user_2",
+        role: "member" as const,
+      },
     };
-    const aliceJoin = event("participant.joined", { participant: { id: "user_1", display_name: "Alice", role: "owner", type: "human" } }, 2);
+    const aliceJoin = event(
+      "participant.joined",
+      {
+        participant: {
+          id: "user_1",
+          display_name: "Alice",
+          role: "owner",
+          type: "human",
+        },
+      },
+      2
+    );
     aliceJoin.created_at = "2026-04-30T00:00:02.000Z";
-    const bobJoin = event("participant.joined", { participant: { id: "user_2", display_name: "Bob", role: "member", type: "human" } }, 3, "user_2");
+    const bobJoin = event(
+      "participant.joined",
+      {
+        participant: {
+          id: "user_2",
+          display_name: "Bob",
+          role: "member",
+          type: "human",
+        },
+      },
+      3,
+      "user_2"
+    );
     bobJoin.created_at = "2026-04-30T01:00:00.000Z";
 
-    const initial = [event("room.created", { name: "Room" }, 1), aliceJoin, bobJoin];
-    const { rerender } = render(<LangProvider><Workspace {...bobBaseProps} events={[]} /></LangProvider>);
+    const initial = [
+      event("room.created", { name: "Room" }, 1),
+      aliceJoin,
+      bobJoin,
+    ];
+    const { rerender } = render(
+      <LangProvider>
+        <Workspace {...bobBaseProps} events={[]} />
+      </LangProvider>
+    );
     for (let i = 1; i <= initial.length; i++) {
-      rerender(<LangProvider><Workspace {...bobBaseProps} events={initial.slice(0, i)} /></LangProvider>);
+      rerender(
+        <LangProvider>
+          <Workspace {...bobBaseProps} events={initial.slice(0, i)} />
+        </LangProvider>
+      );
     }
     expect(screen.queryByText("1")).not.toBeInTheDocument();
 
     // Alice posts a NEW note AFTER Bob joined
-    const liveAliceNote = event("orbit.note.created", { note_id: "live_1", text: "After Bob joined" }, 4, "user_1");
+    const liveAliceNote = event(
+      "orbit.note.created",
+      { note_id: "live_1", text: "After Bob joined" },
+      4,
+      "user_1"
+    );
     liveAliceNote.created_at = "2026-04-30T01:30:00.000Z";
-    rerender(<LangProvider><Workspace {...bobBaseProps} events={[...initial, liveAliceNote]} /></LangProvider>);
+    rerender(
+      <LangProvider>
+        <Workspace {...bobBaseProps} events={[...initial, liveAliceNote]} />
+      </LangProvider>
+    );
     expect(screen.getByText("1")).toBeInTheDocument();
   });
 
@@ -290,19 +609,32 @@ describe("Workspace refactored shell", () => {
       ...baseProps,
       events: [
         ...baseProps.events,
-        event("orbit.note.created", { note_id: "note_1", text: "Promote this note" }, 5, "user_1")
-      ]
+        event(
+          "orbit.note.created",
+          { note_id: "note_1", text: "Promote this note" },
+          5,
+          "user_1"
+        ),
+      ],
     };
 
-    render(<LangProvider><Workspace {...props} /></LangProvider>);
+    render(
+      <LangProvider>
+        <Workspace {...props} />
+      </LangProvider>
+    );
 
     fireEvent.click(screen.getByRole("button", { name: /Toggle discussion/i }));
 
-    const openButton = screen.getByRole("button", { name: /Promote orbit notes/i });
+    const openButton = screen.getByRole("button", {
+      name: /Promote orbit notes/i,
+    });
     expect(openButton).not.toBeDisabled();
     fireEvent.click(openButton);
 
-    const dialog = screen.getByRole("dialog", { name: /Promote to Main Thread/i });
+    const dialog = screen.getByRole("dialog", {
+      name: /Promote to Main Thread/i,
+    });
     expect(within(dialog).getByText("Promote this note")).toBeInTheDocument();
   });
 });

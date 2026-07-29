@@ -1,4 +1,11 @@
-import { closeSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
+import {
+  closeSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  readSync,
+  statSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join, normalize } from "node:path";
 import type { AgentSessionSummary } from "@cacp/protocol";
@@ -77,11 +84,16 @@ function parseMeta(line: string): CodexSessionMeta | undefined {
     if (!id) return undefined;
     return {
       id,
-      timestamp: typeof payload.timestamp === "string" ? payload.timestamp : undefined,
+      timestamp:
+        typeof payload.timestamp === "string" ? payload.timestamp : undefined,
       cwd: typeof payload.cwd === "string" ? payload.cwd : undefined,
-      originator: typeof payload.originator === "string" ? payload.originator : undefined,
-      cli_version: typeof payload.cli_version === "string" ? payload.cli_version : undefined,
-      source: typeof payload.source === "string" ? payload.source : undefined
+      originator:
+        typeof payload.originator === "string" ? payload.originator : undefined,
+      cli_version:
+        typeof payload.cli_version === "string"
+          ? payload.cli_version
+          : undefined,
+      source: typeof payload.source === "string" ? payload.source : undefined,
     };
   } catch {
     return undefined;
@@ -89,7 +101,9 @@ function parseMeta(line: string): CodexSessionMeta | undefined {
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" ? value as Record<string, unknown> : {};
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function extractContentText(value: unknown): string {
@@ -104,14 +118,19 @@ function extractContentText(value: unknown): string {
   return "";
 }
 
-function titleFromUserMessage(payload: Record<string, unknown>): string | undefined {
+function titleFromUserMessage(
+  payload: Record<string, unknown>
+): string | undefined {
   if (payload.role !== "user") return undefined;
   const text = extractContentText(payload.content).replace(/\s+/g, " ").trim();
   if (!text) return undefined;
   return text.length > 80 ? `${text.slice(0, 77)}...` : text;
 }
 
-function newestTimestamp(current: string | undefined, candidate: unknown): string | undefined {
+function newestTimestamp(
+  current: string | undefined,
+  candidate: unknown
+): string | undefined {
   if (typeof candidate !== "string") return current;
   const candidateMs = Date.parse(candidate);
   if (Number.isNaN(candidateMs)) return current;
@@ -121,7 +140,11 @@ function newestTimestamp(current: string | undefined, candidate: unknown): strin
   return current;
 }
 
-function readVisibleSessionStats(filePath: string): { messageCount: number; title?: string; lastVisibleAt?: string } {
+function readVisibleSessionStats(filePath: string): {
+  messageCount: number;
+  title?: string;
+  lastVisibleAt?: string;
+} {
   try {
     const content = readFileSync(filePath, "utf8");
     let messageCount = 0;
@@ -133,8 +156,13 @@ function readVisibleSessionStats(filePath: string): { messageCount: number; titl
         const record = JSON.parse(line) as CodexRecord;
         if (record.type === "response_item") {
           const payload = record.payload ?? {};
-          const payloadType = typeof payload.type === "string" ? payload.type : "";
-          if (payloadType === "message" || payloadType === "function_call" || payloadType === "function_call_output") {
+          const payloadType =
+            typeof payload.type === "string" ? payload.type : "";
+          if (
+            payloadType === "message" ||
+            payloadType === "function_call" ||
+            payloadType === "function_call_output"
+          ) {
             messageCount++;
             lastVisibleAt = newestTimestamp(lastVisibleAt, record.timestamp);
           }
@@ -176,8 +204,12 @@ export async function listCodexSessions(input: {
   workingDir: string;
   codexHome?: string;
   limit?: number;
-}): Promise<{ workingDir: string; sessions: Array<AgentSessionSummary & { provider: "codex-cli" }> }> {
-  const root = input.codexHome ?? process.env.CODEX_HOME ?? join(homedir(), ".codex");
+}): Promise<{
+  workingDir: string;
+  sessions: Array<AgentSessionSummary & { provider: "codex-cli" }>;
+}> {
+  const root =
+    input.codexHome ?? process.env.CODEX_HOME ?? join(homedir(), ".codex");
   const sessionsDir = join(root, "sessions");
   const files = scanJsonlFiles(sessionsDir);
   const requestedWorkingDir = normalizeWorkingDir(input.workingDir);
@@ -188,10 +220,17 @@ export async function listCodexSessions(input: {
     const firstLine = readFirstLine(filePath);
     if (!firstLine) continue;
     const meta = parseMeta(firstLine);
-    if (!meta || !meta.cwd || normalizeWorkingDir(meta.cwd) !== requestedWorkingDir) continue;
+    if (
+      !meta ||
+      !meta.cwd ||
+      normalizeWorkingDir(meta.cwd) !== requestedWorkingDir
+    )
+      continue;
 
-    const { messageCount, title, lastVisibleAt } = readVisibleSessionStats(filePath);
-    const updatedAt = lastVisibleAt ?? meta.timestamp ?? fileModifiedAt(filePath);
+    const { messageCount, title, lastVisibleAt } =
+      readVisibleSessionStats(filePath);
+    const updatedAt =
+      lastVisibleAt ?? meta.timestamp ?? fileModifiedAt(filePath);
 
     sessions.push({
       session_id: meta.id,
@@ -201,7 +240,7 @@ export async function listCodexSessions(input: {
       message_count: messageCount,
       byte_size: fileSize(filePath),
       importable: messageCount > 0,
-      provider: "codex-cli"
+      provider: "codex-cli",
     });
   }
 

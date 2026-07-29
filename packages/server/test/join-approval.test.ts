@@ -4,24 +4,39 @@ import { buildServer } from "../src/server.js";
 import { cloudTestConfig } from "./test-config.js";
 
 async function owner(app: FastifyInstance) {
-  const created = await app.inject({ method: "POST", url: "/rooms", payload: { name: "Room", display_name: "Owner" } });
-  const body = created.json() as { room_id: string; owner_token: string; owner_id: string };
+  const created = await app.inject({
+    method: "POST",
+    url: "/rooms",
+    payload: { name: "Room", display_name: "Owner" },
+  });
+  const body = created.json() as {
+    room_id: string;
+    owner_token: string;
+    owner_id: string;
+  };
   return body;
 }
 
-async function invite(app: FastifyInstance, roomId: string, ownerToken: string) {
+async function invite(
+  app: FastifyInstance,
+  roomId: string,
+  ownerToken: string
+) {
   const response = await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/invites`,
     headers: { authorization: `Bearer ${ownerToken}` },
-    payload: { role: "member", expires_in_seconds: 3600 }
+    payload: { role: "member", expires_in_seconds: 3600 },
   });
   return response.json() as { invite_token: string };
 }
 
 describe("join approval endpoints", () => {
   let app: FastifyInstance | undefined;
-  afterEach(async () => { await app?.close(); app = undefined; });
+  afterEach(async () => {
+    await app?.close();
+    app = undefined;
+  });
 
   it("requires owner approval before returning a participant token", async () => {
     app = await buildServer({ dbPath: ":memory:", config: cloudTestConfig() });
@@ -31,15 +46,22 @@ describe("join approval endpoints", () => {
     const pending = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/join-requests`,
-      payload: { invite_token: createdInvite.invite_token, display_name: "Alice" }
+      payload: {
+        invite_token: createdInvite.invite_token,
+        display_name: "Alice",
+      },
     });
     expect(pending.statusCode).toBe(201);
-    const request = pending.json() as { request_id: string; request_token: string; status: string };
+    const request = pending.json() as {
+      request_id: string;
+      request_token: string;
+      status: string;
+    };
     expect(request.status).toBe("pending");
 
     const beforeApproval = await app.inject({
       method: "GET",
-      url: `/rooms/${room.room_id}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}`
+      url: `/rooms/${room.room_id}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}`,
     });
     expect(beforeApproval.json()).toMatchObject({ status: "pending" });
     expect(beforeApproval.json()).not.toHaveProperty("participant_token");
@@ -48,15 +70,19 @@ describe("join approval endpoints", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/join-requests/${request.request_id}/approve`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: {}
+      payload: {},
     });
     expect(approved.statusCode).toBe(201);
 
     const afterApproval = await app.inject({
       method: "GET",
-      url: `/rooms/${room.room_id}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}`
+      url: `/rooms/${room.room_id}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}`,
     });
-    const approvedBody = afterApproval.json() as { status: string; participant_token?: string; participant_id?: string };
+    const approvedBody = afterApproval.json() as {
+      status: string;
+      participant_token?: string;
+      participant_id?: string;
+    };
     expect(approvedBody.status).toBe("approved");
     expect(approvedBody.participant_token).toMatch(/^cacp_/);
     expect(approvedBody.participant_id).toMatch(/^user_/);
@@ -66,9 +92,23 @@ describe("join approval endpoints", () => {
     app = await buildServer({ dbPath: ":memory:", config: cloudTestConfig() });
     const room = await owner(app);
     const createdInvite = await invite(app, room.room_id, room.owner_token);
-    const first = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/join-requests`, payload: { invite_token: createdInvite.invite_token, display_name: "Alice" } });
+    const first = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/join-requests`,
+      payload: {
+        invite_token: createdInvite.invite_token,
+        display_name: "Alice",
+      },
+    });
     expect(first.statusCode).toBe(201);
-    const second = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/join-requests`, payload: { invite_token: createdInvite.invite_token, display_name: "Bob" } });
+    const second = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/join-requests`,
+      payload: {
+        invite_token: createdInvite.invite_token,
+        display_name: "Bob",
+      },
+    });
     expect(second.statusCode).toBe(409);
     expect(second.json()).toMatchObject({ error: "invite_use_limit_reached" });
   });
@@ -77,22 +117,35 @@ describe("join approval endpoints", () => {
     app = await buildServer({ dbPath: ":memory:", config: cloudTestConfig() });
     const room = await owner(app);
     const createdInvite = await invite(app, room.room_id, room.owner_token);
-    const pending = await app.inject({ method: "POST", url: `/rooms/${room.room_id}/join-requests`, payload: { invite_token: createdInvite.invite_token, display_name: "Alice" } });
-    const request = pending.json() as { request_id: string; request_token: string };
+    const pending = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/join-requests`,
+      payload: {
+        invite_token: createdInvite.invite_token,
+        display_name: "Alice",
+      },
+    });
+    const request = pending.json() as {
+      request_id: string;
+      request_token: string;
+    };
     const rejected = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/join-requests/${request.request_id}/reject`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: {}
+      payload: {},
     });
     expect(rejected.statusCode).toBe(201);
-    const status = await app.inject({ method: "GET", url: `/rooms/${room.room_id}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}` });
+    const status = await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}`,
+    });
     expect(status.json()).toMatchObject({ status: "rejected" });
     const approveRejected = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/join-requests/${request.request_id}/approve`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: {}
+      payload: {},
     });
     expect(approveRejected.statusCode).toBe(409);
   });

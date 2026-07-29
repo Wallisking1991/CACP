@@ -13,8 +13,24 @@ function renderModal(props: React.ComponentProps<typeof OrbitPromoteModal>) {
 }
 
 const sampleNotes = [
-  { note_id: "note_1", text: "First note", created_by: "user_1", created_at: "2026-04-25T00:00:00.000Z", likes: 0, liked_by_me: false, quoted: false },
-  { note_id: "note_2", text: "Second note", created_by: "user_2", created_at: "2026-04-25T00:00:01.000Z", likes: 0, liked_by_me: false, quoted: false },
+  {
+    note_id: "note_1",
+    text: "First note",
+    created_by: "user_1",
+    created_at: "2026-04-25T00:00:00.000Z",
+    likes: 0,
+    liked_by_me: false,
+    quoted: false,
+  },
+  {
+    note_id: "note_2",
+    text: "Second note",
+    created_by: "user_2",
+    created_at: "2026-04-25T00:00:01.000Z",
+    likes: 0,
+    liked_by_me: false,
+    quoted: false,
+  },
 ];
 
 describe("OrbitPromoteModal", () => {
@@ -56,7 +72,11 @@ describe("OrbitPromoteModal", () => {
   it("selects all notes by default and toggles select all", () => {
     const onPromote = vi.fn();
     renderModal({ ...baseProps, onPromote });
-    expect(screen.getAllByRole("checkbox").every((checkbox) => (checkbox as HTMLInputElement).checked)).toBe(true);
+    expect(
+      screen
+        .getAllByRole("checkbox")
+        .every((checkbox) => (checkbox as HTMLInputElement).checked)
+    ).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: /Deselect all/i }));
     expect(screen.getByRole("button", { name: /^Promote$/i })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: /Select all/i }));
@@ -90,7 +110,9 @@ describe("OrbitPromoteModal", () => {
   it("closes when overlay is clicked", () => {
     const onClose = vi.fn();
     renderModal({ ...baseProps, onClose });
-    const overlay = document.querySelector(".orbit-promote-modal-overlay") as HTMLElement;
+    const overlay = document.querySelector(
+      ".orbit-promote-modal-overlay"
+    ) as HTMLElement;
     fireEvent.click(overlay);
     expect(onClose).toHaveBeenCalled();
   });
@@ -114,7 +136,11 @@ describe("OrbitPromoteModal", () => {
     const onPromote = vi.fn();
     const { rerender } = render(
       <LangProvider>
-        <OrbitPromoteModal {...baseProps} notes={sampleNotes} onPromote={onPromote} />
+        <OrbitPromoteModal
+          {...baseProps}
+          notes={sampleNotes}
+          onPromote={onPromote}
+        />
       </LangProvider>
     );
     // Both selected by default.
@@ -123,14 +149,22 @@ describe("OrbitPromoteModal", () => {
 
     // User deselects the first visible note (note_2, the most recent, now at the top).
     fireEvent.click(checkboxes[0]);
-    expect((screen.getAllByRole("checkbox")[0] as HTMLInputElement).checked).toBe(false);
-    expect((screen.getAllByRole("checkbox")[1] as HTMLInputElement).checked).toBe(true);
+    expect(
+      (screen.getAllByRole("checkbox")[0] as HTMLInputElement).checked
+    ).toBe(false);
+    expect(
+      (screen.getAllByRole("checkbox")[1] as HTMLInputElement).checked
+    ).toBe(true);
 
     // Parent re-derives a new notes array reference with the same ids (e.g. WebSocket tick).
     const reDerivedNotes = sampleNotes.map((note) => ({ ...note }));
     rerender(
       <LangProvider>
-        <OrbitPromoteModal {...baseProps} notes={reDerivedNotes} onPromote={onPromote} />
+        <OrbitPromoteModal
+          {...baseProps}
+          notes={reDerivedNotes}
+          onPromote={onPromote}
+        />
       </LangProvider>
     );
 

@@ -7,20 +7,20 @@ const cacpServer = "http://127.0.0.1:3737";
 export default defineConfig({
   plugins: [react()],
   define: {
-    __CONNECTOR_VERSION__: JSON.stringify(connectorVersion)
+    __CONNECTOR_VERSION__: JSON.stringify(connectorVersion),
   },
   server: {
     proxy: {
       "/rooms": {
         target: cacpServer,
-        ws: true
+        ws: true,
       },
       "/health": {
-        target: cacpServer
+        target: cacpServer,
       },
       "/invites": {
-        target: cacpServer
-      }
-    }
-  }
+        target: cacpServer,
+      },
+    },
+  },
 });

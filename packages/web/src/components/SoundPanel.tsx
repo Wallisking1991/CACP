@@ -29,8 +29,13 @@ export function SoundPanel({
       >
         {t("room.soundCues")}
       </button>
-      <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>
-        <label htmlFor="sound-volume" style={{ fontSize: 12, color: "var(--ink-3)" }}>
+      <div
+        style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}
+      >
+        <label
+          htmlFor="sound-volume"
+          style={{ fontSize: 12, color: "var(--ink-3)" }}
+        >
           {t("room.soundVolume")}
         </label>
         <input
@@ -44,7 +49,14 @@ export function SoundPanel({
           aria-label={t("room.soundVolume")}
           style={{ flex: 1 }}
         />
-        <span style={{ fontSize: 12, color: "var(--ink-3)", minWidth: 36, textAlign: "right" }}>
+        <span
+          style={{
+            fontSize: 12,
+            color: "var(--ink-3)",
+            minWidth: 36,
+            textAlign: "right",
+          }}
+        >
           {Math.round(soundVolume * 100)}%
         </span>
       </div>

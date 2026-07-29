@@ -12,22 +12,32 @@ const phaseKeys: Record<string, string> = {
   waiting_for_approval: "Waiting for approval",
   generating_answer: "Generating answer",
   completed: "Completed",
-  failed: "Failed"
+  failed: "Failed",
 };
 
 function formatElapsed(status: AgentRuntimeStatusView): string | undefined {
   if (!status.started_at) return undefined;
   const started = Date.parse(status.started_at);
-  const ended = Date.parse(status.completed_at ?? status.failed_at ?? status.updated_at ?? new Date().toISOString());
+  const ended = Date.parse(
+    status.completed_at ??
+      status.failed_at ??
+      status.updated_at ??
+      new Date().toISOString()
+  );
   if (!Number.isFinite(started) || !Number.isFinite(ended)) return undefined;
   const elapsedSeconds = Math.max(0, Math.round((ended - started) / 1000));
   if (elapsedSeconds < 60) return `${elapsedSeconds}s elapsed`;
   const elapsedMinutes = Math.floor(elapsedSeconds / 60);
   const remainingSeconds = elapsedSeconds % 60;
-  if (elapsedMinutes < 60) return remainingSeconds ? `${elapsedMinutes}m ${remainingSeconds}s elapsed` : `${elapsedMinutes}m elapsed`;
+  if (elapsedMinutes < 60)
+    return remainingSeconds
+      ? `${elapsedMinutes}m ${remainingSeconds}s elapsed`
+      : `${elapsedMinutes}m elapsed`;
   const elapsedHours = Math.floor(elapsedMinutes / 60);
   const remainingMinutes = elapsedMinutes % 60;
-  return remainingMinutes ? `${elapsedHours}h ${remainingMinutes}m elapsed` : `${elapsedHours}h elapsed`;
+  return remainingMinutes
+    ? `${elapsedHours}h ${remainingMinutes}m elapsed`
+    : `${elapsedHours}h elapsed`;
 }
 
 function providerDisplayName(provider: string | undefined): string {
@@ -38,7 +48,11 @@ function providerDisplayName(provider: string | undefined): string {
   return "Local code agent";
 }
 
-export function AgentStatusCard({ status }: { status: AgentRuntimeStatusView }) {
+export function AgentStatusCard({
+  status,
+}: {
+  status: AgentRuntimeStatusView;
+}) {
   const t = useT();
   const recent = status.recent.slice(-5);
   const elapsed = formatElapsed(status);
@@ -46,11 +60,16 @@ export function AgentStatusCard({ status }: { status: AgentRuntimeStatusView }) 
     elapsed ?? "",
     status.metrics.files_read ? `read ${status.metrics.files_read} files` : "",
     status.metrics.searches ? `searched ${status.metrics.searches} times` : "",
-    status.metrics.commands ? `ran ${status.metrics.commands} commands` : ""
-  ].filter(Boolean).join(" · ");
+    status.metrics.commands ? `ran ${status.metrics.commands} commands` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const providerLabel = providerDisplayName(status.provider);
   return (
-    <section className={`agent-status-card agent-status-card--${status.phase}`} aria-label={t("agent.status.title")}>
+    <section
+      className={`agent-status-card agent-status-card--${status.phase}`}
+      aria-label={t("agent.status.title")}
+    >
       <div className="agent-status-card__header">
         <strong>{phaseKeys[status.phase] ?? status.phase}</strong>
         <span>{providerLabel}</span>
@@ -64,7 +83,9 @@ export function AgentStatusCard({ status }: { status: AgentRuntimeStatusView }) 
       ) : null}
       {recent.length ? (
         <ol>
-          {recent.map((item, index) => <li key={`${status.status_id}-${index}`}>{item}</li>)}
+          {recent.map((item, index) => (
+            <li key={`${status.status_id}-${index}`}>{item}</li>
+          ))}
         </ol>
       ) : null}
     </section>

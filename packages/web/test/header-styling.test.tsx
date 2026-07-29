@@ -19,7 +19,14 @@ describe("Header styling", () => {
           onSoundVolumeChange={vi.fn()}
           onTestSound={vi.fn()}
           pendingNotificationCount={3}
-          joinRequests={[{ request_id: "req_1", display_name: "Bob", created_at: "2026-05-01T00:00:00Z" }]}
+          joinRequests={[
+            {
+              request_id: "req_1",
+              display_name: "Bob",
+              status: "pending",
+              created_at: "2026-05-01T00:00:00Z",
+            },
+          ]}
         />
       </LangProvider>
     );

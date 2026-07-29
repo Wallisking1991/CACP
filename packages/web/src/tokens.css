@@ -27,8 +27,12 @@
   --success: #15803d;
 
   /* Typography */
-  --font-headline: 'Times New Roman', Georgia, 'Source Han Serif SC', 'Songti SC', 'SimSun', serif;
-  --font-body: Inter, ui-sans-serif, system-ui, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --font-headline:
+    "Times New Roman", Georgia, "Source Han Serif SC", "Songti SC", "SimSun",
+    serif;
+  --font-body:
+    Inter, ui-sans-serif, system-ui, "PingFang SC", "Microsoft YaHei",
+    "Noto Sans SC", sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
   /* Studio */

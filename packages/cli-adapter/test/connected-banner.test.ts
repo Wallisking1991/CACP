@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { formatConnectedBanner, printConnectedBanner } from "../src/connected-banner.js";
+import {
+  formatConnectedBanner,
+  printConnectedBanner,
+} from "../src/connected-banner.js";
 
 describe("connected banner", () => {
   it("renders the success message, warning, web-room prompt, diagram, and working dir", () => {
@@ -8,12 +11,14 @@ describe("connected banner", () => {
       agentName: "Claude Code Agent",
       workingDir: "D:\\Projects\\my-app",
       claudeSessionMode: "pending-selection",
-      color: false
+      color: false,
     });
 
     expect(banner).toContain("CONNECTED SUCCESSFULLY");
     expect(banner).toContain("Do not close this window");
-    expect(banner).toContain("The room owner can now return to the CACP Web Room");
+    expect(banner).toContain(
+      "The room owner can now return to the CACP Web Room"
+    );
     expect(banner).toContain("Start collaborative AI creation");
     expect(banner).toContain("CACP Web Room");
     expect(banner).toContain("Local Agent");
@@ -23,13 +28,13 @@ describe("connected banner", () => {
     expect(banner).not.toMatch(/[\u4e00-\u9fff]/);
   });
 
-  it("does not show Claude selection pending for LLM API agents", () => {
+  it("does not show Claude selection pending for a non-Claude legacy agent", () => {
     const banner = formatConnectedBanner({
       roomId: "room_1",
-      agentName: "LLM API Agent",
+      agentName: "Legacy Agent",
       workingDir: ".",
       claudeSessionMode: "not-applicable",
-      color: false
+      color: false,
     });
 
     expect(banner).toContain("CONNECTED SUCCESSFULLY");
@@ -43,7 +48,7 @@ describe("connected banner", () => {
       workingDir: "D:\\Projects\\my-app",
       claudeSessionMode: "not-applicable",
       agentSessionLabel: "Codex CLI session",
-      color: false
+      color: false,
     });
 
     expect(banner).toContain("Codex CLI session");
@@ -52,13 +57,16 @@ describe("connected banner", () => {
 
   it("prints the banner through an injectable logger", () => {
     const log = vi.fn();
-    printConnectedBanner({
-      roomId: "room_1",
-      agentName: "Claude Code Agent",
-      workingDir: "D:\\Projects\\my-app",
-      claudeSessionMode: "pending-selection",
-      color: false
-    }, log);
+    printConnectedBanner(
+      {
+        roomId: "room_1",
+        agentName: "Claude Code Agent",
+        workingDir: "D:\\Projects\\my-app",
+        claudeSessionMode: "pending-selection",
+        color: false,
+      },
+      log
+    );
 
     expect(log).toHaveBeenCalledTimes(1);
     expect(log.mock.calls[0][0]).toContain("CONNECTED SUCCESSFULLY");

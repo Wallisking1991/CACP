@@ -10,7 +10,11 @@ describe("typing activity controller", () => {
     vi.useFakeTimers();
     const start = vi.fn();
     const stop = vi.fn();
-    const controller = createTypingActivityController({ startTyping: start, stopTyping: stop, stopDelayMs: 2000 });
+    const controller = createTypingActivityController({
+      startTyping: start,
+      stopTyping: stop,
+      stopDelayMs: 2000,
+    });
 
     controller.inputChanged("h");
     controller.inputChanged("he");
@@ -27,7 +31,11 @@ describe("typing activity controller", () => {
     vi.useFakeTimers();
     const start = vi.fn();
     const stop = vi.fn();
-    const controller = createTypingActivityController({ startTyping: start, stopTyping: stop, stopDelayMs: 2000 });
+    const controller = createTypingActivityController({
+      startTyping: start,
+      stopTyping: stop,
+      stopDelayMs: 2000,
+    });
 
     controller.inputChanged("hello");
     controller.stopNow();

@@ -4,7 +4,7 @@ import {
   MAX_REPLAY_NOTES,
   MAX_PROMOTION_NOTES,
   MAX_PROMOTION_BYTES,
-  MAX_PROMOTION_NOTE_TEXT
+  MAX_PROMOTION_NOTE_TEXT,
 } from "../src/orbit-state.js";
 
 const human = (id: string) => ({ id, role: "member" as const });
@@ -21,10 +21,12 @@ function addNote(
   state.addNote({
     note_id,
     author_id,
-    author_name: author_id === "u1" ? "Alice" : author_id === "u2" ? "Bob" : "Carol",
-    author_role: author_id === "u1" ? "member" : author_id === "u2" ? "admin" : "member",
+    author_name:
+      author_id === "u1" ? "Alice" : author_id === "u2" ? "Bob" : "Carol",
+    author_role:
+      author_id === "u1" ? "member" : author_id === "u2" ? "admin" : "member",
     text,
-    created_at
+    created_at,
   });
 }
 
@@ -140,7 +142,9 @@ describe("OrbitRoomState (flat pool)", () => {
     const longText = "A".repeat(10000);
     addNote(state, "n1", "2026-05-01T00:00:00.000Z", longText, "u1");
     const payload = state.buildPromotionPayload(["n1"]);
-    expect(new TextEncoder().encode(payload!.text).length).toBeLessThanOrEqual(MAX_PROMOTION_BYTES);
+    expect(new TextEncoder().encode(payload!.text).length).toBeLessThanOrEqual(
+      MAX_PROMOTION_BYTES
+    );
     expect(payload!.text).toContain("Alice");
   });
 
@@ -171,7 +175,9 @@ describe("OrbitRoomState (flat pool)", () => {
     }
     const payload = state.buildPromotionPayload(ids);
     expect(payload).not.toBeNull();
-    expect(new TextEncoder().encode(payload!.text).length).toBeLessThanOrEqual(MAX_PROMOTION_BYTES);
+    expect(new TextEncoder().encode(payload!.text).length).toBeLessThanOrEqual(
+      MAX_PROMOTION_BYTES
+    );
     expect(payload!.noteIds.length).toBe(payload!.noteCount);
     // The surviving ids must be a chronological prefix of the requested set
     const expectedPrefix = ids.slice(0, payload!.noteIds.length);
@@ -225,7 +231,7 @@ describe("OrbitRoomState.replayFor (flat pool)", () => {
       author_name: "Alice",
       author_role: "member",
       text: "Hello",
-      created_at: "2026-05-01T00:00:00.000Z"
+      created_at: "2026-05-01T00:00:00.000Z",
     });
     expect((note.payload as Record<string, unknown>).round_id).toBeUndefined();
     expect(note.actor_id).toBe("u1");
@@ -243,7 +249,10 @@ describe("OrbitRoomState.replayFor (flat pool)", () => {
     const likeEvents = result.filter((e) => e.type === "orbit.like.changed");
     expect(likeEvents.length).toBe(2);
     const byNote = new Map(
-      likeEvents.map((e) => [(e.payload as { note_id: string }).note_id, e.payload as { likes: number }])
+      likeEvents.map((e) => [
+        (e.payload as { note_id: string }).note_id,
+        e.payload as { likes: number },
+      ])
     );
     expect(byNote.get("n1")?.likes).toBe(2);
     expect(byNote.get("n2")?.likes).toBe(1);
@@ -257,8 +266,15 @@ describe("OrbitRoomState.replayFor (flat pool)", () => {
     state.setLike("n1", "u_self", true);
     state.setLike("n2", "u_other", true);
     const result = state.replayFor(human("u_self"));
-    const likeEvents = result.filter((e) => e.type === "orbit.like.changed") as unknown as Array<{
-      payload: { note_id: string; participant_id: string; liked: boolean; likes: number };
+    const likeEvents = result.filter(
+      (e) => e.type === "orbit.like.changed"
+    ) as unknown as Array<{
+      payload: {
+        note_id: string;
+        participant_id: string;
+        liked: boolean;
+        likes: number;
+      };
     }>;
     const n1 = likeEvents.find((e) => e.payload.note_id === "n1")!;
     const n2 = likeEvents.find((e) => e.payload.note_id === "n2")!;
@@ -283,7 +299,7 @@ describe("OrbitRoomState.replayFor (flat pool)", () => {
       "orbit.note.created",
       "orbit.like.changed",
       "orbit.like.changed",
-      "orbit.notes.quoted"
+      "orbit.notes.quoted",
     ]);
     const quoted = result[result.length - 1];
     expect(quoted.payload).toEqual({ note_ids: ["n2"] });
@@ -310,13 +326,17 @@ describe("OrbitRoomState.replayFor (flat pool)", () => {
   it("caps notes at MAX_REPLAY_NOTES (200), keeping most recent in chronological order", () => {
     const state = new OrbitRoomState("room_1");
     for (let i = 0; i < MAX_REPLAY_NOTES + 1; i++) {
-      const created_at = new Date(Date.parse("2026-05-01T00:00:00.000Z") + i).toISOString();
+      const created_at = new Date(
+        Date.parse("2026-05-01T00:00:00.000Z") + i
+      ).toISOString();
       addNote(state, `n${i}`, created_at, `note ${i}`, "u1");
     }
     const result = state.replayFor(human("u2"));
     const noteEvents = result.filter((e) => e.type === "orbit.note.created");
     expect(noteEvents.length).toBe(MAX_REPLAY_NOTES);
-    const ids = noteEvents.map((e) => (e.payload as { note_id: string }).note_id);
+    const ids = noteEvents.map(
+      (e) => (e.payload as { note_id: string }).note_id
+    );
     expect(ids[0]).toBe("n1");
     expect(ids[ids.length - 1]).toBe(`n${MAX_REPLAY_NOTES}`);
     expect(ids.includes("n0")).toBe(false);
@@ -325,12 +345,16 @@ describe("OrbitRoomState.replayFor (flat pool)", () => {
   it("returns [] for agent even with > MAX_REPLAY_NOTES notes; observer still gets full cap", () => {
     const state = new OrbitRoomState("room_1");
     for (let i = 0; i < MAX_REPLAY_NOTES + 1; i++) {
-      const created_at = new Date(Date.parse("2026-05-01T00:00:00.000Z") + i).toISOString();
+      const created_at = new Date(
+        Date.parse("2026-05-01T00:00:00.000Z") + i
+      ).toISOString();
       addNote(state, `n${i}`, created_at, "x", "u1");
     }
     expect(state.replayFor(agent("agent_1"))).toEqual([]);
     const observerResult = state.replayFor(observer("observer_1"));
-    expect(observerResult.filter((e) => e.type === "orbit.note.created").length).toBe(MAX_REPLAY_NOTES);
+    expect(
+      observerResult.filter((e) => e.type === "orbit.note.created").length
+    ).toBe(MAX_REPLAY_NOTES);
   });
 
   it("observer role receives orbit replay (HUMAN_ROLES includes observer)", () => {

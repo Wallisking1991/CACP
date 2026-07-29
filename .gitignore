@@ -3,10 +3,16 @@
 node_modules/
 dist/
 .vite/
+coverage/
+reports/
+test-results/
+*.log
 *.db
 *.db-shm
 *.db-wal
 .env
+.env.*
+!.env.example
 .DS_Store
 docs/examples/*.local.json
 docs/examples/*.local.md
@@ -18,9 +24,14 @@ docs/examples/*.local.md
 
 .deploy/
 docs/Server info.md
-packages/web/public/downloads/CACP-Local-Connector.exe
+packages/web/public/downloads/*
+!packages/web/public/downloads/.gitkeep
 packages/cli-adapter/dist/connector/
 docs/deploy-cloud.md
 my-video/
-docs/protocol/
 docs/superpowers/
+tmp/
+*.pem
+*.key
+*.p12
+*.pfx

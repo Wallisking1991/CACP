@@ -5,22 +5,22 @@ Thank you for your interest in CACP. This project is a local-first collaborative
 ## Contribution Flow
 
 1. Fork the repository.
-2. Create a focused branch from `master`.
+2. Create a focused branch from `main`.
 3. Make one logical change per pull request.
 4. Add or update tests when behavior changes.
 5. Run validation locally before opening a pull request.
 6. Open a pull request and complete the checklist.
 
-Do not push directly to `master`. Maintainers merge pull requests after review and passing CI.
+Do not push directly to `main`. Maintainers merge pull requests after review and passing CI.
 
 ## Local Setup
 
-Use Node 20+, Corepack, and the pinned pnpm version:
+Use Node 22.12+ (Node 24 recommended), Corepack, and the pinned pnpm version:
 
 ```powershell
 corepack enable
 corepack pnpm install
-corepack pnpm check
+corepack pnpm validate
 ```
 
 Useful development commands:
@@ -61,11 +61,13 @@ Protocol, server, connector, deployment, and CI changes require extra maintainer
 
 ## Testing Expectations
 
-Run this before opening a pull request:
+Run the complete local quality gate before opening a pull request:
 
 ```powershell
-corepack pnpm check
+corepack pnpm validate
 ```
+
+The gate formats and lints the repository, performs strict type checking, runs the coverage-enforced test suites, and builds every package. The pre-commit hook runs the staged-file checks plus type checking and tests; CI additionally scans secrets and dependencies on supported Node/OS combinations.
 
 Add or update tests when changing:
 

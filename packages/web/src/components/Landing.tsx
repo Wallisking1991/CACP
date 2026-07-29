@@ -1,4 +1,11 @@
-import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import gsap from "gsap";
 import { parseInviteUrl, verifyInvite } from "../api.js";
 import { LangContext } from "../i18n/LangProvider.js";
@@ -7,18 +14,31 @@ import { isCloudMode } from "../runtime-config.js";
 import CacpHeroLogo from "./CacpHeroLogo.js";
 
 function prefersReducedMotion(): boolean {
-  return typeof window !== "undefined" &&
+  return (
+    typeof window !== "undefined" &&
     typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
 }
 
 function snakeToPascal(value: string): string {
-  return value.replace(/(^|_)([a-z])/g, (_, _sep, letter) => letter.toUpperCase());
+  return value.replace(/(^|_)([a-z])/g, (_, _sep, letter) =>
+    letter.toUpperCase()
+  );
 }
 
 interface LandingProps {
-  onCreate: (params: { roomName: string; displayName: string; agentType: string; permissionLevel: string }) => void;
-  onJoin: (params: { roomId: string; inviteToken: string; displayName: string }) => void;
+  onCreate: (params: {
+    roomName: string;
+    displayName: string;
+    agentType: string;
+    permissionLevel: string;
+  }) => void;
+  onJoin: (params: {
+    roomId: string;
+    inviteToken: string;
+    displayName: string;
+  }) => void;
   loading?: boolean;
 }
 
@@ -26,46 +46,76 @@ const commandAgentTypes = [
   { value: "claude-code", labelKey: "agentType.claudeCode" },
   { value: "codex-cli", labelKey: "agentType.codexCli" },
   { value: "github-copilot", labelKey: "agentType.githubCopilot" },
-  { value: "kimi-cli", labelKey: "agentType.kimiCli" }
+  { value: "kimi-cli", labelKey: "agentType.kimiCli" },
 ] as const;
 
 const permissionLevels = [
   { value: "read_only", labelKey: "permission.readOnly" },
   { value: "limited_write", labelKey: "permission.limitedWrite" },
-  { value: "full_access", labelKey: "permission.fullAccess" }
+  { value: "full_access", labelKey: "permission.fullAccess" },
 ] as const;
 
 const valueTags = [
   {
     labelKey: "landing.value.local",
     icon: (
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <svg
+        width="12"
+        height="12"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
         <rect x="2" y="3" width="20" height="14" rx="2" />
         <line x1="8" y1="21" x2="16" y2="21" />
         <line x1="12" y1="17" x2="12" y2="21" />
       </svg>
-    )
+    ),
   },
   {
     labelKey: "landing.value.room",
     icon: (
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <svg
+        width="12"
+        height="12"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
         <circle cx="18" cy="5" r="3" />
         <circle cx="6" cy="12" r="3" />
         <circle cx="18" cy="19" r="3" />
         <line x1="8.6" y1="13.5" x2="15.4" y2="17.5" />
         <line x1="15.4" y1="6.5" x2="8.6" y2="10.5" />
       </svg>
-    )
+    ),
   },
   {
     labelKey: "landing.value.governed",
     icon: (
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <svg
+        width="12"
+        height="12"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
       </svg>
-    )
-  }
+    ),
+  },
 ] as const;
 
 export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
@@ -73,7 +123,12 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
   const langCtx = useContext(LangContext);
   const heroRef = useRef<HTMLElement>(null);
 
-  const inviteTarget = useMemo(() => parseInviteUrl(window.location.search) ?? parseInviteUrl(window.location.hash.replace(/^#/, "?")), []);
+  const inviteTarget = useMemo(
+    () =>
+      parseInviteUrl(window.location.search) ??
+      parseInviteUrl(window.location.hash.replace(/^#/, "?")),
+    []
+  );
   const hasInviteInUrl = Boolean(inviteTarget);
 
   const [roomName, setRoomName] = useState("CACP AI Room");
@@ -82,26 +137,42 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
   const [agentType, setAgentType] = useState("claude-code");
   const [permissionLevel, setPermissionLevel] = useState("read_only");
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [inviteCheckStatus, setInviteCheckStatus] = useState<"idle" | "checking" | "valid" | "invalid">("idle");
-  const [inviteCheckReason, setInviteCheckReason] = useState<string | undefined>();
+  const [inviteCheckStatus, setInviteCheckStatus] = useState<
+    "idle" | "checking" | "valid" | "invalid"
+  >("idle");
+  const [inviteCheckReason, setInviteCheckReason] = useState<
+    string | undefined
+  >();
 
   const createValid = roomName.trim() && ownerDisplayName.trim();
-  const joinValid = Boolean(inviteTarget && joinDisplayName.trim() && inviteCheckStatus === "valid");
+  const joinValid = Boolean(
+    inviteTarget && joinDisplayName.trim() && inviteCheckStatus === "valid"
+  );
 
   useLayoutEffect(() => {
     const hero = heroRef.current;
     if (!hero || prefersReducedMotion()) return;
 
     const ctx = gsap.context(() => {
-      gsap.set(".landing-headline, .landing-subcopy, .landing-value-tag, .landing-console", {
-        opacity: 0,
-        y: 16,
-      });
+      gsap.set(
+        ".landing-headline, .landing-subcopy, .landing-value-tag, .landing-console",
+        {
+          opacity: 0,
+          y: 16,
+        }
+      );
 
-      const tl = gsap.timeline({ defaults: { ease: "power2.out" }, delay: 0.4 });
+      const tl = gsap.timeline({
+        defaults: { ease: "power2.out" },
+        delay: 0.4,
+      });
       tl.to(".landing-headline", { opacity: 1, y: 0, duration: 0.55 })
         .to(".landing-subcopy", { opacity: 1, y: 0, duration: 0.5 }, "-=0.3")
-        .to(".landing-value-tag", { opacity: 1, y: 0, duration: 0.4, stagger: 0.08 }, "-=0.25")
+        .to(
+          ".landing-value-tag",
+          { opacity: 1, y: 0, duration: 0.4, stagger: 0.08 },
+          "-=0.25"
+        )
         .to(".landing-console", { opacity: 1, y: 0, duration: 0.6 }, "-=0.5");
     }, hero);
 
@@ -136,7 +207,9 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
         setInviteCheckStatus("invalid");
         setInviteCheckReason("not_found");
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [inviteTarget]);
 
   function handleCreateSubmit(event: React.FormEvent) {
@@ -146,7 +219,7 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
       roomName: roomName.trim(),
       displayName: ownerDisplayName.trim(),
       agentType,
-      permissionLevel
+      permissionLevel,
     });
   }
 
@@ -156,12 +229,14 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
     onJoin({
       roomId: inviteTarget.room_id,
       inviteToken: inviteTarget.invite_token,
-      displayName: joinDisplayName.trim()
+      displayName: joinDisplayName.trim(),
     });
   }
 
   return (
-    <main className={`landing-shell ${hasInviteInUrl ? "landing-shell-invite" : ""}`}>
+    <main
+      className={`landing-shell ${hasInviteInUrl ? "landing-shell-invite" : ""}`}
+    >
       <div className="landing-orb landing-orb-primary" aria-hidden="true" />
       <div className="landing-orb landing-orb-secondary" aria-hidden="true" />
 
@@ -173,7 +248,17 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
           title={t("lang.toggle")}
           aria-label={t("lang.toggle")}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
             <circle cx="12" cy="12" r="10" />
             <path d="M2 12h20" />
             <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
@@ -188,7 +273,10 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
           <CacpHeroLogo ariaLabel={t("landing.logoLabel")} />
           <h1 className="landing-headline">{t("landing.headline")}</h1>
           <p className="landing-subcopy">{t("landing.subcopy")}</p>
-          <div className="landing-value-tags" aria-label={t("landing.valuesLabel")}>
+          <div
+            className="landing-value-tags"
+            aria-label={t("landing.valuesLabel")}
+          >
             {valueTags.map((item) => (
               <span key={item.labelKey} className="landing-value-tag">
                 {item.icon}
@@ -198,14 +286,32 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
           </div>
         </div>
 
-        <article className="landing-card landing-console" aria-labelledby={hasInviteInUrl ? "landing-invite-title" : "landing-create-title"}>
+        <article
+          className="landing-card landing-console"
+          aria-labelledby={
+            hasInviteInUrl ? "landing-invite-title" : "landing-create-title"
+          }
+        >
           {hasInviteInUrl && inviteTarget ? (
-            <form data-testid="landing-invite-card" className="landing-form" onSubmit={handleJoinSubmit}>
+            <form
+              data-testid="landing-invite-card"
+              className="landing-form"
+              onSubmit={handleJoinSubmit}
+            >
               <p className="landing-console-kicker">{t("landing.tab.join")}</p>
-              <h2 id="landing-invite-title" className="landing-console-title">{t("landing.join.cardTitle")}</h2>
-              <p className="landing-console-copy">{t("landing.join.cardSubcopy")}</p>
+              <h2 id="landing-invite-title" className="landing-console-title">
+                {t("landing.join.cardTitle")}
+              </h2>
+              <p className="landing-console-copy">
+                {t("landing.join.cardSubcopy")}
+              </p>
 
-              <label className="section-label" htmlFor="landing-join-display-name">{t("landing.join.displayName")}</label>
+              <label
+                className="section-label"
+                htmlFor="landing-join-display-name"
+              >
+                {t("landing.join.displayName")}
+              </label>
               <input
                 id="landing-join-display-name"
                 className="input landing-input"
@@ -215,7 +321,11 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
                 autoComplete="name"
               />
 
-              <p className="landing-room-hint">{t("landing.join.invitedRoom", { roomId: inviteTarget.room_id })}</p>
+              <p className="landing-room-hint">
+                {t("landing.join.invitedRoom", {
+                  roomId: inviteTarget.room_id,
+                })}
+              </p>
 
               {inviteCheckStatus === "invalid" && inviteCheckReason && (
                 <p
@@ -227,24 +337,44 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
                     border: "1px solid #fecaca",
                     borderRadius: "var(--radius-chip)",
                     padding: "8px 12px",
-                    margin: "4px 0 8px"
+                    margin: "4px 0 8px",
                   }}
                 >
-                  {t(`landing.join.invite${snakeToPascal(inviteCheckReason)}` as Parameters<typeof t>[0])}
+                  {t(
+                    `landing.join.invite${snakeToPascal(inviteCheckReason)}` as Parameters<
+                      typeof t
+                    >[0]
+                  )}
                 </p>
               )}
 
-              <button type="submit" className="btn btn-primary landing-primary-action" disabled={!joinValid || loading || inviteCheckStatus !== "valid"}>
+              <button
+                type="submit"
+                className="btn btn-primary landing-primary-action"
+                disabled={
+                  !joinValid || loading || inviteCheckStatus !== "valid"
+                }
+              >
                 {t("landing.join.cta")}
               </button>
             </form>
           ) : (
-            <form data-testid="landing-create-card" className="landing-form" onSubmit={handleCreateSubmit}>
+            <form
+              data-testid="landing-create-card"
+              className="landing-form"
+              onSubmit={handleCreateSubmit}
+            >
               <p className="landing-console-kicker">{t("room.create")}</p>
-              <h2 id="landing-create-title" className="landing-console-title">{t("landing.create.cardTitle")}</h2>
-              <p className="landing-console-copy">{t("landing.create.cardSubcopy")}</p>
+              <h2 id="landing-create-title" className="landing-console-title">
+                {t("landing.create.cardTitle")}
+              </h2>
+              <p className="landing-console-copy">
+                {t("landing.create.cardSubcopy")}
+              </p>
 
-              <label className="section-label" htmlFor="landing-display-name">{t("landing.create.displayName")}</label>
+              <label className="section-label" htmlFor="landing-display-name">
+                {t("landing.create.displayName")}
+              </label>
               <input
                 id="landing-display-name"
                 className="input landing-input"
@@ -254,7 +384,9 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
                 autoComplete="name"
               />
 
-              <label className="section-label" htmlFor="landing-room-name">{t("landing.create.roomName")}</label>
+              <label className="section-label" htmlFor="landing-room-name">
+                {t("landing.create.roomName")}
+              </label>
               <input
                 id="landing-room-name"
                 className="input landing-input"
@@ -270,7 +402,11 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
                 aria-controls="landing-advanced-options"
                 onClick={() => setAdvancedOpen((open) => !open)}
               >
-                <span>{advancedOpen ? t("landing.create.advancedHide") : t("landing.create.advancedToggle")}</span>
+                <span>
+                  {advancedOpen
+                    ? t("landing.create.advancedHide")
+                    : t("landing.create.advancedToggle")}
+                </span>
                 <span aria-hidden="true">{advancedOpen ? "−" : "+"}</span>
               </button>
 
@@ -280,19 +416,32 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
                 aria-hidden={advancedOpen ? undefined : true}
                 inert={advancedOpen ? undefined : true}
               >
-                <p className="section-label">{t("landing.create.advancedTitle")}</p>
+                <p className="section-label">
+                  {t("landing.create.advancedTitle")}
+                </p>
 
-                <label className="section-label" htmlFor="landing-agent-type">{t("landing.create.agentType")}</label>
+                <label className="section-label" htmlFor="landing-agent-type">
+                  {t("landing.create.agentType")}
+                </label>
                 <select
                   id="landing-agent-type"
                   className="input landing-input"
                   value={agentType}
                   onChange={(e) => setAgentType(e.target.value)}
                 >
-                  {commandAgentTypes.map((item) => <option key={item.value} value={item.value}>{t(item.labelKey)}</option>)}
+                  {commandAgentTypes.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {t(item.labelKey)}
+                    </option>
+                  ))}
                 </select>
 
-                <label className="section-label" htmlFor="landing-permission-level">{t("landing.create.permissionLevel")}</label>
+                <label
+                  className="section-label"
+                  htmlFor="landing-permission-level"
+                >
+                  {t("landing.create.permissionLevel")}
+                </label>
                 <select
                   id="landing-permission-level"
                   className="input landing-input"
@@ -300,16 +449,24 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
                   onChange={(e) => setPermissionLevel(e.target.value)}
                 >
                   {permissionLevels.map((item) => (
-                    <option key={item.value} value={item.value}>{t(item.labelKey)}</option>
+                    <option key={item.value} value={item.value}>
+                      {t(item.labelKey)}
+                    </option>
                   ))}
                 </select>
 
                 {isCloudMode() && (
                   <div className="connector-setup landing-connector-setup">
-                    <a className="btn btn-ghost" href={`/downloads/CACP-Local-Connector-v${__CONNECTOR_VERSION__}.zip`} download>
+                    <a
+                      className="btn btn-ghost"
+                      href={`/downloads/CACP-Local-Connector-v${__CONNECTOR_VERSION__}.zip`}
+                      download
+                    >
                       {t("landing.connector.download")}
                     </a>
-                    <p className="landing-safe-copy">{t("landing.connector.instructions")}</p>
+                    <p className="landing-safe-copy">
+                      {t("landing.connector.instructions")}
+                    </p>
                   </div>
                 )}
               </div>
@@ -319,10 +476,14 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
                 className="btn btn-warm landing-primary-action"
                 disabled={!createValid || loading}
               >
-                {isCloudMode() ? t("landing.create.cloudCta") : t("landing.create.cta")}
+                {isCloudMode()
+                  ? t("landing.create.cloudCta")
+                  : t("landing.create.cta")}
               </button>
               {isCloudMode() && (
-                <p className="landing-safe-copy landing-cloud-hint">{t("landing.create.cloudAgentHint")}</p>
+                <p className="landing-safe-copy landing-cloud-hint">
+                  {t("landing.create.cloudAgentHint")}
+                </p>
               )}
             </form>
           )}

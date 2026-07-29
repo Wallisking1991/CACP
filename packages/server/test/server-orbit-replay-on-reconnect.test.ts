@@ -1,3 +1,4 @@
+import { testConnectorCompatibility } from "./test-compatibility.js";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildServer } from "../src/server.js";
@@ -7,9 +8,13 @@ async function ownerAndRoom(app: FastifyInstance) {
   const created = await app.inject({
     method: "POST",
     url: "/rooms",
-    payload: { name: "Room", display_name: "Owner" }
+    payload: { name: "Room", display_name: "Owner" },
   });
-  return created.json() as { room_id: string; owner_token: string; owner_id: string };
+  return created.json() as {
+    room_id: string;
+    owner_token: string;
+    owner_id: string;
+  };
 }
 
 async function setupRoomWithAgent(app: FastifyInstance) {
@@ -18,56 +23,80 @@ async function setupRoomWithAgent(app: FastifyInstance) {
     method: "POST",
     url: `/rooms/${room.room_id}/agents/register`,
     headers: { authorization: `Bearer ${room.owner_token}` },
-    payload: { name: "TestAgent", capabilities: ["llm-api"] }
+    payload: {
+      compatibility: testConnectorCompatibility,
+      name: "TestAgent",
+      capabilities: ["kimi-cli"],
+    },
   });
   const agent = agentReg.json() as { agent_id: string; agent_token: string };
   await app.inject({
     method: "POST",
     url: `/rooms/${room.room_id}/agents/select`,
     headers: { authorization: `Bearer ${room.owner_token}` },
-    payload: { agent_id: agent.agent_id }
+    payload: { agent_id: agent.agent_id },
   });
   return { room, agent };
 }
 
-async function inviteWithRole(app: FastifyInstance, roomId: string, ownerToken: string, role: "member" | "observer", displayName: string) {
+async function inviteWithRole(
+  app: FastifyInstance,
+  roomId: string,
+  ownerToken: string,
+  role: "member" | "observer",
+  displayName: string
+) {
   const invRes = await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/invites`,
     headers: { authorization: `Bearer ${ownerToken}` },
-    payload: { role }
+    payload: { role },
   });
   const invite = invRes.json() as { invite_token: string };
   const pending = await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/join-requests`,
-    payload: { invite_token: invite.invite_token, display_name: displayName }
+    payload: { invite_token: invite.invite_token, display_name: displayName },
   });
-  const requestObj = pending.json() as { request_id: string; request_token: string };
+  const requestObj = pending.json() as {
+    request_id: string;
+    request_token: string;
+  };
   await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/join-requests/${requestObj.request_id}/approve`,
     headers: { authorization: `Bearer ${ownerToken}` },
-    payload: {}
+    payload: {},
   });
   const status = await app.inject({
     method: "GET",
-    url: `/rooms/${roomId}/join-requests/${requestObj.request_id}?request_token=${encodeURIComponent(requestObj.request_token)}`
+    url: `/rooms/${roomId}/join-requests/${requestObj.request_id}?request_token=${encodeURIComponent(requestObj.request_token)}`,
   });
-  const finalised = status.json() as { participant_token: string; participant_id: string };
-  return { participant_id: finalised.participant_id, token: finalised.participant_token };
+  const finalised = status.json() as {
+    participant_token: string;
+    participant_id: string;
+  };
+  return {
+    participant_id: finalised.participant_id,
+    token: finalised.participant_token,
+  };
 }
 
 function addressOf(app: Awaited<ReturnType<typeof buildServer>>): string {
   const address = app.server.address();
-  if (!address || typeof address === "string") throw new Error("server did not bind to a TCP port");
+  if (!address || typeof address === "string")
+    throw new Error("server did not bind to a TCP port");
   return `127.0.0.1:${address.port}`;
 }
 
 function waitForOpen(socket: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {
     socket.addEventListener("open", () => resolve(), { once: true });
-    socket.addEventListener("error", () => reject(new Error("websocket failed to open")), { once: true });
+    socket.addEventListener(
+      "error",
+      () => reject(new Error("websocket failed to open")),
+      { once: true }
+    );
   });
 }
 
@@ -75,12 +104,19 @@ async function listEvents(app: FastifyInstance, roomId: string, token: string) {
   const res = await app.inject({
     method: "GET",
     url: `/rooms/${roomId}/events`,
-    headers: { authorization: `Bearer ${token}` }
+    headers: { authorization: `Bearer ${token}` },
   });
-  return (res.json() as { events: Array<{ type: string; payload: Record<string, unknown> }> }).events;
+  return (
+    res.json() as {
+      events: Array<{ type: string; payload: Record<string, unknown> }>;
+    }
+  ).events;
 }
 
-async function drainReplay(ws: WebSocket, ms = 1500): Promise<Array<{ type: string; payload: Record<string, unknown> }>> {
+async function drainReplay(
+  ws: WebSocket,
+  ms = 1500
+): Promise<Array<{ type: string; payload: Record<string, unknown> }>> {
   // CI-tolerance polling deadline, NOT a known-good wait. The handshake
   // synthesises the orbit catch-up stream synchronously, so under normal
   // load this resolves well before the timeout. We pad the budget to 1.5s
@@ -98,7 +134,10 @@ async function drainReplay(ws: WebSocket, ms = 1500): Promise<Array<{ type: stri
 
 describe("orbit state TTL replay on WS reconnect", () => {
   let app: FastifyInstance | undefined;
-  afterEach(async () => { await app?.close(); app = undefined; });
+  afterEach(async () => {
+    await app?.close();
+    app = undefined;
+  });
 
   it("replays orbit.note.created on reconnect even though it is not persisted", async () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
@@ -110,7 +149,7 @@ describe("orbit state TTL replay on WS reconnect", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/orbit/notes`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "ephemeral note" }
+      payload: { text: "ephemeral note" },
     });
     expect(res.statusCode).toBe(201);
 
@@ -119,7 +158,9 @@ describe("orbit state TTL replay on WS reconnect", () => {
     expect(events.some((e) => e.type === "orbit.note.created")).toBe(false);
 
     // Reconnect and assert the synthetic replay carries the note
-    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws);
     const replay = await drainReplay(ws);
     ws.close();
@@ -127,7 +168,9 @@ describe("orbit state TTL replay on WS reconnect", () => {
     expect(replay.some((e) => e.type === "orbit.note.created")).toBe(true);
     const noteEvent = replay.find((e) => e.type === "orbit.note.created");
     expect(noteEvent).toBeDefined();
-    expect((noteEvent!.payload as { text: string }).text).toBe("ephemeral note");
+    expect((noteEvent!.payload as { text: string }).text).toBe(
+      "ephemeral note"
+    );
   });
 
   it("orbit replay starts with orbit.note.created and contains no round events", async () => {
@@ -139,21 +182,25 @@ describe("orbit state TTL replay on WS reconnect", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/orbit/notes`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "first" }
+      payload: { text: "first" },
     });
     await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/orbit/notes`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "second" }
+      payload: { text: "second" },
     });
 
-    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws);
     const replay = await drainReplay(ws);
     ws.close();
 
-    const orbitTypes = replay.filter((e) => e.type.startsWith("orbit.")).map((e) => e.type);
+    const orbitTypes = replay
+      .filter((e) => e.type.startsWith("orbit."))
+      .map((e) => e.type);
     expect(orbitTypes).not.toContain("orbit.round.opened");
     expect(orbitTypes).not.toContain("orbit.round.promoted");
     expect(orbitTypes[0]).toBe("orbit.note.created");
@@ -163,16 +210,24 @@ describe("orbit state TTL replay on WS reconnect", () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     await app.listen({ host: "127.0.0.1", port: 0 });
     const { room } = await setupRoomWithAgent(app);
-    const observer = await inviteWithRole(app, room.room_id, room.owner_token, "observer", "Obs");
+    const observer = await inviteWithRole(
+      app,
+      room.room_id,
+      room.owner_token,
+      "observer",
+      "Obs"
+    );
 
     await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/orbit/notes`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "ephemeral note" }
+      payload: { text: "ephemeral note" },
     });
 
-    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${observer.token}`);
+    const ws = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${observer.token}`
+    );
     await waitForOpen(ws);
     const replay = await drainReplay(ws);
     ws.close();
@@ -189,10 +244,12 @@ describe("orbit state TTL replay on WS reconnect", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/orbit/notes`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "ephemeral note" }
+      payload: { text: "ephemeral note" },
     });
 
-    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${agent.agent_token}`);
+    const ws = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${agent.agent_token}`
+    );
     await waitForOpen(ws);
     const replay = await drainReplay(ws);
     ws.close();
@@ -204,13 +261,19 @@ describe("orbit state TTL replay on WS reconnect", () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     await app.listen({ host: "127.0.0.1", port: 0 });
     const { room } = await setupRoomWithAgent(app);
-    const liker = await inviteWithRole(app, room.room_id, room.owner_token, "member", "Liker");
+    const liker = await inviteWithRole(
+      app,
+      room.room_id,
+      room.owner_token,
+      "member",
+      "Liker"
+    );
 
     const noteRes = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/orbit/notes`,
       headers: { authorization: `Bearer ${room.owner_token}` },
-      payload: { text: "likeable" }
+      payload: { text: "likeable" },
     });
     const noteId = (noteRes.json() as { note_id: string }).note_id;
 
@@ -218,19 +281,29 @@ describe("orbit state TTL replay on WS reconnect", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/orbit/notes/${noteId}/like`,
       headers: { authorization: `Bearer ${liker.token}` },
-      payload: {}
+      payload: {},
     });
     expect(likeRes.statusCode).toBe(201);
 
     // Owner reconnects — should see total likes = 1, but their own liked = false
-    const ws = new WebSocket(`ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`);
+    const ws = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
     await waitForOpen(ws);
     const replay = await drainReplay(ws);
     ws.close();
 
-    const likeEvent = replay.find((e) => e.type === "orbit.like.changed" && (e.payload as { note_id: string }).note_id === noteId);
+    const likeEvent = replay.find(
+      (e) =>
+        e.type === "orbit.like.changed" &&
+        (e.payload as { note_id: string }).note_id === noteId
+    );
     expect(likeEvent).toBeDefined();
-    const payload = likeEvent!.payload as { participant_id: string; liked: boolean; likes: number };
+    const payload = likeEvent!.payload as {
+      participant_id: string;
+      liked: boolean;
+      likes: number;
+    };
     expect(payload.likes).toBe(1);
     expect(payload.liked).toBe(false); // owner did not like it
     expect(payload.participant_id).toBe(room.owner_id);

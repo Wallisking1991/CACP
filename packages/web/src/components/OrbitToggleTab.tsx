@@ -8,7 +8,12 @@ export interface OrbitToggleTabProps {
   onClick: () => void;
 }
 
-export function OrbitToggleTab({ open, unreadCount, hasMentions, onClick }: OrbitToggleTabProps) {
+export function OrbitToggleTab({
+  open,
+  unreadCount,
+  hasMentions,
+  onClick,
+}: OrbitToggleTabProps) {
   const t = useT();
   const label = String(t("orbit.toggle"));
   const displayCount = unreadCount > 9 ? "9+" : String(unreadCount);
@@ -22,7 +27,9 @@ export function OrbitToggleTab({ open, unreadCount, hasMentions, onClick }: Orbi
     >
       <BubbleIcon width={20} height={20} />
       {unreadCount > 0 && (
-        <span className={`orbit-unread-badge${hasMentions ? " orbit-unread-badge--mention" : ""}`}>
+        <span
+          className={`orbit-unread-badge${hasMentions ? " orbit-unread-badge--mention" : ""}`}
+        >
           {displayCount}
         </span>
       )}

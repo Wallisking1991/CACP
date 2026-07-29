@@ -1,62 +1,134 @@
+import { testConnectorCompatibility } from "./test-compatibility.js";
 import { describe, expect, it, vi } from "vitest";
+import { StructuredMessageContentSchema } from "@cacp/protocol";
 import { buildServer } from "../src/server.js";
+
+function contentOf(payload: Record<string, unknown>) {
+  return StructuredMessageContentSchema.parse(payload.content);
+}
 
 async function createRoom() {
   const app = await buildServer({ dbPath: ":memory:" });
   const response = await app.inject({
     method: "POST",
     url: "/rooms",
-    payload: { name: "Conversation Room", display_name: "Alice" }
+    payload: { name: "Conversation Room", display_name: "Alice" },
   });
   expect(response.statusCode).toBe(201);
-  const room = response.json() as { room_id: string; owner_id: string; owner_token: string };
-  return { app, room, ownerAuth: { authorization: `Bearer ${room.owner_token}` } };
+  const room = response.json() as {
+    room_id: string;
+    owner_id: string;
+    owner_token: string;
+  };
+  return {
+    app,
+    room,
+    ownerAuth: { authorization: `Bearer ${room.owner_token}` },
+  };
 }
 
-async function registerAgent(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, auth: { authorization: string }, name = "Claude Code Agent") {
+async function registerAgent(
+  app: Awaited<ReturnType<typeof buildServer>>,
+  roomId: string,
+  auth: { authorization: string },
+  name = "Claude Code Agent"
+) {
   const response = await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/agents/register`,
     headers: auth,
-    payload: { name, capabilities: ["claude-code", "claude.persistent_session"] }
+    payload: {
+      compatibility: testConnectorCompatibility,
+      name,
+      capabilities: ["claude-code", "claude.persistent_session"],
+    },
   });
   expect(response.statusCode).toBe(201);
   return response.json() as { agent_id: string; agent_token: string };
 }
 
-async function setupClaudeSession(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, ownerAuth: { authorization: string }, agentId: string, agentToken: string) {
-  expect((await app.inject({
-    method: "POST",
-    url: `/rooms/${roomId}/claude/session-selection`,
-    headers: ownerAuth,
-    payload: { agent_id: agentId, mode: "fresh" }
-  })).statusCode).toBe(201);
-  expect((await app.inject({
-    method: "POST",
-    url: `/rooms/${roomId}/claude/session-ready`,
-    headers: { authorization: `Bearer ${agentToken}` },
-    payload: { agent_id: agentId, mode: "fresh", session_id: "session_fresh", ready_at: "2026-04-29T00:00:00.000Z" }
-  })).statusCode).toBe(201);
+async function setupClaudeSession(
+  app: Awaited<ReturnType<typeof buildServer>>,
+  roomId: string,
+  ownerAuth: { authorization: string },
+  agentId: string,
+  agentToken: string
+) {
+  expect(
+    (
+      await app.inject({
+        method: "POST",
+        url: `/rooms/${roomId}/claude/session-selection`,
+        headers: ownerAuth,
+        payload: { agent_id: agentId, mode: "fresh" },
+      })
+    ).statusCode
+  ).toBe(201);
+  expect(
+    (
+      await app.inject({
+        method: "POST",
+        url: `/rooms/${roomId}/claude/session-ready`,
+        headers: { authorization: `Bearer ${agentToken}` },
+        payload: {
+          agent_id: agentId,
+          mode: "fresh",
+          session_id: "session_fresh",
+          ready_at: "2026-04-29T00:00:00.000Z",
+        },
+      })
+    ).statusCode
+  ).toBe(201);
 }
 
-async function joinMember(app: Awaited<ReturnType<typeof buildServer>>, roomId: string, auth: { authorization: string }, displayName = "Bob") {
+async function joinMember(
+  app: Awaited<ReturnType<typeof buildServer>>,
+  roomId: string,
+  auth: { authorization: string },
+  displayName = "Bob"
+) {
   const invite = await app.inject({
     method: "POST",
     url: `/rooms/${roomId}/invites`,
     headers: auth,
-    payload: { role: "member", expires_in_seconds: 3600 }
+    payload: { role: "member", expires_in_seconds: 3600 },
   });
   expect(invite.statusCode).toBe(201);
   const inviteBody = invite.json() as { invite_token: string };
-  const pending = await app.inject({ method: "POST", url: `/rooms/${roomId}/join-requests`, payload: { invite_token: inviteBody.invite_token, display_name: displayName } });
+  const pending = await app.inject({
+    method: "POST",
+    url: `/rooms/${roomId}/join-requests`,
+    payload: {
+      invite_token: inviteBody.invite_token,
+      display_name: displayName,
+    },
+  });
   expect(pending.statusCode).toBe(201);
-  const request = pending.json() as { request_id: string; request_token: string };
-  const approved = await app.inject({ method: "POST", url: `/rooms/${roomId}/join-requests/${request.request_id}/approve`, headers: auth, payload: {} });
+  const request = pending.json() as {
+    request_id: string;
+    request_token: string;
+  };
+  const approved = await app.inject({
+    method: "POST",
+    url: `/rooms/${roomId}/join-requests/${request.request_id}/approve`,
+    headers: auth,
+    payload: {},
+  });
   expect(approved.statusCode).toBe(201);
-  const status = await app.inject({ method: "GET", url: `/rooms/${roomId}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}` });
+  const status = await app.inject({
+    method: "GET",
+    url: `/rooms/${roomId}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}`,
+  });
   expect(status.statusCode).toBe(200);
-  const joined = status.json() as { participant_id: string; participant_token: string; role: "member" };
-  return { ...joined, auth: { authorization: `Bearer ${joined.participant_token}` } };
+  const joined = status.json() as {
+    participant_id: string;
+    participant_token: string;
+    role: "member";
+  };
+  return {
+    ...joined,
+    auth: { authorization: `Bearer ${joined.participant_token}` },
+  };
 }
 
 describe("CACP server conversation room", () => {
@@ -64,41 +136,110 @@ describe("CACP server conversation room", () => {
     const { app, room, ownerAuth } = await createRoom();
     const agent = await registerAgent(app, room.room_id, ownerAuth);
     const agentAuth = { authorization: `Bearer ${agent.agent_token}` };
-    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/select`, headers: ownerAuth, payload: { agent_id: agent.agent_id } });
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agents/select`,
+      headers: ownerAuth,
+      payload: { agent_id: agent.agent_id },
+    });
 
-    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "Message before session choice" } })).statusCode).toBe(201);
-    let events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
-    expect(events.filter((event) => event.type === "agent.turn.requested")).toHaveLength(0);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/rooms/${room.room_id}/messages`,
+          headers: ownerAuth,
+          payload: { text: "Message before session choice" },
+        })
+      ).statusCode
+    ).toBe(201);
+    let events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events as Array<{
+      type: string;
+      payload: Record<string, unknown>;
+    }>;
+    expect(
+      events.filter((event) => event.type === "agent.turn.requested")
+    ).toHaveLength(0);
 
     const selection = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/claude/session-selection`,
       headers: ownerAuth,
-      payload: { agent_id: agent.agent_id, mode: "fresh" }
+      payload: { agent_id: agent.agent_id, mode: "fresh" },
     });
     expect(selection.statusCode).toBe(201);
 
-    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "Message after session choice but before runtime ready" } })).statusCode).toBe(201);
-    events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
-    expect(events.filter((event) => event.type === "agent.turn.requested")).toHaveLength(0);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/rooms/${room.room_id}/messages`,
+          headers: ownerAuth,
+          payload: {
+            text: "Message after session choice but before runtime ready",
+          },
+        })
+      ).statusCode
+    ).toBe(201);
+    events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events;
+    expect(
+      events.filter((event) => event.type === "agent.turn.requested")
+    ).toHaveLength(0);
 
     const ready = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/claude/session-ready`,
       headers: agentAuth,
-      payload: { agent_id: agent.agent_id, mode: "fresh", session_id: "session_fresh", ready_at: "2026-04-29T00:00:00.000Z" }
+      payload: {
+        agent_id: agent.agent_id,
+        mode: "fresh",
+        session_id: "session_fresh",
+        ready_at: "2026-04-29T00:00:00.000Z",
+      },
     });
     expect(ready.statusCode).toBe(201);
 
-    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "Message after runtime ready" } })).statusCode).toBe(201);
-    events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
-    const requestedTurns = events.filter((event) => event.type === "agent.turn.requested");
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/rooms/${room.room_id}/messages`,
+          headers: ownerAuth,
+          payload: { text: "Message after runtime ready" },
+        })
+      ).statusCode
+    ).toBe(201);
+    events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events;
+    const requestedTurns = events.filter(
+      (event) => event.type === "agent.turn.requested"
+    );
     expect(requestedTurns).toHaveLength(1);
     expect(requestedTurns[0].payload).toMatchObject({
       agent_id: agent.agent_id,
       room_name: "Conversation Room",
-      message_text: "Message after runtime ready",
-      mode: "normal"
+      content: {
+        text: "Message after runtime ready",
+        attachments: [],
+      },
+      mode: "normal",
     });
     await app.close();
   });
@@ -111,56 +252,111 @@ describe("CACP server conversation room", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/agents/select`,
       headers: ownerAuth,
-      payload: { agent_id: agent.agent_id }
+      payload: { agent_id: agent.agent_id },
     });
     expect(select.statusCode).toBe(201);
-    await setupClaudeSession(app, room.room_id, ownerAuth, agent.agent_id, agent.agent_token);
+    await setupClaudeSession(
+      app,
+      room.room_id,
+      ownerAuth,
+      agent.agent_id,
+      agent.agent_token
+    );
 
     const humanMessage = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/messages`,
       headers: ownerAuth,
-      payload: { text: "我们下一步应该怎么设计多人 AI 协同？" }
+      payload: { text: "我们下一步应该怎么设计多人 AI 协同？" },
     });
     expect(humanMessage.statusCode).toBe(201);
 
-    let events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown>; actor_id: string }>;
-    const requested = events.find((event) => event.type === "agent.turn.requested");
+    let events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events as Array<{
+      type: string;
+      payload: Record<string, unknown>;
+      actor_id: string;
+    }>;
+    const requested = events.find(
+      (event) => event.type === "agent.turn.requested"
+    );
     expect(requested?.payload.agent_id).toBe(agent.agent_id);
-    expect(requested?.payload.message_text).toBe("我们下一步应该怎么设计多人 AI 协同？");
+    expect(contentOf(requested!.payload).text).toBe(
+      "我们下一步应该怎么设计多人 AI 协同？"
+    );
     const turnId = String(requested?.payload.turn_id);
     const agentAuth = { authorization: `Bearer ${agent.agent_token}` };
 
-    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${turnId}/start`, headers: agentAuth, payload: {} })).statusCode).toBe(201);
-    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${turnId}/delta`, headers: agentAuth, payload: { chunk: "建议先做主聊天框。" } })).statusCode).toBe(201);
-    expect((await app.inject({
-      method: "POST",
-      url: `/rooms/${room.room_id}/agent-turns/${turnId}/complete`,
-      headers: agentAuth,
-      payload: {
-        final_text: [
-          "建议先做主聊天框。",
-          "```cacp-decision",
-          "{\"title\":\"\u4e0b\u4e00\u6b65\u4f18\u5148\u5b9e\u73b0\u4ec0\u4e48\uff1f\",\"description\":\"\u8bf7\u9009\u62e9\u4e0b\u4e00\u6b65\u4f18\u5148\u5b9e\u73b0\u7684\u529f\u80fd\u3002\",\"kind\":\"single_choice\",\"options\":[{\"id\":\"chat\",\"label\":\"\u4e3b\u804a\u5929\u6846\"},{\"id\":\"invite\",\"label\":\"\u9080\u8bf7\u52a0\u5165\"}],\"policy\":\"room_default\",\"blocking\":true}",
-          "```"
-        ].join("\n"),
-        exit_code: 0
-      }
-    })).statusCode).toBe(201);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/rooms/${room.room_id}/agent-turns/${turnId}/start`,
+          headers: agentAuth,
+          payload: {},
+        })
+      ).statusCode
+    ).toBe(201);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/rooms/${room.room_id}/agent-turns/${turnId}/delta`,
+          headers: agentAuth,
+          payload: { chunk: "建议先做主聊天框。" },
+        })
+      ).statusCode
+    ).toBe(201);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/rooms/${room.room_id}/agent-turns/${turnId}/complete`,
+          headers: agentAuth,
+          payload: {
+            final_text: [
+              "建议先做主聊天框。",
+              "```cacp-decision",
+              '{"title":"\u4e0b\u4e00\u6b65\u4f18\u5148\u5b9e\u73b0\u4ec0\u4e48\uff1f","description":"\u8bf7\u9009\u62e9\u4e0b\u4e00\u6b65\u4f18\u5148\u5b9e\u73b0\u7684\u529f\u80fd\u3002","kind":"single_choice","options":[{"id":"chat","label":"\u4e3b\u804a\u5929\u6846"},{"id":"invite","label":"\u9080\u8bf7\u52a0\u5165"}],"policy":"room_default","blocking":true}',
+              "```",
+            ].join("\n"),
+            exit_code: 0,
+          },
+        })
+      ).statusCode
+    ).toBe(201);
 
-    events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
-    expect(events.map((event) => event.type)).toEqual(expect.arrayContaining([
-      "room.agent_selected",
-      "message.created",
-      "agent.turn.requested",
-      "agent.turn.started",
-      "agent.output.delta",
-      "agent.turn.completed"
-    ]));
-    const finalMessage = events.find((event) => event.type === "message.created" && event.actor_id === agent.agent_id);
-    expect(finalMessage?.payload.text).toContain("建议先做主聊天框");
+    events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events;
+    expect(events.map((event) => event.type)).toEqual(
+      expect.arrayContaining([
+        "room.agent_selected",
+        "message.created",
+        "agent.turn.requested",
+        "agent.turn.started",
+        "agent.output.delta",
+        "agent.turn.completed",
+      ])
+    );
+    const finalMessage = events.find(
+      (event) =>
+        event.type === "message.created" && event.actor_id === agent.agent_id
+    );
+    expect(contentOf(finalMessage!.payload).text).toContain("建议先做主聊天框");
     expect(finalMessage?.payload.kind).toBe("agent");
-    expect(events.some((event) => event.type.startsWith("decision."))).toBe(false);
+    expect(events.some((event) => event.type.startsWith("decision."))).toBe(
+      false
+    );
 
     await app.close();
   });
@@ -168,26 +364,85 @@ describe("CACP server conversation room", () => {
   it("queues one followup instead of starting duplicate turns while an agent is running", async () => {
     const { app, room, ownerAuth } = await createRoom();
     const agent = await registerAgent(app, room.room_id, ownerAuth);
-    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/select`, headers: ownerAuth, payload: { agent_id: agent.agent_id } });
-    await setupClaudeSession(app, room.room_id, ownerAuth, agent.agent_id, agent.agent_token);
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agents/select`,
+      headers: ownerAuth,
+      payload: { agent_id: agent.agent_id },
+    });
+    await setupClaudeSession(
+      app,
+      room.room_id,
+      ownerAuth,
+      agent.agent_id,
+      agent.agent_token
+    );
 
-    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "第一条" } });
-    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "第二条" } });
-    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "第三条" } });
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/messages`,
+      headers: ownerAuth,
+      payload: { text: "第一条" },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/messages`,
+      headers: ownerAuth,
+      payload: { text: "第二条" },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/messages`,
+      headers: ownerAuth,
+      payload: { text: "第三条" },
+    });
 
-    let events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
-    expect(events.filter((event) => event.type === "agent.turn.requested")).toHaveLength(1);
-    expect(events.filter((event) => event.type === "agent.turn.followup_queued")).toHaveLength(1);
-    const firstTurn = events.find((event) => event.type === "agent.turn.requested")!;
+    let events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events as Array<{
+      type: string;
+      payload: Record<string, unknown>;
+    }>;
+    expect(
+      events.filter((event) => event.type === "agent.turn.requested")
+    ).toHaveLength(1);
+    expect(
+      events.filter((event) => event.type === "agent.turn.followup_queued")
+    ).toHaveLength(1);
+    const firstTurn = events.find(
+      (event) => event.type === "agent.turn.requested"
+    )!;
     const agentAuth = { authorization: `Bearer ${agent.agent_token}` };
     const turnId = String(firstTurn.payload.turn_id);
 
-    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${turnId}/start`, headers: agentAuth, payload: {} });
-    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${turnId}/complete`, headers: agentAuth, payload: { final_text: "收到。", exit_code: 0 } });
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-turns/${turnId}/start`,
+      headers: agentAuth,
+      payload: {},
+    });
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-turns/${turnId}/complete`,
+      headers: agentAuth,
+      payload: { final_text: "收到。", exit_code: 0 },
+    });
 
-    events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
-    expect(events.filter((event) => event.type === "agent.turn.requested")).toHaveLength(2);
-    expect(events.at(-1)?.payload.message_text).toContain("第三条");
+    events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events;
+    expect(
+      events.filter((event) => event.type === "agent.turn.requested")
+    ).toHaveLength(2);
+    expect(contentOf(events.at(-1)!.payload).text).toContain("第三条");
 
     await app.close();
   });
@@ -198,17 +453,61 @@ describe("CACP server conversation room", () => {
       vi.setSystemTime(new Date("2026-04-28T00:00:00.000Z"));
       const { app, room, ownerAuth } = await createRoom();
       const agent = await registerAgent(app, room.room_id, ownerAuth);
-      await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/select`, headers: ownerAuth, payload: { agent_id: agent.agent_id } });
-      await setupClaudeSession(app, room.room_id, ownerAuth, agent.agent_id, agent.agent_token);
-      await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "First slow question" } });
+      await app.inject({
+        method: "POST",
+        url: `/rooms/${room.room_id}/agents/select`,
+        headers: ownerAuth,
+        payload: { agent_id: agent.agent_id },
+      });
+      await setupClaudeSession(
+        app,
+        room.room_id,
+        ownerAuth,
+        agent.agent_id,
+        agent.agent_token
+      );
+      await app.inject({
+        method: "POST",
+        url: `/rooms/${room.room_id}/messages`,
+        headers: ownerAuth,
+        payload: { text: "First slow question" },
+      });
 
       vi.setSystemTime(new Date("2026-04-28T00:03:10.000Z"));
-      expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "Second queued question" } })).statusCode).toBe(201);
+      expect(
+        (
+          await app.inject({
+            method: "POST",
+            url: `/rooms/${room.room_id}/messages`,
+            headers: ownerAuth,
+            payload: { text: "Second queued question" },
+          })
+        ).statusCode
+      ).toBe(201);
 
-      const events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
-      expect(events.filter((event) => event.type === "agent.turn.requested")).toHaveLength(1);
-      expect(events.filter((event) => event.type === "agent.turn.followup_queued")).toHaveLength(1);
-      expect(events.some((event) => event.type === "agent.turn.failed" && event.payload.error === "stale_turn_recovered")).toBe(false);
+      const events = (
+        await app.inject({
+          method: "GET",
+          url: `/rooms/${room.room_id}/events`,
+          headers: ownerAuth,
+        })
+      ).json().events as Array<{
+        type: string;
+        payload: Record<string, unknown>;
+      }>;
+      expect(
+        events.filter((event) => event.type === "agent.turn.requested")
+      ).toHaveLength(1);
+      expect(
+        events.filter((event) => event.type === "agent.turn.followup_queued")
+      ).toHaveLength(1);
+      expect(
+        events.some(
+          (event) =>
+            event.type === "agent.turn.failed" &&
+            event.payload.error === "stale_turn_recovered"
+        )
+      ).toBe(false);
       await app.close();
     } finally {
       vi.useRealTimers();
@@ -218,23 +517,84 @@ describe("CACP server conversation room", () => {
   it("starts a queued followup after an agent turn fails", async () => {
     const { app, room, ownerAuth } = await createRoom();
     const agent = await registerAgent(app, room.room_id, ownerAuth);
-    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/select`, headers: ownerAuth, payload: { agent_id: agent.agent_id } });
-    await setupClaudeSession(app, room.room_id, ownerAuth, agent.agent_id, agent.agent_token);
-    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "First question" } });
-    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "Second queued question" } });
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agents/select`,
+      headers: ownerAuth,
+      payload: { agent_id: agent.agent_id },
+    });
+    await setupClaudeSession(
+      app,
+      room.room_id,
+      ownerAuth,
+      agent.agent_id,
+      agent.agent_token
+    );
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/messages`,
+      headers: ownerAuth,
+      payload: { text: "First question" },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/messages`,
+      headers: ownerAuth,
+      payload: { text: "Second queued question" },
+    });
 
-    let events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
-    const turnId = String(events.find((event) => event.type === "agent.turn.requested")!.payload.turn_id);
+    let events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events as Array<{
+      type: string;
+      payload: Record<string, unknown>;
+    }>;
+    const turnId = String(
+      events.find((event) => event.type === "agent.turn.requested")!.payload
+        .turn_id
+    );
     const agentAuth = { authorization: `Bearer ${agent.agent_token}` };
 
-    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${turnId}/start`, headers: agentAuth, payload: {} })).statusCode).toBe(201);
-    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${turnId}/fail`, headers: agentAuth, payload: { error: "CLI exited", exit_code: 1 } })).statusCode).toBe(201);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/rooms/${room.room_id}/agent-turns/${turnId}/start`,
+          headers: agentAuth,
+          payload: {},
+        })
+      ).statusCode
+    ).toBe(201);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/rooms/${room.room_id}/agent-turns/${turnId}/fail`,
+          headers: agentAuth,
+          payload: { error: "CLI exited", exit_code: 1 },
+        })
+      ).statusCode
+    ).toBe(201);
 
-    events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
-    const requestedTurns = events.filter((event) => event.type === "agent.turn.requested");
+    events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events;
+    const requestedTurns = events.filter(
+      (event) => event.type === "agent.turn.requested"
+    );
     expect(requestedTurns).toHaveLength(2);
     expect(requestedTurns[1].payload.reason).toBe("queued_followup");
-    expect(requestedTurns[1].payload.message_text).toBe("Second queued question");
+    expect(contentOf(requestedTurns[1].payload).text).toBe(
+      "Second queued question"
+    );
     await app.close();
   });
 
@@ -242,41 +602,109 @@ describe("CACP server conversation room", () => {
     const { app, room, ownerAuth } = await createRoom();
     const agent = await registerAgent(app, room.room_id, ownerAuth);
     const agentAuth = { authorization: `Bearer ${agent.agent_token}` };
-    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/select`, headers: ownerAuth, payload: { agent_id: agent.agent_id } });
-    expect((await app.inject({
+    await app.inject({
       method: "POST",
-      url: `/rooms/${room.room_id}/claude/session-selection`,
+      url: `/rooms/${room.room_id}/agents/select`,
       headers: ownerAuth,
-      payload: { agent_id: agent.agent_id, mode: "fresh" }
-    })).statusCode).toBe(201);
-    expect((await app.inject({
+      payload: { agent_id: agent.agent_id },
+    });
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/rooms/${room.room_id}/claude/session-selection`,
+          headers: ownerAuth,
+          payload: { agent_id: agent.agent_id, mode: "fresh" },
+        })
+      ).statusCode
+    ).toBe(201);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/rooms/${room.room_id}/claude/session-ready`,
+          headers: agentAuth,
+          payload: {
+            agent_id: agent.agent_id,
+            mode: "fresh",
+            session_id: "session_fresh",
+            ready_at: "2026-04-29T00:00:00.000Z",
+          },
+        })
+      ).statusCode
+    ).toBe(201);
+
+    await app.inject({
       method: "POST",
-      url: `/rooms/${room.room_id}/claude/session-ready`,
-      headers: agentAuth,
-      payload: { agent_id: agent.agent_id, mode: "fresh", session_id: "session_fresh", ready_at: "2026-04-29T00:00:00.000Z" }
-    })).statusCode).toBe(201);
+      url: `/rooms/${room.room_id}/messages`,
+      headers: ownerAuth,
+      payload: { text: "First Claude question" },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/messages`,
+      headers: ownerAuth,
+      payload: { text: "Second queued Claude question" },
+    });
 
-    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "First Claude question" } });
-    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "Second queued Claude question" } });
-
-    let events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
-    const firstTurn = events.find((event) => event.type === "agent.turn.requested")!;
+    let events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events as Array<{
+      type: string;
+      payload: Record<string, unknown>;
+    }>;
+    const firstTurn = events.find(
+      (event) => event.type === "agent.turn.requested"
+    )!;
     const turnId = String(firstTurn.payload.turn_id);
 
-    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${turnId}/start`, headers: agentAuth, payload: {} })).statusCode).toBe(201);
-    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${turnId}/fail`, headers: agentAuth, payload: { error: "Claude process exited", exit_code: 1 } })).statusCode).toBe(201);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/rooms/${room.room_id}/agent-turns/${turnId}/start`,
+          headers: agentAuth,
+          payload: {},
+        })
+      ).statusCode
+    ).toBe(201);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/rooms/${room.room_id}/agent-turns/${turnId}/fail`,
+          headers: agentAuth,
+          payload: { error: "Claude process exited", exit_code: 1 },
+        })
+      ).statusCode
+    ).toBe(201);
 
-    events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
-    const requestedTurns = events.filter((event) => event.type === "agent.turn.requested");
+    events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events;
+    const requestedTurns = events.filter(
+      (event) => event.type === "agent.turn.requested"
+    );
     expect(requestedTurns).toHaveLength(2);
     expect(requestedTurns[1].payload).toMatchObject({
       agent_id: agent.agent_id,
       reason: "queued_followup",
-      message_text: "Second queued Claude question",
+      content: {
+        text: "Second queued Claude question",
+        attachments: [],
+      },
       speaker_name: "Alice",
       speaker_role: "owner",
       room_name: "Conversation Room",
-      mode: "followup"
+      mode: "followup",
     });
     await app.close();
   });
@@ -286,43 +714,118 @@ describe("CACP server conversation room", () => {
     const agent = await registerAgent(app, room.room_id, ownerAuth);
     const member = await joinMember(app, room.room_id, ownerAuth, "Bob");
     const agentAuth = { authorization: `Bearer ${agent.agent_token}` };
-    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/select`, headers: ownerAuth, payload: { agent_id: agent.agent_id } });
-    expect((await app.inject({
+    await app.inject({
       method: "POST",
-      url: `/rooms/${room.room_id}/claude/session-selection`,
+      url: `/rooms/${room.room_id}/agents/select`,
       headers: ownerAuth,
-      payload: { agent_id: agent.agent_id, mode: "fresh" }
-    })).statusCode).toBe(201);
-    expect((await app.inject({
+      payload: { agent_id: agent.agent_id },
+    });
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/rooms/${room.room_id}/claude/session-selection`,
+          headers: ownerAuth,
+          payload: { agent_id: agent.agent_id, mode: "fresh" },
+        })
+      ).statusCode
+    ).toBe(201);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/rooms/${room.room_id}/claude/session-ready`,
+          headers: agentAuth,
+          payload: {
+            agent_id: agent.agent_id,
+            mode: "fresh",
+            session_id: "session_fresh",
+            ready_at: "2026-04-29T00:00:00.000Z",
+          },
+        })
+      ).statusCode
+    ).toBe(201);
+
+    await app.inject({
       method: "POST",
-      url: `/rooms/${room.room_id}/claude/session-ready`,
-      headers: agentAuth,
-      payload: { agent_id: agent.agent_id, mode: "fresh", session_id: "session_fresh", ready_at: "2026-04-29T00:00:00.000Z" }
-    })).statusCode).toBe(201);
+      url: `/rooms/${room.room_id}/messages`,
+      headers: ownerAuth,
+      payload: { text: "First Claude question" },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/messages`,
+      headers: ownerAuth,
+      payload: { text: "Second queued from owner" },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/messages`,
+      headers: ownerAuth,
+      payload: { text: "Third queued from owner" },
+    });
 
-    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "First Claude question" } });
-    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "Second queued from owner" } });
-    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "Third queued from owner" } });
-
-    let events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
-    expect(events.filter((event) => event.type === "agent.turn.followup_queued")).toHaveLength(1);
-    const firstTurn = events.find((event) => event.type === "agent.turn.requested")!;
+    let events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events as Array<{
+      type: string;
+      payload: Record<string, unknown>;
+    }>;
+    expect(
+      events.filter((event) => event.type === "agent.turn.followup_queued")
+    ).toHaveLength(1);
+    const firstTurn = events.find(
+      (event) => event.type === "agent.turn.requested"
+    )!;
     const turnId = String(firstTurn.payload.turn_id);
 
-    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${turnId}/start`, headers: agentAuth, payload: {} })).statusCode).toBe(201);
-    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${turnId}/complete`, headers: agentAuth, payload: { final_text: "Done", exit_code: 0 } })).statusCode).toBe(201);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/rooms/${room.room_id}/agent-turns/${turnId}/start`,
+          headers: agentAuth,
+          payload: {},
+        })
+      ).statusCode
+    ).toBe(201);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/rooms/${room.room_id}/agent-turns/${turnId}/complete`,
+          headers: agentAuth,
+          payload: { final_text: "Done", exit_code: 0 },
+        })
+      ).statusCode
+    ).toBe(201);
 
-    events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
-    const requestedTurns = events.filter((event) => event.type === "agent.turn.requested");
+    events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events;
+    const requestedTurns = events.filter(
+      (event) => event.type === "agent.turn.requested"
+    );
     expect(requestedTurns).toHaveLength(2);
     expect(requestedTurns[1].payload).toMatchObject({
       agent_id: agent.agent_id,
       reason: "queued_followup",
-      message_text: "Queued room messages:\nAlice (owner): Second queued from owner\nAlice (owner): Third queued from owner",
+      content: {
+        text: "Queued room messages:\nAlice (owner): Second queued from owner\nAlice (owner): Third queued from owner",
+        attachments: [],
+      },
       speaker_name: "Room participants",
       speaker_role: "member",
       room_name: "Conversation Room",
-      mode: "followup"
+      mode: "followup",
     });
     await app.close();
   });
@@ -330,23 +833,84 @@ describe("CACP server conversation room", () => {
   it("starts a queued followup after an agent turn completes", async () => {
     const { app, room, ownerAuth } = await createRoom();
     const agent = await registerAgent(app, room.room_id, ownerAuth);
-    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agents/select`, headers: ownerAuth, payload: { agent_id: agent.agent_id } });
-    await setupClaudeSession(app, room.room_id, ownerAuth, agent.agent_id, agent.agent_token);
-    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "First question" } });
-    await app.inject({ method: "POST", url: `/rooms/${room.room_id}/messages`, headers: ownerAuth, payload: { text: "Second queued question" } });
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agents/select`,
+      headers: ownerAuth,
+      payload: { agent_id: agent.agent_id },
+    });
+    await setupClaudeSession(
+      app,
+      room.room_id,
+      ownerAuth,
+      agent.agent_id,
+      agent.agent_token
+    );
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/messages`,
+      headers: ownerAuth,
+      payload: { text: "First question" },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/messages`,
+      headers: ownerAuth,
+      payload: { text: "Second queued question" },
+    });
 
-    let events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events as Array<{ type: string; payload: Record<string, unknown> }>;
-    const turnId = String(events.find((event) => event.type === "agent.turn.requested")!.payload.turn_id);
+    let events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events as Array<{
+      type: string;
+      payload: Record<string, unknown>;
+    }>;
+    const turnId = String(
+      events.find((event) => event.type === "agent.turn.requested")!.payload
+        .turn_id
+    );
     const agentAuth = { authorization: `Bearer ${agent.agent_token}` };
 
-    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${turnId}/start`, headers: agentAuth, payload: {} })).statusCode).toBe(201);
-    expect((await app.inject({ method: "POST", url: `/rooms/${room.room_id}/agent-turns/${turnId}/complete`, headers: agentAuth, payload: { final_text: "Done", exit_code: 0 } })).statusCode).toBe(201);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/rooms/${room.room_id}/agent-turns/${turnId}/start`,
+          headers: agentAuth,
+          payload: {},
+        })
+      ).statusCode
+    ).toBe(201);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/rooms/${room.room_id}/agent-turns/${turnId}/complete`,
+          headers: agentAuth,
+          payload: { final_text: "Done", exit_code: 0 },
+        })
+      ).statusCode
+    ).toBe(201);
 
-    events = (await app.inject({ method: "GET", url: `/rooms/${room.room_id}/events`, headers: ownerAuth })).json().events;
-    const requestedTurns = events.filter((event) => event.type === "agent.turn.requested");
+    events = (
+      await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/events`,
+        headers: ownerAuth,
+      })
+    ).json().events;
+    const requestedTurns = events.filter(
+      (event) => event.type === "agent.turn.requested"
+    );
     expect(requestedTurns).toHaveLength(2);
     expect(requestedTurns[1].payload.reason).toBe("queued_followup");
-    expect(requestedTurns[1].payload.message_text).toBe("Second queued question");
+    expect(contentOf(requestedTurns[1].payload).text).toBe(
+      "Second queued question"
+    );
     await app.close();
   });
 });
