@@ -116,11 +116,18 @@ CACP 可以接入不同类型的 Agent。
 
 使用房间时请保持连接器窗口打开。关闭它会断开本地 Agent。
 
+如果没有检测到 Agent，可运行连接器包中的 `Doctor.bat`、
+`Doctor.command` 或 `doctor.sh`。诊断报告会展示连接器与协议版本、
+解析到的 Agent 运行时、固定的 SDK 版本和附件输入模式，但不会打印
+token 或文件内容。
+
 ### 4. 添加图片或文档
 
 房主和管理员可以在“发送给 Agent”的消息中附加受支持的图片、PDF、文本/源码和 Office 文档。服务端会验证类型、大小、扩展名和校验和；本地连接器在把文件交给 Agent 前还会再次校验。
 
-附件只是临时房间数据，不作为永久文件库保存；房间删除时会立即清理。
+每个文件都会显示字节级上传进度，并且可以取消或单独重试而不丢失草稿。
+输入框还会显示当前房间用量和默认 50 MiB 配额。附件只是临时房间数据，
+不作为永久文件库保存；房间删除时会立即清理。
 
 ### 5. 邀请成员或观察者
 
@@ -249,6 +256,10 @@ corepack pnpm --filter @cacp/cli-adapter test
 ```powershell
 corepack pnpm package:connector
 ```
+
+GitHub Actions 中提供手动触发的 `live agent compatibility` 工作流，
+用于在带登录态、隔离的 Windows runner 上验证四种 Agent 的真实回合。
+普通 CI 不会使用 Agent 凭证或消耗模型额度。
 
 ## 开发者说明
 

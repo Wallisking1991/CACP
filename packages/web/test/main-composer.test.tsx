@@ -132,7 +132,15 @@ describe("MainComposer", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: /Trigger Agent/i }));
 
-    await waitFor(() => expect(onUploadAttachment).toHaveBeenCalledWith(file));
+    await waitFor(() =>
+      expect(onUploadAttachment).toHaveBeenCalledWith(
+        file,
+        expect.objectContaining({
+          signal: expect.any(AbortSignal),
+          onProgress: expect.any(Function),
+        })
+      )
+    );
     await waitFor(() =>
       expect(onSendMainInput).toHaveBeenCalledWith("Read this", [uploaded])
     );
@@ -162,5 +170,116 @@ describe("MainComposer", () => {
     );
     expect(textarea).toHaveValue("Keep this draft");
     expect(screen.getByText("notes.txt")).toBeInTheDocument();
+  });
+
+  it("shows upload progress and lets the user cancel without losing the draft", async () => {
+    const onUploadAttachment = vi.fn(
+      (
+        _file: File,
+        options: {
+          signal?: AbortSignal;
+          onProgress?: (progress: {
+            loaded_bytes: number;
+            total_bytes: number;
+            percent: number;
+          }) => void;
+        } = {}
+      ) =>
+        new Promise<never>((_resolve, reject) => {
+          options.onProgress?.({
+            loaded_bytes: 2,
+            total_bytes: 5,
+            percent: 40,
+          });
+          options.signal?.addEventListener(
+            "abort",
+            () =>
+              reject(
+                new DOMException("Attachment upload cancelled", "AbortError")
+              ),
+            { once: true }
+          );
+        })
+    );
+    renderMainComposer({
+      ...baseProps,
+      onUploadAttachment,
+      onSendMainInput: vi.fn(),
+    });
+    const file = new File(["hello"], "notes.txt", { type: "text/plain" });
+    fireEvent.change(screen.getByTestId("main-composer-attachment-input"), {
+      target: { files: [file] },
+    });
+    const textarea = screen.getByPlaceholderText(
+      /Type a message for the Agent/i
+    );
+    fireEvent.change(textarea, { target: { value: "Keep this draft" } });
+    fireEvent.click(screen.getByRole("button", { name: /Trigger Agent/i }));
+
+    const progress = await screen.findByRole("progressbar", {
+      name: /Uploading notes.txt/i,
+    });
+    expect(progress).toHaveAttribute("value", "40");
+    fireEvent.click(
+      screen.getByRole("button", { name: /Cancel upload for notes.txt/i })
+    );
+
+    expect(
+      await screen.findByRole("button", { name: /Retry notes.txt/i })
+    ).toBeInTheDocument();
+    expect(textarea).toHaveValue("Keep this draft");
+  });
+
+  it("retries a failed attachment independently", async () => {
+    const uploaded = {
+      attachment_id: "att_1",
+      name: "notes.txt",
+      media_type: "text/plain",
+      size_bytes: 5,
+      sha256: "0".repeat(64),
+      kind: "text" as const,
+      disposition: "inline" as const,
+    };
+    const onUploadAttachment = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("network unavailable"))
+      .mockResolvedValueOnce(uploaded);
+    renderMainComposer({
+      ...baseProps,
+      onUploadAttachment,
+      onSendMainInput: vi.fn(),
+    });
+    const file = new File(["hello"], "notes.txt", { type: "text/plain" });
+    fireEvent.change(screen.getByTestId("main-composer-attachment-input"), {
+      target: { files: [file] },
+    });
+    fireEvent.change(
+      screen.getByPlaceholderText(/Type a message for the Agent/i),
+      { target: { value: "Read this" } }
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Trigger Agent/i }));
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Retry notes.txt/i })
+    );
+    await waitFor(() => expect(onUploadAttachment).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(/Ready to send/i)).toBeInTheDocument();
+  });
+
+  it("shows the room attachment quota and ephemeral lifetime", () => {
+    renderMainComposer({
+      ...baseProps,
+      attachmentUsage: {
+        used_bytes: 5 * 1024 * 1024,
+        max_bytes: 50 * 1024 * 1024,
+        expires_with_room: true,
+      },
+    });
+
+    expect(
+      screen.getByRole("progressbar", { name: /Temporary room storage/i })
+    ).toHaveAttribute("value", String(5 * 1024 * 1024));
+    expect(screen.getByText(/5.0 MB \/ 50.0 MB/i)).toBeInTheDocument();
+    expect(screen.getByText(/deleted when the room ends/i)).toBeInTheDocument();
   });
 });

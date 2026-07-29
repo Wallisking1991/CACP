@@ -7,6 +7,7 @@ import { ProtocolVersion } from "@cacp/protocol";
 
 export const ConnectorProtocolVersion = ProtocolVersion;
 export const ConnectorVersion = "0.5.0";
+export const CodexSdkVersion = "0.146.0";
 
 export const AgentAdapterCompatibilityManifest = [
   {
@@ -25,7 +26,7 @@ export const AgentAdapterCompatibilityManifest = [
   {
     provider: "codex-cli",
     sdk_package: "@openai/codex-sdk",
-    sdk_version: "0.146.0",
+    sdk_version: CodexSdkVersion,
     input_capabilities: {
       image: "native",
       pdf: "file_path",

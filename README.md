@@ -116,11 +116,19 @@ Start the connector and paste the CACP connection code shown in the web room.
 
 Keep the connector window open while using the room. Closing it disconnects the local agent.
 
+If an Agent is not detected, run `Doctor.bat`, `Doctor.command`, or `doctor.sh`
+from the Connector bundle. The report shows the Connector and protocol
+versions, resolved Agent runtimes, pinned SDK versions, and attachment input
+modes without printing tokens or file contents.
+
 ### 4. Add images or documents
 
 Owners and admins can attach supported images, PDFs, text/source files, and Office documents to a Send-to-Agent message. The server validates type, size, extension, and checksum; the connector verifies the file again before exposing it to the selected tool agent.
 
-Attachments are temporary room data. They are not kept as a permanent file library and are deleted immediately when the room is deleted.
+Each file shows byte progress and can be cancelled or retried without losing
+the draft. The composer also shows current room usage against the default
+50 MiB quota. Attachments are temporary room data: they are not kept as a
+permanent file library and are deleted immediately when the room is deleted.
 
 ### 5. Invite members or observers
 
@@ -249,6 +257,11 @@ Build the cross-platform Local Connector bundle:
 ```powershell
 corepack pnpm package:connector
 ```
+
+An authenticated four-Agent compatibility workflow is available as
+`live agent compatibility` in GitHub Actions. It runs only when manually
+dispatched on a credentialed, isolated Windows runner labelled
+`cacp-agent-e2e`; normal CI never consumes Agent credentials or model quota.
 
 ## Developer notes
 

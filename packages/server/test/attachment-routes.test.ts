@@ -196,6 +196,97 @@ describe("ephemeral room attachments", () => {
     expect(download.headers["x-content-type-options"]).toBe("nosniff");
   });
 
+  it("reports room attachment usage and lets the uploader discard an unbound attachment", async () => {
+    const { app, room, attachmentStore } = await fixture();
+    const uploaded = await upload(app, room.room_id, room.owner_token);
+    expect(uploaded.statusCode).toBe(201);
+    const attachment = uploaded.json().attachment as {
+      attachment_id: string;
+    };
+
+    const usage = await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/attachments`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+    });
+    expect(usage.statusCode).toBe(200);
+    expect(usage.json()).toEqual({
+      used_bytes: OnePixelPng.length,
+      max_bytes: 50 * 1024 * 1024,
+      expires_with_room: true,
+    });
+
+    const discarded = await app.inject({
+      method: "DELETE",
+      url: `/rooms/${room.room_id}/attachments/${attachment.attachment_id}`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+    });
+    expect(discarded.statusCode).toBe(204);
+    expect(await attachmentStore.storedFiles()).toEqual([]);
+
+    const emptyUsage = await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/attachments`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+    });
+    expect(emptyUsage.json()).toMatchObject({ used_bytes: 0 });
+  });
+
+  it("does not discard an attachment after it is bound to a main input", async () => {
+    const { app, room } = await fixture();
+    const uploaded = await upload(app, room.room_id, room.owner_token);
+    const attachment = uploaded.json().attachment as {
+      attachment_id: string;
+    };
+
+    const agentResponse = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agents/register`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: {
+        compatibility: testConnectorCompatibility,
+        name: "Kimi",
+        capabilities: ["kimi-cli"],
+      },
+    });
+    const agent = agentResponse.json() as {
+      agent_id: string;
+      agent_token: string;
+    };
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agents/select`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: { agent_id: agent.agent_id },
+    });
+    await markTestAgentReady(
+      app,
+      room.room_id,
+      room.owner_token,
+      agent.agent_id,
+      agent.agent_token
+    );
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/main-inputs`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: {
+        text: "Keep this image.",
+        attachment_ids: [attachment.attachment_id],
+      },
+    });
+
+    const discarded = await app.inject({
+      method: "DELETE",
+      url: `/rooms/${room.room_id}/attachments/${attachment.attachment_id}`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+    });
+    expect(discarded.statusCode).toBe(409);
+    expect(discarded.json()).toMatchObject({
+      error: "attachment_already_attached",
+    });
+  });
+
   it("deletes attachment bytes before owner leave completes", async () => {
     const { app, room, attachmentStore } = await fixture();
     const uploaded = await upload(app, room.room_id, room.owner_token);

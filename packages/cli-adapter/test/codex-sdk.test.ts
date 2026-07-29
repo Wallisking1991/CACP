@@ -121,7 +121,7 @@ describe("Codex SDK boundary", () => {
     });
   });
 
-  it("finds the Codex binary in a pnpm virtual store layout", () => {
+  it("prefers the SDK-matched Codex binary in a multi-version pnpm store", () => {
     const tmp = mkdtempSync(join(tmpdir(), "codex-test-"));
     const originalCwd = process.cwd();
     try {
@@ -131,7 +131,7 @@ describe("Codex SDK boundary", () => {
           ? "x86_64-pc-windows-msvc"
           : "x86_64-unknown-linux-musl";
       const binName = process.platform === "win32" ? "codex.exe" : "codex";
-      const binDir = join(
+      const staleBinDir = join(
         tmp,
         "node_modules",
         ".pnpm",
@@ -143,6 +143,22 @@ describe("Codex SDK boundary", () => {
         triple,
         "codex"
       );
+      const binDir = join(
+        tmp,
+        "node_modules",
+        ".pnpm",
+        "@openai+codex@0.146.0",
+        "node_modules",
+        "@openai",
+        "codex",
+        "vendor",
+        triple,
+        "bin"
+      );
+      mkdirSync(staleBinDir, { recursive: true });
+      writeFileSync(join(staleBinDir, binName), "stale-binary", {
+        mode: 0o755,
+      });
       mkdirSync(binDir, { recursive: true });
       writeFileSync(join(binDir, binName), "fake-binary", { mode: 0o755 });
 

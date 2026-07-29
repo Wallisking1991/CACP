@@ -44,10 +44,11 @@ Text remains required and is limited to 4,000 characters. A message may bind up 
 2. The server stages the stream outside its final path and enforces file, message, and room quotas.
 3. The server checks the filename, claimed media type, detected signature, extension, and UTF-8 validity where applicable.
 4. After successful validation, the server atomically commits the bytes and returns an attachment reference.
-5. The sender includes returned attachment IDs in `POST /rooms/:roomId/main-inputs`.
-6. The server verifies ownership and one-time binding, then emits structured `message.created`, `main_input.accepted`, and `agent.turn.requested` content.
-7. The connector downloads each file with its agent bearer token, verifies size and SHA-256, and materializes it below `<working-dir>/.cacp/rooms/<room-id>/attachments/<attachment-id>`.
-8. The selected adapter receives either native attachment input or an absolute verified path according to its manifest.
+5. The client may read current quota state from `GET /rooms/:roomId/attachments` and discard an unbound upload with `DELETE /rooms/:roomId/attachments/:attachmentId`.
+6. The sender includes returned attachment IDs in `POST /rooms/:roomId/main-inputs`.
+7. The server verifies ownership and one-time binding, then emits structured `message.created`, `main_input.accepted`, and `agent.turn.requested` content.
+8. The connector downloads each file with its agent bearer token, verifies size and SHA-256, and materializes it below `<working-dir>/.cacp/rooms/<room-id>/attachments/<attachment-id>`.
+9. The selected adapter receives either native attachment input or an absolute verified path according to its manifest.
 
 Authenticated room participants may download a bound attachment from `GET /rooms/:roomId/attachments/:attachmentId`. Responses use `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, restrictive Content Security Policy, and a safe content disposition.
 
@@ -101,6 +102,11 @@ Pairing claims and agent registration include:
 ```
 
 Attachment input modes are `native`, `file_path`, or `unsupported`. The reference connector publishes all four adapter entries. A missing/invalid v0.3 manifest or missing selected adapter is rejected with HTTP `426 connector_upgrade_required`; old connectors are never silently treated as attachment-compatible.
+
+The packaged Connector also exposes `--doctor` and `--doctor-json`. These
+commands report Node compatibility, resolved runtimes, exact SDK versions, and
+the attachment modes above. Authentication remains runtime-owned and is
+verified only when the selected Agent joins a room.
 
 ## Security boundary
 

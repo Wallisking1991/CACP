@@ -9,6 +9,23 @@ export default defineConfig({
   define: {
     __CONNECTOR_VERSION__: JSON.stringify(connectorVersion),
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          if (id.includes("/gsap/")) return "animation";
+          if (
+            id.includes("/react/") ||
+            id.includes("/react-dom/") ||
+            id.includes("/react-router")
+          )
+            return "react-vendor";
+          return "vendor";
+        },
+      },
+    },
+  },
   server: {
     proxy: {
       "/rooms": {

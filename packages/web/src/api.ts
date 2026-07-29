@@ -1,5 +1,13 @@
 import { CacpEventSchema, type CacpEvent } from "@cacp/protocol";
-export { fetchAttachmentBlob, uploadAttachment } from "./attachment-api.js";
+export {
+  deleteAttachment,
+  fetchAttachmentBlob,
+  fetchAttachmentUsage,
+  uploadAttachment,
+  type AttachmentUploadOptions,
+  type AttachmentUploadProgress,
+  type AttachmentUsage,
+} from "./attachment-api.js";
 
 export interface RoomSession {
   room_id: string;

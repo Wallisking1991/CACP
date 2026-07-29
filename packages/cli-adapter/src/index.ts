@@ -51,11 +51,25 @@ import {
   cleanupRoomAttachments,
   materializeAttachments,
 } from "./connector/attachment-materializer.js";
+import {
+  collectConnectorDiagnostics,
+  formatConnectorDiagnostics,
+} from "./connector-diagnostics.js";
 
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
   console.log(
-    "Usage: cacp-cli-adapter [config.json]\n       cacp-cli-adapter --connect <connection_code>\n       cacp-cli-adapter --server <url> --pair <pairing_token>\n       cacp-cli-adapter --detect-cli\n\nDouble-click without arguments to paste a CACP connection code."
+    "Usage: cacp-cli-adapter [config.json]\n       cacp-cli-adapter --connect <connection_code>\n       cacp-cli-adapter --server <url> --pair <pairing_token>\n       cacp-cli-adapter --doctor\n       cacp-cli-adapter --doctor-json\n       cacp-cli-adapter --detect-cli\n\nDouble-click without arguments to paste a CACP connection code."
   );
+  process.exit(0);
+}
+
+if (process.argv.includes("--doctor-json")) {
+  console.log(JSON.stringify(collectConnectorDiagnostics(), null, 2));
+  process.exit(0);
+}
+
+if (process.argv.includes("--doctor")) {
+  console.log(formatConnectorDiagnostics(collectConnectorDiagnostics()));
   process.exit(0);
 }
 

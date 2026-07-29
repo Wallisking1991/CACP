@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import type {
   AgentInputCapabilities,
   AttachmentKind,
@@ -7,6 +7,10 @@ import type {
 import { useT } from "../i18n/useT.js";
 import { roomPermissionsForRole } from "../role-permissions.js";
 import type { RoomSession } from "../api.js";
+import type {
+  AttachmentUploadOptions,
+  AttachmentUsage,
+} from "../attachment-api.js";
 import MentionDropdown from "./MentionDropdown.js";
 import MentionOverlay from "./MentionOverlay.js";
 import type { MentionItem } from "./MentionDropdown.js";
@@ -18,7 +22,13 @@ export interface MainComposerProps {
   agents: Array<{ agent_id: string; name: string }>;
   agentReady?: boolean;
   attachmentCapabilities?: AgentInputCapabilities;
-  onUploadAttachment?: (file: File) => Promise<AttachmentRef>;
+  attachmentUsage?: AttachmentUsage;
+  onUploadAttachment?: (
+    file: File,
+    options?: AttachmentUploadOptions
+  ) => Promise<AttachmentRef>;
+  onDeleteAttachment?: (attachment: AttachmentRef) => Promise<void>;
+  onAttachmentUsageChanged?: () => void;
   onSendMainInput: (
     text: string,
     attachments: AttachmentRef[]
@@ -30,7 +40,9 @@ export interface MainComposerProps {
 interface PendingAttachment {
   id: string;
   file: File;
-  status: "pending" | "uploading" | "uploaded" | "failed";
+  status:
+    "pending" | "uploading" | "uploaded" | "failed" | "cancelled" | "deleting";
+  progress: number;
   uploaded?: AttachmentRef;
 }
 
@@ -130,6 +142,49 @@ function PaperclipIcon() {
   );
 }
 
+function RemoveIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18">
+      <path
+        d="m7 7 10 10M17 7 7 17"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="2"
+      />
+    </svg>
+  );
+}
+
+function CancelIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18">
+      <rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" />
+    </svg>
+  );
+}
+
+function RetryIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18">
+      <path
+        d="M19 8v5h-5M5.5 16a7 7 0 0 0 12-3M5 11V6h5m8.5 2A7 7 0 0 0 6 11"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  );
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException
+    ? error.name === "AbortError"
+    : error instanceof Error && error.name === "AbortError";
+}
+
 function SendIcon({ queued }: { queued: boolean }) {
   return queued ? (
     <svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20">
@@ -170,7 +225,10 @@ export default function MainComposer({
   agents,
   agentReady = true,
   attachmentCapabilities,
+  attachmentUsage,
   onUploadAttachment,
+  onDeleteAttachment,
+  onAttachmentUsageChanged,
   onSendMainInput,
   onTypingInput,
   onStopTyping,
@@ -186,6 +244,17 @@ export default function MainComposer({
   const [isSending, setIsSending] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadControllersRef = useRef(new Map<string, AbortController>());
+
+  useEffect(
+    () => () => {
+      for (const controller of uploadControllersRef.current.values()) {
+        controller.abort();
+      }
+      uploadControllersRef.current.clear();
+    },
+    []
+  );
 
   const perms = roomPermissionsForRole(role);
   const canInput = perms.canSendMainInput && agentReady;
@@ -252,12 +321,123 @@ export default function MainComposer({
           id: `${file.name}-${file.size}-${file.lastModified}`,
           file,
           status: "pending",
+          progress: 0,
         });
       }
       if (next.length > 0) setAttachments((current) => [...current, ...next]);
       if (error) setAttachmentError(error);
     },
     [attachmentCapabilities, attachments, t]
+  );
+
+  const uploadOne = useCallback(
+    async (attachment: PendingAttachment): Promise<AttachmentRef> => {
+      if (!onUploadAttachment)
+        throw new Error(String(t("mainComposer.attachmentUploadUnavailable")));
+      const controller = new AbortController();
+      uploadControllersRef.current.set(attachment.id, controller);
+      setAttachments((current) =>
+        current.map((item) =>
+          item.id === attachment.id
+            ? {
+                ...item,
+                status: "uploading",
+                progress: 0,
+                uploaded: undefined,
+              }
+            : item
+        )
+      );
+      try {
+        const uploaded = await onUploadAttachment(attachment.file, {
+          signal: controller.signal,
+          onProgress: ({ percent }) => {
+            setAttachments((current) =>
+              current.map((item) =>
+                item.id === attachment.id
+                  ? { ...item, progress: percent }
+                  : item
+              )
+            );
+          },
+        });
+        setAttachments((current) =>
+          current.map((item) =>
+            item.id === attachment.id
+              ? { ...item, status: "uploaded", progress: 100, uploaded }
+              : item
+          )
+        );
+        onAttachmentUsageChanged?.();
+        return uploaded;
+      } catch (cause) {
+        setAttachments((current) =>
+          current.map((item) =>
+            item.id === attachment.id
+              ? {
+                  ...item,
+                  status: isAbortError(cause) ? "cancelled" : "failed",
+                  progress: 0,
+                }
+              : item
+          )
+        );
+        throw cause;
+      } finally {
+        uploadControllersRef.current.delete(attachment.id);
+      }
+    },
+    [onAttachmentUsageChanged, onUploadAttachment, t]
+  );
+
+  const retryAttachment = useCallback(
+    (attachment: PendingAttachment) => {
+      setAttachmentError("");
+      void uploadOne(attachment).catch((cause) => {
+        setAttachmentError(
+          String(
+            t(
+              isAbortError(cause)
+                ? "mainComposer.attachmentUploadCancelled"
+                : "mainComposer.attachmentUploadFailed"
+            )
+          )
+        );
+      });
+    },
+    [t, uploadOne]
+  );
+
+  const removeAttachment = useCallback(
+    async (attachment: PendingAttachment) => {
+      if (attachment.status === "uploading") {
+        uploadControllersRef.current.get(attachment.id)?.abort();
+        return;
+      }
+      if (attachment.uploaded && onDeleteAttachment) {
+        setAttachments((current) =>
+          current.map((item) =>
+            item.id === attachment.id ? { ...item, status: "deleting" } : item
+          )
+        );
+        try {
+          await onDeleteAttachment(attachment.uploaded);
+          onAttachmentUsageChanged?.();
+        } catch {
+          setAttachments((current) =>
+            current.map((item) =>
+              item.id === attachment.id ? { ...item, status: "uploaded" } : item
+            )
+          );
+          setAttachmentError(String(t("mainComposer.attachmentDeleteFailed")));
+          return;
+        }
+      }
+      setAttachments((current) =>
+        current.filter((item) => item.id !== attachment.id)
+      );
+    },
+    [onAttachmentUsageChanged, onDeleteAttachment, t]
   );
 
   const handleSend = useCallback(async () => {
@@ -272,41 +452,23 @@ export default function MainComposer({
           uploaded.push(attachment.uploaded);
           continue;
         }
-        if (!onUploadAttachment)
-          throw new Error(
-            String(t("mainComposer.attachmentUploadUnavailable"))
-          );
-        setAttachments((current) =>
-          current.map((item) =>
-            item.id === attachment.id ? { ...item, status: "uploading" } : item
-          )
-        );
-        try {
-          const result = await onUploadAttachment(attachment.file);
-          uploaded.push(result);
-          setAttachments((current) =>
-            current.map((item) =>
-              item.id === attachment.id
-                ? { ...item, status: "uploaded", uploaded: result }
-                : item
-            )
-          );
-        } catch (cause) {
-          setAttachments((current) =>
-            current.map((item) =>
-              item.id === attachment.id ? { ...item, status: "failed" } : item
-            )
-          );
-          throw cause;
-        }
+        uploaded.push(await uploadOne(attachment));
       }
       await onSendMainInput(trimmed, uploaded);
       setText("");
       setAttachments([]);
       setMentionActive(false);
       onStopTyping();
-    } catch {
-      setAttachmentError(String(t("mainComposer.attachmentUploadFailed")));
+    } catch (cause) {
+      setAttachmentError(
+        String(
+          t(
+            isAbortError(cause)
+              ? "mainComposer.attachmentUploadCancelled"
+              : "mainComposer.attachmentUploadFailed"
+          )
+        )
+      );
     } finally {
       setIsSending(false);
     }
@@ -315,9 +477,9 @@ export default function MainComposer({
     isSending,
     onSendMainInput,
     onStopTyping,
-    onUploadAttachment,
     t,
     text,
+    uploadOne,
   ]);
 
   const handleKeyDown = useCallback(
@@ -432,30 +594,87 @@ export default function MainComposer({
                 <span className="main-composer__attachment-meta">
                   {formatFileSize(attachment.file.size)}
                   {mode ? ` · ${t(`mainComposer.mode.${mode}` as never)}` : ""}
-                  {attachment.status === "uploading"
-                    ? ` · ${t("mainComposer.uploading")}`
-                    : ""}
+                  {` · ${t(`mainComposer.status.${attachment.status}` as never)}`}
                 </span>
-                <button
-                  type="button"
-                  className="main-composer__attachment-remove"
-                  aria-label={String(
-                    t("mainComposer.removeAttachment", {
-                      name: attachment.file.name,
-                    })
+                {attachment.status === "uploading" && (
+                  <progress
+                    className="main-composer__attachment-progress"
+                    aria-label={String(
+                      t("mainComposer.uploadProgress", {
+                        name: attachment.file.name,
+                      })
+                    )}
+                    max={100}
+                    value={attachment.progress}
+                  />
+                )}
+                <div className="main-composer__attachment-actions">
+                  {(attachment.status === "failed" ||
+                    attachment.status === "cancelled") && (
+                    <button
+                      type="button"
+                      className="main-composer__attachment-action"
+                      aria-label={String(
+                        t("mainComposer.retryAttachment", {
+                          name: attachment.file.name,
+                        })
+                      )}
+                      disabled={isSending}
+                      onClick={() => retryAttachment(attachment)}
+                    >
+                      <RetryIcon />
+                    </button>
                   )}
-                  disabled={isSending}
-                  onClick={() =>
-                    setAttachments((current) =>
-                      current.filter((item) => item.id !== attachment.id)
-                    )
-                  }
-                >
-                  ×
-                </button>
+                  <button
+                    type="button"
+                    className="main-composer__attachment-action"
+                    aria-label={String(
+                      t(
+                        attachment.status === "uploading"
+                          ? "mainComposer.cancelUpload"
+                          : "mainComposer.removeAttachment",
+                        { name: attachment.file.name }
+                      )
+                    )}
+                    disabled={
+                      attachment.status === "deleting" ||
+                      (isSending && attachment.status !== "uploading")
+                    }
+                    onClick={() => void removeAttachment(attachment)}
+                  >
+                    {attachment.status === "uploading" ? (
+                      <CancelIcon />
+                    ) : (
+                      <RemoveIcon />
+                    )}
+                  </button>
+                </div>
               </div>
             );
           })}
+        </div>
+      )}
+      {attachmentUsage && (
+        <div className="main-composer__storage" aria-live="polite">
+          <div className="main-composer__storage-copy">
+            <span className="main-composer__storage-label">
+              {t("mainComposer.storageLabel")}
+            </span>
+            <span>
+              {t("mainComposer.storageSummary", {
+                used: formatFileSize(attachmentUsage.used_bytes),
+                max: formatFileSize(attachmentUsage.max_bytes),
+              })}
+              {" · "}
+              {t("mainComposer.storageExpires")}
+            </span>
+          </div>
+          <progress
+            className="main-composer__storage-progress"
+            aria-label={String(t("mainComposer.storageLabel"))}
+            max={attachmentUsage.max_bytes}
+            value={attachmentUsage.used_bytes}
+          />
         </div>
       )}
       {attachmentError && (
@@ -492,7 +711,7 @@ export default function MainComposer({
           aria-label={String(t("mainComposer.addAttachment"))}
           multiple
           accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.pdf,.txt,.md,.markdown,.csv,.json,.jsonc,.yaml,.yml,.toml,.xml,.html,.htm,.css,.scss,.less,.js,.mjs,.cjs,.jsx,.ts,.mts,.cts,.tsx,.py,.rb,.rs,.go,.java,.kt,.kts,.c,.h,.cc,.cpp,.cxx,.hpp,.cs,.php,.sh,.bash,.zsh,.ps1,.sql,.docx,.xlsx,.pptx"
-          disabled={!canInput || isSending}
+          disabled={!canInput || !onUploadAttachment || isSending}
           onChange={(event) => {
             addFiles(Array.from(event.currentTarget.files ?? []));
             event.currentTarget.value = "";
@@ -502,7 +721,12 @@ export default function MainComposer({
           type="button"
           className="composer-attachment-button"
           onClick={() => fileInputRef.current?.click()}
-          disabled={!canInput || isSending || attachments.length >= 5}
+          disabled={
+            !canInput ||
+            !onUploadAttachment ||
+            isSending ||
+            attachments.length >= 5
+          }
           aria-label={String(t("mainComposer.addAttachment"))}
           title={String(t("mainComposer.addAttachmentHint"))}
         >

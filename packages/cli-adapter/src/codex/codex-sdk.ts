@@ -2,6 +2,7 @@ import { execSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { CodexSdkVersion } from "../agent-compatibility.js";
 import type {
   CodexInput,
   CodexSdk,
@@ -85,8 +86,10 @@ function scanForBinary(
   triple: string,
   name: string
 ): string | undefined {
-  const candidate = join(baseDir, "vendor", triple, "codex", name);
-  if (existsSync(candidate)) return candidate;
+  const currentCandidate = join(baseDir, "vendor", triple, "bin", name);
+  if (existsSync(currentCandidate)) return currentCandidate;
+  const legacyCandidate = join(baseDir, "vendor", triple, "codex", name);
+  if (existsSync(legacyCandidate)) return legacyCandidate;
   return undefined;
 }
 
@@ -118,16 +121,35 @@ function scanPnpmVirtualStore(
     const pnpmDir = join(base, "node_modules", ".pnpm");
     if (!existsSync(pnpmDir)) continue;
     try {
-      const entries = readdirSync(pnpmDir, { withFileTypes: true });
+      const expectedPackage = `@openai+codex@${CodexSdkVersion}`;
+      const entries = readdirSync(pnpmDir, { withFileTypes: true })
+        .filter(
+          (entry) =>
+            entry.isDirectory() && entry.name.startsWith("@openai+codex@")
+        )
+        .sort((left, right) => {
+          const leftRank =
+            left.name === expectedPackage
+              ? 0
+              : left.name.startsWith(`${expectedPackage}-`)
+                ? 1
+                : 2;
+          const rightRank =
+            right.name === expectedPackage
+              ? 0
+              : right.name.startsWith(`${expectedPackage}-`)
+                ? 1
+                : 2;
+          if (leftRank !== rightRank) return leftRank - rightRank;
+          return right.name.localeCompare(left.name, "en", { numeric: true });
+        });
       for (const entry of entries) {
-        if (entry.isDirectory() && entry.name.startsWith("@openai+codex@")) {
-          const candidate = scanCodexPackageRoot(
-            join(pnpmDir, entry.name, "node_modules", "@openai", "codex"),
-            triple,
-            name
-          );
-          if (candidate) return candidate;
-        }
+        const candidate = scanCodexPackageRoot(
+          join(pnpmDir, entry.name, "node_modules", "@openai", "codex"),
+          triple,
+          name
+        );
+        if (candidate) return candidate;
       }
     } catch {
       // ignore

@@ -72,7 +72,7 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-node index.cjs --detect-cli
+node index.cjs --doctor
 
 echo.
 
@@ -112,7 +112,7 @@ if ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number
     exit 1
 fi
 
-node index.cjs --detect-cli
+node index.cjs --doctor
 
 echo "Starting CACP Local Connector..."
 node index.cjs
@@ -150,7 +150,7 @@ if ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number
     exit 1
 fi
 
-node index.cjs --detect-cli
+node index.cjs --doctor
 
 echo "Starting CACP Local Connector..."
 node index.cjs
@@ -165,6 +165,32 @@ fi
 await writeFile(resolve(staging, "Start.bat"), windowsBat);
 await writeFile(resolve(staging, "Start.command"), macCommand);
 await writeFile(resolve(staging, "start.sh"), linuxSh);
+await writeFile(
+  resolve(staging, "Doctor.bat"),
+  `@echo off
+setlocal
+cd /d "%~dp0"
+node index.cjs --doctor
+echo.
+pause
+`
+);
+await writeFile(
+  resolve(staging, "Doctor.command"),
+  `#!/bin/bash
+cd "$(dirname "$0")"
+node index.cjs --doctor
+echo ""
+read -p "Press Enter to close..."
+`
+);
+await writeFile(
+  resolve(staging, "doctor.sh"),
+  `#!/bin/bash
+cd "$(dirname "$0")"
+node index.cjs --doctor
+`
+);
 
 // 6. Package into ZIP
 const zipName = `CACP-Local-Connector-v${version}.zip`;

@@ -1,0 +1,76 @@
+name: live agent compatibility
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: live-agent-e2e
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  adapter:
+    name: ${{ matrix.agent }}
+    runs-on:
+      - self-hosted
+      - Windows
+      - X64
+      - cacp-agent-e2e
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        agent:
+          - claude-code
+          - codex-cli
+          - github-copilot
+          - kimi-cli
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Enable Corepack
+        shell: pwsh
+        run: corepack enable
+
+      - name: Install dependencies
+        shell: pwsh
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Build protocol
+        shell: pwsh
+        run: corepack pnpm --filter @cacp/protocol build
+
+      - name: Capture Connector diagnostics
+        shell: pwsh
+        run: |
+          corepack pnpm --filter @cacp/cli-adapter bundle:connector
+          node packages/cli-adapter/dist/connector/index.cjs --doctor-json |
+            Out-File -Encoding utf8 connector-doctor.json
+
+      - name: Run authenticated adapter turn
+        shell: pwsh
+        env:
+          CACP_LIVE_AGENT_E2E: "1"
+          CACP_LIVE_AGENT: ${{ matrix.agent }}
+        run: >-
+          corepack pnpm --filter @cacp/cli-adapter exec vitest run
+          test/live-agent-e2e.test.ts --reporter=verbose
+
+      - name: Upload diagnostic report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: connector-doctor-${{ matrix.agent }}
+          path: connector-doctor.json
+          if-no-files-found: ignore
+          retention-days: 14

@@ -2769,6 +2769,26 @@ export async function buildServer(options: BuildServerOptions = {}) {
     version: ProtocolVersion,
   }));
 
+  app.get<{ Params: { roomId: string } }>(
+    "/rooms/:roomId/attachments",
+    async (request, reply) => {
+      if (!aliveRooms.has(request.params.roomId))
+        return reply.code(410).send({ error: "room_ended" });
+      const participant = requireParticipant(
+        store,
+        request.params.roomId,
+        request
+      );
+      if (!participant) return deny(reply, "invalid_token");
+      reply.header("cache-control", "private, no-store");
+      return {
+        used_bytes: store.roomAttachmentBytes(request.params.roomId),
+        max_bytes: config.maxRoomAttachmentBytes,
+        expires_with_room: true,
+      };
+    }
+  );
+
   app.post<{ Params: { roomId: string } }>(
     "/rooms/:roomId/attachments",
     async (request, reply) => {
@@ -2904,6 +2924,38 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return reply.send(
       attachmentStore.open(request.params.roomId, request.params.attachmentId)
     );
+  });
+
+  app.delete<{
+    Params: { roomId: string; attachmentId: string };
+  }>("/rooms/:roomId/attachments/:attachmentId", async (request, reply) => {
+    if (!aliveRooms.has(request.params.roomId))
+      return reply.code(410).send({ error: "room_ended" });
+    const participant = requireParticipant(
+      store,
+      request.params.roomId,
+      request
+    );
+    if (!participant) return deny(reply, "invalid_token");
+    const attachment = store.getAttachment(
+      request.params.roomId,
+      request.params.attachmentId
+    );
+    if (!attachment) return deny(reply, "attachment_not_found", 404);
+    if (
+      participant.role !== "owner" &&
+      attachment.created_by !== participant.id
+    )
+      return deny(reply, "forbidden", 403);
+    if (attachment.message_id)
+      return deny(reply, "attachment_already_attached", 409);
+
+    await attachmentStore.delete(
+      request.params.roomId,
+      request.params.attachmentId
+    );
+    store.deleteAttachment(request.params.roomId, request.params.attachmentId);
+    return reply.code(204).send();
   });
 
   app.post("/rooms", async (request, reply) => {

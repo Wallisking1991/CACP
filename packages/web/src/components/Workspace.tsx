@@ -42,10 +42,13 @@ import {
   sendMainInput,
   cancelMainInput,
   clearOrbit,
+  deleteAttachment,
+  fetchAttachmentUsage,
   resolveAgentRunApproval,
   resolveAgentRunElicitation,
   fetchAttachmentBlob,
   uploadAttachment,
+  type AttachmentUsage,
 } from "../api.js";
 import {
   createTypingActivityController,
@@ -176,9 +179,22 @@ export default function Workspace({
   const [soundVolume, setSoundVolume] = useState(
     soundControllerRef.current.volume()
   );
+  const [attachmentUsage, setAttachmentUsage] = useState<AttachmentUsage>();
   const typingControllerRef = useRef<TypingActivityController | undefined>(
     undefined
   );
+
+  const refreshAttachmentUsage = useCallback(() => {
+    void fetchAttachmentUsage(session)
+      .then(setAttachmentUsage)
+      .catch(() => {});
+  }, [session]);
+
+  useEffect(() => {
+    refreshAttachmentUsage();
+    const timer = window.setInterval(refreshAttachmentUsage, 30_000);
+    return () => window.clearInterval(timer);
+  }, [refreshAttachmentUsage]);
   const prevEventsRef = useRef<CacpEvent[]>([]);
   const initialLoadCompleteRef = useRef(false);
   const growthTimerRef = useRef<number>(0);
@@ -766,7 +782,16 @@ export default function Workspace({
             agents={room.agents}
             agentReady={agentReady}
             attachmentCapabilities={activeAgent?.input_capabilities}
-            onUploadAttachment={(file) => uploadAttachment(session, file)}
+            attachmentUsage={attachmentUsage}
+            onUploadAttachment={
+              session.role === "owner" || session.role === "admin"
+                ? (file, options) => uploadAttachment(session, file, options)
+                : undefined
+            }
+            onDeleteAttachment={(attachment) =>
+              deleteAttachment(session, attachment.attachment_id)
+            }
+            onAttachmentUsageChanged={refreshAttachmentUsage}
             onSendMainInput={async (text, attachments) => {
               const agent = room.agents.find(
                 (a) => a.agent_id === room.activeAgentId
