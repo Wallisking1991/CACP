@@ -17,7 +17,7 @@
    - Copilot 1.x 的 client 构造参数发生了明确的不兼容变化，当前 `cliPath/useStdio/autoStart` 写法必须迁移到 `RuntimeConnection.forStdio({ path })`。
    - Claude 0.3.x 有工具、MCP 初始化与权限回调行为变化，需要更新事件归一化和回归测试。
    - Codex 和 Kimi 的 SDK 已有图片输入，但 CACP 自己的类型把输入收窄成了 `string`。
-3. 图片/文件上传应先建立 CACP 自己的统一附件模型，再由各适配器做降级映射。不能把附件直接拼进 prompt，也不能假设所有 “OpenAI-compatible” 或 “Anthropic-compatible” 服务都支持相同 content block。
+3. 图片/文件上传应先建立 CACP 自己的统一附件模型，再由各适配器做降级映射。不能把附件直接拼进 prompt，也不能假设四个底层工具支持相同 content block。
 4. 对任意文件最可靠的 Agent 路径是：服务器保存附件元数据和受控对象，Local Connector 下载到每房间/每消息的隔离工作目录，再把本地路径或 SDK 原生 attachment 传给 Agent。图片可在支持时走原生视觉输入；不支持时必须明确提示“仅作为工作区文件提供”，不能静默丢失。
 
 ## 当前仓库基线
@@ -33,18 +33,12 @@
 
 `^0.2.128` 不会自动进入 Claude `0.3.x`，`^0.3.0` 也不会自动进入 Copilot `1.x`；因此当前 lockfile 保持旧版是预期的 semver 结果。
 
-当前四个 Agent runtime 都把房间消息以纯字符串发送：
+调研开始时，四个 Agent runtime 都把房间消息以纯字符串发送：
 
 - Claude：[`claude/runtime.ts`](../../packages/cli-adapter/src/claude/runtime.ts) 调用 `query({ prompt: string })`。
 - Codex：[`codex/types.ts`](../../packages/cli-adapter/src/codex/types.ts) 和 [`codex/codex-sdk.ts`](../../packages/cli-adapter/src/codex/codex-sdk.ts) 将 `runStreamed` 收窄为 `string`。
 - Copilot：[`copilot/runtime.ts`](../../packages/cli-adapter/src/copilot/runtime.ts) 只调用 `session.send({ prompt })`。
 - Kimi：[`kimi/runtime.ts`](../../packages/cli-adapter/src/kimi/runtime.ts) 只调用 `session.prompt(prompt)`；虽然边界类型已容许数组，runtime 没有使用。
-
-当前 LLM provider 也仅支持纯文本：
-
-- [`llm/providers/types.ts`](../../packages/cli-adapter/src/llm/providers/types.ts) 只有 `openai-chat | anthropic-messages` 两种协议，request input 没有 attachment/content-part。
-- [`llm/providers/openai-chat.ts`](../../packages/cli-adapter/src/llm/providers/openai-chat.ts) 固定请求 `/chat/completions`，user `content` 为字符串。
-- [`llm/providers/anthropic-messages.ts`](../../packages/cli-adapter/src/llm/providers/anthropic-messages.ts) 的 user `content` 也是字符串。
 
 ## 逐适配器升级结论
 
@@ -170,44 +164,6 @@ Copilot 是四个 SDK 中附件接口最完整的：
 - URL 应优先使用短期、授权、不可猜测的下载地址；在 Connector 已取得文件时，也可生成 data URL，但必须设置大小上限。
 - 任意文件仍下载到 `workDir` 并在文本中引用受控路径。不要把 audio/video/image 支持解释成“任意文件上传都原生支持”。
 
-## OpenAI-compatible 与 Anthropic-compatible 的当前标准输入
-
-### OpenAI
-
-OpenAI 当前建议新项目使用 Responses API；Chat Completions 仍受支持。Responses 提供 typed Items、内置工具、多轮状态和原生多模态。[官方迁移指南](https://developers.openai.com/api/docs/guides/migrate-to-responses)
-
-两种需要支持但必须分开的形态：
-
-1. Chat Completions：
-   - 图片：user `content` 数组使用 `{ type: "text" }` 与 `{ type: "image_url", image_url: { url } }`，URL 可为公网 URL 或 data URL。[官方 vision 示例](https://developers.openai.com/api/docs/guides/images-vision#giving-a-model-images-as-input)
-   - 文件：当前官方 Chat Completions 示例支持 `{ type: "file", file: { file_id } }`。[官方 file inputs 示例](https://developers.openai.com/api/docs/guides/file-inputs)
-2. Responses：
-   - 文本/图片：`input_text`、`input_image`。
-   - 文件：`input_file`，可使用 base64 `file_data`、Files API `file_id` 或 external `file_url`。PDF 会同时提取文本和页面图像；docx/pptx/text 提取文本；表格有专门处理。[官方 file inputs 文档](https://developers.openai.com/api/docs/guides/file-inputs#how-it-works)
-
-对 CACP 的含义：
-
-- 不要把现有 `openai-chat` provider 原地改成 `/responses`；新增 `openai-responses` 协议族和对应 SSE parser，保留 Chat Completions。
-- `custom-openai-compatible` 默认能力只能是 text。增加显式 capabilities/config，例如 `visionChatContent`、`chatFileBlock`、`responses`、`responsesFileInput`；只有用户选择或探测确认后才发送对应 block。
-- SiliconFlow、Kimi API、MiniMax、GLM、DeepSeek 等当前复用 OpenAI Chat builder 的 provider，必须分别依据其官方 endpoint/model 文档开启能力；本文没有对它们作“均支持图片/文件”的推断。
-
-### Anthropic
-
-Canonical Anthropic Messages 使用 user `content` block 数组：
-
-- 图片为 `image`，source 是 base64、URL 或 Files API `file_id`。[官方 Vision](https://platform.claude.com/docs/en/build-with-claude/vision#send-images-to-claude)
-- PDF/文本文件为 `document`，source 是 URL、base64 或 Files API `file_id`；二进制 Office 文件需要转换。[官方 PDF support](https://platform.claude.com/docs/en/build-with-claude/pdf-support#process-pdfs-with-claude)
-
-对 `custom-anthropic-compatible` 同样不能默认启用所有 block。建议用 capability flags 分开表示：
-
-- `imageBase64`
-- `imageUrl`
-- `filesApi`
-- `documentPdf`
-- `documentText`
-
-若网关只兼容基础 Messages text，则 UI 仍允许上传，但 adapter 应改走本地文件路径/文本提取降级，并向用户显示降级状态。
-
 ## 推荐的统一附件架构
 
 ### 1. Protocol 层：消息只引用附件，不把二进制塞进 WebSocket event
@@ -250,7 +206,7 @@ type AgentPromptPart =
 
 ### 4. Adapter capability negotiation
 
-建议每个 adapter/provider 暴露：
+建议每个 adapter 暴露：
 
 ```ts
 type AdapterInputCapabilities = {
@@ -266,15 +222,12 @@ type AdapterInputCapabilities = {
 
 推荐映射：
 
-| Adapter            | 图片最佳路径                 | 任意文件最佳路径                              | 需要明确的降级                    |
-| ------------------ | ---------------------------- | --------------------------------------------- | --------------------------------- |
-| Claude Agent       | `SDKUserMessage` image block | PDF/text document block；其他为本地工作区路径 | Office/binary 不可伪装成 document |
-| Codex              | `local_image`                | 工作目录/`additionalDirectories` + 文本引用   | SDK 没有通用 file input           |
-| Copilot            | `file` 或小图 `blob`         | `file` attachment                             | directory 必须单独授权            |
-| Kimi               | `image_url`/data URL         | `workDir` 路径 + 文本引用                     | 没有通用 file part                |
-| OpenAI Chat        | `image_url` content          | `file` block（仅确认支持时）                  | 兼容网关默认 text-only            |
-| OpenAI Responses   | `input_image`                | `input_file`                                  | 需要独立 endpoint/parser          |
-| Anthropic Messages | `image`                      | `document`（受支持格式）                      | 兼容网关默认 text-only            |
+| Adapter      | 图片最佳路径                 | 任意文件最佳路径                              | 需要明确的降级                    |
+| ------------ | ---------------------------- | --------------------------------------------- | --------------------------------- |
+| Claude Agent | `SDKUserMessage` image block | PDF/text document block；其他为本地工作区路径 | Office/binary 不可伪装成 document |
+| Codex        | `local_image`                | 工作目录/`additionalDirectories` + 文本引用   | SDK 没有通用 file input           |
+| Copilot      | `file` 或小图 `blob`         | `file` attachment                             | directory 必须单独授权            |
+| Kimi         | `image_url`/data URL         | `workDir` 路径 + 文本引用                     | 没有通用 file part                |
 
 关键 UX 原则：发送前在 composer 附件 chip 上显示最终能力状态——“原生视觉”“作为文件供 Agent 读取”“将提取文本”“此适配器不支持”。不允许上传成功但运行时静默忽略。
 
@@ -288,16 +241,13 @@ type AdapterInputCapabilities = {
 4. 接 Kimi `ContentPart[]` 与 Claude `SDKUserMessage`；同步升级 Claude 0.3.220 并处理 Task/MCP/permission 行为。
 5. 升 Copilot 1.0.8 并单独完成 constructor migration；不要与附件协议变更放进同一个难以回滚的提交。
 6. 升 Codex 0.146.0，扩展 Input、usage、MCP `_meta`。
-7. 最后扩展 HTTP LLM provider：
-   - 先让现有 Chat/Messages builder 接受 capability-gated content parts。
-   - 再新增 OpenAI Responses endpoint 和 SSE parser。
+7. HTTP LLM provider 保持归档，不进入当前主线；若未来恢复，必须通过新的 ADR 重新定义能力、权限和会话边界。
 
 最低验证矩阵：
 
 - 每个 Agent：新会话、恢复会话、纯文本、单图、多图、普通文件、取消、permission allow/deny、tool call、SDK/CLI 缺失错误。
 - 上传：越权下载、过大、MIME 伪造、hash 不匹配、重复上传、断点/失败、附件过期、房间事件重放。
 - Windows Connector/SEA：包含空格和非 ASCII 的路径、长路径、只读目录、打包后 SDK binary/runtime 解析。
-- provider：text-only capability 不发送多模态 block；已启用能力的 request snapshot 与官方形态一致；SSE 中 text/tool/error/terminal event 均能正确结束。
 
 ## 官方资料索引
 
@@ -305,4 +255,3 @@ type AdapterInputCapabilities = {
 - Codex：[0.146.0 release](https://github.com/openai/codex/releases/tag/rust-v0.146.0)、[TypeScript SDK README](https://github.com/openai/codex/blob/rust-v0.146.0/sdk/typescript/README.md)、[`thread.ts`](https://github.com/openai/codex/blob/rust-v0.146.0/sdk/typescript/src/thread.ts)。
 - Copilot：[1.0.8 release](https://github.com/github/copilot-sdk/releases/tag/v1.0.8)、[changelog](https://github.com/github/copilot-sdk/blob/v1.0.8/CHANGELOG.md)、[SDK/CLI compatibility](https://docs.github.com/en/copilot/how-tos/copilot-sdk/troubleshooting/compatibility)、[Node client types](https://github.com/github/copilot-sdk/blob/v1.0.8/nodejs/src/types.ts)。
 - Kimi：[npm package 0.1.8](https://www.npmjs.com/package/@moonshot-ai/kimi-agent-sdk/v/0.1.8)、[Node SDK README](https://github.com/MoonshotAI/kimi-agent-sdk/blob/main/node/agent_sdk/README.md)。
-- OpenAI API：[Responses migration](https://developers.openai.com/api/docs/guides/migrate-to-responses)、[Images and vision](https://developers.openai.com/api/docs/guides/images-vision)、[File inputs](https://developers.openai.com/api/docs/guides/file-inputs)。

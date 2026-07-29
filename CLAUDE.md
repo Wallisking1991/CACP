@@ -283,7 +283,8 @@ For the discipline around **which** tests to run during iteration vs. before com
 - Web API client: `packages/web/src/api.ts`
 - Web event log replay: `packages/web/src/event-log.ts`
 - CLI adapter entry: `packages/cli-adapter/src/index.ts`
-- LLM provider registry: `packages/cli-adapter/src/llm/providers/registry.ts`
+- Adapter compatibility manifest: `packages/cli-adapter/src/agent-compatibility.ts`
+- Attachment materializer: `packages/cli-adapter/src/connector/attachment-materializer.ts`
 - Codex binary discovery: `packages/cli-adapter/src/codex/`
 - Deployment runbook: `docs/deploy-cloud.md`
 - CI: `.github/workflows/ci.yml`
