@@ -102,10 +102,10 @@ function mediaTypeMatches(claimed: string, detected: string): boolean {
 }
 
 async function assertTextFile(path: string): Promise<void> {
-  const sample = (await readFile(path)).subarray(0, 64 * 1024);
-  if (sample.includes(0)) throw new Error("unsupported_attachment_type");
+  const contents = await readFile(path);
+  if (contents.includes(0)) throw new Error("unsupported_attachment_type");
   try {
-    new TextDecoder("utf-8", { fatal: true }).decode(sample);
+    new TextDecoder("utf-8", { fatal: true }).decode(contents);
   } catch {
     throw new Error("unsupported_attachment_type");
   }

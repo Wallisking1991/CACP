@@ -139,6 +139,29 @@ describe("attachment policy", () => {
     ).rejects.toThrow("unsupported_attachment_type");
     await expect(
       validateAttachment({
+        path: fixture(
+          "late-invalid.txt",
+          Buffer.concat([
+            Buffer.alloc(64 * 1024, 0x61),
+            Buffer.from([0xc3, 0x28]),
+          ])
+        ),
+        filename: "late-invalid.txt",
+        claimedMediaType: "text/plain",
+      })
+    ).rejects.toThrow("unsupported_attachment_type");
+    await expect(
+      validateAttachment({
+        path: fixture(
+          "late-null.txt",
+          Buffer.concat([Buffer.alloc(64 * 1024, 0x61), Buffer.from([0])])
+        ),
+        filename: "late-null.txt",
+        claimedMediaType: "text/plain",
+      })
+    ).rejects.toThrow("unsupported_attachment_type");
+    await expect(
+      validateAttachment({
         path: fixture("archive.zip", "archive"),
         filename: "archive.zip",
       })

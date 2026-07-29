@@ -27,7 +27,7 @@ async function createCloudRoom(dbPath: string) {
 }
 
 describe("cloud server endpoints", () => {
-  it("creates durable invite links that work after restart", async () => {
+  it("expires invite links when their live room ends on restart", async () => {
     const tempDir = mkdtempSync(join(tmpdir(), "cacp-cloud-server-"));
     const dbPath = join(tempDir, "cloud.db");
 
@@ -57,28 +57,15 @@ describe("cloud server endpoints", () => {
         url: `/rooms/${createdFirst.created.room_id}/join-requests`,
         payload: { invite_token: inviteToken, display_name: "Bob" },
       });
-      expect(pending.statusCode).toBe(201);
-      const request = pending.json() as {
-        request_id: string;
-        request_token: string;
-      };
-      const approved = await second.inject({
-        method: "POST",
-        url: `/rooms/${createdFirst.created.room_id}/join-requests/${request.request_id}/approve`,
-        headers: {
-          authorization: `Bearer ${createdFirst.created.owner_token}`,
-        },
-        payload: {},
-      });
-      expect(approved.statusCode).toBe(201);
-      const status = await second.inject({
+      expect(pending.statusCode).toBe(410);
+      expect(pending.json()).toEqual({ error: "room_ended" });
+      const verified = await second.inject({
         method: "GET",
-        url: `/rooms/${createdFirst.created.room_id}/join-requests/${request.request_id}?request_token=${encodeURIComponent(request.request_token)}`,
+        url: `/invites/verify?token=${encodeURIComponent(inviteToken)}`,
       });
-      expect(status.statusCode).toBe(200);
-      expect(status.json()).toMatchObject({
-        status: "approved",
-        role: "member",
+      expect(verified.json()).toEqual({
+        valid: false,
+        reason: "room_ended",
       });
       await second.close();
       second = undefined;
@@ -115,7 +102,7 @@ describe("cloud server endpoints", () => {
     await app.close();
   });
 
-  it("creates durable single-use pairings that work after restart", async () => {
+  it("expires unclaimed pairings when their live room ends on restart", async () => {
     const tempDir = mkdtempSync(join(tmpdir(), "cacp-cloud-server-"));
     const dbPath = join(tempDir, "cloud.db");
 
@@ -153,12 +140,8 @@ describe("cloud server endpoints", () => {
           adapter_name: "Cloud Echo",
         },
       });
-      expect(claimResponse.statusCode).toBe(201);
-      expect(claimResponse.json()).toMatchObject({
-        room_id: createdFirst.created.room_id,
-        agent_type: "claude-code",
-        permission_level: "read_only",
-      });
+      expect(claimResponse.statusCode).toBe(410);
+      expect(claimResponse.json()).toEqual({ error: "room_ended" });
 
       const secondClaimResponse = await second.inject({
         method: "POST",
@@ -168,10 +151,8 @@ describe("cloud server endpoints", () => {
           adapter_name: "Cloud Echo Again",
         },
       });
-      expect(secondClaimResponse.statusCode).toBe(409);
-      expect(secondClaimResponse.json()).toMatchObject({
-        error: "pairing_claimed",
-      });
+      expect(secondClaimResponse.statusCode).toBe(410);
+      expect(secondClaimResponse.json()).toEqual({ error: "room_ended" });
       await second.close();
       second = undefined;
     } finally {

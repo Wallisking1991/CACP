@@ -98,6 +98,62 @@ describe("EventStore", () => {
     }
   });
 
+  it("claims only still-unbound attachments for abandoned cleanup", () => {
+    const store = new EventStore(":memory:");
+    const base = {
+      room_id: "room_cleanup",
+      created_by: "user_owner",
+      name: "notes.txt",
+      media_type: "text/plain",
+      size_bytes: 5,
+      sha256: "a".repeat(64),
+      kind: "text" as const,
+      disposition: "inline" as const,
+      created_at: "2026-01-01T00:00:00.000Z",
+    };
+    try {
+      store.createAttachment({
+        ...base,
+        attachment_id: "att_abandoned",
+      });
+      store.createAttachment({
+        ...base,
+        attachment_id: "att_bound",
+      });
+      store.attachAttachments(
+        "room_cleanup",
+        ["att_bound"],
+        "input_already_bound"
+      );
+
+      expect(
+        store.deleteAbandonedAttachment(
+          "room_cleanup",
+          "att_abandoned",
+          "2026-01-02T00:00:00.000Z"
+        )
+      ).toBe(true);
+      expect(
+        store.deleteAbandonedAttachment(
+          "room_cleanup",
+          "att_bound",
+          "2026-01-02T00:00:00.000Z"
+        )
+      ).toBe(false);
+      expect(
+        store.getAttachment("room_cleanup", "att_abandoned")
+      ).toBeUndefined();
+      expect(store.getAttachment("room_cleanup", "att_bound")).toMatchObject({
+        message_id: "input_already_bound",
+      });
+      expect(store.deleteUnboundAttachment("room_cleanup", "att_bound")).toBe(
+        false
+      );
+    } finally {
+      store.close();
+    }
+  });
+
   it("migrates away legacy generic command pairings", () => {
     const tempDir = mkdtempSync(join(tmpdir(), "cacp-event-store-legacy-"));
     const dbPath = join(tempDir, "legacy.db");

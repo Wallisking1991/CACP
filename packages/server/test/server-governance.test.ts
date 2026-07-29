@@ -177,6 +177,39 @@ describe("CACP server pairing and room governance", () => {
     await app.close();
   });
 
+  it("rejects connectors that misreport the selected adapter SDK version", async () => {
+    const { app, room, ownerAuth } = await createRoom();
+    const staleCompatibility = {
+      ...testConnectorCompatibility,
+      adapters: testConnectorCompatibility.adapters.map((adapter) =>
+        adapter.provider === "claude-code"
+          ? { ...adapter, sdk_version: "0.2.128" }
+          : adapter
+      ),
+    };
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agents/register`,
+      headers: ownerAuth,
+      payload: {
+        compatibility: staleCompatibility,
+        name: "Outdated Claude",
+        capabilities: ["claude-code"],
+      },
+    });
+
+    expect(response.statusCode).toBe(426);
+    expect(response.json()).toMatchObject({
+      error: "connector_upgrade_required",
+      required_protocol: "0.3.0",
+      required_provider: "claude-code",
+      required_sdk_package: "@anthropic-ai/claude-agent-sdk",
+      required_sdk_version: "0.3.220",
+    });
+    await app.close();
+  });
+
   it("does not override an existing active agent when another paired adapter claims", async () => {
     const { app, room, ownerAuth } = await createRoom();
     const firstPairing = await app.inject({
@@ -346,6 +379,39 @@ describe("CACP server pairing and room governance", () => {
       "agent.pairing_created"
     );
 
+    await app.close();
+  });
+
+  it("accepts IPv6 loopback for local adapter launches", async () => {
+    const launcher = vi.fn(async () => ({ pid: 4242 }));
+    const app = await buildServer({
+      dbPath: ":memory:",
+      localAgentLauncher: launcher,
+    });
+    const response = await app.inject({
+      method: "POST",
+      url: "/rooms",
+      payload: { name: "IPv6 Room", display_name: "Alice" },
+    });
+    const room = response.json() as { room_id: string; owner_token: string };
+
+    const started = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-pairings/start-local`,
+      headers: {
+        authorization: `Bearer ${room.owner_token}`,
+        host: "[::1]:5173",
+      },
+      payload: {
+        agent_type: "codex-cli",
+        permission_level: "read_only",
+        working_dir: ".",
+        server_url: "http://[::1]:3737",
+      },
+    });
+
+    expect(started.statusCode).toBe(201);
+    expect(launcher).toHaveBeenCalledOnce();
     await app.close();
   });
 

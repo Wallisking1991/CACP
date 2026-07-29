@@ -95,11 +95,18 @@ export class FileSystemAttachmentStore implements AttachmentStore {
     await rm(join(this.root, "rooms", safeId(roomId)), {
       recursive: true,
       force: true,
+      maxRetries: 3,
+      retryDelay: 100,
     });
   }
 
   async purgeAll(): Promise<void> {
-    await rm(this.root, { recursive: true, force: true });
+    await rm(this.root, {
+      recursive: true,
+      force: true,
+      maxRetries: 3,
+      retryDelay: 100,
+    });
     await mkdir(this.tempRoot, { recursive: true });
   }
 

@@ -213,6 +213,42 @@ describe("aliveRooms registry / room_ended responses (T4)", () => {
     expect(evRes.json()).toEqual({ error: "room_ended" });
   });
 
+  it("rejects every room-scoped REST mutation after server restart", async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), "cacp-t4-"));
+    const dbPath = join(tmpDir, "test.db");
+
+    app = await buildServer({ dbPath, config: localTestConfig() });
+    const room = await ownerAndRoom(app);
+    await app.close();
+    app = undefined;
+
+    secondApp = await buildServer({ dbPath, config: localTestConfig() });
+    for (const request of [
+      {
+        method: "POST" as const,
+        url: `/rooms/${room.room_id}/invites`,
+        payload: { role: "member" },
+      },
+      {
+        method: "POST" as const,
+        url: `/rooms/${room.room_id}/activity/presence`,
+        payload: { presence: "online" },
+      },
+      {
+        method: "POST" as const,
+        url: `/rooms/${room.room_id}/leave`,
+        payload: {},
+      },
+    ]) {
+      const response = await secondApp.inject({
+        ...request,
+        headers: { authorization: `Bearer ${room.owner_token}` },
+      });
+      expect(response.statusCode).toBe(410);
+      expect(response.json()).toEqual({ error: "room_ended" });
+    }
+  });
+
   it("happy path — /me and /events succeed for a freshly created (alive) room", async () => {
     app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
     const room = await ownerAndRoom(app);

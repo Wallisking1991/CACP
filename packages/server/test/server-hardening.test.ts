@@ -288,7 +288,7 @@ describe("CACP server hardening", () => {
     ).toHaveLength(1);
   });
 
-  it("rejects additional votes on a terminal proposal after restart", async () => {
+  it("rejects proposal votes because the live room ends on restart", async () => {
     const dbPath = tempDbPath();
     const first = await trackedServer(dbPath);
     const { room, ownerAuth } = await createRoom(
@@ -309,11 +309,11 @@ describe("CACP server hardening", () => {
       payload: { vote: "reject" },
     });
 
-    expect(secondVote.statusCode).toBe(409);
-    expect(secondVote.json()).toEqual({ error: "proposal_closed" });
+    expect(secondVote.statusCode).toBe(410);
+    expect(secondVote.json()).toEqual({ error: "room_ended" });
   });
 
-  it("recovers persisted invite and proposal state after restart", async () => {
+  it("does not revive persisted invite or proposal state after restart", async () => {
     const dbPath = tempDbPath();
     const first = await trackedServer(dbPath);
     const { room, ownerAuth } = await createRoom(first, "First Owner");
@@ -341,25 +341,27 @@ describe("CACP server hardening", () => {
     untrack(first);
 
     const second = await trackedServer(dbPath);
-    const join = await joinViaApproval(
-      second,
-      room.room_id,
-      ownerAuth,
-      invite.json().invite_token,
-      "Bob"
-    );
-    expect(join.role).toBe("member");
+    const join = await second.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/join-requests`,
+      payload: {
+        invite_token: invite.json().invite_token,
+        display_name: "Bob",
+      },
+    });
+    expect(join.statusCode).toBe(410);
+    expect(join.json()).toEqual({ error: "room_ended" });
     const vote = await second.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/proposals/${proposal.json().proposal_id}/votes`,
       headers: ownerAuth,
       payload: { vote: "approve" },
     });
-    expect(vote.statusCode).toBe(201);
-    expect(vote.json().evaluation.status).toBe("approved");
+    expect(vote.statusCode).toBe(410);
+    expect(vote.json()).toEqual({ error: "room_ended" });
   });
 
-  it("recovers task assignment from persisted events after restart", async () => {
+  it("does not revive task assignments after restart", async () => {
     const dbPath = tempDbPath();
     const first = await trackedServer(dbPath);
     const { room, ownerAuth } = await createRoom(first, "Task Owner");
@@ -381,26 +383,14 @@ describe("CACP server hardening", () => {
 
     const second = await trackedServer(dbPath);
     const agentAuth = { authorization: `Bearer ${agent.agent_token}` };
-    expect(
-      (
-        await second.inject({
-          method: "POST",
-          url: `/rooms/${room.room_id}/tasks/${task.task_id}/start`,
-          headers: agentAuth,
-          payload: {},
-        })
-      ).statusCode
-    ).toBe(201);
-    expect(
-      (
-        await second.inject({
-          method: "POST",
-          url: `/rooms/${room.room_id}/tasks/${task.task_id}/complete`,
-          headers: agentAuth,
-          payload: { exit_code: 0 },
-        })
-      ).statusCode
-    ).toBe(201);
+    const start = await second.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/tasks/${task.task_id}/start`,
+      headers: agentAuth,
+      payload: {},
+    });
+    expect(start.statusCode).toBe(410);
+    expect(start.json()).toEqual({ error: "room_ended" });
   });
 
   it("rejects voting on a proposal through another room route", async () => {
@@ -1118,7 +1108,7 @@ describe("CACP server hardening", () => {
     }
   });
 
-  it("recovers completed task terminal state after restart", async () => {
+  it("rejects completed task updates because the room ends on restart", async () => {
     const dbPath = tempDbPath();
     const first = await trackedServer(dbPath);
     const { room, ownerAuth } = await createRoom(first, "Restarted Task Owner");
@@ -1171,8 +1161,8 @@ describe("CACP server hardening", () => {
         headers: agentAuth,
         payload,
       });
-      expect(response.statusCode).toBe(409);
-      expect(response.json()).toEqual({ error: "task_closed" });
+      expect(response.statusCode).toBe(410);
+      expect(response.json()).toEqual({ error: "room_ended" });
     }
   });
 });

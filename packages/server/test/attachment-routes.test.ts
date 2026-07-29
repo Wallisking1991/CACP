@@ -2,10 +2,12 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Readable } from "node:stream";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildServer } from "../src/server.js";
 import { FileSystemAttachmentStore } from "../src/attachment-store.js";
+import type { StagedAttachment } from "../src/attachment-store.js";
 import { localTestConfig } from "./test-config.js";
 import {
   markTestAgentReady,
@@ -16,6 +18,25 @@ const OnePixelPng = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
   "base64"
 );
+
+class ConcurrentStageAttachmentStore extends FileSystemAttachmentStore {
+  private stagedCount = 0;
+  private releaseStages: (() => void) | undefined;
+  private readonly bothStaged = new Promise<void>((resolve) => {
+    this.releaseStages = resolve;
+  });
+
+  override async stage(
+    stream: Readable,
+    maxBytes: number
+  ): Promise<StagedAttachment> {
+    const staged = await super.stage(stream, maxBytes);
+    this.stagedCount += 1;
+    if (this.stagedCount === 2) this.releaseStages?.();
+    await this.bothStaged;
+    return staged;
+  }
+}
 
 function multipartFile(
   name: string,
@@ -139,6 +160,13 @@ describe("ephemeral room attachments", () => {
       agent_id: string;
       agent_token: string;
     };
+    const unboundAgentDownload = await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/attachments/${attachment.attachment_id}`,
+      headers: { authorization: `Bearer ${agent.agent_token}` },
+    });
+    expect(unboundAgentDownload.statusCode).toBe(403);
+
     await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/agents/select`,
@@ -188,7 +216,7 @@ describe("ephemeral room attachments", () => {
     const download = await app.inject({
       method: "GET",
       url: `/rooms/${room.room_id}/attachments/${attachment.attachment_id}`,
-      headers: { authorization: `Bearer ${room.owner_token}` },
+      headers: { authorization: `Bearer ${agent.agent_token}` },
     });
     expect(download.statusCode).toBe(200);
     expect(download.rawPayload).toEqual(OnePixelPng);
@@ -318,6 +346,50 @@ describe("ephemeral room attachments", () => {
     expect(response.statusCode).toBe(413);
     expect(response.json()).toMatchObject({ error: "attachment_too_large" });
     expect(await attachmentStore.storedFiles()).toEqual([]);
+  });
+
+  it("reserves room quota atomically across concurrent uploads", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cacp-attachments-concurrent-"));
+    roots.push(root);
+    const attachmentStore = new ConcurrentStageAttachmentStore(root);
+    const app = await buildServer({
+      dbPath: ":memory:",
+      config: localTestConfig({
+        maxAttachmentBytes: 16,
+        maxRoomAttachmentBytes: 15,
+      }),
+      attachmentStore,
+    });
+    apps.push(app);
+    const room = await createRoom(app);
+    const bytes = Buffer.from("0123456789");
+
+    const responses = await Promise.all([
+      upload(
+        app,
+        room.room_id,
+        room.owner_token,
+        "first.txt",
+        "text/plain",
+        bytes
+      ),
+      upload(
+        app,
+        room.room_id,
+        room.owner_token,
+        "second.txt",
+        "text/plain",
+        bytes
+      ),
+    ]);
+
+    expect(responses.map((response) => response.statusCode).sort()).toEqual([
+      201, 409,
+    ]);
+    expect(
+      responses.find((response) => response.statusCode === 409)?.json()
+    ).toMatchObject({ error: "room_attachment_quota_exceeded" });
+    expect(await attachmentStore.storedFiles()).toHaveLength(1);
   });
 
   it("keeps active content safe by making SVG download-only", async () => {

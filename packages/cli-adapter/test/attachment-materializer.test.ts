@@ -74,6 +74,27 @@ describe("connector attachment materialization", () => {
     );
   });
 
+  it("reuses an already verified room-scoped attachment", async () => {
+    const workingDir = mkdtempSync(join(tmpdir(), "cacp-materialize-"));
+    roots.push(workingDir);
+    const bytes = Buffer.from("verified attachment");
+    const fetchImpl = vi.fn(async () => new Response(bytes));
+    const input = {
+      serverUrl: "https://cacp.example.com",
+      roomId: "room_1",
+      agentToken: "agent-secret",
+      workingDir,
+      attachment: attachmentRef("att_1", bytes),
+      fetchImpl,
+    };
+
+    const first = await materializeAttachment(input);
+    const second = await materializeAttachment(input);
+
+    expect(second).toEqual(first);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects digest mismatches before an Agent turn can start", async () => {
     const workingDir = mkdtempSync(join(tmpdir(), "cacp-materialize-"));
     roots.push(workingDir);

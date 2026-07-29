@@ -63,7 +63,10 @@ describe("connector index source", () => {
   });
 
   it("closes the Claude session gracefully on websocket close", () => {
-    expect(indexSource).toContain("claudeRuntime?.close()");
+    expect(indexSource).toContain(
+      'label: "Claude session", close: () => claudeRuntime.close()'
+    );
+    expect(indexSource).toContain("settleConnectorShutdown({");
   });
 
   it("creates a MainThreadLedger after agent registration", () => {

@@ -21,6 +21,7 @@ import {
   buildConnectionCode,
   AttachmentRefSchema,
   ConnectorCompatibilitySchema,
+  RequiredAgentAdapterCompatibility,
   ProtocolVersion,
   evaluatePolicy,
   ConnectorLedgerEntrySchema,
@@ -415,11 +416,27 @@ function requireConnectorCompatibility(
   const adapter = result.data.adapters.find(
     (entry) => entry.provider === provider
   );
-  if (!adapter) {
+  const requiredAdapter = RequiredAgentAdapterCompatibility.find(
+    (entry) => entry.provider === provider
+  );
+  const matchesRequiredAdapter =
+    adapter &&
+    requiredAdapter &&
+    adapter.sdk_package === requiredAdapter.sdk_package &&
+    adapter.sdk_version === requiredAdapter.sdk_version &&
+    Object.entries(requiredAdapter.input_capabilities).every(
+      ([key, value]) =>
+        adapter.input_capabilities[
+          key as keyof typeof adapter.input_capabilities
+        ] === value
+    );
+  if (!matchesRequiredAdapter) {
     reply.code(426).send({
       error: "connector_upgrade_required",
       required_protocol: ProtocolVersion,
       required_provider: provider,
+      required_sdk_package: requiredAdapter?.sdk_package,
+      required_sdk_version: requiredAdapter?.sdk_version,
     });
     return undefined;
   }
@@ -440,13 +457,19 @@ function attachmentRef(attachment: StoredAttachment): AttachmentRef {
 
 function isLocalHost(value: string | undefined): boolean {
   if (!value) return false;
-  const host = value.split(":")[0]?.toLowerCase();
-  return (
-    host === "127.0.0.1" ||
-    host === "localhost" ||
-    host === "::1" ||
-    host === "[::1]"
-  );
+  const normalized = value.trim().toLowerCase();
+  let host = normalized;
+  if (normalized.startsWith("[")) {
+    const closingBracket = normalized.indexOf("]");
+    if (closingBracket < 0) return false;
+    host = normalized.slice(1, closingBracket);
+  } else {
+    const firstColon = normalized.indexOf(":");
+    if (firstColon > 0 && firstColon === normalized.lastIndexOf(":")) {
+      host = normalized.slice(0, firstColon);
+    }
+  }
+  return host === "127.0.0.1" || host === "localhost" || host === "::1";
 }
 
 function isLocalUrl(value: string): boolean {
@@ -665,6 +688,30 @@ export async function buildServer(options: BuildServerOptions = {}) {
     options.attachmentStore ?? new FileSystemAttachmentStore(attachmentRoot);
   await attachmentStore.purgeAll();
   store.deleteAllAttachments();
+  const pendingAttachmentBytes = new Map<string, number>();
+  function roomAttachmentBytesWithReservations(roomId: string): number {
+    return (
+      store.roomAttachmentBytes(roomId) +
+      (pendingAttachmentBytes.get(roomId) ?? 0)
+    );
+  }
+  function reserveAttachmentBytes(roomId: string, sizeBytes: number): boolean {
+    if (
+      roomAttachmentBytesWithReservations(roomId) + sizeBytes >
+      config.maxRoomAttachmentBytes
+    )
+      return false;
+    pendingAttachmentBytes.set(
+      roomId,
+      (pendingAttachmentBytes.get(roomId) ?? 0) + sizeBytes
+    );
+    return true;
+  }
+  function releaseAttachmentBytes(roomId: string, sizeBytes: number): void {
+    const remaining = (pendingAttachmentBytes.get(roomId) ?? 0) - sizeBytes;
+    if (remaining > 0) pendingAttachmentBytes.set(roomId, remaining);
+    else pendingAttachmentBytes.delete(roomId);
+  }
   const bus = new EventBus();
   const orbitStates = new Map<string, OrbitRoomState>();
   function getOrbitState(roomId: string): OrbitRoomState {
@@ -750,6 +797,17 @@ export async function buildServer(options: BuildServerOptions = {}) {
    * dissolve the room. The set is process-local; we never persist it.
    */
   const aliveRooms = new Set<string>();
+  app.addHook("preHandler", async (request, reply) => {
+    const roomId = (request.params as { roomId?: unknown } | undefined)?.roomId;
+    if (
+      typeof roomId !== "string" ||
+      request.headers.upgrade?.toLowerCase() === "websocket"
+    )
+      return;
+    if (!aliveRooms.has(roomId)) {
+      return reply.code(410).send({ error: "room_ended" });
+    }
+  });
   const socketCounts = new Map<string, number>();
   const participantSockets = new Map<
     string,
@@ -762,6 +820,19 @@ export async function buildServer(options: BuildServerOptions = {}) {
   const APPROVAL_TIMEOUT_MS = options.approvalTimeoutMs ?? 5 * 60 * 1000;
   const ELICITATION_TIMEOUT_MS = options.elicitationTimeoutMs ?? 10 * 60 * 1000;
   let isClosing = false;
+
+  function discardRoomRuntimeState(roomId: string): void {
+    aliveRooms.delete(roomId);
+    orbitStates.delete(roomId);
+    queuedMainInputs.delete(roomId);
+    socketCounts.delete(roomId);
+    pendingAttachmentBytes.delete(roomId);
+    for (const [key, timer] of [...pendingOffline.entries()]) {
+      if (!key.startsWith(`${roomId}:`)) continue;
+      clearTimeout(timer);
+      pendingOffline.delete(key);
+    }
+  }
 
   function socketKey(roomId: string, participantId: string): string {
     return `${roomId}:${participantId}`;
@@ -808,6 +879,12 @@ export async function buildServer(options: BuildServerOptions = {}) {
     for (const [key, sockets] of [...participantSockets.entries()]) {
       if (!key.startsWith(`${roomId}:`)) continue;
       for (const socket of [...sockets]) socket.close(code, reason);
+    }
+  }
+
+  function forgetRoomSocketRegistry(roomId: string): void {
+    for (const key of [...participantSockets.keys()]) {
+      if (key.startsWith(`${roomId}:`)) participantSockets.delete(key);
     }
   }
 
@@ -860,8 +937,9 @@ export async function buildServer(options: BuildServerOptions = {}) {
       });
       publishEvents(storedEvents);
       closePendingInteractionsForRoom(roomId, "run_closed");
+      discardRoomRuntimeState(roomId);
       closeRoomSockets(roomId, 4001, "owner_disconnected");
-      aliveRooms.delete(roomId);
+      forgetRoomSocketRegistry(roomId);
       await attachmentStore.deleteRoom(roomId);
       store.deleteRoom(roomId);
       return;
@@ -909,16 +987,41 @@ export async function buildServer(options: BuildServerOptions = {}) {
     ).toISOString();
     const abandoned = store.listAbandonedAttachments(before);
     for (const attachment of abandoned) {
-      await attachmentStore.delete(
-        attachment.room_id,
-        attachment.attachment_id
-      );
-      store.deleteAttachment(attachment.room_id, attachment.attachment_id);
+      if (
+        !store.deleteAbandonedAttachment(
+          attachment.room_id,
+          attachment.attachment_id,
+          before
+        )
+      )
+        continue;
+      try {
+        await attachmentStore.delete(
+          attachment.room_id,
+          attachment.attachment_id
+        );
+      } catch (error) {
+        app.log.error(
+          {
+            error: error instanceof Error ? error.message : String(error),
+            roomId: attachment.room_id,
+            attachmentId: attachment.attachment_id,
+          },
+          "abandoned attachment file cleanup failed"
+        );
+      }
     }
   }
 
   const attachmentCleanupTimer = setInterval(
-    () => void cleanupAbandonedAttachments(),
+    () => {
+      void cleanupAbandonedAttachments().catch((error) => {
+        app.log.error(
+          { error: error instanceof Error ? error.message : String(error) },
+          "abandoned attachment cleanup failed"
+        );
+      });
+    },
     Math.min(config.attachmentAbandonMs, 60_000)
   );
   attachmentCleanupTimer.unref();
@@ -2803,13 +2906,14 @@ export async function buildServer(options: BuildServerOptions = {}) {
       if (!hasHumanRole(participant, ["owner", "admin"]))
         return deny(reply, "forbidden", 403);
       if (
-        store.roomAttachmentBytes(request.params.roomId) >=
+        roomAttachmentBytesWithReservations(request.params.roomId) >=
         config.maxRoomAttachmentBytes
       )
         return deny(reply, "room_attachment_quota_exceeded", 409);
 
       let staged: Awaited<ReturnType<AttachmentStore["stage"]>> | undefined;
       let committedAttachmentId: string | undefined;
+      let reservedBytes = 0;
       try {
         const part = await (
           request as typeof request & {
@@ -2831,11 +2935,9 @@ export async function buildServer(options: BuildServerOptions = {}) {
           config.maxAttachmentBytes
         );
         if (part.file.truncated) throw new Error("attachment_too_large");
-        if (
-          store.roomAttachmentBytes(request.params.roomId) + staged.sizeBytes >
-          config.maxRoomAttachmentBytes
-        )
+        if (!reserveAttachmentBytes(request.params.roomId, staged.sizeBytes))
           throw new Error("room_attachment_quota_exceeded");
+        reservedBytes = staged.sizeBytes;
 
         const validated = await validateAttachment({
           path: staged.path,
@@ -2888,6 +2990,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
           return deny(reply, code, 400);
         request.log.error({ error }, "attachment upload failed");
         return deny(reply, "attachment_upload_failed", 500);
+      } finally {
+        if (reservedBytes > 0) {
+          releaseAttachmentBytes(request.params.roomId, reservedBytes);
+        }
       }
     }
   );
@@ -2908,6 +3014,12 @@ export async function buildServer(options: BuildServerOptions = {}) {
       request.params.attachmentId
     );
     if (!attachment) return deny(reply, "attachment_not_found", 404);
+    if (
+      attachment.message_id === null &&
+      attachment.created_by !== participant.id &&
+      participant.role !== "owner"
+    )
+      return deny(reply, "forbidden", 403);
     const disposition = attachment.disposition;
     const encodedName = encodeURIComponent(attachment.name);
     const asciiName = attachment.name
@@ -2950,11 +3062,17 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (attachment.message_id)
       return deny(reply, "attachment_already_attached", 409);
 
+    if (
+      !store.deleteUnboundAttachment(
+        request.params.roomId,
+        request.params.attachmentId
+      )
+    )
+      return deny(reply, "attachment_already_attached", 409);
     await attachmentStore.delete(
       request.params.roomId,
       request.params.attachmentId
     );
-    store.deleteAttachment(request.params.roomId, request.params.attachmentId);
     return reply.code(204).send();
   });
 
@@ -3261,8 +3379,11 @@ export async function buildServer(options: BuildServerOptions = {}) {
       socket.on("close", () => {
         unsubscribe();
         forgetSocket();
+        if (isClosing || !aliveRooms.has(roomId)) {
+          socketCounts.delete(roomId);
+          return;
+        }
         socketCounts.set(roomId, (socketCounts.get(roomId) ?? 1) - 1);
-        if (isClosing) return;
         const key = socketKey(roomId, participant.id);
 
         // Start / reset the auto-removal timer for this participant
@@ -3370,6 +3491,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
       );
       if (!invite)
         return reply.code(200).send({ valid: false, reason: "not_found" });
+      if (!aliveRooms.has(invite.room_id))
+        return reply.code(200).send({ valid: false, reason: "room_ended" });
       if (invite.revoked_at !== null)
         return reply.code(200).send({ valid: false, reason: "revoked" });
       if (Date.parse(invite.expires_at) <= Date.now())
@@ -3754,7 +3877,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       // throw there cannot prevent the 201 response — the client already
       // sees the room as gone (next /me would 410), and any leaked socket
       // is bounded by process lifetime.
-      aliveRooms.delete(request.params.roomId);
+      discardRoomRuntimeState(request.params.roomId);
       closePendingInteractionsForRoom(request.params.roomId, "run_closed");
       try {
         closeRoomSockets(request.params.roomId, 4001, "owner_left_room");
@@ -3764,6 +3887,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
           "closeRoomSockets failed during owner /leave; continuing"
         );
       }
+      forgetRoomSocketRegistry(request.params.roomId);
       await attachmentStore.deleteRoom(request.params.roomId);
       store.deleteRoom(request.params.roomId);
       return reply.code(201).send({ ok: true, status: "room_closed" });
@@ -4610,6 +4734,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const pairingForCompatibility =
       store.getAgentPairingByTokenHash(pairingHash);
     if (!pairingForCompatibility) return deny(reply, "invalid_pairing", 401);
+    if (!aliveRooms.has(pairingForCompatibility.room_id))
+      return deny(reply, "room_ended", 410);
     const compatibility = requireConnectorCompatibility(
       request.body?.compatibility,
       pairingForCompatibility.agent_type as AgentType,

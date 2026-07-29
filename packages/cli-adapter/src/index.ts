@@ -55,6 +55,7 @@ import {
   collectConnectorDiagnostics,
   formatConnectorDiagnostics,
 } from "./connector-diagnostics.js";
+import { settleConnectorShutdown } from "./connector-shutdown.js";
 
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
   console.log(
@@ -1358,26 +1359,21 @@ async function main() {
               : "Local agent runtime",
     });
     console.log(`Connected adapter stream for room ${config.room_id}`);
-    console.log("DEBUG: WebSocket is open, about to publish catalog");
     if (isClaudeCode) {
-      console.log("DEBUG: Starting listClaudeSessions");
       void listClaudeSessions({ workingDir: config.agent.working_dir })
-        .then((catalog) => {
-          console.log("DEBUG: Got catalog, publishing...");
-          return roomClient.publishCatalog({
+        .then((catalog) =>
+          roomClient.publishCatalog({
             agent_id: registered.agent_id,
             working_dir: catalog.workingDir,
             sessions: catalog.sessions,
-          });
-        })
-        .then(() => console.log("DEBUG: Catalog published successfully"))
+          })
+        )
         .catch((error) => {
           console.error(
             "Failed to publish Claude session catalog",
             error instanceof Error ? error.message : String(error)
           );
         });
-      console.log("DEBUG: listClaudeSessions called (async)");
     }
     if (isCodexCli) {
       void listCodexSessions({ workingDir: config.agent.working_dir })
@@ -1457,10 +1453,12 @@ async function main() {
       }, HEARTBEAT_INTERVAL_MS);
     }
   });
+  // Keep event loop alive until the stream closes or shutdown is requested.
+  const keepAlive = setInterval(() => {}, 10000);
   function gracefulShutdown(
     code: number,
     reasonText: string,
-    source: "close" | "error" | "heartbeat"
+    source: "close" | "error" | "heartbeat" | "signal"
   ): void {
     if (shutdownInitiated) return;
     shutdownInitiated = true;
@@ -1474,10 +1472,12 @@ async function main() {
       console.log(
         `Adapter stream closed due to error${reasonText ? `: ${reasonText}` : ""} (code: ${code})`
       );
-    } else {
+    } else if (source === "close") {
       console.log(
         `Adapter stream closed${reasonText ? `: ${reasonText}` : ""} (code: ${code})`
       );
+    } else {
+      console.log(`Adapter shutdown requested by ${reasonText}.`);
     }
     if (
       code === 4001 ||
@@ -1487,27 +1487,31 @@ async function main() {
     ) {
       console.log("This local Agent session was removed from the room.");
     }
-    void claudeRuntime?.close().catch((error) => {
-      console.error("Failed to close Claude session", error);
-    });
-    void codexRuntime?.close().catch((error) => {
-      console.error("Failed to close Codex runtime", error);
-    });
-    void copilotRuntime?.close().catch((error) => {
-      console.error("Failed to close Copilot runtime", error);
-    });
-    void kimiRuntime?.close().catch((error) => {
-      console.error("Failed to close Kimi runtime", error);
-    });
-    void cleanupRoomAttachments(config.agent.working_dir, config.room_id).catch(
-      (error) => {
-        console.error("Failed to clean room attachments", error);
-      }
-    );
-    const exitCode = source === "close" ? 0 : 1;
+    clearInterval(keepAlive);
+    const runtimeTasks = [
+      ...(claudeRuntime
+        ? [{ label: "Claude session", close: () => claudeRuntime.close() }]
+        : []),
+      ...(codexRuntime
+        ? [{ label: "Codex runtime", close: () => codexRuntime.close() }]
+        : []),
+      ...(copilotRuntime
+        ? [{ label: "Copilot runtime", close: () => copilotRuntime.close() }]
+        : []),
+      ...(kimiRuntime
+        ? [{ label: "Kimi runtime", close: () => kimiRuntime.close() }]
+        : []),
+    ];
+    const exitCode = source === "close" ? 0 : source === "signal" ? code : 1;
     process.exitCode = exitCode;
-    // Allow runtime close() promises a tick to settle before hard exit
-    setTimeout(() => process.exit(exitCode), 25).unref();
+    void settleConnectorShutdown({
+      runtimeTasks,
+      cleanupAttachments: () =>
+        cleanupRoomAttachments(config.agent.working_dir, config.room_id),
+      onError: (label, error) => {
+        console.error(`Failed to close ${label}`, error);
+      },
+    }).finally(() => process.exit(exitCode));
   }
 
   ws.on("close", (code, reason) => {
@@ -1527,8 +1531,8 @@ async function main() {
       heartbeatTimeout = undefined;
     }
   });
-  // Keep event loop alive
-  const keepAlive = setInterval(() => {}, 10000);
+  process.once("SIGINT", () => gracefulShutdown(130, "SIGINT", "signal"));
+  process.once("SIGTERM", () => gracefulShutdown(143, "SIGTERM", "signal"));
   ws.on("close", () => {
     clearInterval(keepAlive);
     if (heartbeatInterval) clearInterval(heartbeatInterval);

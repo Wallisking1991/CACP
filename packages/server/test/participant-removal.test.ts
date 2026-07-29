@@ -169,8 +169,8 @@ describe("participant removal", () => {
         headers: ownerAuth,
         payload: { text: "owner after leave" },
       });
-      expect(ownerMessage.statusCode).toBe(401);
-      expect(ownerMessage.json()).toEqual({ error: "invalid_token" });
+      expect(ownerMessage.statusCode).toBe(410);
+      expect(ownerMessage.json()).toEqual({ error: "room_ended" });
 
       const memberMessage = await app.inject({
         method: "POST",
@@ -178,8 +178,8 @@ describe("participant removal", () => {
         headers: { authorization: `Bearer ${joined.participant_token}` },
         payload: { text: "member after owner leave" },
       });
-      expect(memberMessage.statusCode).toBe(401);
-      expect(memberMessage.json()).toEqual({ error: "invalid_token" });
+      expect(memberMessage.statusCode).toBe(410);
+      expect(memberMessage.json()).toEqual({ error: "room_ended" });
 
       const agentTurnStart = await app.inject({
         method: "POST",
@@ -187,8 +187,8 @@ describe("participant removal", () => {
         headers: { authorization: `Bearer ${agent.agent_token}` },
         payload: {},
       });
-      expect(agentTurnStart.statusCode).toBe(401);
-      expect(agentTurnStart.json()).toEqual({ error: "invalid_token" });
+      expect(agentTurnStart.statusCode).toBe(410);
+      expect(agentTurnStart.json()).toEqual({ error: "room_ended" });
 
       await app.close();
       app = undefined;

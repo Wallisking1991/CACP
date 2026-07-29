@@ -35,6 +35,10 @@ export async function materializeAttachment(input: {
   const directory = roomAttachmentDirectory(input.workingDir, input.roomId);
   await mkdir(directory, { recursive: true });
   const path = join(directory, safeId(input.attachment.attachment_id));
+  const materialized = { ...input.attachment, path };
+  if (await verifyExistingAttachment(materialized)) {
+    return materialized;
+  }
   const temporaryPath = join(
     directory,
     `.${safeId(input.attachment.attachment_id)}-${randomUUID()}.tmp`
@@ -81,8 +85,22 @@ export async function materializeAttachment(input: {
     await rm(temporaryPath, { force: true });
     throw new Error("attachment_sha256_mismatch");
   }
-  await rename(temporaryPath, path);
-  return { ...input.attachment, path };
+  await rm(path, { force: true });
+  try {
+    await rename(temporaryPath, path);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (
+      (code === "EEXIST" || code === "EPERM") &&
+      (await verifyExistingAttachment(materialized))
+    ) {
+      await rm(temporaryPath, { force: true });
+      return materialized;
+    }
+    await rm(temporaryPath, { force: true });
+    throw error;
+  }
+  return materialized;
 }
 
 export async function materializeAttachments(input: {
@@ -114,6 +132,8 @@ export async function cleanupRoomAttachments(
   await rm(roomAttachmentDirectory(workingDir, roomId), {
     recursive: true,
     force: true,
+    maxRetries: 3,
+    retryDelay: 100,
   });
 }
 
@@ -131,4 +151,17 @@ export async function verifyMaterializedAttachment(
     sizeBytes === attachment.size_bytes &&
     hash.digest("hex") === attachment.sha256
   );
+}
+
+async function verifyExistingAttachment(
+  attachment: MaterializedAttachment
+): Promise<boolean> {
+  try {
+    return await verifyMaterializedAttachment(attachment);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
 }

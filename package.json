@@ -23,7 +23,7 @@
     "security:secrets": "secretlint --maskSecrets \"**/*\"",
     "security:staged": "node scripts/run-gitleaks.mjs --staged",
     "security:audit": "corepack pnpm audit --prod --audit-level=high --registry=https://registry.npmjs.org/",
-    "validate": "corepack pnpm format:check && corepack pnpm lint && corepack pnpm typecheck && corepack pnpm test && corepack pnpm build",
+    "validate": "corepack pnpm format:check && corepack pnpm lint && corepack pnpm typecheck && corepack pnpm test:coverage && corepack pnpm build",
     "check": "corepack pnpm validate",
     "package:connector": "node scripts/package-connector.mjs",
     "prepare": "husky"

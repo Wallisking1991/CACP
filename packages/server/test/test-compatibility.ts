@@ -1,44 +1,16 @@
-import type { ConnectorCompatibility } from "@cacp/protocol";
+import {
+  RequiredAgentAdapterCompatibility,
+  type ConnectorCompatibility,
+} from "@cacp/protocol";
 import type { FastifyInstance } from "fastify";
-
-const inputCapabilities = {
-  image: "native",
-  pdf: "file_path",
-  text: "file_path",
-  office: "file_path",
-  file: "file_path",
-  max_attachments: 5,
-} as const;
 
 export const testConnectorCompatibility = {
   protocol_version: "0.3.0",
   connector_version: "0.5.0-test",
-  adapters: [
-    {
-      provider: "claude-code",
-      sdk_package: "@anthropic-ai/claude-agent-sdk",
-      sdk_version: "0.3.220",
-      input_capabilities: inputCapabilities,
-    },
-    {
-      provider: "codex-cli",
-      sdk_package: "@openai/codex-sdk",
-      sdk_version: "0.146.0",
-      input_capabilities: inputCapabilities,
-    },
-    {
-      provider: "github-copilot",
-      sdk_package: "@github/copilot-sdk",
-      sdk_version: "1.0.8",
-      input_capabilities: inputCapabilities,
-    },
-    {
-      provider: "kimi-cli",
-      sdk_package: "@moonshot-ai/kimi-agent-sdk",
-      sdk_version: "0.1.8",
-      input_capabilities: inputCapabilities,
-    },
-  ],
+  adapters: RequiredAgentAdapterCompatibility.map((adapter) => ({
+    ...adapter,
+    input_capabilities: { ...adapter.input_capabilities },
+  })),
 } satisfies ConnectorCompatibility;
 
 export async function markTestAgentReady(

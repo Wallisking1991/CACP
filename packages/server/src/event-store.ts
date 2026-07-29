@@ -617,6 +617,35 @@ export class EventStore {
       .all(before) as StoredAttachment[];
   }
 
+  deleteAbandonedAttachment(
+    roomId: string,
+    attachmentId: string,
+    before: string
+  ): boolean {
+    const result = this.db
+      .prepare(
+        `
+      DELETE FROM attachments
+      WHERE room_id = ? AND attachment_id = ?
+        AND message_id IS NULL AND created_at < ?
+    `
+      )
+      .run(roomId, attachmentId, before);
+    return result.changes === 1;
+  }
+
+  deleteUnboundAttachment(roomId: string, attachmentId: string): boolean {
+    const result = this.db
+      .prepare(
+        `
+      DELETE FROM attachments
+      WHERE room_id = ? AND attachment_id = ? AND message_id IS NULL
+    `
+      )
+      .run(roomId, attachmentId);
+    return result.changes === 1;
+  }
+
   deleteAttachment(roomId: string, attachmentId: string): void {
     this.db
       .prepare(
