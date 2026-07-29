@@ -1,0 +1,319 @@
+# Instincts generated from https://github.com/Wallisking1991/CACP
+# Generated: 2026-07-29T23:07:46.326Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: CACP-commit-conventional
+trigger: "when writing a commit message"
+confidence: 0.85
+domain: git
+source: repo-analysis
+source_repo: https://github.com/Wallisking1991/CACP
+---
+
+# CACP Commit Conventional
+
+## Action
+
+Use conventional commit format with prefixes: build
+
+## Evidence
+
+- 1 commits analyzed
+- Detected conventional commit pattern
+- Examples: build(deps): bump zod from 3.25.76 to 4.4.3
+
+---
+id: CACP-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/Wallisking1991/CACP
+---
+
+# CACP Commit Length
+
+## Action
+
+Keep commit messages concise (~43 characters)
+
+## Evidence
+
+- Average commit message length: 43 chars
+- Based on 1 commits
+
+---
+id: CACP-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/Wallisking1991/CACP
+---
+
+# CACP Naming Files
+
+## Action
+
+Use camelCase naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: camelCase
+
+---
+id: CACP-import-relative
+trigger: "when importing modules"
+confidence: 0.75
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/Wallisking1991/CACP
+---
+
+# CACP Import Relative
+
+## Action
+
+Use relative imports for project files
+
+## Evidence
+
+- Import analysis shows relative import pattern
+- Example: import { x } from '../lib/x'
+
+---
+id: CACP-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/Wallisking1991/CACP
+---
+
+# CACP Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: CACP-test-separate
+trigger: "when writing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/Wallisking1991/CACP
+---
+
+# CACP Test Separate
+
+## Action
+
+Place tests in the tests/ or __tests__/ directory, mirroring src structure
+
+## Evidence
+
+- Separate test directory pattern detected
+- Tests live in dedicated test folders
+
+---
+id: cacp-instinct-filename-camelcase
+trigger: "When creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: Wallisking1991/CACP
+---
+
+# Cacp Instinct Filename Camelcase
+
+## Action
+
+Name the file using camelCase
+
+## Evidence
+
+- Pattern in namingConventions.files
+
+---
+id: cacp-instinct-function-camelcase
+trigger: "When defining a new function"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: Wallisking1991/CACP
+---
+
+# Cacp Instinct Function Camelcase
+
+## Action
+
+Name the function using camelCase
+
+## Evidence
+
+- Pattern in namingConventions.functions
+
+---
+id: cacp-instinct-class-pascalcase
+trigger: "When defining a new class"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: Wallisking1991/CACP
+---
+
+# Cacp Instinct Class Pascalcase
+
+## Action
+
+Name the class using PascalCase
+
+## Evidence
+
+- Pattern in namingConventions.classes
+
+---
+id: cacp-instinct-constant-screaming-snake-case
+trigger: "When defining a constant"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: Wallisking1991/CACP
+---
+
+# Cacp Instinct Constant Screaming Snake Case
+
+## Action
+
+Name the constant using SCREAMING_SNAKE_CASE
+
+## Evidence
+
+- Pattern in namingConventions.constants
+
+---
+id: cacp-instinct-import-relative
+trigger: "When importing modules"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: Wallisking1991/CACP
+---
+
+# Cacp Instinct Import Relative
+
+## Action
+
+Use relative import paths
+
+## Evidence
+
+- Pattern in importStyle
+
+---
+id: cacp-instinct-export-named
+trigger: "When exporting modules or functions"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: Wallisking1991/CACP
+---
+
+# Cacp Instinct Export Named
+
+## Action
+
+Use named exports
+
+## Evidence
+
+- Pattern in exportStyle
+
+---
+id: cacp-instinct-git-conventional-build
+trigger: "When committing dependency updates or build-related changes"
+confidence: 0.9
+domain: git
+source: repo-analysis
+source_repo: Wallisking1991/CACP
+---
+
+# Cacp Instinct Git Conventional Build
+
+## Action
+
+Prefix the commit message with 'build' following Conventional Commits
+
+## Evidence
+
+- Seen in commit 'build(deps): bump zod from 3.25.76 to 4.4.3'
+- Pattern in commits.prefixes
+
+---
+id: cacp-instinct-git-commit-length
+trigger: "When writing a commit message"
+confidence: 0.7
+domain: git
+source: repo-analysis
+source_repo: Wallisking1991/CACP
+---
+
+# Cacp Instinct Git Commit Length
+
+## Action
+
+Keep the commit message concise, around 43 characters on average
+
+## Evidence
+
+- Pattern in commits.averageLength
+
+---
+id: cacp-instinct-monorepo-packages-folder
+trigger: "When adding a new package/module"
+confidence: 0.9
+domain: architecture
+source: repo-analysis
+source_repo: Wallisking1991/CACP
+---
+
+# Cacp Instinct Monorepo Packages Folder
+
+## Action
+
+Place it under the 'packages' folder
+
+## Evidence
+
+- Pattern in folderStructure.commonFolders
+- Pattern in configFiles
+
+---
+id: cacp-instinct-tests-separate-location
+trigger: "When creating new tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: Wallisking1991/CACP
+---
+
+# Cacp Instinct Tests Separate Location
+
+## Action
+
+Place test files in a separate location from source code
+
+## Evidence
+
+- Pattern in folderStructure.testLocation
+
