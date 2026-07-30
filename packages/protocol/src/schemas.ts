@@ -1034,14 +1034,21 @@ export const ConnectorSnapshotFailedPayloadSchema = z.object({
   error: z.string().min(1).max(2000),
 });
 
-export const OrbitNoteCreatedPayloadSchema = z.object({
-  note_id: z.string().min(1),
-  author_id: z.string().min(1),
-  author_name: z.string().min(1),
-  text: z.string().min(1).max(2000),
-  created_at: z.string().datetime(),
-  reply_to: z.string().optional(),
-});
+export const OrbitNoteCreatedPayloadSchema = z
+  .object({
+    note_id: z.string().min(1),
+    author_id: z.string().min(1),
+    author_name: z.string().min(1),
+    text: z.string().max(2000).default(""),
+    attachments: z.array(AttachmentRefSchema).max(5).default([]),
+    created_at: z.string().datetime(),
+    reply_to: z.string().optional(),
+  })
+  .refine(
+    (payload) =>
+      payload.text.trim().length > 0 || payload.attachments.length > 0,
+    { message: "orbit_note_content_required" }
+  );
 
 export const OrbitLikeChangedPayloadSchema = z.object({
   note_id: z.string().min(1),

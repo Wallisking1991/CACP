@@ -35,6 +35,8 @@ export interface StoredAttachment extends AttachmentRef {
   message_id: string | null;
 }
 
+export type AttachmentReferenceType = "main_input" | "orbit_note";
+
 export interface NewInvite {
   invite_id: string;
   room_id: string;
@@ -270,6 +272,26 @@ export class EventStore {
       );
       CREATE INDEX IF NOT EXISTS idx_attachments_room ON attachments(room_id);
       CREATE INDEX IF NOT EXISTS idx_attachments_abandoned ON attachments(message_id, created_at);
+      CREATE TABLE IF NOT EXISTS attachment_references (
+        room_id TEXT NOT NULL,
+        attachment_id TEXT NOT NULL,
+        reference_type TEXT NOT NULL CHECK(reference_type IN ('main_input', 'orbit_note')),
+        reference_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (room_id, attachment_id, reference_type, reference_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_attachment_references_content
+        ON attachment_references(room_id, reference_type, reference_id);
+      CREATE TABLE IF NOT EXISTS attachment_agent_grants (
+        room_id TEXT NOT NULL,
+        attachment_id TEXT NOT NULL,
+        agent_id TEXT NOT NULL,
+        input_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (room_id, attachment_id, agent_id, input_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_attachment_agent_grants_lookup
+        ON attachment_agent_grants(room_id, attachment_id, agent_id);
       CREATE TABLE IF NOT EXISTS join_requests (
         request_id TEXT PRIMARY KEY,
         room_id TEXT NOT NULL,
@@ -309,6 +331,12 @@ export class EventStore {
         PRIMARY KEY (room_id, note_id)
       );
       CREATE INDEX IF NOT EXISTS idx_orbit_notes_room ON orbit_notes(room_id);
+      INSERT OR IGNORE INTO attachment_references (
+        room_id, attachment_id, reference_type, reference_id, created_at
+      )
+      SELECT room_id, attachment_id, 'main_input', message_id, created_at
+      FROM attachments
+      WHERE message_id IS NOT NULL;
     `);
     this.migrateInviteHistoryAccess();
     this.migrateJoinRequestHistoryAccess();
@@ -507,6 +535,12 @@ export class EventStore {
     this.db.prepare(`DELETE FROM rooms WHERE room_id = ?`).run(roomId);
     this.db.prepare(`DELETE FROM invites WHERE room_id = ?`).run(roomId);
     this.db.prepare(`DELETE FROM agent_pairings WHERE room_id = ?`).run(roomId);
+    this.db
+      .prepare(`DELETE FROM attachment_agent_grants WHERE room_id = ?`)
+      .run(roomId);
+    this.db
+      .prepare(`DELETE FROM attachment_references WHERE room_id = ?`)
+      .run(roomId);
     this.db.prepare(`DELETE FROM attachments WHERE room_id = ?`).run(roomId);
     this.db.prepare(`DELETE FROM join_requests WHERE room_id = ?`).run(roomId);
     this.db
@@ -591,7 +625,8 @@ export class EventStore {
   attachAttachments(
     roomId: string,
     attachmentIds: string[],
-    messageId: string
+    messageId: string,
+    referenceType: AttachmentReferenceType = "main_input"
   ): void {
     const update = this.db.prepare(
       `
@@ -604,6 +639,171 @@ export class EventStore {
       const result = update.run(messageId, roomId, attachmentId);
       if (result.changes !== 1) throw new Error("attachment_not_attachable");
     }
+    this.referenceAttachments(roomId, attachmentIds, referenceType, messageId);
+  }
+
+  referenceAttachments(
+    roomId: string,
+    attachmentIds: string[],
+    referenceType: AttachmentReferenceType,
+    referenceId: string
+  ): void {
+    const insert = this.db.prepare(
+      `
+      INSERT INTO attachment_references (
+        room_id, attachment_id, reference_type, reference_id, created_at
+      )
+      SELECT ?, attachment_id, ?, ?, ?
+      FROM attachments
+      WHERE room_id = ? AND attachment_id = ?
+      ON CONFLICT DO NOTHING
+    `
+    );
+    const createdAt = new Date().toISOString();
+    for (const attachmentId of attachmentIds) {
+      const result = insert.run(
+        roomId,
+        referenceType,
+        referenceId,
+        createdAt,
+        roomId,
+        attachmentId
+      );
+      if (result.changes !== 1) {
+        const existing = this.db
+          .prepare(
+            `
+            SELECT 1 FROM attachment_references
+            WHERE room_id = ? AND attachment_id = ?
+              AND reference_type = ? AND reference_id = ?
+          `
+          )
+          .get(roomId, attachmentId, referenceType, referenceId);
+        if (!existing) throw new Error("attachment_not_found");
+      }
+    }
+  }
+
+  getAttachmentsForReferences(
+    roomId: string,
+    referenceType: AttachmentReferenceType,
+    referenceIds: string[]
+  ): StoredAttachment[] {
+    if (referenceIds.length === 0) return [];
+    const placeholders = referenceIds.map(() => "?").join(", ");
+    return this.db
+      .prepare(
+        `
+        SELECT DISTINCT a.*
+        FROM attachments a
+        JOIN attachment_references r
+          ON r.room_id = a.room_id AND r.attachment_id = a.attachment_id
+        WHERE r.room_id = ? AND r.reference_type = ?
+          AND r.reference_id IN (${placeholders})
+        ORDER BY a.created_at ASC
+      `
+      )
+      .all(roomId, referenceType, ...referenceIds) as StoredAttachment[];
+  }
+
+  removeAttachmentReferences(
+    roomId: string,
+    referenceType: AttachmentReferenceType,
+    referenceIds: string[]
+  ): StoredAttachment[] {
+    if (referenceIds.length === 0) return [];
+    const affected = this.getAttachmentsForReferences(
+      roomId,
+      referenceType,
+      referenceIds
+    );
+    const placeholders = referenceIds.map(() => "?").join(", ");
+    this.db
+      .prepare(
+        `
+        DELETE FROM attachment_references
+        WHERE room_id = ? AND reference_type = ?
+          AND reference_id IN (${placeholders})
+      `
+      )
+      .run(roomId, referenceType, ...referenceIds);
+    if (referenceType === "main_input") {
+      this.db
+        .prepare(
+          `
+          DELETE FROM attachment_agent_grants
+          WHERE room_id = ? AND input_id IN (${placeholders})
+        `
+        )
+        .run(roomId, ...referenceIds);
+    }
+
+    const nextReference = this.db.prepare(
+      `
+      SELECT reference_id
+      FROM attachment_references
+      WHERE room_id = ? AND attachment_id = ?
+      ORDER BY created_at ASC
+      LIMIT 1
+    `
+    );
+    const updateMarker = this.db.prepare(
+      `
+      UPDATE attachments
+      SET message_id = ?
+      WHERE room_id = ? AND attachment_id = ?
+    `
+    );
+    const orphans: StoredAttachment[] = [];
+    for (const attachment of affected) {
+      const remaining = nextReference.get(roomId, attachment.attachment_id) as
+        { reference_id: string } | undefined;
+      updateMarker.run(
+        remaining?.reference_id ?? null,
+        roomId,
+        attachment.attachment_id
+      );
+      if (!remaining) orphans.push({ ...attachment, message_id: null });
+    }
+    return orphans;
+  }
+
+  grantAttachmentsToAgent(
+    roomId: string,
+    attachmentIds: string[],
+    agentId: string,
+    inputId: string
+  ): void {
+    const insert = this.db.prepare(
+      `
+      INSERT OR IGNORE INTO attachment_agent_grants (
+        room_id, attachment_id, agent_id, input_id, created_at
+      )
+      VALUES (?, ?, ?, ?, ?)
+    `
+    );
+    const createdAt = new Date().toISOString();
+    for (const attachmentId of attachmentIds) {
+      insert.run(roomId, attachmentId, agentId, inputId, createdAt);
+    }
+  }
+
+  canAgentReadAttachment(
+    roomId: string,
+    attachmentId: string,
+    agentId: string
+  ): boolean {
+    return Boolean(
+      this.db
+        .prepare(
+          `
+          SELECT 1 FROM attachment_agent_grants
+          WHERE room_id = ? AND attachment_id = ? AND agent_id = ?
+          LIMIT 1
+        `
+        )
+        .get(roomId, attachmentId, agentId)
+    );
   }
 
   listAbandonedAttachments(before: string): StoredAttachment[] {
@@ -612,6 +812,11 @@ export class EventStore {
         `
       SELECT * FROM attachments
       WHERE message_id IS NULL AND created_at < ?
+        AND NOT EXISTS (
+          SELECT 1 FROM attachment_references r
+          WHERE r.room_id = attachments.room_id
+            AND r.attachment_id = attachments.attachment_id
+        )
     `
       )
       .all(before) as StoredAttachment[];
@@ -628,6 +833,11 @@ export class EventStore {
       DELETE FROM attachments
       WHERE room_id = ? AND attachment_id = ?
         AND message_id IS NULL AND created_at < ?
+        AND NOT EXISTS (
+          SELECT 1 FROM attachment_references r
+          WHERE r.room_id = attachments.room_id
+            AND r.attachment_id = attachments.attachment_id
+        )
     `
       )
       .run(roomId, attachmentId, before);
@@ -640,6 +850,11 @@ export class EventStore {
         `
       DELETE FROM attachments
       WHERE room_id = ? AND attachment_id = ? AND message_id IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM attachment_references r
+          WHERE r.room_id = attachments.room_id
+            AND r.attachment_id = attachments.attachment_id
+        )
     `
       )
       .run(roomId, attachmentId);
@@ -649,12 +864,24 @@ export class EventStore {
   deleteAttachment(roomId: string, attachmentId: string): void {
     this.db
       .prepare(
+        `DELETE FROM attachment_agent_grants WHERE room_id = ? AND attachment_id = ?`
+      )
+      .run(roomId, attachmentId);
+    this.db
+      .prepare(
+        `DELETE FROM attachment_references WHERE room_id = ? AND attachment_id = ?`
+      )
+      .run(roomId, attachmentId);
+    this.db
+      .prepare(
         `DELETE FROM attachments WHERE room_id = ? AND attachment_id = ?`
       )
       .run(roomId, attachmentId);
   }
 
   deleteAllAttachments(): void {
+    this.db.prepare(`DELETE FROM attachment_agent_grants`).run();
+    this.db.prepare(`DELETE FROM attachment_references`).run();
     this.db.prepare(`DELETE FROM attachments`).run();
   }
 

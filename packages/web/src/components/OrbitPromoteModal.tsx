@@ -7,7 +7,11 @@ export interface OrbitPromoteModalProps {
   open: boolean;
   notes: OrbitNoteView[];
   canPromote: boolean;
-  onPromote: (noteIds: string[]) => void;
+  onPromote: (
+    noteIds: string[],
+    attachmentIds: string[],
+    instruction: string
+  ) => void;
   onClose: () => void;
 }
 
@@ -20,11 +24,37 @@ export function OrbitPromoteModal({
 }: OrbitPromoteModalProps) {
   const t = useT();
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selectedAttachments, setSelectedAttachments] = useState<Set<string>>(
+    new Set()
+  );
+  const [instruction, setInstruction] = useState("");
 
-  const noteIdsKey = notes.map((note) => note.note_id).join(",");
+  const noteIdsKey = notes
+    .map(
+      (note) =>
+        `${note.note_id}:${(note.attachments ?? [])
+          .map((attachment) => attachment.attachment_id)
+          .join("|")}`
+    )
+    .join(",");
   useEffect(() => {
-    if (open) setSelected(new Set(notes.map((note) => note.note_id)));
-    else setSelected(new Set());
+    if (open) {
+      setSelected(new Set(notes.map((note) => note.note_id)));
+      setSelectedAttachments(
+        new Set(
+          notes.flatMap((note) =>
+            (note.attachments ?? []).map(
+              (attachment) => attachment.attachment_id
+            )
+          )
+        )
+      );
+      setInstruction("");
+    } else {
+      setSelected(new Set());
+      setSelectedAttachments(new Set());
+      setInstruction("");
+    }
     // noteIdsKey captures notes identity so user deselections survive parent re-renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, noteIdsKey]);
@@ -57,6 +87,13 @@ export function OrbitPromoteModal({
     setSelected(next);
   };
 
+  const toggleAttachment = (attachmentId: string) => {
+    const next = new Set(selectedAttachments);
+    if (next.has(attachmentId)) next.delete(attachmentId);
+    else next.add(attachmentId);
+    setSelectedAttachments(next);
+  };
+
   const allSelected = notes.length > 0 && selected.size === notes.length;
   const toggleAll = () =>
     setSelected(
@@ -67,10 +104,49 @@ export function OrbitPromoteModal({
     const ids = notes
       .map((note) => note.note_id)
       .filter((id) => selected.has(id));
-    if (ids.length === 0 || !canPromote) return;
-    onPromote(ids);
+    const attachments = notes
+      .filter((note) => selected.has(note.note_id))
+      .flatMap((note) => note.attachments ?? [])
+      .map((attachment) => attachment.attachment_id)
+      .filter(
+        (attachmentId, index, all) =>
+          selectedAttachments.has(attachmentId) &&
+          all.indexOf(attachmentId) === index
+      );
+    const instructionRequired =
+      ids.length > 0 &&
+      notes
+        .filter((note) => selected.has(note.note_id))
+        .every((note) => note.text.trim().length === 0);
+    if (
+      ids.length === 0 ||
+      !canPromote ||
+      attachments.length > 5 ||
+      (instructionRequired && instruction.trim().length === 0)
+    )
+      return;
+    onPromote(ids, attachments, instruction.trim());
     onClose();
   };
+
+  const selectedNotes = notes.filter((note) => selected.has(note.note_id));
+  const visibleAttachments = selectedNotes.flatMap(
+    (note) => note.attachments ?? []
+  );
+  const selectedVisibleAttachmentCount = visibleAttachments.filter(
+    (attachment, index, all) =>
+      selectedAttachments.has(attachment.attachment_id) &&
+      all.findIndex(
+        (candidate) => candidate.attachment_id === attachment.attachment_id
+      ) === index
+  ).length;
+  const instructionRequired =
+    selectedNotes.length > 0 &&
+    selectedNotes.every((note) => note.text.trim().length === 0);
+  const promotionBlocked =
+    selected.size === 0 ||
+    selectedVisibleAttachmentCount > 5 ||
+    (instructionRequired && instruction.trim().length === 0);
 
   const promoteLabel = String(t("orbitPromote.promote"));
   const cancelLabel = String(t("orbitPromote.cancel"));
@@ -123,12 +199,65 @@ export function OrbitPromoteModal({
                       onChange={() => toggleNote(note.note_id)}
                       disabled={!canPromote}
                     />
-                    <span className="orbit-promote-text">{note.text}</span>
+                    <span className="orbit-promote-text">
+                      {note.text ||
+                        t("orbit.attachmentSummary", {
+                          count: String(note.attachments?.length ?? 0),
+                        })}
+                    </span>
                   </label>
                 </li>
               ))}
             </ul>
           )}
+          {visibleAttachments.length > 0 && (
+            <fieldset className="orbit-promote-attachments">
+              <legend>{t("orbitPromote.attachments")}</legend>
+              {visibleAttachments.map((attachment) => (
+                <label
+                  className="orbit-promote-attachment"
+                  key={attachment.attachment_id}
+                >
+                  <input
+                    type="checkbox"
+                    aria-label={String(
+                      t("orbitPromote.includeAttachment", {
+                        name: attachment.name,
+                      })
+                    )}
+                    checked={selectedAttachments.has(attachment.attachment_id)}
+                    onChange={() => toggleAttachment(attachment.attachment_id)}
+                    disabled={!canPromote}
+                  />
+                  <span>{attachment.name}</span>
+                  <span className="orbit-promote-attachment__meta">
+                    {attachment.media_type}
+                  </span>
+                </label>
+              ))}
+              {selectedVisibleAttachmentCount > 5 && (
+                <p className="orbit-promote-error" role="alert">
+                  {t("orbitPromote.tooManyAttachments")}
+                </p>
+              )}
+            </fieldset>
+          )}
+          <label className="orbit-promote-instruction">
+            <span>
+              {t("orbitPromote.instruction")}
+              {instructionRequired
+                ? ` · ${t("orbitPromote.instructionRequired")}`
+                : ` · ${t("orbitPromote.instructionOptional")}`}
+            </span>
+            <textarea
+              value={instruction}
+              onChange={(event) => setInstruction(event.currentTarget.value)}
+              aria-label={String(t("orbitPromote.instruction"))}
+              maxLength={4000}
+              rows={3}
+              disabled={!canPromote}
+            />
+          </label>
         </div>
         <div className="orbit-promote-modal-footer">
           <button
@@ -142,7 +271,7 @@ export function OrbitPromoteModal({
             type="button"
             className="orbit-promote-modal-promote"
             onClick={handlePromote}
-            disabled={!canPromote || selected.size === 0}
+            disabled={!canPromote || promotionBlocked}
             aria-label={promoteLabel}
           >
             {promoteLabel}

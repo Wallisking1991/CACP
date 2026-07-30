@@ -217,11 +217,14 @@ export default function Workspace({
     string | undefined
   >();
   const [replyToNoteId, setReplyToNoteId] = useState<string | undefined>();
+  const [focusedOrbitNoteId, setFocusedOrbitNoteId] = useState<
+    string | undefined
+  >();
   const seenOrbitEventIdsRef = useRef<Set<string>>(new Set());
   const orbitUnreadBaselineReadyRef = useRef(false);
 
   const [orbitBubbles, setOrbitBubbles] = useState<
-    Map<string, { text: string; id: string }>
+    Map<string, { text: string; id: string; noteId: string }>
   >(new Map());
   const orbitBubbleTimersRef = useRef<Map<string, number>>(new Map());
 
@@ -389,6 +392,16 @@ export default function Workspace({
             typeof event.payload.reply_to === "string"
               ? event.payload.reply_to
               : undefined;
+          const attachmentCount = Array.isArray(event.payload.attachments)
+            ? event.payload.attachments.length
+            : 0;
+          const orbitSummary =
+            orbitText.trim() ||
+            String(
+              t("orbit.attachmentSummary", {
+                count: String(attachmentCount),
+              })
+            );
           const myName = peopleParticipants.find(
             (p) => p.id === session.participant_id
           )?.display_name;
@@ -426,7 +439,7 @@ export default function Workspace({
               ? t("notification.replyToYou")
               : t("notification.mentionedYou");
             const bodyText =
-              orbitText.slice(0, 60) + (orbitText.length > 60 ? "…" : "");
+              orbitSummary.slice(0, 60) + (orbitSummary.length > 60 ? "…" : "");
             if (
               typeof Notification !== "undefined" &&
               Notification.permission === "granted"
@@ -464,14 +477,19 @@ export default function Workspace({
           if (
             event.actor_id !== session.participant_id &&
             !panelOpenRef.current &&
-            typeof event.payload.text === "string"
+            typeof event.payload.note_id === "string" &&
+            (orbitText.length > 0 || attachmentCount > 0)
           ) {
             const avatarId = event.actor_id;
-            const text = event.payload.text;
+            const text = orbitSummary;
             const bubbleId = `${avatarId}-${Date.now()}`;
             setOrbitBubbles((prev) => {
               const next = new Map(prev);
-              next.set(avatarId, { text, id: bubbleId });
+              next.set(avatarId, {
+                text,
+                id: bubbleId,
+                noteId: event.payload.note_id as string,
+              });
               return next;
             });
             // Clear any existing timer for this avatar
@@ -624,21 +642,45 @@ export default function Workspace({
         onPromoteClick={() => setPromoteModalOpen(true)}
         canClear={canClearOrbit}
         onClearClick={() => setClearDialogOpen(true)}
+        loadAttachment={loadAttachment}
+        focusNoteId={focusedOrbitNoteId}
       />
       <OrbitPromoteModal
         open={promoteModalOpen}
         notes={promotableOrbitNotes}
         canPromote={canPromoteOrbit}
-        onPromote={(noteIds) => {
-          void promoteOrbitNotes(session, noteIds).catch(() => {});
+        onPromote={(noteIds, attachmentIds, instruction) => {
+          void promoteOrbitNotes(
+            session,
+            noteIds,
+            attachmentIds,
+            instruction
+          ).catch(() => {});
         }}
         onClose={() => setPromoteModalOpen(false)}
       />
       <OrbitComposer
         role={session.role}
         members={peopleParticipants}
-        onSendOrbitNote={(text, replyTo) => {
-          void sendOrbitNote(session, text, replyTo).catch(() => {});
+        attachmentUsage={attachmentUsage}
+        onUploadAttachment={
+          session.role === "owner" ||
+          session.role === "admin" ||
+          session.role === "member"
+            ? (file, options) => uploadAttachment(session, file, options)
+            : undefined
+        }
+        onDeleteAttachment={(attachment) =>
+          deleteAttachment(session, attachment.attachment_id)
+        }
+        onAttachmentUsageChanged={refreshAttachmentUsage}
+        onSendOrbitNote={async (text, attachments, replyTo) => {
+          await sendOrbitNote(
+            session,
+            text,
+            attachments.map((attachment) => attachment.attachment_id),
+            replyTo
+          );
           setReplyToNoteId(undefined);
         }}
         onTypingInput={(value) =>
@@ -652,7 +694,13 @@ export default function Workspace({
                 authorName:
                   actorNames.get(replyToNote.created_by) ||
                   replyToNote.created_by,
-                text: replyToNote.text,
+                text:
+                  replyToNote.text ||
+                  String(
+                    t("orbit.attachmentSummary", {
+                      count: String(replyToNote.attachments?.length ?? 0),
+                    })
+                  ),
               }
             : undefined
         }
@@ -726,6 +774,20 @@ export default function Workspace({
                 Array.from(orbitBubbles.entries()).map(([k, v]) => [k, v.text])
               )
             }
+            onOrbitBubbleClick={(avatarId) => {
+              const bubble = orbitBubbles.get(avatarId);
+              if (!bubble) return;
+              setFocusedOrbitNoteId(bubble.noteId);
+              setPanelOpen(true);
+              const timer = orbitBubbleTimersRef.current.get(avatarId);
+              if (timer) window.clearTimeout(timer);
+              orbitBubbleTimersRef.current.delete(avatarId);
+              setOrbitBubbles((current) => {
+                const next = new Map(current);
+                next.delete(avatarId);
+                return next;
+              });
+            }}
           />
 
           <AgentStatusBanner

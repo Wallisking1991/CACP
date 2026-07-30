@@ -1,4 +1,8 @@
-import { CacpEventSchema, type CacpEvent } from "@cacp/protocol";
+import {
+  CacpEventSchema,
+  type AttachmentRef,
+  type CacpEvent,
+} from "@cacp/protocol";
 export {
   deleteAttachment,
   fetchAttachmentBlob,
@@ -128,12 +132,13 @@ export async function sendMessage(
 export async function sendOrbitNote(
   session: RoomSession,
   text: string,
+  attachmentIds: string[] = [],
   replyTo?: string
-): Promise<{ note_id: string }> {
+): Promise<{ note_id: string; attachments: AttachmentRef[] }> {
   return await postJson(
     `/rooms/${session.room_id}/orbit/notes`,
     session.token,
-    { text, reply_to: replyTo }
+    { text, attachment_ids: attachmentIds, reply_to: replyTo }
   );
 }
 
@@ -160,12 +165,23 @@ export async function unlikeOrbitNote(
 
 export async function promoteOrbitNotes(
   session: RoomSession,
-  noteIds?: string[]
-): Promise<{ input_id: string; status: string; note_count: number }> {
+  noteIds: string[],
+  attachmentIds: string[] = [],
+  instruction = ""
+): Promise<{
+  input_id: string;
+  status: string;
+  note_count: number;
+  attachment_count: number;
+}> {
   return await postJson(
     `/rooms/${session.room_id}/orbit/promote`,
     session.token,
-    { note_ids: noteIds }
+    {
+      note_ids: noteIds,
+      attachment_ids: attachmentIds,
+      instruction,
+    }
   );
 }
 

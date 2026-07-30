@@ -237,6 +237,45 @@ describe("OrbitRoomState.replayFor (flat pool)", () => {
     expect(note.actor_id).toBe("u1");
   });
 
+  it("replays attachment-only notes with their reply reference", () => {
+    const state = new OrbitRoomState("room_1");
+    state.addNote({
+      note_id: "n2",
+      author_id: "u2",
+      author_name: "Bob",
+      author_role: "admin",
+      text: "",
+      attachments: [
+        {
+          attachment_id: "att_1",
+          name: "diagram.png",
+          media_type: "image/png",
+          size_bytes: 128,
+          sha256: "a".repeat(64),
+          kind: "image",
+          disposition: "inline",
+        },
+      ],
+      reply_to: "n1",
+      created_at: "2026-05-01T00:00:01.000Z",
+    });
+
+    const note = state
+      .replayFor(human("u3"))
+      .find((event) => event.type === "orbit.note.created")!;
+    expect(note.payload).toMatchObject({
+      note_id: "n2",
+      text: "",
+      attachments: [
+        {
+          attachment_id: "att_1",
+          name: "diagram.png",
+        },
+      ],
+      reply_to: "n1",
+    });
+  });
+
   it("emits one like.changed per liked note with correct totals", () => {
     const state = new OrbitRoomState("room_1");
     addNote(state, "n1", "2026-05-01T00:00:00.000Z", "A", "u1");

@@ -326,6 +326,8 @@
   "orbitComposer.send": "发送",
   "orbitComposer.replyingTo": "回复",
   "orbitComposer.cancelReply": "取消回复",
+  "orbit.attachmentSummary": "{count} 个附件",
+  "orbit.openDiscussion": "打开讨论",
   "mention.agentLabel": "Agent",
   "mention.memberLabel": "成员",
   "orbit.title": "圆桌",
@@ -350,5 +352,11 @@
   "notification.replyToYou": "回复了你",
   "orbitPromote.close": "关闭",
   "orbitPromote.selectAll": "全选",
-  "orbitPromote.deselectAll": "全不选"
+  "orbitPromote.deselectAll": "全不选",
+  "orbitPromote.attachments": "发送给 Agent 的附件",
+  "orbitPromote.includeAttachment": "包含 {name}",
+  "orbitPromote.tooManyAttachments": "最多选择 5 个附件。",
+  "orbitPromote.instruction": "给 Agent 的指令",
+  "orbitPromote.instructionRequired": "必填",
+  "orbitPromote.instructionOptional": "选填"
 }

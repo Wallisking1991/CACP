@@ -7,6 +7,8 @@ export interface OrbitBubbleProps {
   durationMs?: number;
   onDismiss?: () => void;
   avatarId?: string;
+  onClick?: () => void;
+  ariaLabel?: string;
 }
 
 export function OrbitBubble({
@@ -14,9 +16,11 @@ export function OrbitBubble({
   durationMs = 3500,
   onDismiss,
   avatarId,
+  onClick,
+  ariaLabel,
 }: OrbitBubbleProps) {
   const [phase, setPhase] = useState<"enter" | "exit">("enter");
-  const bubbleRef = useRef<HTMLDivElement | null>(null);
+  const bubbleRef = useRef<HTMLButtonElement | null>(null);
   const phaseRef = useRef(phase);
   const [style, setStyle] = useState<CSSProperties>({});
 
@@ -69,13 +73,19 @@ export function OrbitBubble({
   }, [avatarId]);
 
   const bubble = (
-    <div
+    <button
+      type="button"
       ref={bubbleRef}
       className={`orbit-bubble orbit-bubble--${phase}`}
       style={style}
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick?.();
+      }}
+      aria-label={ariaLabel}
     >
       <span className="orbit-bubble__text">{text}</span>
-    </div>
+    </button>
   );
 
   if (avatarId && typeof document !== "undefined") {

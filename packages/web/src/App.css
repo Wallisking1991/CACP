@@ -2866,7 +2866,15 @@ textarea.input {
   border-radius: var(--radius);
   padding: 14px 18px;
   box-shadow: 0 8px 32px rgba(70, 48, 27, 0.22);
-  pointer-events: none;
+  font: inherit;
+  text-align: left;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.orbit-bubble:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
 }
 
 .orbit-bubble::before {
@@ -3555,6 +3563,21 @@ textarea.input {
   white-space: pre-wrap;
 }
 
+.orbit-note .message-attachments {
+  grid-template-columns: minmax(0, 1fr);
+  margin-top: 8px;
+}
+
+.orbit-note .message-attachment__preview {
+  max-height: 180px;
+  cursor: pointer;
+}
+
+.orbit-note--focused {
+  outline: 3px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
+}
+
 /* Orbit Promote Modal */
 .orbit-promote-modal-overlay {
   position: fixed;
@@ -3671,6 +3694,72 @@ textarea.input {
   display: -webkit-box;
   -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
+}
+
+.orbit-promote-attachments {
+  display: grid;
+  gap: 6px;
+  margin: 14px 0 0;
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+}
+
+.orbit-promote-attachments legend {
+  padding: 0 5px;
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.orbit-promote-attachment {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  min-height: 44px;
+  gap: 2px 8px;
+  color: var(--ink-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.orbit-promote-attachment__meta {
+  grid-column: 2;
+  color: var(--ink-4);
+  font-size: 11px;
+}
+
+.orbit-promote-error {
+  margin: 4px 0 0;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.orbit-promote-instruction {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.orbit-promote-instruction textarea {
+  width: 100%;
+  min-height: 76px;
+  resize: vertical;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 400;
+}
+
+.orbit-promote-instruction textarea:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .orbit-promote-modal-footer {
@@ -4152,6 +4241,28 @@ textarea.input {
   border-top: 1px solid var(--border);
   padding: 8px 0;
   position: relative;
+}
+
+.orbit-composer--dragging {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.orbit-composer__attachments {
+  margin: 0 12px;
+}
+
+.orbit-composer__storage,
+.orbit-composer__hint {
+  margin: 0 12px 6px;
+  color: var(--ink-4);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.orbit-composer__hint {
+  margin-top: 5px;
+  margin-bottom: 0;
 }
 
 .orbit-composer-reply-bar {

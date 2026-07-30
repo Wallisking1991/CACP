@@ -51,7 +51,7 @@ function DownloadIcon() {
   );
 }
 
-function MessageAttachments({
+export function MessageAttachments({
   attachments,
   loadAttachment,
 }: {

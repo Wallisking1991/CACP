@@ -1317,6 +1317,32 @@ describe("room state", () => {
       });
     });
 
+    it("derives attachments on an attachment-only orbit note", () => {
+      const attachment = {
+        attachment_id: "att_1",
+        name: "diagram.png",
+        media_type: "image/png",
+        size_bytes: 68,
+        sha256: "a".repeat(64),
+        kind: "image",
+        disposition: "inline",
+      };
+      const state = deriveRoomState([
+        event(
+          "orbit.note.created",
+          { note_id: "note_1", text: "", attachments: [attachment] },
+          1,
+          "user_1"
+        ),
+      ]);
+
+      expect(state.orbitNotes[0]).toMatchObject({
+        note_id: "note_1",
+        text: "",
+        attachments: [attachment],
+      });
+    });
+
     it("updates note likes from orbit.like.changed with liked:true", () => {
       const state = deriveRoomState([
         event(

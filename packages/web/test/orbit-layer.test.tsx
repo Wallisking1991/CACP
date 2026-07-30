@@ -47,6 +47,41 @@ describe("OrbitLayer", () => {
     expect(screen.getByText("Alice")).toBeInTheDocument();
   });
 
+  it("renders attachment metadata and download affordance for an attachment-only note", () => {
+    const notes = [
+      {
+        note_id: "note_attachment",
+        text: "",
+        attachments: [
+          {
+            attachment_id: "att_1",
+            name: "requirements.pdf",
+            media_type: "application/pdf",
+            size_bytes: 2048,
+            sha256: "a".repeat(64),
+            kind: "pdf" as const,
+            disposition: "inline" as const,
+          },
+        ],
+        created_by: "user_2",
+        created_at: "2026-04-25T00:00:00.000Z",
+        likes: 0,
+        liked_by_me: false,
+        quoted: false,
+      },
+    ];
+    renderOrbitLayer({
+      ...baseProps,
+      notes,
+      loadAttachment: vi.fn(),
+    });
+
+    expect(screen.getByText("requirements.pdf")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Download requirements.pdf/i })
+    ).toBeEnabled();
+  });
+
   it("shows like count and calls onLike when like button clicked", () => {
     const onLike = vi.fn();
     const notes = [

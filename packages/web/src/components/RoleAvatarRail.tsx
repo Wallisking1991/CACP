@@ -13,6 +13,7 @@ export interface RoleAvatarRailProps {
   onClickAgentAvatar?: () => void;
   railRef?: React.RefObject<HTMLDivElement | null>;
   orbitBubbles?: Map<string, string>;
+  onOrbitBubbleClick?: (avatarId: string) => void;
 }
 
 function initials(name: string): string {
@@ -42,6 +43,7 @@ export function RoleAvatarRail({
   onClickAgentAvatar,
   railRef,
   orbitBubbles,
+  onOrbitBubbleClick,
 }: RoleAvatarRailProps) {
   const t = useT();
 
@@ -130,6 +132,8 @@ export function RoleAvatarRail({
                 <OrbitBubble
                   text={orbitBubbles.get(avatar.id)!}
                   avatarId={avatar.id}
+                  onClick={() => onOrbitBubbleClick?.(avatar.id)}
+                  ariaLabel={String(t("orbit.openDiscussion"))}
                 />
               ) : null}
             </div>
@@ -187,6 +191,8 @@ export function RoleAvatarRail({
                 <OrbitBubble
                   text={orbitBubbles.get(avatar.id)!}
                   avatarId={avatar.id}
+                  onClick={() => onOrbitBubbleClick?.(avatar.id)}
+                  ariaLabel={String(t("orbit.openDiscussion"))}
                 />
               ) : null}
             </div>

@@ -326,6 +326,8 @@
   "orbitComposer.send": "Send",
   "orbitComposer.replyingTo": "Replying to",
   "orbitComposer.cancelReply": "Cancel reply",
+  "orbit.attachmentSummary": "{count} attachment(s)",
+  "orbit.openDiscussion": "Open discussion",
   "mention.agentLabel": "Agent",
   "mention.memberLabel": "Member",
   "orbit.title": "Roundtable",
@@ -350,5 +352,11 @@
   "notification.replyToYou": "replied to you",
   "orbitPromote.close": "Close",
   "orbitPromote.selectAll": "Select all",
-  "orbitPromote.deselectAll": "Deselect all"
+  "orbitPromote.deselectAll": "Deselect all",
+  "orbitPromote.attachments": "Attachments sent to Agent",
+  "orbitPromote.includeAttachment": "Include {name}",
+  "orbitPromote.tooManyAttachments": "Choose no more than 5 attachments.",
+  "orbitPromote.instruction": "Instruction for Agent",
+  "orbitPromote.instructionRequired": "required",
+  "orbitPromote.instructionOptional": "optional"
 }

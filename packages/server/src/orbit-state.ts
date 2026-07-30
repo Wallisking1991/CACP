@@ -1,4 +1,4 @@
-import type { ParticipantRole } from "@cacp/protocol";
+import type { AttachmentRef, ParticipantRole } from "@cacp/protocol";
 
 /**
  * Minimal structural shape consumed by `OrbitRoomState.replayFor`. The full
@@ -42,6 +42,7 @@ export interface OrbitNote {
   author_name: string;
   author_role: string;
   text: string;
+  attachments?: AttachmentRef[];
   created_at: string;
   reply_to?: string;
 }
@@ -144,7 +145,8 @@ export class OrbitRoomState {
    * `markQuoted(payload.noteIds)` and only mark what actually got promoted.
    */
   buildPromotionPayload(
-    selectedNoteIds: string[]
+    selectedNoteIds: string[],
+    instruction = ""
   ): OrbitPromotionPayload | null {
     const allNotes = this.getAllNotes();
     const requested = new Set(selectedNoteIds);
@@ -160,7 +162,9 @@ export class OrbitRoomState {
     }
 
     const lines = selected.map((note) => {
-      let safeText = note.text;
+      let safeText =
+        note.text.trim() ||
+        `[Attachments: ${(note.attachments ?? []).map((attachment) => attachment.name).join(", ")}]`;
       if (safeText.length > MAX_PROMOTION_NOTE_TEXT) {
         safeText = safeText.slice(0, MAX_PROMOTION_NOTE_TEXT) + " [truncated]";
       }
@@ -173,7 +177,10 @@ export class OrbitRoomState {
     const survivingIds = selected.map((note) => note.note_id);
 
     const encoder = new TextEncoder();
-    let text = lines.join("\n");
+    const normalizedInstruction = instruction.trim();
+    const composeText = () =>
+      [normalizedInstruction, lines.join("\n")].filter(Boolean).join("\n\n");
+    let text = composeText();
 
     while (
       encoder.encode(text).length > MAX_PROMOTION_BYTES &&
@@ -181,7 +188,7 @@ export class OrbitRoomState {
     ) {
       lines.pop();
       survivingIds.pop();
-      text = lines.join("\n");
+      text = composeText();
     }
 
     // Defensive: guarantees we never emit an empty discussion block if future
@@ -236,7 +243,11 @@ export class OrbitRoomState {
           author_name: note.author_name,
           author_role: note.author_role,
           text: note.text,
+          ...(note.attachments && note.attachments.length > 0
+            ? { attachments: note.attachments }
+            : {}),
           created_at: note.created_at,
+          ...(note.reply_to ? { reply_to: note.reply_to } : {}),
         },
       });
     }

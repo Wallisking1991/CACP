@@ -55,6 +55,7 @@ export interface HeaderProps {
   invites?: InviteView[];
   // Orbit bubbles
   orbitBubbles?: Map<string, string>;
+  onOrbitBubbleClick?: (avatarId: string) => void;
 }
 
 export default function Header({
@@ -86,6 +87,7 @@ export default function Header({
   createdInvite,
   invites,
   orbitBubbles,
+  onOrbitBubbleClick,
 }: HeaderProps) {
   const t = useT();
   const langCtx = useContext(LangContext);
@@ -128,6 +130,7 @@ export default function Header({
         onClickAgentAvatar={onClickAgentAvatar}
         railRef={railRef}
         orbitBubbles={orbitBubbles}
+        onOrbitBubbleClick={onOrbitBubbleClick}
       />
 
       <div className="header-actions">

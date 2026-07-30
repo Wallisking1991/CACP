@@ -18,6 +18,8 @@ import {
   requestAgentSessionPreview,
   requestConnectorSnapshot,
   selectAgentSession,
+  sendOrbitNote,
+  promoteOrbitNotes,
   sendMainInput,
   startTyping,
   stopTyping,
@@ -149,6 +151,66 @@ describe("room API", () => {
       body: JSON.stringify({
         text: "Inspect this",
         attachment_ids: ["att_1"],
+      }),
+    });
+  });
+
+  it("sends attachment IDs with an Orbit note", async () => {
+    mockJsonResponse({ note_id: "note_1", attachments: [] });
+    const session: RoomSession = {
+      room_id: "room_1",
+      participant_id: "member_1",
+      token: "member-token",
+      role: "member",
+    };
+
+    await sendOrbitNote(session, "", ["att_1"], "note_parent");
+
+    expect(fetch).toHaveBeenCalledWith("/rooms/room_1/orbit/notes", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer member-token",
+      },
+      body: JSON.stringify({
+        text: "",
+        attachment_ids: ["att_1"],
+        reply_to: "note_parent",
+      }),
+    });
+  });
+
+  it("sends explicit attachment selection and instruction with Orbit Promotion", async () => {
+    mockJsonResponse({
+      input_id: "input_1",
+      status: "triggered",
+      note_count: 1,
+      attachment_count: 1,
+    });
+    const session: RoomSession = {
+      room_id: "room_1",
+      participant_id: "owner_1",
+      token: "owner-token",
+      role: "owner",
+    };
+
+    await promoteOrbitNotes(
+      session,
+      ["note_1"],
+      ["att_1"],
+      "Review this image."
+    );
+
+    expect(fetch).toHaveBeenCalledWith("/rooms/room_1/orbit/promote", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer owner-token",
+      },
+      body: JSON.stringify({
+        note_ids: ["note_1"],
+        attachment_ids: ["att_1"],
+        instruction: "Review this image.",
       }),
     });
   });

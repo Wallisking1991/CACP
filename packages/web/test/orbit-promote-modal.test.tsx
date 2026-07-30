@@ -81,7 +81,7 @@ describe("OrbitPromoteModal", () => {
     expect(screen.getByRole("button", { name: /^Promote$/i })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: /Select all/i }));
     fireEvent.click(screen.getByRole("button", { name: /^Promote$/i }));
-    expect(onPromote).toHaveBeenCalledWith(["note_1", "note_2"]);
+    expect(onPromote).toHaveBeenCalledWith(["note_1", "note_2"], [], "");
   });
 
   it("closes when Cancel button is clicked without calling onPromote", () => {
@@ -175,6 +175,45 @@ describe("OrbitPromoteModal", () => {
 
     // Promote should call with only the still-selected note (note_1, in original ascending order).
     fireEvent.click(screen.getByRole("button", { name: /^Promote$/i }));
-    expect(onPromote).toHaveBeenCalledWith(["note_1"]);
+    expect(onPromote).toHaveBeenCalledWith(["note_1"], [], "");
+  });
+
+  it("selects aggregated attachments by default and requires an instruction for attachment-only notes", () => {
+    const onPromote = vi.fn();
+    const attachmentOnly = [
+      {
+        ...sampleNotes[0],
+        text: "",
+        attachments: [
+          {
+            attachment_id: "att_1",
+            name: "diagram.png",
+            media_type: "image/png",
+            size_bytes: 68,
+            sha256: "a".repeat(64),
+            kind: "image" as const,
+            disposition: "inline" as const,
+          },
+        ],
+      },
+    ];
+    renderModal({ ...baseProps, notes: attachmentOnly, onPromote });
+
+    const attachmentCheckbox = screen.getByRole("checkbox", {
+      name: /diagram.png/i,
+    }) as HTMLInputElement;
+    expect(attachmentCheckbox.checked).toBe(true);
+    expect(screen.getByRole("button", { name: /^Promote$/i })).toBeDisabled();
+
+    fireEvent.change(
+      screen.getByRole("textbox", { name: /Instruction for Agent/i }),
+      { target: { value: "Inspect the diagram." } }
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Promote$/i }));
+    expect(onPromote).toHaveBeenCalledWith(
+      ["note_1"],
+      ["att_1"],
+      "Inspect the diagram."
+    );
   });
 });

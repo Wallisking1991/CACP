@@ -19,6 +19,7 @@ import websocket from "@fastify/websocket";
 import { z } from "zod";
 import {
   buildConnectionCode,
+  AgentAdapterCompatibilitySchema,
   AttachmentRefSchema,
   ConnectorCompatibilitySchema,
   RequiredAgentAdapterCompatibility,
@@ -455,6 +456,35 @@ function attachmentRef(attachment: StoredAttachment): AttachmentRef {
   });
 }
 
+function validateAgentAttachmentInput(
+  events: CacpEvent[],
+  agentId: string,
+  attachments: AttachmentRef[]
+): string | undefined {
+  if (attachments.length === 0) return undefined;
+  const registration = [...events]
+    .reverse()
+    .find(
+      (storedEvent) =>
+        storedEvent.type === "agent.registered" &&
+        storedEvent.payload.agent_id === agentId
+    );
+  const parsed = AgentAdapterCompatibilitySchema.safeParse(
+    registration?.payload.adapter
+  );
+  if (!parsed.success) return "agent_attachment_unsupported";
+  if (attachments.length > parsed.data.input_capabilities.max_attachments)
+    return "too_many_attachments";
+  if (
+    attachments.some(
+      (attachment) =>
+        parsed.data.input_capabilities[attachment.kind] === "unsupported"
+    )
+  )
+    return "agent_attachment_unsupported";
+  return undefined;
+}
+
 function isLocalHost(value: string | undefined): boolean {
   if (!value) return false;
   const normalized = value.trim().toLowerCase();
@@ -718,7 +748,12 @@ export async function buildServer(options: BuildServerOptions = {}) {
     if (!orbitStates.has(roomId)) {
       const state = new OrbitRoomState(roomId);
       for (const note of store.getOrbitNotes(roomId)) {
-        state.addNote(note);
+        state.addNote({
+          ...note,
+          attachments: store
+            .getAttachmentsForReferences(roomId, "orbit_note", [note.note_id])
+            .map(attachmentRef),
+        });
       }
       orbitStates.set(roomId, state);
     }
@@ -1987,6 +2022,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
       return false;
     const queue = queuedMainInputs.get(roomId);
     if (!queue || queue.length === 0) return false;
+    const next = queue[0];
+    if (!next) return false;
 
     // Re-validate agent readiness before popping. If the agent went offline
     // or its session is no longer ready, keep the queue intact (same
@@ -2005,8 +2042,16 @@ export async function buildServer(options: BuildServerOptions = {}) {
           : hasLocalAgentSessionReady(events, activeAgentId, localProvider);
       if (!ready) return false;
     }
+    if (
+      validateAgentAttachmentInput(
+        events,
+        activeAgentId,
+        next.content.attachments
+      )
+    )
+      return false;
 
-    const next = queue.shift()!;
+    queue.shift();
 
     // Build the turn request from the explicit queue item. Main inputs do not
     // create `message.created` events, so recent conversation state cannot be
@@ -2041,7 +2086,15 @@ export async function buildServer(options: BuildServerOptions = {}) {
 
     // Persist the turn request and triggered marker so reconnecting clients
     // see the complete main-input lifecycle.
-    const stored = store.appendEvent(turnEvent);
+    const stored = store.transaction(() => {
+      store.grantAttachmentsToAgent(
+        roomId,
+        next.content.attachments.map((attachment) => attachment.attachment_id),
+        activeAgentId,
+        next.input_id
+      );
+      return store.appendEvent(turnEvent);
+    });
     bus.publish({ event: stored, delivery: roomDelivery() });
     appendAndPublish(triggered);
     appendAndPublish(messageCreated);
@@ -2903,7 +2956,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
         request
       );
       if (!participant) return deny(reply, "invalid_token");
-      if (!hasHumanRole(participant, ["owner", "admin"]))
+      if (!hasHumanRole(participant, ["owner", "admin", "member"]))
         return deny(reply, "forbidden", 403);
       if (
         roomAttachmentBytesWithReservations(request.params.roomId) >=
@@ -3014,12 +3067,22 @@ export async function buildServer(options: BuildServerOptions = {}) {
       request.params.attachmentId
     );
     if (!attachment) return deny(reply, "attachment_not_found", 404);
-    if (
+    if (participant.role === "agent") {
+      if (
+        !store.canAgentReadAttachment(
+          request.params.roomId,
+          request.params.attachmentId,
+          participant.id
+        )
+      )
+        return deny(reply, "forbidden", 403);
+    } else if (
       attachment.message_id === null &&
       attachment.created_by !== participant.id &&
       participant.role !== "owner"
-    )
+    ) {
       return deny(reply, "forbidden", 403);
+    }
     const disposition = attachment.disposition;
     const encodedName = encodeURIComponent(attachment.name);
     const asciiName = attachment.name
@@ -4050,6 +4113,12 @@ export async function buildServer(options: BuildServerOptions = {}) {
       if (!activeAgentId) return deny(reply, "active_agent_unavailable", 409);
       if (!isAgentOnline(events, activeAgentId))
         return deny(reply, "active_agent_unavailable", 409);
+      const attachmentInputError = validateAgentAttachmentInput(
+        events,
+        activeAgentId,
+        content.attachments
+      );
+      if (attachmentInputError) return deny(reply, attachmentInputError, 409);
       const capabilities = findAgentCapabilities(events, activeAgentId);
       const localProvider = providerForCapabilities(capabilities);
       if (localProvider) {
@@ -4128,9 +4197,17 @@ export async function buildServer(options: BuildServerOptions = {}) {
           created_at: now,
         });
       }
-      store.transaction(() =>
-        store.attachAttachments(roomId, attachmentIds, inputId)
-      );
+      store.transaction(() => {
+        store.attachAttachments(roomId, attachmentIds, inputId);
+        if (!openTurn) {
+          store.grantAttachmentsToAgent(
+            roomId,
+            attachmentIds,
+            activeAgentId,
+            inputId
+          );
+        }
+      });
       if (messageCreated) appendAndPublish(messageCreated);
       appendAndPublish(accepted);
       appendAndPublish(queued);
@@ -4157,8 +4234,11 @@ export async function buildServer(options: BuildServerOptions = {}) {
       const inputId = request.params.inputId;
       const idx = findQueuedMainInputIndex(roomId, inputId);
       if (idx < 0) return deny(reply, "input_not_found", 409);
-      const [removed] = queuedMainInputs.get(roomId)!.splice(idx, 1);
-      for (const attachment of removed.content.attachments) {
+      queuedMainInputs.get(roomId)!.splice(idx, 1);
+      const orphaned = store.transaction(() =>
+        store.removeAttachmentReferences(roomId, "main_input", [inputId])
+      );
+      for (const attachment of orphaned) {
         await attachmentStore.delete(roomId, attachment.attachment_id);
         store.deleteAttachment(roomId, attachment.attachment_id);
       }
@@ -4187,24 +4267,51 @@ export async function buildServer(options: BuildServerOptions = {}) {
         return deny(reply, "forbidden", 403);
       const body = z
         .object({
-          text: z.string().min(1).max(2000),
+          text: z.string().trim().max(2000).default(""),
+          attachment_ids: z
+            .array(z.string().min(1))
+            .max(config.maxAttachmentsPerMessage)
+            .default([]),
           reply_to: z.string().optional(),
         })
+        .refine(
+          (value) => value.text.length > 0 || value.attachment_ids.length > 0,
+          { message: "orbit_note_content_required" }
+        )
         .parse(request.body);
       const roomId = request.params.roomId;
       const orbit = getOrbitState(roomId);
+      const attachmentIds = [...new Set(body.attachment_ids)];
+      if (attachmentIds.length !== body.attachment_ids.length)
+        return deny(reply, "duplicate_attachment", 400);
+      const storedAttachments = store.getAttachments(roomId, attachmentIds);
+      if (
+        storedAttachments.length !== attachmentIds.length ||
+        storedAttachments.some(
+          (attachment) =>
+            attachment.created_by !== participant.id ||
+            attachment.message_id !== null
+        )
+      )
+        return deny(reply, "attachment_not_attachable", 409);
+      const attachments = storedAttachments.map(attachmentRef);
       const noteId = prefixedId("note");
       const now = new Date().toISOString();
-      const note = orbit.addNote({
+      const note = {
         note_id: noteId,
         author_id: participant.id,
         author_name: participant.display_name,
         author_role: participant.role,
         text: body.text,
+        attachments,
         created_at: now,
         reply_to: body.reply_to,
+      };
+      store.transaction(() => {
+        store.addOrbitNote({ room_id: roomId, ...note });
+        store.attachAttachments(roomId, attachmentIds, noteId, "orbit_note");
       });
-      store.addOrbitNote({ room_id: roomId, ...note });
+      orbit.addNote(note);
       publishRoleFiltered(
         event(roomId, "orbit.note.created", participant.id, {
           note_id: note.note_id,
@@ -4212,12 +4319,15 @@ export async function buildServer(options: BuildServerOptions = {}) {
           author_name: note.author_name,
           author_role: note.author_role,
           text: note.text,
+          attachments: note.attachments,
           created_at: note.created_at,
           reply_to: note.reply_to,
         }),
         HUMAN_ROLES
       );
-      return reply.code(201).send({ note_id: noteId });
+      return reply
+        .code(201)
+        .send({ note_id: noteId, attachments: note.attachments });
     }
   );
 
@@ -4301,8 +4411,22 @@ export async function buildServer(options: BuildServerOptions = {}) {
         return deny(reply, "forbidden", 403);
       const roomId = request.params.roomId;
       const now = new Date().toISOString();
-      getOrbitState(roomId).reset();
-      store.clearOrbitNotes(roomId);
+      const orbit = getOrbitState(roomId);
+      const noteIds = orbit.getAllNotes().map((note) => note.note_id);
+      const orphaned = store.transaction(() => {
+        const attachments = store.removeAttachmentReferences(
+          roomId,
+          "orbit_note",
+          noteIds
+        );
+        store.clearOrbitNotes(roomId);
+        return attachments;
+      });
+      for (const attachment of orphaned) {
+        await attachmentStore.delete(roomId, attachment.attachment_id);
+        store.deleteAttachment(roomId, attachment.attachment_id);
+      }
+      orbit.reset();
       publishRoleFiltered(
         event(roomId, "orbit.cleared", participant.id, {
           cleared_by: participant.id,
@@ -4327,17 +4451,74 @@ export async function buildServer(options: BuildServerOptions = {}) {
       if (!hasAnyRole(participant, ["owner", "admin"]))
         return deny(reply, "forbidden", 403);
       const body = z
-        .object({ note_ids: z.array(z.string().min(1)).min(1) })
+        .object({
+          note_ids: z.array(z.string().min(1)).min(1).max(50),
+          attachment_ids: z
+            .array(z.string().min(1))
+            .max(config.maxAttachmentsPerMessage)
+            .optional(),
+          instruction: z.string().trim().max(4000).default(""),
+        })
         .parse(request.body);
       const roomId = request.params.roomId;
       const orbit = getOrbitState(roomId);
-      const freshRequestedIds = body.note_ids.filter(
+      const requestedNoteIds = [...new Set(body.note_ids)];
+      if (requestedNoteIds.length !== body.note_ids.length)
+        return deny(reply, "duplicate_note", 400);
+      const freshRequestedIds = requestedNoteIds.filter(
         (id) => !orbit.isQuoted(id)
       );
       if (freshRequestedIds.length === 0)
         return deny(reply, "all_already_quoted", 409);
-      const payload = orbit.buildPromotionPayload(freshRequestedIds);
+      const selectedNotes = freshRequestedIds
+        .map((id) => orbit.getNote(id))
+        .filter((note) => note !== undefined);
+      if (selectedNotes.length !== freshRequestedIds.length)
+        return deny(reply, "no_notes_selected", 409);
+      if (
+        selectedNotes.every((note) => note.text.trim().length === 0) &&
+        body.instruction.length === 0
+      )
+        return deny(reply, "promotion_instruction_required", 400);
+
+      const availableAttachments = store.getAttachmentsForReferences(
+        roomId,
+        "orbit_note",
+        freshRequestedIds
+      );
+      const availableAttachmentIds = new Set(
+        availableAttachments.map((attachment) => attachment.attachment_id)
+      );
+      const selectedAttachmentIds =
+        body.attachment_ids === undefined
+          ? [...availableAttachmentIds]
+          : [...new Set(body.attachment_ids)];
+      if (
+        body.attachment_ids !== undefined &&
+        selectedAttachmentIds.length !== body.attachment_ids.length
+      )
+        return deny(reply, "duplicate_attachment", 400);
+      if (
+        selectedAttachmentIds.some(
+          (attachmentId) => !availableAttachmentIds.has(attachmentId)
+        )
+      )
+        return deny(reply, "attachment_not_in_selection", 409);
+      const selectedAttachments = selectedAttachmentIds.map((attachmentId) =>
+        attachmentRef(
+          availableAttachments.find(
+            (attachment) => attachment.attachment_id === attachmentId
+          )!
+        )
+      );
+
+      const payload = orbit.buildPromotionPayload(
+        freshRequestedIds,
+        body.instruction
+      );
       if (!payload) return deny(reply, "no_notes_selected", 409);
+      if (payload.noteIds.length !== freshRequestedIds.length)
+        return deny(reply, "promotion_too_large", 409);
 
       const lastNoteId = payload.noteIds[payload.noteIds.length - 1];
       const lastNote = lastNoteId ? orbit.getNote(lastNoteId) : undefined;
@@ -4350,6 +4531,24 @@ export async function buildServer(options: BuildServerOptions = {}) {
       const events = store.listEvents(roomId);
       const activeAgentId = findActiveAgentId(events);
       if (!activeAgentId) return deny(reply, "active_agent_unavailable", 409);
+      if (!isAgentOnline(events, activeAgentId))
+        return deny(reply, "active_agent_unavailable", 409);
+      const attachmentInputError = validateAgentAttachmentInput(
+        events,
+        activeAgentId,
+        selectedAttachments
+      );
+      if (attachmentInputError) return deny(reply, attachmentInputError, 409);
+      const capabilities = findAgentCapabilities(events, activeAgentId);
+      const localProvider = providerForCapabilities(capabilities);
+      if (localProvider) {
+        const ready =
+          localProvider === "claude-code"
+            ? hasClaudeSessionReady(events, activeAgentId) ||
+              hasLocalAgentSessionReady(events, activeAgentId, localProvider)
+            : hasLocalAgentSessionReady(events, activeAgentId, localProvider);
+        if (!ready) return deny(reply, "agent_session_not_ready", 409);
+      }
       const turnEvents = events;
       const openTurn = findAnyOpenTurn(turnEvents);
       const queuedArr = getQueuedMainInputs(roomId);
@@ -4359,11 +4558,15 @@ export async function buildServer(options: BuildServerOptions = {}) {
       const queuedTurnId = openTurn
         ? openTurn.turn_id
         : (findLastTurnId(turnEvents) ?? "none");
+      const content = {
+        text: payload.text,
+        attachments: selectedAttachments,
+      } satisfies StructuredMessageContent;
 
       const accepted = event(roomId, "main_input.accepted", participant.id, {
         input_id: inputId,
         author_id: participant.id,
-        content: { text: payload.text, attachments: [] },
+        content,
         source: "orbit_promote",
         created_at: now,
       });
@@ -4379,7 +4582,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
           actorId: participant.id,
           authorName: speakerName,
           authorRole: speakerRole,
-          content: { text: payload.text, attachments: [] },
+          content,
           source: "orbit_promote",
         });
         if (turnRequestEvents.length === 0)
@@ -4393,16 +4596,38 @@ export async function buildServer(options: BuildServerOptions = {}) {
           input_id: inputId,
           trigger_turn_id: triggerTurnId,
         });
-        extraTurnEvents = store.transaction(() =>
-          turnRequestEvents.map((nextEvent) => store.appendEvent(nextEvent))
-        );
+        extraTurnEvents = store.transaction(() => {
+          store.referenceAttachments(
+            roomId,
+            selectedAttachmentIds,
+            "main_input",
+            inputId
+          );
+          store.grantAttachmentsToAgent(
+            roomId,
+            selectedAttachmentIds,
+            activeAgentId,
+            inputId
+          );
+          return turnRequestEvents.map((nextEvent) =>
+            store.appendEvent(nextEvent)
+          );
+        });
       } else {
+        store.transaction(() =>
+          store.referenceAttachments(
+            roomId,
+            selectedAttachmentIds,
+            "main_input",
+            inputId
+          )
+        );
         queuedArr.push({
           input_id: inputId,
           author_id: participant.id,
           author_name: speakerName,
           author_role: speakerRole,
-          content: { text: payload.text, attachments: [] },
+          content,
           source: "orbit_promote",
           created_at: now,
         });
@@ -4424,6 +4649,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
         input_id: inputId,
         status: openTurn ? "queued" : "triggered",
         note_count: payload.noteCount,
+        attachment_count: selectedAttachments.length,
       });
     }
   );

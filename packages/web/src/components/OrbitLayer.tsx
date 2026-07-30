@@ -2,6 +2,8 @@ import { useRef, useEffect, useState } from "react";
 import { useT } from "../i18n/useT.js";
 import { humanColors, agentColors } from "../avatar-colors.js";
 import type { OrbitNoteView } from "../room-state.js";
+import type { AttachmentRef } from "@cacp/protocol";
+import { MessageAttachments } from "./Thread.js";
 
 export interface OrbitLayerProps {
   notes: OrbitNoteView[];
@@ -18,6 +20,8 @@ export interface OrbitLayerProps {
   onPromoteClick?: () => void;
   canClear?: boolean;
   onClearClick?: () => void;
+  loadAttachment?: (attachment: AttachmentRef) => Promise<Blob>;
+  focusNoteId?: string;
 }
 
 function initials(name: string): string {
@@ -42,6 +46,8 @@ export function OrbitLayer({
   onPromoteClick,
   canClear = false,
   onClearClick,
+  loadAttachment,
+  focusNoteId,
 }: OrbitLayerProps) {
   const t = useT();
   const notesContainerRef = useRef<HTMLDivElement>(null);
@@ -57,6 +63,14 @@ export function OrbitLayer({
     }
     prevNotesLen.current = notes.length;
   }, [notes.length, isNearBottom]);
+
+  useEffect(() => {
+    if (!focusNoteId) return;
+    const note = notesContainerRef.current?.querySelector<HTMLElement>(
+      `[data-note-id="${focusNoteId}"]`
+    );
+    note?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [focusNoteId, notes.length]);
 
   const handleScroll = () => {
     const container = notesContainerRef.current;
@@ -158,12 +172,14 @@ export function OrbitLayer({
           return (
             <div
               key={note.note_id}
+              data-note-id={note.note_id}
               className={[
                 "orbit-note",
                 note.quoted && "orbit-note--quoted",
                 ownNote && "orbit-note--own",
                 isConsecutive && "orbit-note--consecutive",
                 isHighlighted && "orbit-note--highlighted",
+                focusNoteId === note.note_id && "orbit-note--focused",
               ]
                 .filter(Boolean)
                 .join(" ")}
@@ -263,11 +279,20 @@ export function OrbitLayer({
                     {replyParentName}
                   </span>
                   <span className="orbit-note-reply-preview__text">
-                    {replyParent.text}
+                    {replyParent.text ||
+                      t("orbit.attachmentSummary", {
+                        count: String(replyParent.attachments?.length ?? 0),
+                      })}
                   </span>
                 </div>
               )}
-              <p className="orbit-note-text">{note.text}</p>
+              {note.text && <p className="orbit-note-text">{note.text}</p>}
+              {note.attachments && note.attachments.length > 0 && (
+                <MessageAttachments
+                  attachments={note.attachments}
+                  loadAttachment={loadAttachment}
+                />
+              )}
             </div>
           );
         })}

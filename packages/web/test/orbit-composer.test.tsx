@@ -40,7 +40,7 @@ describe("OrbitComposer", () => {
     const textarea = screen.getByPlaceholderText(/Discussion space/i);
     fireEvent.change(textarea, { target: { value: "Hey team" } });
     fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
-    expect(onSendOrbitNote).toHaveBeenCalledWith("Hey team", undefined);
+    expect(onSendOrbitNote).toHaveBeenCalledWith("Hey team", [], undefined);
   });
 
   it("does not send on Shift+Enter", () => {
@@ -102,7 +102,7 @@ describe("OrbitComposer", () => {
     const textarea = screen.getByPlaceholderText(/Discussion space/i);
     fireEvent.change(textarea, { target: { value: "Reply text" } });
     fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
-    expect(onSendOrbitNote).toHaveBeenCalledWith("Reply text", "n1");
+    expect(onSendOrbitNote).toHaveBeenCalledWith("Reply text", [], "n1");
   });
 
   it("calls onCancelReply when cancel button clicked", () => {
@@ -134,5 +134,65 @@ describe("OrbitComposer", () => {
       </LangProvider>
     );
     expect(document.activeElement).toBe(textarea);
+  });
+
+  it("uploads and sends an attachment-only Orbit note", async () => {
+    const uploaded = {
+      attachment_id: "att_1",
+      name: "pixel.png",
+      media_type: "image/png",
+      size_bytes: 68,
+      sha256: "a".repeat(64),
+      kind: "image" as const,
+      disposition: "inline" as const,
+    };
+    const onUploadAttachment = vi.fn().mockResolvedValue(uploaded);
+    const onSendOrbitNote = vi.fn().mockResolvedValue(undefined);
+    renderOrbitComposer({
+      ...baseProps,
+      onUploadAttachment,
+      onSendOrbitNote,
+    });
+    const file = new File(["image"], "pixel.png", { type: "image/png" });
+
+    fireEvent.change(screen.getByTestId("orbit-composer-attachment-input"), {
+      target: { files: [file] },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Send$/i }));
+
+    await vi.waitFor(() =>
+      expect(onSendOrbitNote).toHaveBeenCalledWith("", [uploaded], undefined)
+    );
+    expect(onUploadAttachment).toHaveBeenCalledWith(
+      file,
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+  });
+
+  it("keeps an attachment draft when upload fails so it can be retried", async () => {
+    const onUploadAttachment = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("network"))
+      .mockResolvedValueOnce({
+        attachment_id: "att_retry",
+        name: "notes.txt",
+        media_type: "text/plain",
+        size_bytes: 5,
+        sha256: "b".repeat(64),
+        kind: "text",
+        disposition: "inline",
+      });
+    renderOrbitComposer({ ...baseProps, onUploadAttachment });
+    fireEvent.change(screen.getByTestId("orbit-composer-attachment-input"), {
+      target: {
+        files: [new File(["hello"], "notes.txt", { type: "text/plain" })],
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /^Send$/i }));
+    await screen.findByRole("alert");
+    expect(screen.getByText("notes.txt")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Retry notes.txt/i }));
+    await vi.waitFor(() => expect(onUploadAttachment).toHaveBeenCalledTimes(2));
   });
 });

@@ -36,21 +36,45 @@ Human messages, accepted main inputs, and agent turn requests carry:
 }
 ```
 
-Text remains required and is limited to 4,000 characters. A message may bind up to five attachments, each no larger than 10 MiB.
+Text remains required for a Main Input and is limited to 4,000 characters. A
+Main Input may bind up to five attachments, each no larger than 10 MiB.
 
 ## Attachment flow
 
-1. An authenticated owner or admin streams one multipart file to `POST /rooms/:roomId/attachments`.
+1. An authenticated owner, admin, or member streams one multipart file to `POST /rooms/:roomId/attachments`.
 2. The server stages the stream outside its final path and enforces file, message, and room quotas.
 3. The server checks the filename, claimed media type, detected signature, extension, and UTF-8 validity where applicable.
 4. After successful validation, the server atomically commits the bytes and returns an attachment reference.
 5. The client may read current quota state from `GET /rooms/:roomId/attachments` and discard an unbound upload with `DELETE /rooms/:roomId/attachments/:attachmentId`.
-6. The sender includes returned attachment IDs in `POST /rooms/:roomId/main-inputs`.
-7. The server verifies ownership and one-time binding, then emits structured `message.created`, `main_input.accepted`, and `agent.turn.requested` content.
+6. An owner or admin may include returned attachment IDs in `POST /rooms/:roomId/main-inputs`; an owner, admin, or member may include them in `POST /rooms/:roomId/orbit/notes`.
+7. For a Main Input, the server verifies ownership and one-time binding, then emits structured `message.created`, `main_input.accepted`, and `agent.turn.requested` content.
 8. The connector downloads each file with its agent bearer token, verifies size and SHA-256, and materializes it below `<working-dir>/.cacp/rooms/<room-id>/attachments/<attachment-id>`.
 9. The selected adapter receives either native attachment input or an absolute verified path according to its manifest.
 
-Authenticated room participants may download a bound attachment from `GET /rooms/:roomId/attachments/:attachmentId`. Responses use `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, restrictive Content Security Policy, and a safe content disposition.
+Authenticated human room participants, including observers, may download a
+bound attachment from `GET /rooms/:roomId/attachments/:attachmentId`. A Local
+Tool Agent may download only attachments explicitly granted by its targeted
+Main Input. Responses use `Cache-Control: no-store`,
+`X-Content-Type-Options: nosniff`, restrictive Content Security Policy, and a
+safe content disposition.
+
+## Orbit Discussion attachments
+
+An Orbit Note may contain text, attachments, or both. It may bind up to five
+attachments and uses the same file-type and quota policy as a Main Input.
+Sharing an attachment in Orbit does not require a connected Agent and does not
+grant any Agent access.
+
+An owner or admin may promote selected, unpromoted Orbit Notes to one Main
+Input. Attachment selection is explicit and defaults to all attachments on the
+selected Notes. Promotion is atomic: the selected Notes, attachment references,
+target-Agent grant, and resulting Main Input either all succeed or all fail. A
+text instruction is required when the promoted Notes contain no text.
+
+After promotion, selected Notes are terminal even if some of their attachments
+were excluded. Clearing Orbit removes its content references and deletes only
+attachment bytes that are no longer referenced by a Main Input. Replying to an
+Orbit Note links to the Note but does not copy its attachment references.
 
 ## Allowed files and limits
 
@@ -68,7 +92,8 @@ Supported content includes raster images, PDF, UTF-8 text/source files, and DOCX
 Attachment metadata is stored in SQLite and bytes are stored below the configured attachment root. They are room-scoped, not a permanent file library:
 
 - deleting or closing a room immediately deletes its attachment directory and metadata;
-- cancelling an input removes attachments bound to that input;
+- cancelling an input removes its attachment references and deletes bytes only
+  when no other room content references them;
 - abandoned uploads are periodically removed;
 - startup purges leftover attachment bytes and metadata from an interrupted process;
 - connector shutdown removes its room materialization directory.

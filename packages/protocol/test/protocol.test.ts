@@ -1159,6 +1159,40 @@ describe("orbit and connector event schemas", () => {
     ).toThrow();
   });
 
+  it("accepts attachment-only orbit notes but rejects empty notes", () => {
+    const attachment = {
+      attachment_id: "att_1",
+      name: "pixel.png",
+      media_type: "image/png",
+      size_bytes: 68,
+      sha256: "a".repeat(64),
+      kind: "image" as const,
+      disposition: "inline" as const,
+    };
+
+    expect(
+      OrbitNoteCreatedPayloadSchema.parse({
+        note_id: "note_attachment",
+        author_id: "user_1",
+        author_name: "Alice",
+        text: "",
+        attachments: [attachment],
+        created_at: "2026-05-01T00:00:00.000Z",
+      })
+    ).toMatchObject({ text: "", attachments: [attachment] });
+
+    expect(() =>
+      OrbitNoteCreatedPayloadSchema.parse({
+        note_id: "note_empty",
+        author_id: "user_1",
+        author_name: "Alice",
+        text: "",
+        attachments: [],
+        created_at: "2026-05-01T00:00:00.000Z",
+      })
+    ).toThrow();
+  });
+
   it("accepts valid orbit like changed payloads", () => {
     const payload = {
       note_id: "note_1",

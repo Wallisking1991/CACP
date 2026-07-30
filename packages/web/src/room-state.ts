@@ -18,6 +18,7 @@ import type {
 } from "@cacp/protocol";
 import {
   AgentInputCapabilitiesSchema,
+  AttachmentRefSchema,
   StructuredMessageContentSchema,
 } from "@cacp/protocol";
 
@@ -104,6 +105,7 @@ export interface InviteView {
 export interface OrbitNoteView {
   note_id: string;
   text: string;
+  attachments?: AttachmentRef[];
   created_by: string;
   created_at: string;
   likes: number;
@@ -894,15 +896,21 @@ export function deriveRoomState(
         typeof event.payload.reply_to === "string"
           ? event.payload.reply_to
           : undefined;
+      const parsedAttachments = AttachmentRefSchema.array().safeParse(
+        event.payload.attachments ?? []
+      );
       orbitNotes.set(event.payload.note_id, {
         note_id: event.payload.note_id,
         text: event.payload.text,
+        ...(parsedAttachments.success && parsedAttachments.data.length > 0
+          ? { attachments: parsedAttachments.data }
+          : {}),
         created_by: event.actor_id,
         created_at: createdAt,
         likes: 0,
         liked_by_me: false,
         quoted: false,
-        reply_to: replyTo,
+        ...(replyTo ? { reply_to: replyTo } : {}),
       });
     }
     if (

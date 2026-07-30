@@ -203,4 +203,49 @@ describe("Workspace Orbit bubbles", () => {
     expect(bubbles.length).toBe(1);
     expect(bubbles[0]).toHaveTextContent("Second note");
   });
+
+  it("summarizes attachment-only notes and opens the focused note when clicked", () => {
+    const props = {
+      ...baseProps,
+      events: [
+        ...baseProps.events,
+        event(
+          "orbit.note.created",
+          {
+            note_id: "note_attachment",
+            text: "",
+            attachments: [
+              {
+                attachment_id: "att_1",
+                name: "diagram.png",
+                media_type: "image/png",
+                size_bytes: 68,
+                sha256: "a".repeat(64),
+                kind: "image",
+                disposition: "inline",
+              },
+            ],
+          },
+          6,
+          "user_2",
+          true
+        ),
+      ],
+    };
+    render(
+      <LangProvider>
+        <Workspace {...props} />
+      </LangProvider>
+    );
+
+    expect(document.querySelector(".orbit-bubble__text")).toHaveTextContent(
+      "1 attachment"
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Open discussion/i }));
+
+    expect(screen.getByTestId("orbit-composer")).toBeInTheDocument();
+    expect(
+      document.querySelector('[data-note-id="note_attachment"]')
+    ).toHaveClass("orbit-note--focused");
+  });
 });
