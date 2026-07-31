@@ -919,6 +919,49 @@ textarea.input {
     inset 0 1px 0 rgba(255, 255, 255, 0.72);
 }
 
+.workspace-mode-switch {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: rgba(255, 252, 245, 0.72);
+}
+
+.workspace-mode-switch button {
+  min-height: 36px;
+  padding: 7px 13px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  transition:
+    background var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    box-shadow var(--motion-fast) ease;
+}
+
+.workspace-mode-switch button:hover {
+  color: var(--ink);
+  background: var(--surface-warm);
+}
+
+.workspace-mode-switch button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.workspace-mode-switch button.is-active {
+  background: var(--ink);
+  color: var(--invert);
+  box-shadow: 0 2px 8px rgba(28, 24, 19, 0.16);
+}
+
 .header-brand {
   display: flex;
   align-items: center;
@@ -1327,6 +1370,51 @@ textarea.input {
   border: 1px solid var(--border);
   border-radius: var(--radius-frame);
   background: var(--surface);
+}
+
+.conversation-workspace,
+.whiteboard-workspace {
+  flex: 1;
+  min-height: 0;
+}
+
+.conversation-workspace {
+  display: flex;
+  flex-direction: column;
+}
+
+.conversation-workspace[hidden],
+.whiteboard-workspace[hidden] {
+  display: none;
+}
+
+.whiteboard-workspace {
+  overflow: hidden;
+  background: #f8f8f7;
+}
+
+.whiteboard-surface,
+.whiteboard-surface__editor,
+.whiteboard-excalidraw {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.whiteboard-surface {
+  position: relative;
+}
+
+.whiteboard-surface__status {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--surface);
+  color: var(--ink-3);
+  font-size: 14px;
 }
 
 .thread {
@@ -4666,6 +4754,11 @@ textarea.input {
     gap: 10px;
   }
 
+  .workspace-mode-switch button {
+    min-height: 44px;
+    padding-inline: 12px;
+  }
+
   .header-title {
     min-width: 0;
   }
@@ -4718,17 +4811,30 @@ textarea.input {
     height: 20px;
   }
 
-  /* Studio layout mobile — explicit grid: title+lang / chip / avatars */
+  /* Studio layout mobile — identity / room controls / workspace switch */
   .workspace-header--studio {
     display: grid;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-areas:
-      "title lang"
-      "chip  chip"
-      "avatars avatars";
-    gap: 6px 10px;
+      "title title brand"
+      "chip avatars actions"
+      "switch switch switch";
+    gap: 8px 10px;
     padding: 10px 12px;
     align-items: center;
+  }
+
+  .workspace-header--studio .header-brand {
+    grid-area: brand;
+  }
+
+  .workspace-header--studio .header-brand__logo {
+    width: 52px;
+    height: 52px;
+  }
+
+  .workspace-header--studio .header-brand__divider {
+    display: none;
   }
 
   .room-identity {
@@ -4751,26 +4857,40 @@ textarea.input {
   .room-identity .share-menu-button {
     grid-area: chip;
     justify-self: start;
-    width: 28px;
-    height: 28px;
+    width: 44px;
+    height: 44px;
   }
 
   .connection-code-panel {
     min-width: 240px;
   }
 
-  .workspace-header--studio .lang-toggle {
-    grid-area: lang;
-    flex-shrink: 0;
-    align-self: center;
+  .workspace-header--studio .workspace-mode-switch {
+    grid-area: switch;
+    width: 100%;
   }
 
-  .role-avatar-rail {
+  .workspace-header--studio .workspace-mode-switch button {
+    flex: 1;
+  }
+
+  .workspace-header--studio .role-avatar-rail {
     grid-area: avatars;
-    width: 100%;
+    width: auto;
+    min-width: 0;
+    margin-left: 0;
     justify-content: flex-start;
     overflow-x: auto;
     padding-bottom: 2px;
+  }
+
+  .workspace-header--studio .header-actions {
+    grid-area: actions;
+  }
+
+  .workspace-header--studio .header-actions > button {
+    min-width: 44px;
+    min-height: 44px;
   }
 
   .room-control-overlay {

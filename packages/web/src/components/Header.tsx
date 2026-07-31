@@ -13,6 +13,10 @@ import { MoreMenu } from "./MoreMenu.js";
 import { BellIcon } from "./RoomIcons.js";
 import { Popover } from "./Popover.js";
 import { NotificationPanel } from "./NotificationPanel.js";
+import {
+  WorkspaceModeSwitch,
+  type WorkspaceMode,
+} from "./WorkspaceModeSwitch.js";
 
 export interface HeaderProps {
   roomName: string;
@@ -56,6 +60,8 @@ export interface HeaderProps {
   // Orbit bubbles
   orbitBubbles?: Map<string, string>;
   onOrbitBubbleClick?: (avatarId: string) => void;
+  workspaceMode?: WorkspaceMode;
+  onWorkspaceModeChange?: (mode: WorkspaceMode) => void;
 }
 
 export default function Header({
@@ -88,6 +94,8 @@ export default function Header({
   invites,
   orbitBubbles,
   onOrbitBubbleClick,
+  workspaceMode = "conversation",
+  onWorkspaceModeChange,
 }: HeaderProps) {
   const t = useT();
   const langCtx = useContext(LangContext);
@@ -120,6 +128,13 @@ export default function Header({
         createdInvite={createdInvite}
         invites={invites}
       />
+
+      {onWorkspaceModeChange && (
+        <WorkspaceModeSwitch
+          mode={workspaceMode}
+          onChange={onWorkspaceModeChange}
+        />
+      )}
 
       <RoleAvatarRail
         avatars={avatarStatuses}
