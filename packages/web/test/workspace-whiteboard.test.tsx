@@ -374,6 +374,12 @@ describe("Collaborative Whiteboard workspace", () => {
     expect(
       document.getElementById("whiteboard-workspace-panel")
     ).not.toBeInTheDocument();
+    expect(
+      document.getElementById("conversation-workspace-panel")
+    ).not.toHaveAttribute("role");
+    expect(
+      document.getElementById("conversation-workspace-panel")
+    ).not.toHaveAttribute("aria-labelledby");
     expect(loadWhiteboardEditorAdapter).not.toHaveBeenCalled();
   });
 });

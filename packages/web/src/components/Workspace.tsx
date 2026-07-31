@@ -818,24 +818,33 @@ export default function Workspace({
             createdInvite={createdInvite}
             invites={room.invites}
             orbitBubbles={
-              new Map(
-                Array.from(orbitBubbles.entries()).map(([k, v]) => [k, v.text])
-              )
+              workspaceMode === "conversation"
+                ? new Map(
+                    Array.from(orbitBubbles.entries()).map(([k, v]) => [
+                      k,
+                      v.text,
+                    ])
+                  )
+                : undefined
             }
-            onOrbitBubbleClick={(avatarId) => {
-              const bubble = orbitBubbles.get(avatarId);
-              if (!bubble) return;
-              setFocusedOrbitNoteId(bubble.noteId);
-              setPanelOpen(true);
-              const timer = orbitBubbleTimersRef.current.get(avatarId);
-              if (timer) window.clearTimeout(timer);
-              orbitBubbleTimersRef.current.delete(avatarId);
-              setOrbitBubbles((current) => {
-                const next = new Map(current);
-                next.delete(avatarId);
-                return next;
-              });
-            }}
+            onOrbitBubbleClick={
+              workspaceMode === "conversation"
+                ? (avatarId) => {
+                    const bubble = orbitBubbles.get(avatarId);
+                    if (!bubble) return;
+                    setFocusedOrbitNoteId(bubble.noteId);
+                    setPanelOpen(true);
+                    const timer = orbitBubbleTimersRef.current.get(avatarId);
+                    if (timer) window.clearTimeout(timer);
+                    orbitBubbleTimersRef.current.delete(avatarId);
+                    setOrbitBubbles((current) => {
+                      const next = new Map(current);
+                      next.delete(avatarId);
+                      return next;
+                    });
+                  }
+                : undefined
+            }
             workspaceMode={workspaceMode}
             onWorkspaceModeChange={
               canUseWhiteboard ? handleWorkspaceModeChange : undefined
@@ -845,8 +854,10 @@ export default function Workspace({
           <div
             id="conversation-workspace-panel"
             className="conversation-workspace"
-            role="tabpanel"
-            aria-labelledby="conversation-workspace-tab"
+            role={canUseWhiteboard ? "tabpanel" : undefined}
+            aria-labelledby={
+              canUseWhiteboard ? "conversation-workspace-tab" : undefined
+            }
             hidden={workspaceMode !== "conversation"}
           >
             <AgentStatusBanner

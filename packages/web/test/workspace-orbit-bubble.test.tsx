@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import type { CacpEvent } from "@cacp/protocol";
 import Workspace from "../src/components/Workspace.js";
@@ -170,6 +170,64 @@ describe("Workspace Orbit bubbles", () => {
     expect(
       document.querySelector(".orbit-bubble__text")
     ).not.toBeInTheDocument();
+  });
+
+  it("hides Orbit bubbles on the whiteboard and restores them in conversation", async () => {
+    const loadWhiteboardEditorAdapter = vi.fn(async () => ({
+      mount() {
+        return {
+          getScene: () => ({ elements: [], appState: {}, files: {} }),
+          updateScene: () => {},
+          setDisplayOptions: () => {},
+          setReadOnly: () => {},
+          exportScene: async () => new Blob(),
+          destroy: () => {},
+        };
+      },
+    }));
+    const view = render(
+      <LangProvider>
+        <Workspace
+          {...baseProps}
+          loadWhiteboardEditorAdapter={loadWhiteboardEditorAdapter}
+        />
+      </LangProvider>
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: /whiteboard/i }));
+    await waitFor(() =>
+      expect(
+        document.querySelector(".whiteboard-surface__editor")
+      ).toHaveAttribute("aria-hidden", "false")
+    );
+
+    view.rerender(
+      <LangProvider>
+        <Workspace
+          {...baseProps}
+          events={[
+            ...baseProps.events,
+            event(
+              "orbit.note.created",
+              { note_id: "note_1", text: "Hidden while drawing" },
+              6,
+              "user_2",
+              true
+            ),
+          ]}
+          loadWhiteboardEditorAdapter={loadWhiteboardEditorAdapter}
+        />
+      </LangProvider>
+    );
+
+    expect(
+      document.querySelector(".orbit-bubble__text")
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /main conversation/i }));
+    expect(document.querySelector(".orbit-bubble__text")).toHaveTextContent(
+      "Hidden while drawing"
+    );
   });
 
   it("replaces existing bubble from same sender", () => {
