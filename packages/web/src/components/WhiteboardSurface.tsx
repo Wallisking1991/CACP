@@ -3,48 +3,64 @@ import type {
   WhiteboardEditorAdapterLoader,
   WhiteboardEditorController,
 } from "../whiteboard/whiteboard-editor-adapter.js";
+import type {
+  WhiteboardSessionController,
+  WhiteboardSessionFactoryLoader,
+  WhiteboardSessionIdentity,
+  WhiteboardSessionStatus,
+} from "../whiteboard/whiteboard-session.js";
 import { useT } from "../i18n/useT.js";
 
 export interface WhiteboardSurfaceProps {
+  identity: WhiteboardSessionIdentity;
   loadEditorAdapter: WhiteboardEditorAdapterLoader;
+  loadSession: WhiteboardSessionFactoryLoader;
   langCode: "en" | "zh";
   name: string;
-  readOnly: boolean;
 }
 
 export function WhiteboardSurface({
+  identity,
   loadEditorAdapter,
+  loadSession,
   langCode,
   name,
-  readOnly,
 }: WhiteboardSurfaceProps) {
   const t = useT();
+  const { participantId, role, roomId, token } = identity;
   const editorLabel = String(t("whiteboard.editorLabel"));
   const hostRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<WhiteboardEditorController | undefined>(
     undefined
   );
+  const sessionRef = useRef<WhiteboardSessionController | undefined>(undefined);
+  const unsubscribeStatusRef = useRef<(() => void) | undefined>(undefined);
+  const latestRoleRef = useRef(role);
   const mountOptionsRef = useRef({
     ariaLabel: editorLabel,
     langCode,
     name,
-    readOnly,
+    readOnly: true,
   });
-  const latestReadOnlyRef = useRef(readOnly);
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
     "loading"
   );
+  const [connectionStatus, setConnectionStatus] =
+    useState<WhiteboardSessionStatus>("connecting");
   const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    latestRoleRef.current = role;
+  }, [role]);
 
   useEffect(() => {
     mountOptionsRef.current = {
       ariaLabel: editorLabel,
       langCode,
       name,
-      readOnly,
+      readOnly: true,
     };
-    latestReadOnlyRef.current = readOnly;
-  }, [editorLabel, langCode, name, readOnly]);
+  }, [editorLabel, langCode, name]);
 
   useEffect(() => {
     let disposed = false;
@@ -54,7 +70,10 @@ export function WhiteboardSurface({
       if (!host) return;
 
       try {
-        const adapter = await loadEditorAdapter();
+        const [adapter, createSession] = await Promise.all([
+          loadEditorAdapter(),
+          loadSession(),
+        ]);
         if (disposed) return;
         const controller = await adapter.mount(host, mountOptionsRef.current);
         if (disposed) {
@@ -63,9 +82,27 @@ export function WhiteboardSurface({
         }
         controllerRef.current = controller;
         controller.setDisplayOptions(mountOptionsRef.current);
-        controller.setReadOnly(latestReadOnlyRef.current);
+        controller.setReadOnly(true);
+        const whiteboardSession = createSession({
+          identity: {
+            participantId,
+            role: latestRoleRef.current,
+            roomId,
+            token,
+          },
+          editor: controller,
+        });
+        sessionRef.current = whiteboardSession;
+        unsubscribeStatusRef.current =
+          whiteboardSession.subscribeStatus(setConnectionStatus);
         setStatus("ready");
       } catch {
+        unsubscribeStatusRef.current?.();
+        unsubscribeStatusRef.current = undefined;
+        sessionRef.current?.destroy();
+        sessionRef.current = undefined;
+        controllerRef.current?.destroy();
+        controllerRef.current = undefined;
         if (!disposed) setStatus("error");
       }
     };
@@ -74,10 +111,14 @@ export function WhiteboardSurface({
 
     return () => {
       disposed = true;
+      unsubscribeStatusRef.current?.();
+      unsubscribeStatusRef.current = undefined;
+      sessionRef.current?.destroy();
+      sessionRef.current = undefined;
       controllerRef.current?.destroy();
       controllerRef.current = undefined;
     };
-  }, [attempt, loadEditorAdapter]);
+  }, [attempt, loadEditorAdapter, loadSession, participantId, roomId, token]);
 
   useEffect(() => {
     controllerRef.current?.setDisplayOptions({
@@ -88,8 +129,15 @@ export function WhiteboardSurface({
   }, [editorLabel, langCode, name]);
 
   useEffect(() => {
-    controllerRef.current?.setReadOnly(readOnly);
-  }, [readOnly]);
+    sessionRef.current?.setRole(role);
+  }, [role]);
+
+  const connectionMessage =
+    connectionStatus === "disconnected"
+      ? t("whiteboard.reconnecting")
+      : connectionStatus === "forbidden"
+        ? t("whiteboard.accessUnavailable")
+        : t("whiteboard.syncing");
 
   return (
     <section className="whiteboard-surface" aria-label={editorLabel}>
@@ -108,11 +156,24 @@ export function WhiteboardSurface({
             type="button"
             onClick={() => {
               setStatus("loading");
+              setConnectionStatus("connecting");
               setAttempt((value) => value + 1);
             }}
           >
             {t("whiteboard.retry")}
           </button>
+        </div>
+      )}
+      {status === "ready" && connectionStatus !== "connected" && (
+        <div
+          className={`whiteboard-surface__status${
+            connectionStatus === "forbidden"
+              ? " whiteboard-surface__status--error"
+              : ""
+          }`}
+          role={connectionStatus === "forbidden" ? "alert" : "status"}
+        >
+          {connectionMessage}
         </div>
       )}
       <div

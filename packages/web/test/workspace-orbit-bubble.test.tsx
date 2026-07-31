@@ -178,6 +178,7 @@ describe("Workspace Orbit bubbles", () => {
         return {
           getScene: () => ({ elements: [], appState: {}, files: {} }),
           updateScene: () => {},
+          subscribeSceneChanges: () => () => {},
           setDisplayOptions: () => {},
           setReadOnly: () => {},
           exportScene: async () => new Blob(),
@@ -185,11 +186,20 @@ describe("Workspace Orbit bubbles", () => {
         };
       },
     }));
+    const loadWhiteboardSession = vi.fn(async () => () => ({
+      subscribeStatus(listener: (status: "connected") => void) {
+        listener("connected");
+        return () => {};
+      },
+      setRole: () => {},
+      destroy: () => {},
+    }));
     const view = render(
       <LangProvider>
         <Workspace
           {...baseProps}
           loadWhiteboardEditorAdapter={loadWhiteboardEditorAdapter}
+          loadWhiteboardSession={loadWhiteboardSession}
         />
       </LangProvider>
     );
@@ -216,6 +226,7 @@ describe("Workspace Orbit bubbles", () => {
             ),
           ]}
           loadWhiteboardEditorAdapter={loadWhiteboardEditorAdapter}
+          loadWhiteboardSession={loadWhiteboardSession}
         />
       </LangProvider>
     );

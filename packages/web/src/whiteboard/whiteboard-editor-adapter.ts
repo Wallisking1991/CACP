@@ -15,6 +15,7 @@ export interface WhiteboardEditorDisplayOptions {
 export interface WhiteboardEditorController {
   getScene(): WhiteboardScene;
   updateScene(scene: WhiteboardScene): void;
+  subscribeSceneChanges(listener: (scene: WhiteboardScene) => void): () => void;
   setDisplayOptions(options: WhiteboardEditorDisplayOptions): void;
   setReadOnly(readOnly: boolean): void;
   exportScene(format?: WhiteboardExportFormat): Promise<Blob>;

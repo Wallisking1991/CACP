@@ -79,6 +79,8 @@ import { WhiteboardSurface } from "./WhiteboardSurface.js";
 import type { WorkspaceMode } from "./WorkspaceModeSwitch.js";
 import { loadExcalidrawEditorAdapter } from "../whiteboard/load-excalidraw-editor-adapter.js";
 import type { WhiteboardEditorAdapterLoader } from "../whiteboard/whiteboard-editor-adapter.js";
+import { loadWhiteboardSession } from "../whiteboard/load-whiteboard-session.js";
+import type { WhiteboardSessionFactoryLoader } from "../whiteboard/whiteboard-session.js";
 import { LangContext } from "../i18n/LangProvider.js";
 
 export interface WorkspaceProps {
@@ -111,6 +113,7 @@ export interface WorkspaceProps {
     expires_at: string;
   };
   loadWhiteboardEditorAdapter?: WhiteboardEditorAdapterLoader;
+  loadWhiteboardSession?: WhiteboardSessionFactoryLoader;
 }
 
 export default function Workspace({
@@ -130,6 +133,7 @@ export default function Workspace({
   cloudMode,
   createdPairing,
   loadWhiteboardEditorAdapter = loadExcalidrawEditorAdapter,
+  loadWhiteboardSession: loadWhiteboardSessionFactory = loadWhiteboardSession,
 }: WorkspaceProps) {
   const t = useT();
   const lang = useContext(LangContext)?.lang ?? "en";
@@ -1035,12 +1039,18 @@ export default function Workspace({
             >
               {whiteboardOpened && (
                 <WhiteboardSurface
+                  identity={{
+                    roomId: session.room_id,
+                    participantId: session.participant_id,
+                    token: session.token,
+                    role: session.role === "agent" ? "observer" : session.role,
+                  }}
                   loadEditorAdapter={loadWhiteboardEditorAdapter}
+                  loadSession={loadWhiteboardSessionFactory}
                   langCode={lang}
                   name={`${room.roomName ?? session.room_id} — ${String(
                     t("workspace.whiteboard")
                   )}`}
-                  readOnly={session.role === "observer"}
                 />
               )}
             </div>

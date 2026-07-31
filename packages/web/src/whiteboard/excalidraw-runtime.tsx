@@ -102,6 +102,7 @@ export function createExcalidrawApiPort(
 function renderExcalidraw({
   ariaLabel: _ariaLabel,
   excalidrawAPI,
+  onSceneChange,
   validateEmbeddable: _validateEmbeddable,
   ...props
 }: ExcalidrawComponentProps) {
@@ -109,6 +110,12 @@ function renderExcalidraw({
     ...props,
     aiEnabled: false,
     excalidrawAPI: (api) => excalidrawAPI(createExcalidrawApiPort(api)),
+    onChange: (elements, appState, files) =>
+      onSceneChange({
+        elements,
+        appState: appState as unknown as Record<string, unknown>,
+        files: files as unknown as Record<string, unknown>,
+      }),
     UIOptions: {
       canvasActions: {
         changeViewBackgroundColor: true,

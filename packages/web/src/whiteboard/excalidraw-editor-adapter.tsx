@@ -27,6 +27,7 @@ export interface ExcalidrawComponentProps {
   handleKeyboardGlobally: boolean;
   langCode: "en" | "zh-CN";
   name: string;
+  onSceneChange: (scene: WhiteboardScene) => void;
   validateEmbeddable: () => false;
   viewModeEnabled: boolean;
 }
@@ -56,6 +57,14 @@ function editorLanguage(langCode: WhiteboardEditorMountOptions["langCode"]) {
   return langCode === "zh" ? ("zh-CN" as const) : ("en" as const);
 }
 
+function sceneFingerprint(scene: WhiteboardScene): string {
+  return JSON.stringify({
+    elements: scene.elements,
+    background: scene.appState.viewBackgroundColor,
+    files: Object.keys(scene.files).sort(),
+  });
+}
+
 export function createExcalidrawEditorAdapter(
   runtime: ExcalidrawRuntime
 ): WhiteboardEditorAdapter {
@@ -66,6 +75,8 @@ export function createExcalidrawEditorAdapter(
       let displayOptions: WhiteboardEditorDisplayOptions = options;
       let readOnly = options.readOnly;
       let destroyed = false;
+      let suppressedSceneFingerprint: string | undefined;
+      const sceneListeners = new Set<(scene: WhiteboardScene) => void>();
       let resolveApi: (value: ExcalidrawApiPort) => void = () => {};
       const apiReady = new Promise<ExcalidrawApiPort>((resolve) => {
         resolveApi = resolve;
@@ -77,6 +88,16 @@ export function createExcalidrawEditorAdapter(
           api = nextApi;
           resolveApi(nextApi);
         }
+      };
+
+      const handleSceneChange = (scene: WhiteboardScene) => {
+        const fingerprint = sceneFingerprint(scene);
+        if (fingerprint === suppressedSceneFingerprint) {
+          suppressedSceneFingerprint = undefined;
+          return;
+        }
+        suppressedSceneFingerprint = undefined;
+        for (const listener of sceneListeners) listener(scene);
       };
 
       const renderEditor = () => {
@@ -94,6 +115,7 @@ export function createExcalidrawEditorAdapter(
               handleKeyboardGlobally={false}
               langCode={editorLanguage(displayOptions.langCode)}
               name={displayOptions.name}
+              onSceneChange={handleSceneChange}
               validateEmbeddable={() => false}
               viewModeEnabled={readOnly}
             >
@@ -133,7 +155,13 @@ export function createExcalidrawEditorAdapter(
         },
         updateScene(scene) {
           if (!api || destroyed) return;
+          suppressedSceneFingerprint = sceneFingerprint(scene);
           api.updateScene(scene);
+        },
+        subscribeSceneChanges(listener) {
+          if (destroyed) return () => {};
+          sceneListeners.add(listener);
+          return () => sceneListeners.delete(listener);
         },
         setDisplayOptions(nextDisplayOptions) {
           if (destroyed) return;
@@ -156,6 +184,7 @@ export function createExcalidrawEditorAdapter(
         destroy() {
           if (destroyed) return;
           destroyed = true;
+          sceneListeners.clear();
           api = undefined;
           root.unmount();
         },

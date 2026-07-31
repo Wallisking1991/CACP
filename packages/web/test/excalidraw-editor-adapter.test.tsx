@@ -47,17 +47,26 @@ describe("Excalidraw whiteboard editor adapter", () => {
       },
       exportScene: async () => new Blob([], { type: "image/png" }),
     };
+    let emitSceneChange:
+      ((scene: ReturnType<ExcalidrawApiPort["getScene"]>) => void) | undefined;
 
     function FakeExcalidraw({
       children,
       excalidrawAPI,
       langCode,
       name,
+      onSceneChange,
       viewModeEnabled,
     }: ExcalidrawComponentProps) {
       useEffect(() => {
         excalidrawAPI(api);
       }, [excalidrawAPI]);
+      useEffect(() => {
+        emitSceneChange = onSceneChange;
+        return () => {
+          emitSceneChange = undefined;
+        };
+      }, [onSceneChange]);
 
       return (
         <div
@@ -110,9 +119,26 @@ describe("Excalidraw whiteboard editor adapter", () => {
       appState: { viewBackgroundColor: "#f8f8f7" },
       files: { file_2: { id: "file_2" } },
     };
+    const onLocalSceneChange = vi.fn();
+    const unsubscribe = controller.subscribeSceneChanges(onLocalSceneChange);
+    const localScene = {
+      elements: [{ id: "local_shape" }],
+      appState: { viewBackgroundColor: "#eeeeee" },
+      files: {},
+    };
+    await act(async () => {
+      emitSceneChange?.(localScene);
+    });
+    expect(onLocalSceneChange).toHaveBeenCalledWith(localScene);
+
     controller.updateScene(nextScene);
     expect(updateScene).toHaveBeenCalledWith(nextScene);
     expect(addFiles).toHaveBeenCalledWith([{ id: "file_2" }]);
+    await act(async () => {
+      emitSceneChange?.(nextScene);
+    });
+    expect(onLocalSceneChange).toHaveBeenCalledTimes(1);
+    unsubscribe();
 
     await act(async () => {
       controller.setReadOnly(true);

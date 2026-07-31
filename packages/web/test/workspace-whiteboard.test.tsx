@@ -63,9 +63,65 @@ const workspaceProps = {
   onApproveJoinRequest: vi.fn(),
   onRejectJoinRequest: vi.fn(),
   onRemoveParticipant: vi.fn(),
+  loadWhiteboardSession: vi.fn(async () => () => ({
+    subscribeStatus: () => () => {},
+    setRole: () => {},
+    destroy: () => {},
+  })),
 };
 
 describe("Collaborative Whiteboard workspace", () => {
+  it("starts a room-scoped session only after the editor mounts", async () => {
+    const editor = {
+      getScene: () => ({ elements: [], appState: {}, files: {} }),
+      updateScene: vi.fn(),
+      subscribeSceneChanges: () => () => {},
+      setDisplayOptions: () => {},
+      setReadOnly: vi.fn(),
+      exportScene: async () => new Blob(),
+      destroy: vi.fn(),
+    };
+    const mount = vi.fn(() => editor);
+    const loadWhiteboardEditorAdapter = vi.fn(async () => ({ mount }));
+    const sessionController = {
+      subscribeStatus: vi.fn(() => () => {}),
+      setRole: vi.fn(),
+      destroy: vi.fn(),
+    };
+    const createSession = vi.fn(() => sessionController);
+    const loadWhiteboardSession = vi.fn(async () => createSession);
+
+    render(
+      <LangProvider>
+        <Workspace
+          {...workspaceProps}
+          loadWhiteboardEditorAdapter={loadWhiteboardEditorAdapter}
+          loadWhiteboardSession={loadWhiteboardSession}
+        />
+      </LangProvider>
+    );
+
+    expect(loadWhiteboardSession).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("tab", { name: /whiteboard/i }));
+
+    await waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
+    expect(createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        identity: {
+          roomId: "room_1",
+          participantId: "user_1",
+          token: "owner_secret",
+          role: "owner",
+        },
+        editor,
+      })
+    );
+    expect(mount).toHaveBeenCalledWith(
+      expect.any(HTMLElement),
+      expect.objectContaining({ readOnly: true })
+    );
+  });
+
   it("loads the editor on first entry and restores the conversation workspace", async () => {
     const loadWhiteboardEditorAdapter = vi.fn(async () => ({
       mount(container: HTMLElement) {
@@ -76,6 +132,7 @@ describe("Collaborative Whiteboard workspace", () => {
         return {
           getScene: () => ({ elements: [], appState: {}, files: {} }),
           updateScene: () => {},
+          subscribeSceneChanges: () => () => {},
           setDisplayOptions: () => {},
           setReadOnly: () => {},
           exportScene: async () => new Blob(),
@@ -190,6 +247,7 @@ describe("Collaborative Whiteboard workspace", () => {
         return {
           getScene: () => ({ elements: [], appState: {}, files: {} }),
           updateScene: () => {},
+          subscribeSceneChanges: () => () => {},
           setDisplayOptions: () => {},
           setReadOnly: () => {},
           exportScene: async () => new Blob(),
@@ -233,6 +291,7 @@ describe("Collaborative Whiteboard workspace", () => {
     const mount = vi.fn(() => ({
       getScene: () => ({ elements: [], appState: {}, files: {} }),
       updateScene: () => {},
+      subscribeSceneChanges: () => () => {},
       setDisplayOptions: () => {},
       setReadOnly,
       exportScene: async () => new Blob(),
@@ -271,6 +330,7 @@ describe("Collaborative Whiteboard workspace", () => {
     const mount = vi.fn(() => ({
       getScene: () => ({ elements: [], appState: {}, files: {} }),
       updateScene: () => {},
+      subscribeSceneChanges: () => () => {},
       setDisplayOptions: () => {},
       setReadOnly: () => {},
       exportScene: async () => new Blob(),
@@ -325,6 +385,7 @@ describe("Collaborative Whiteboard workspace", () => {
           return {
             getScene: () => ({ elements: [], appState: {}, files: {} }),
             updateScene: () => {},
+            subscribeSceneChanges: () => () => {},
             setDisplayOptions: () => {},
             setReadOnly: () => {},
             exportScene: async () => new Blob(),
