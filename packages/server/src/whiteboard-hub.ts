@@ -21,8 +21,10 @@ interface WhiteboardConnection {
   resolveRole: () => WhiteboardHumanRole | undefined;
   socket: WhiteboardSocket;
   observeOnly: boolean;
+  handoffReserved: boolean;
   active: boolean;
   lastSeenAt: number;
+  presenceVersion: number;
   lastCanEdit?: boolean;
   presence?: Pick<
     WhiteboardClientPresenceMessage,
@@ -34,6 +36,7 @@ interface WhiteboardRoomState {
   revision: number;
   scene: WhiteboardScene;
   connections: Set<WhiteboardConnection>;
+  presenceSequence: number;
   presenceRateWindows: Map<string, { startedAt: number; updates: number }>;
 }
 
@@ -49,6 +52,10 @@ export interface WhiteboardConnectInput {
 
 export interface WhiteboardSessionHub {
   connect(input: WhiteboardConnectInput): () => void;
+  reserveObserverHandoff(
+    roomId: string,
+    participantId: string
+  ): (() => void) | undefined;
   discardRoom(roomId: string): void;
   close(): void;
 }
@@ -149,11 +156,30 @@ export function createWhiteboardSessionHub(
     for (const connection of state.connections) {
       if (!connection.active) continue;
       const existing = latest.get(connection.participantId);
-      if (!existing || existing.lastSeenAt <= connection.lastSeenAt) {
+      if (!existing || existing.presenceVersion <= connection.presenceVersion) {
         latest.set(connection.participantId, connection);
       }
     }
     return [...latest.values()].map(collaboratorFor);
+  }
+
+  function authoritativePresence(
+    state: WhiteboardRoomState,
+    participantId: string
+  ): WhiteboardConnection | undefined {
+    let authoritative: WhiteboardConnection | undefined;
+    for (const candidate of state.connections) {
+      if (!candidate.active || candidate.participantId !== participantId) {
+        continue;
+      }
+      if (
+        !authoritative ||
+        authoritative.presenceVersion <= candidate.presenceVersion
+      ) {
+        authoritative = candidate;
+      }
+    }
+    return authoritative;
   }
 
   function sendPresenceUpdated(
@@ -178,12 +204,7 @@ export function createWhiteboardSessionHub(
     state: WhiteboardRoomState,
     participantId: string
   ) {
-    const replacement = [...state.connections]
-      .filter(
-        (candidate) =>
-          candidate.active && candidate.participantId === participantId
-      )
-      .sort((left, right) => right.lastSeenAt - left.lastSeenAt)[0];
+    const replacement = authoritativePresence(state, participantId);
     if (replacement) {
       sendPresenceUpdated(roomId, state, replacement);
       return;
@@ -216,6 +237,7 @@ export function createWhiteboardSessionHub(
       revision: 0,
       scene: blankScene(),
       connections: new Set(),
+      presenceSequence: 0,
       presenceRateWindows: new Map(),
     };
     rooms.set(roomId, created);
@@ -231,8 +253,10 @@ export function createWhiteboardSessionHub(
       resolveRole: input.resolveRole,
       socket: input.socket,
       observeOnly: input.observeOnly ?? false,
+      handoffReserved: false,
       active: false,
       lastSeenAt: Date.now(),
+      presenceVersion: 0,
     };
     state.connections.add(connection);
     const base = {
@@ -353,9 +377,20 @@ export function createWhiteboardSessionHub(
           return;
         }
         if (wasActive && !presenceChanged && metadataChanged) {
-          connection.lastCanEdit = canEdit;
+          for (const candidate of state.connections) {
+            if (
+              candidate.active &&
+              candidate.participantId === connection.participantId
+            ) {
+              candidate.lastCanEdit = canEdit;
+            }
+          }
           connection.lastSeenAt = now;
-          sendPresenceUpdated(input.roomId, state, connection);
+          sendPresenceUpdated(
+            input.roomId,
+            state,
+            authoritativePresence(state, connection.participantId) ?? connection
+          );
           return;
         }
         const rateWindow = state.presenceRateWindows.get(
@@ -383,6 +418,7 @@ export function createWhiteboardSessionHub(
         connection.active = true;
         connection.lastCanEdit = canEdit;
         connection.lastSeenAt = now;
+        connection.presenceVersion = ++state.presenceSequence;
         connection.presence = nextPresence;
         sendPresenceUpdated(input.roomId, state, connection);
         return;
@@ -498,6 +534,24 @@ export function createWhiteboardSessionHub(
 
   return {
     connect,
+    reserveObserverHandoff(roomId, participantId) {
+      const state = rooms.get(roomId);
+      if (!state) return undefined;
+      const observer = [...state.connections].find(
+        (connection) =>
+          connection.participantId === participantId &&
+          connection.observeOnly &&
+          !connection.handoffReserved
+      );
+      if (!observer) return undefined;
+      observer.handoffReserved = true;
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        observer.handoffReserved = false;
+      };
+    },
     discardRoom(roomId) {
       rooms.delete(roomId);
     },

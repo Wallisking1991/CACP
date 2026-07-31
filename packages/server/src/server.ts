@@ -3399,11 +3399,6 @@ export async function buildServer(options: BuildServerOptions = {}) {
       rejectConnection("room_ended", "This live room has ended.");
       return;
     }
-    const currentCount = socketCounts.get(roomId) ?? 0;
-    if (currentCount >= config.maxSocketsPerRoom) {
-      rejectConnection("room_full", "This room has too many open sockets.");
-      return;
-    }
     const participant = request.query.token
       ? store.getParticipantByToken(roomId, request.query.token)
       : undefined;
@@ -3416,6 +3411,19 @@ export async function buildServer(options: BuildServerOptions = {}) {
     }
     if (!HUMAN_ROLES.includes(participant.role)) {
       rejectConnection("forbidden", "Agents cannot open a whiteboard session.");
+      return;
+    }
+    const currentCount = socketCounts.get(roomId) ?? 0;
+    const releaseObserverHandoff =
+      currentCount >= config.maxSocketsPerRoom &&
+      request.query.mode !== "observe"
+        ? whiteboards.reserveObserverHandoff(roomId, participant.id)
+        : undefined;
+    if (
+      currentCount >= config.maxSocketsPerRoom &&
+      releaseObserverHandoff === undefined
+    ) {
+      rejectConnection("room_full", "This room has too many open sockets.");
       return;
     }
 
@@ -3439,6 +3447,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const forgetSocket = rememberSocket(roomId, participant.id, socket);
     clearPendingOffline(roomId, participant.id);
     socket.on("close", () => {
+      releaseObserverHandoff?.();
       forgetWhiteboard();
       forgetSocket();
       if (isClosing || !aliveRooms.has(roomId)) {

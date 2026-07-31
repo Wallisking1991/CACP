@@ -252,6 +252,8 @@ export default function Workspace({
   }, [workspaceMode]);
   const [whiteboardActiveEditorCount, setWhiteboardActiveEditorCount] =
     useState(0);
+  const [whiteboardActiveSessionRoomId, setWhiteboardActiveSessionRoomId] =
+    useState<string>();
   const [hasWhiteboardActivity, setHasWhiteboardActivity] = useState(false);
   const [hasConversationActivity, setHasConversationActivity] = useState(false);
   const mainConversationActivityIds = useMemo(
@@ -326,6 +328,9 @@ export default function Workspace({
     },
     []
   );
+  const handleWhiteboardSessionReady = useCallback(() => {
+    setWhiteboardActiveSessionRoomId(session.room_id);
+  }, [session.room_id]);
 
   useEffect(() => {
     const previous = mainConversationActivityRef.current;
@@ -1138,19 +1143,20 @@ export default function Workspace({
             )}
           </div>
 
-          {canUseWhiteboard && !whiteboardOpened && (
-            <WhiteboardActivityObserver
-              identity={{
-                roomId: session.room_id,
-                participantId: session.participant_id,
-                token: session.token,
-                role: session.role === "agent" ? "observer" : session.role,
-              }}
-              loadSession={loadWhiteboardSessionFactory}
-              onCollaboratorsChange={handleWhiteboardCollaborators}
-              onActivity={handleWhiteboardActivity}
-            />
-          )}
+          {canUseWhiteboard &&
+            whiteboardActiveSessionRoomId !== session.room_id && (
+              <WhiteboardActivityObserver
+                identity={{
+                  roomId: session.room_id,
+                  participantId: session.participant_id,
+                  token: session.token,
+                  role: session.role === "agent" ? "observer" : session.role,
+                }}
+                loadSession={loadWhiteboardSessionFactory}
+                onCollaboratorsChange={handleWhiteboardCollaborators}
+                onActivity={handleWhiteboardActivity}
+              />
+            )}
 
           {canUseWhiteboard && (
             <div
@@ -1177,6 +1183,7 @@ export default function Workspace({
                   )}`}
                   onCollaboratorsChange={handleWhiteboardCollaborators}
                   onActivity={handleWhiteboardActivity}
+                  onSessionReady={handleWhiteboardSessionReady}
                 />
               )}
             </div>

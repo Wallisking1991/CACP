@@ -80,7 +80,6 @@ export function WhiteboardActivityObserver({
       disposed = true;
       unsubscribeCollaborators?.();
       unsubscribeActivity?.();
-      onCollaboratorsChangeRef.current([]);
       sessionRef.current?.destroy();
       sessionRef.current = undefined;
       editor.destroy();

@@ -651,6 +651,166 @@ describe("collaborative whiteboard stream", () => {
     });
   });
 
+  it("keeps the latest changed presence authoritative across participant sockets", async () => {
+    app = await buildServer({
+      dbPath: ":memory:",
+      config: localTestConfig({
+        whiteboardPresenceUpdateLimit: 10,
+        whiteboardPresenceWindowMs: 1_000,
+      }),
+    });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const room = (
+      await app.inject({
+        method: "POST",
+        url: "/rooms",
+        payload: { name: "Presence authority", display_name: "Owner" },
+      })
+    ).json() as {
+      room_id: string;
+      owner_token: string;
+    };
+    const member = await joinHuman(
+      app,
+      room.room_id,
+      room.owner_token,
+      "member",
+      "Alice"
+    );
+    const url = `ws://${addressOf(app)}/rooms/${room.room_id}/whiteboard`;
+    const watcher = new WebSocket(
+      `${url}?token=${encodeURIComponent(room.owner_token)}&mode=observe`
+    );
+    const first = new WebSocket(
+      `${url}?token=${encodeURIComponent(member.participant_token)}`
+    );
+    const second = new WebSocket(
+      `${url}?token=${encodeURIComponent(member.participant_token)}`
+    );
+    sockets.push(watcher, first, second);
+    const watcherInbox = createInbox(watcher);
+    const firstInbox = createInbox(first);
+    const secondInbox = createInbox(second);
+    await Promise.all([
+      waitForOpen(watcher),
+      waitForOpen(first),
+      waitForOpen(second),
+    ]);
+    await watcherInbox.next("whiteboard.connected");
+    await watcherInbox.next("whiteboard.presence.snapshot");
+    for (const inbox of [firstInbox, secondInbox]) {
+      await inbox.next("whiteboard.connected");
+      await inbox.next("whiteboard.scene");
+      await inbox.next("whiteboard.presence.snapshot");
+    }
+
+    const presence = {
+      protocol: "cacp-whiteboard",
+      version: "1.0.0",
+      room_id: room.room_id,
+      type: "whiteboard.presence.update",
+      cursor: { x: 10, y: 20, button: "up" },
+      selected_element_ids: [],
+      viewport: { scroll_x: 0, scroll_y: 0, zoom: 1 },
+    };
+    first.send(JSON.stringify(presence));
+    await watcherInbox.next("whiteboard.presence.updated");
+    second.send(
+      JSON.stringify({
+        ...presence,
+        cursor: { x: 30, y: 40, button: "down" },
+      })
+    );
+    await watcherInbox.next("whiteboard.presence.updated");
+
+    first.send(JSON.stringify(presence));
+    first.send("{");
+    await expect(firstInbox.next("whiteboard.error")).resolves.toMatchObject({
+      code: "invalid_message",
+    });
+
+    const lateWatcher = new WebSocket(
+      `${url}?token=${encodeURIComponent(room.owner_token)}&mode=observe`
+    );
+    sockets.push(lateWatcher);
+    const lateInbox = createInbox(lateWatcher);
+    await waitForOpen(lateWatcher);
+    await lateInbox.next("whiteboard.connected");
+    await expect(
+      lateInbox.next("whiteboard.presence.snapshot")
+    ).resolves.toMatchObject({
+      collaborators: [
+        expect.objectContaining({
+          participant_id: member.participant_id,
+          cursor: { x: 30, y: 40, button: "down" },
+        }),
+      ],
+    });
+  });
+
+  it("reserves socket capacity for one observe-to-active handoff", async () => {
+    app = await buildServer({
+      dbPath: ":memory:",
+      config: localTestConfig({ maxSocketsPerRoom: 1 }),
+    });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const room = (
+      await app.inject({
+        method: "POST",
+        url: "/rooms",
+        payload: { name: "Atomic handoff", display_name: "Owner" },
+      })
+    ).json() as {
+      room_id: string;
+      owner_token: string;
+    };
+    const member = await joinHuman(
+      app,
+      room.room_id,
+      room.owner_token,
+      "member",
+      "Alice"
+    );
+    const url = `ws://${addressOf(app)}/rooms/${room.room_id}/whiteboard`;
+    const observer = new WebSocket(
+      `${url}?token=${encodeURIComponent(room.owner_token)}&mode=observe`
+    );
+    sockets.push(observer);
+    const observerInbox = createInbox(observer);
+    await waitForOpen(observer);
+    await observerInbox.next("whiteboard.connected");
+    await observerInbox.next("whiteboard.presence.snapshot");
+
+    const active = new WebSocket(
+      `${url}?token=${encodeURIComponent(room.owner_token)}`
+    );
+    sockets.push(active);
+    const activeInbox = createInbox(active);
+    await waitForOpen(active);
+    await activeInbox.next("whiteboard.connected");
+    await activeInbox.next("whiteboard.scene");
+
+    const blocked = new WebSocket(
+      `${url}?token=${encodeURIComponent(member.participant_token)}`
+    );
+    sockets.push(blocked);
+    const blockedInbox = createInbox(blocked);
+    await waitForOpen(blocked);
+    await expect(blockedInbox.next("whiteboard.error")).resolves.toMatchObject({
+      code: "room_full",
+    });
+
+    await closeSocket(active);
+    const retry = new WebSocket(
+      `${url}?token=${encodeURIComponent(room.owner_token)}`
+    );
+    sockets.push(retry);
+    const retryInbox = createInbox(retry);
+    await waitForOpen(retry);
+    await retryInbox.next("whiteboard.connected");
+    await retryInbox.next("whiteboard.scene");
+  });
+
   it("sends compact scene activity to an observe-only connection", async () => {
     app = await buildServer({
       dbPath: ":memory:",

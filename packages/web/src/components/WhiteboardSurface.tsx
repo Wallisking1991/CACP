@@ -22,6 +22,7 @@ export interface WhiteboardSurfaceProps {
   name: string;
   onCollaboratorsChange?: (collaborators: WhiteboardCollaborator[]) => void;
   onActivity?: (activity: WhiteboardSessionActivity) => void;
+  onSessionReady?: () => void;
 }
 
 export function WhiteboardSurface({
@@ -33,6 +34,7 @@ export function WhiteboardSurface({
   name,
   onCollaboratorsChange,
   onActivity,
+  onSessionReady,
 }: WhiteboardSurfaceProps) {
   const t = useT();
   const { participantId, role, roomId, token } = identity;
@@ -49,6 +51,7 @@ export function WhiteboardSurface({
   const unsubscribeActivityRef = useRef<(() => void) | undefined>(undefined);
   const onCollaboratorsChangeRef = useRef(onCollaboratorsChange);
   const onActivityRef = useRef(onActivity);
+  const onSessionReadyRef = useRef(onSessionReady);
   const latestRoleRef = useRef(role);
   const latestActiveRef = useRef(active);
   const mountOptionsRef = useRef({
@@ -74,6 +77,10 @@ export function WhiteboardSurface({
   useEffect(() => {
     onActivityRef.current = onActivity;
   }, [onActivity]);
+
+  useEffect(() => {
+    onSessionReadyRef.current = onSessionReady;
+  }, [onSessionReady]);
 
   useEffect(() => {
     latestRoleRef.current = role;
@@ -124,8 +131,12 @@ export function WhiteboardSurface({
           presenceEnabled: latestActiveRef.current,
         });
         sessionRef.current = whiteboardSession;
-        unsubscribeStatusRef.current =
-          whiteboardSession.subscribeStatus(setConnectionStatus);
+        unsubscribeStatusRef.current = whiteboardSession.subscribeStatus(
+          (nextStatus) => {
+            setConnectionStatus(nextStatus);
+            if (nextStatus === "connected") onSessionReadyRef.current?.();
+          }
+        );
         unsubscribeCollaboratorsRef.current =
           whiteboardSession.subscribeCollaborators((nextCollaborators) => {
             setCollaborators(nextCollaborators);

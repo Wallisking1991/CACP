@@ -85,6 +85,14 @@ const workspaceProps = {
 
 describe("Collaborative Whiteboard workspace", () => {
   it("observes board activity before lazily mounting an active editor", async () => {
+    let emitActiveStatus:
+      ((status: WhiteboardSessionStatus) => void) | undefined;
+    let emitObservedActivity:
+      | ((activity: {
+          kind: "scene" | "presence";
+          participantId: string;
+        }) => void)
+      | undefined;
     const editor = {
       getScene: () => ({ elements: [], appState: {}, files: {} }),
       updateScene: vi.fn(),
@@ -99,17 +107,40 @@ describe("Collaborative Whiteboard workspace", () => {
     };
     const mount = vi.fn(() => editor);
     const loadWhiteboardEditorAdapter = vi.fn(async () => ({ mount }));
-    const sessionController = {
+    const observerController = {
       subscribeStatus: vi.fn(() => () => {}),
       subscribeCollaborators: vi.fn(() => () => {}),
-      subscribeActivity: vi.fn(() => () => {}),
+      subscribeActivity: vi.fn(
+        (
+          listener: (activity: {
+            kind: "scene" | "presence";
+            participantId: string;
+          }) => void
+        ) => {
+          emitObservedActivity = listener;
+          return () => {};
+        }
+      ),
       focusCollaborator: vi.fn(),
       loadSharedScene: vi.fn(),
       setRole: vi.fn(),
       setPresenceEnabled: vi.fn(),
       destroy: vi.fn(),
     };
-    const createSession = vi.fn(() => sessionController);
+    const activeController = {
+      ...observerController,
+      subscribeStatus: vi.fn(
+        (listener: (status: WhiteboardSessionStatus) => void) => {
+          emitActiveStatus = listener;
+          return () => {};
+        }
+      ),
+      subscribeActivity: vi.fn(() => () => {}),
+      destroy: vi.fn(),
+    };
+    const createSession = vi.fn((options: { observeOnly?: boolean }) =>
+      options.observeOnly ? observerController : activeController
+    );
     const loadWhiteboardSession = vi.fn(async () => createSession);
 
     render(
@@ -134,7 +165,7 @@ describe("Collaborative Whiteboard workspace", () => {
     fireEvent.click(screen.getByRole("tab", { name: /whiteboard/i }));
 
     await waitFor(() => expect(createSession).toHaveBeenCalledTimes(2));
-    expect(sessionController.destroy).toHaveBeenCalledTimes(1);
+    expect(observerController.destroy).not.toHaveBeenCalled();
     expect(createSession).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
@@ -151,6 +182,17 @@ describe("Collaborative Whiteboard workspace", () => {
     expect(mount).toHaveBeenCalledWith(
       expect.any(HTMLElement),
       expect.objectContaining({ readOnly: true })
+    );
+    fireEvent.click(screen.getByRole("tab", { name: /main conversation/i }));
+    act(() =>
+      emitObservedActivity?.({ kind: "scene", participantId: "user_2" })
+    );
+    expect(
+      screen.getByLabelText(/unseen whiteboard activity/i)
+    ).toBeInTheDocument();
+    act(() => emitActiveStatus?.("connected"));
+    await waitFor(() =>
+      expect(observerController.destroy).toHaveBeenCalledTimes(1)
     );
   });
 
@@ -418,6 +460,22 @@ describe("Collaborative Whiteboard workspace", () => {
   });
 
   it("lets the participant retry a transient editor load failure", async () => {
+    const observerDestroy = vi.fn();
+    const loadWhiteboardSession = vi.fn(
+      async () => (options: { observeOnly?: boolean }) => ({
+        subscribeStatus(listener: (status: WhiteboardSessionStatus) => void) {
+          if (!options.observeOnly) listener("connected");
+          return () => {};
+        },
+        subscribeCollaborators: () => () => {},
+        subscribeActivity: () => () => {},
+        focusCollaborator: () => {},
+        loadSharedScene: () => {},
+        setRole: () => {},
+        setPresenceEnabled: () => {},
+        destroy: options.observeOnly ? observerDestroy : () => {},
+      })
+    );
     const loadWhiteboardEditorAdapter = vi
       .fn()
       .mockRejectedValueOnce(new Error("stale deployment chunk"))
@@ -446,6 +504,7 @@ describe("Collaborative Whiteboard workspace", () => {
         <Workspace
           {...workspaceProps}
           loadWhiteboardEditorAdapter={loadWhiteboardEditorAdapter}
+          loadWhiteboardSession={loadWhiteboardSession}
         />
       </LangProvider>
     );
@@ -454,6 +513,7 @@ describe("Collaborative Whiteboard workspace", () => {
     expect(
       await screen.findByText(/whiteboard could not be loaded/i)
     ).toBeVisible();
+    expect(observerDestroy).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: /retry/i }));
 
@@ -461,6 +521,7 @@ describe("Collaborative Whiteboard workspace", () => {
       await screen.findByText("Recovered whiteboard editor")
     ).toBeVisible();
     expect(loadWhiteboardEditorAdapter).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(observerDestroy).toHaveBeenCalledTimes(1));
   });
 
   it("keeps the editor visible with a clear warning after sync rejection", async () => {
