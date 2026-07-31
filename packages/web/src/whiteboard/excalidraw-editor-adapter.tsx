@@ -112,8 +112,14 @@ export function createExcalidrawEditorAdapter(
         );
       };
 
-      renderEditor();
-      api = await apiReady;
+      try {
+        renderEditor();
+        api = await apiReady;
+      } catch (cause) {
+        destroyed = true;
+        root.unmount();
+        throw cause;
+      }
 
       const controller: WhiteboardEditorController = {
         getScene() {

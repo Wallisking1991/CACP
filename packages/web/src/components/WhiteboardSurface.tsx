@@ -34,6 +34,7 @@ export function WhiteboardSurface({
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
     "loading"
   );
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     mountOptionsRef.current = {
@@ -76,7 +77,7 @@ export function WhiteboardSurface({
       controllerRef.current?.destroy();
       controllerRef.current = undefined;
     };
-  }, [loadEditorAdapter]);
+  }, [attempt, loadEditorAdapter]);
 
   useEffect(() => {
     controllerRef.current?.setDisplayOptions({
@@ -98,8 +99,20 @@ export function WhiteboardSurface({
         </div>
       )}
       {status === "error" && (
-        <div className="whiteboard-surface__status" role="alert">
-          {t("whiteboard.loadError")}
+        <div
+          className="whiteboard-surface__status whiteboard-surface__status--error"
+          role="alert"
+        >
+          <span>{t("whiteboard.loadError")}</span>
+          <button
+            type="button"
+            onClick={() => {
+              setStatus("loading");
+              setAttempt((value) => value + 1);
+            }}
+          >
+            {t("whiteboard.retry")}
+          </button>
         </div>
       )}
       <div

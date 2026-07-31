@@ -84,16 +84,52 @@ describe("Collaborative Whiteboard workspace", () => {
       },
     }));
 
+    const eventsWithQueue = [
+      ...workspaceProps.events,
+      event(
+        "main_input.accepted",
+        {
+          input_id: "input_1",
+          content: { text: "First queued idea", attachments: [] },
+        },
+        5
+      ),
+      event(
+        "main_input.queued",
+        { input_id: "input_1", queued_after_turn_id: "turn_1" },
+        6,
+        "system"
+      ),
+      event(
+        "main_input.accepted",
+        {
+          input_id: "input_2",
+          content: { text: "Second queued idea", attachments: [] },
+        },
+        7
+      ),
+      event(
+        "main_input.queued",
+        { input_id: "input_2", queued_after_turn_id: "turn_1" },
+        8,
+        "system"
+      ),
+    ];
+
     render(
       <LangProvider>
         <Workspace
           {...workspaceProps}
+          events={eventsWithQueue}
           loadWhiteboardEditorAdapter={loadWhiteboardEditorAdapter}
         />
       </LangProvider>
     );
 
     expect(loadWhiteboardEditorAdapter).not.toHaveBeenCalled();
+    expect(
+      document.getElementById("whiteboard-workspace-panel")
+    ).toBeInTheDocument();
 
     const composer = screen.getByRole("textbox", {
       name: /type a message for the agent/i,
@@ -105,12 +141,24 @@ describe("Collaborative Whiteboard workspace", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /toggle discussion/i }));
     expect(document.querySelector(".orbit-panel")).not.toBeNull();
+    const orbitComposer = screen.getByRole("textbox", {
+      name: /discussion space/i,
+    });
+    fireEvent.change(orbitComposer, {
+      target: { value: "Keep this Orbit draft" },
+    });
+
+    const queueSummary = screen.getByRole("button", {
+      name: /2 messages waiting/i,
+    });
+    fireEvent.click(queueSummary);
+    expect(queueSummary).toHaveAttribute("aria-expanded", "true");
 
     fireEvent.click(screen.getByRole("tab", { name: /whiteboard/i }));
 
     expect(screen.getByText("Design Room")).toBeInTheDocument();
     expect(screen.getByTestId("main-composer")).not.toBeVisible();
-    expect(document.querySelector(".orbit-panel")).toBeNull();
+    expect(document.querySelector(".orbit-panel")).not.toBeVisible();
     expect(
       screen.queryByRole("button", { name: /toggle discussion/i })
     ).not.toBeInTheDocument();
@@ -126,6 +174,10 @@ describe("Collaborative Whiteboard workspace", () => {
     expect(composer).toHaveValue("Keep this draft");
     expect(thread.scrollTop).toBe(120);
     expect(document.querySelector(".orbit-panel")).not.toBeNull();
+    expect(orbitComposer).toHaveValue("Keep this Orbit draft");
+    expect(queueSummary).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("First queued idea")).toBeVisible();
+    expect(screen.getByText("Second queued idea")).toBeVisible();
     expect(
       screen.getByRole("tab", { name: /main conversation/i })
     ).toHaveFocus();
@@ -259,5 +311,69 @@ describe("Collaborative Whiteboard workspace", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: /whiteboard/i }));
     await waitFor(() => expect(mount).toHaveBeenCalledTimes(2));
+  });
+
+  it("lets the participant retry a transient editor load failure", async () => {
+    const loadWhiteboardEditorAdapter = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("stale deployment chunk"))
+      .mockResolvedValue({
+        mount(container: HTMLElement) {
+          const editor = document.createElement("div");
+          editor.textContent = "Recovered whiteboard editor";
+          container.append(editor);
+          return {
+            getScene: () => ({ elements: [], appState: {}, files: {} }),
+            updateScene: () => {},
+            setDisplayOptions: () => {},
+            setReadOnly: () => {},
+            exportScene: async () => new Blob(),
+            destroy: () => editor.remove(),
+          };
+        },
+      });
+
+    render(
+      <LangProvider>
+        <Workspace
+          {...workspaceProps}
+          loadWhiteboardEditorAdapter={loadWhiteboardEditorAdapter}
+        />
+      </LangProvider>
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: /whiteboard/i }));
+    expect(
+      await screen.findByText(/whiteboard could not be loaded/i)
+    ).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: /retry/i }));
+
+    expect(
+      await screen.findByText("Recovered whiteboard editor")
+    ).toBeVisible();
+    expect(loadWhiteboardEditorAdapter).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not expose a whiteboard workspace to agent sessions", () => {
+    const loadWhiteboardEditorAdapter = vi.fn();
+
+    render(
+      <LangProvider>
+        <Workspace
+          {...workspaceProps}
+          session={{ ...workspaceProps.session, role: "agent" }}
+          loadWhiteboardEditorAdapter={loadWhiteboardEditorAdapter}
+        />
+      </LangProvider>
+    );
+
+    expect(
+      screen.queryByRole("tab", { name: /whiteboard/i })
+    ).not.toBeInTheDocument();
+    expect(
+      document.getElementById("whiteboard-workspace-panel")
+    ).not.toBeInTheDocument();
+    expect(loadWhiteboardEditorAdapter).not.toHaveBeenCalled();
   });
 });

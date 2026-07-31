@@ -224,11 +224,13 @@ export default function Workspace({
     mode: "conversation",
     whiteboardOpened: false,
   });
+  const canUseWhiteboard = session.role !== "agent";
   const workspaceMode =
-    workspaceState.roomId === session.room_id
+    canUseWhiteboard && workspaceState.roomId === session.room_id
       ? workspaceState.mode
       : "conversation";
   const whiteboardOpened =
+    canUseWhiteboard &&
     workspaceState.roomId === session.room_id &&
     workspaceState.whiteboardOpened;
   const panelOpenRef = useRef(panelOpen);
@@ -659,94 +661,93 @@ export default function Workspace({
     ? room.orbitNotes.find((n) => n.note_id === replyToNoteId)
     : undefined;
 
-  const orbitPanel =
-    workspaceMode === "conversation" && panelOpen ? (
-      <div className="orbit-panel">
-        <OrbitLayer
-          notes={room.orbitNotes}
-          currentParticipantId={session.participant_id}
-          currentDisplayName={myDisplayName}
-          actorNames={actorNames}
-          actorKinds={actorKinds}
-          canReact={permissions.canSendOrbitNotes}
-          onLike={(noteId) => {
-            void likeOrbitNote(session, noteId).catch(() => {});
-          }}
-          onUnlike={(noteId) => {
-            void unlikeOrbitNote(session, noteId).catch(() => {});
-          }}
-          onReply={(noteId) => setReplyToNoteId(noteId)}
-          canPromote={canPromoteOrbit}
-          hasPromotable={promotableOrbitNotes.length > 0}
-          onPromoteClick={() => setPromoteModalOpen(true)}
-          canClear={canClearOrbit}
-          onClearClick={() => setClearDialogOpen(true)}
-          loadAttachment={loadAttachment}
-          focusNoteId={focusedOrbitNoteId}
-        />
-        <OrbitPromoteModal
-          open={promoteModalOpen}
-          notes={promotableOrbitNotes}
-          canPromote={canPromoteOrbit}
-          onPromote={(noteIds, attachmentIds, instruction) => {
-            void promoteOrbitNotes(
-              session,
-              noteIds,
-              attachmentIds,
-              instruction
-            ).catch(() => {});
-          }}
-          onClose={() => setPromoteModalOpen(false)}
-        />
-        <OrbitComposer
-          role={session.role}
-          members={peopleParticipants}
-          attachmentUsage={attachmentUsage}
-          onUploadAttachment={
-            session.role === "owner" ||
-            session.role === "admin" ||
-            session.role === "member"
-              ? (file, options) => uploadAttachment(session, file, options)
-              : undefined
-          }
-          onDeleteAttachment={(attachment) =>
-            deleteAttachment(session, attachment.attachment_id)
-          }
-          onAttachmentUsageChanged={refreshAttachmentUsage}
-          onSendOrbitNote={async (text, attachments, replyTo) => {
-            await sendOrbitNote(
-              session,
-              text,
-              attachments.map((attachment) => attachment.attachment_id),
-              replyTo
-            );
-            setReplyToNoteId(undefined);
-          }}
-          onTypingInput={(value) =>
-            typingControllerRef.current?.inputChanged(value)
-          }
-          onStopTyping={() => typingControllerRef.current?.stopNow()}
-          replyTo={
-            replyToNote
-              ? {
-                  noteId: replyToNote.note_id,
-                  authorName:
-                    actorNames.get(replyToNote.created_by) ||
-                    replyToNote.created_by,
-                  text:
-                    replyToNote.text ||
-                    String(
-                      t("orbit.attachmentSummary", {
-                        count: String(replyToNote.attachments?.length ?? 0),
-                      })
-                    ),
-                }
-              : undefined
-          }
-          onCancelReply={() => setReplyToNoteId(undefined)}
-        />
-      </div>
-    ) : null;
+  const orbitPanel = panelOpen ? (
+    <div className="orbit-panel" hidden={workspaceMode !== "conversation"}>
+      <OrbitLayer
+        notes={room.orbitNotes}
+        currentParticipantId={session.participant_id}
+        currentDisplayName={myDisplayName}
+        actorNames={actorNames}
+        actorKinds={actorKinds}
+        canReact={permissions.canSendOrbitNotes}
+        onLike={(noteId) => {
+          void likeOrbitNote(session, noteId).catch(() => {});
+        }}
+        onUnlike={(noteId) => {
+          void unlikeOrbitNote(session, noteId).catch(() => {});
+        }}
+        onReply={(noteId) => setReplyToNoteId(noteId)}
+        canPromote={canPromoteOrbit}
+        hasPromotable={promotableOrbitNotes.length > 0}
+        onPromoteClick={() => setPromoteModalOpen(true)}
+        canClear={canClearOrbit}
+        onClearClick={() => setClearDialogOpen(true)}
+        loadAttachment={loadAttachment}
+        focusNoteId={focusedOrbitNoteId}
+      />
+      <OrbitPromoteModal
+        open={promoteModalOpen}
+        notes={promotableOrbitNotes}
+        canPromote={canPromoteOrbit}
+        onPromote={(noteIds, attachmentIds, instruction) => {
+          void promoteOrbitNotes(
+            session,
+            noteIds,
+            attachmentIds,
+            instruction
+          ).catch(() => {});
+        }}
+        onClose={() => setPromoteModalOpen(false)}
+      />
+      <OrbitComposer
+        role={session.role}
+        members={peopleParticipants}
+        attachmentUsage={attachmentUsage}
+        onUploadAttachment={
+          session.role === "owner" ||
+          session.role === "admin" ||
+          session.role === "member"
+            ? (file, options) => uploadAttachment(session, file, options)
+            : undefined
+        }
+        onDeleteAttachment={(attachment) =>
+          deleteAttachment(session, attachment.attachment_id)
+        }
+        onAttachmentUsageChanged={refreshAttachmentUsage}
+        onSendOrbitNote={async (text, attachments, replyTo) => {
+          await sendOrbitNote(
+            session,
+            text,
+            attachments.map((attachment) => attachment.attachment_id),
+            replyTo
+          );
+          setReplyToNoteId(undefined);
+        }}
+        onTypingInput={(value) =>
+          typingControllerRef.current?.inputChanged(value)
+        }
+        onStopTyping={() => typingControllerRef.current?.stopNow()}
+        replyTo={
+          replyToNote
+            ? {
+                noteId: replyToNote.note_id,
+                authorName:
+                  actorNames.get(replyToNote.created_by) ||
+                  replyToNote.created_by,
+                text:
+                  replyToNote.text ||
+                  String(
+                    t("orbit.attachmentSummary", {
+                      count: String(replyToNote.attachments?.length ?? 0),
+                    })
+                  ),
+              }
+            : undefined
+        }
+        onCancelReply={() => setReplyToNoteId(undefined)}
+      />
+    </div>
+  ) : null;
 
   return (
     <div className="workspace-shell" ref={shellRef}>
@@ -836,7 +837,9 @@ export default function Workspace({
               });
             }}
             workspaceMode={workspaceMode}
-            onWorkspaceModeChange={handleWorkspaceModeChange}
+            onWorkspaceModeChange={
+              canUseWhiteboard ? handleWorkspaceModeChange : undefined
+            }
           />
 
           <div
@@ -1011,7 +1014,7 @@ export default function Workspace({
             )}
           </div>
 
-          {whiteboardOpened && (
+          {canUseWhiteboard && (
             <div
               id="whiteboard-workspace-panel"
               className="whiteboard-workspace"
@@ -1019,14 +1022,16 @@ export default function Workspace({
               aria-labelledby="whiteboard-workspace-tab"
               hidden={workspaceMode !== "whiteboard"}
             >
-              <WhiteboardSurface
-                loadEditorAdapter={loadWhiteboardEditorAdapter}
-                langCode={lang}
-                name={`${room.roomName ?? session.room_id} — ${String(
-                  t("workspace.whiteboard")
-                )}`}
-                readOnly={session.role === "observer"}
-              />
+              {whiteboardOpened && (
+                <WhiteboardSurface
+                  loadEditorAdapter={loadWhiteboardEditorAdapter}
+                  langCode={lang}
+                  name={`${room.roomName ?? session.room_id} — ${String(
+                    t("workspace.whiteboard")
+                  )}`}
+                  readOnly={session.role === "observer"}
+                />
+              )}
             </div>
           )}
         </div>

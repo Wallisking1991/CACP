@@ -1384,7 +1384,8 @@ textarea.input {
 }
 
 .conversation-workspace[hidden],
-.whiteboard-workspace[hidden] {
+.whiteboard-workspace[hidden],
+.orbit-panel[hidden] {
   display: none;
 }
 
@@ -1415,6 +1416,32 @@ textarea.input {
   background: var(--surface);
   color: var(--ink-3);
   font-size: 14px;
+}
+
+.whiteboard-surface__status--error {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.whiteboard-surface__status--error button {
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-1);
+  font: inherit;
+  cursor: pointer;
+}
+
+.whiteboard-surface__status--error button:hover {
+  background: var(--surface-raised);
+}
+
+.whiteboard-surface__status--error button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .thread {

@@ -73,7 +73,9 @@ async function exportScene(
   );
 }
 
-function createApiPort(api: ExcalidrawImperativeAPI): ExcalidrawApiPort {
+export function createExcalidrawApiPort(
+  api: ExcalidrawImperativeAPI
+): ExcalidrawApiPort {
   return {
     getScene() {
       return {
@@ -106,7 +108,7 @@ function renderExcalidraw({
   const vendorProps: ExcalidrawProps = {
     ...props,
     aiEnabled: false,
-    excalidrawAPI: (api) => excalidrawAPI(createApiPort(api)),
+    excalidrawAPI: (api) => excalidrawAPI(createExcalidrawApiPort(api)),
     UIOptions: {
       canvasActions: {
         changeViewBackgroundColor: true,
