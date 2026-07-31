@@ -3414,40 +3414,51 @@ export async function buildServer(options: BuildServerOptions = {}) {
       return;
     }
     const currentCount = socketCounts.get(roomId) ?? 0;
-    const releaseObserverHandoff =
+    const observerHandoff =
       currentCount >= config.maxSocketsPerRoom &&
       request.query.mode !== "observe"
         ? whiteboards.reserveObserverHandoff(roomId, participant.id)
         : undefined;
     if (
       currentCount >= config.maxSocketsPerRoom &&
-      releaseObserverHandoff === undefined
+      observerHandoff === undefined
     ) {
       rejectConnection("room_full", "This room has too many open sockets.");
       return;
     }
 
     socketCounts.set(roomId, currentCount + 1);
-    const forgetWhiteboard = whiteboards.connect({
-      roomId,
-      participantId: participant.id,
-      displayName: participant.display_name,
-      role: participant.role as WhiteboardHumanRole,
-      resolveRole: () => {
-        const current = request.query.token
-          ? store.getParticipantByToken(roomId, request.query.token)
-          : undefined;
-        return current && HUMAN_ROLES.includes(current.role)
-          ? (current.role as WhiteboardHumanRole)
-          : undefined;
-      },
-      socket,
-      observeOnly: request.query.mode === "observe",
-    });
+    let forgetWhiteboard: () => void;
+    try {
+      forgetWhiteboard = whiteboards.connect({
+        roomId,
+        participantId: participant.id,
+        displayName: participant.display_name,
+        role: participant.role as WhiteboardHumanRole,
+        resolveRole: () => {
+          const current = request.query.token
+            ? store.getParticipantByToken(roomId, request.query.token)
+            : undefined;
+          return current && HUMAN_ROLES.includes(current.role)
+            ? (current.role as WhiteboardHumanRole)
+            : undefined;
+        },
+        socket,
+        observeOnly: request.query.mode === "observe",
+      });
+      observerHandoff?.complete();
+    } catch (error) {
+      observerHandoff?.release();
+      if (currentCount === 0) {
+        socketCounts.delete(roomId);
+      } else {
+        socketCounts.set(roomId, currentCount);
+      }
+      throw error;
+    }
     const forgetSocket = rememberSocket(roomId, participant.id, socket);
     clearPendingOffline(roomId, participant.id);
     socket.on("close", () => {
-      releaseObserverHandoff?.();
       forgetWhiteboard();
       forgetSocket();
       if (isClosing || !aliveRooms.has(roomId)) {

@@ -11,6 +11,7 @@ import {
 
 interface WhiteboardSocket {
   send(data: string): void;
+  close(code?: number, reason?: string): void;
   on(event: "message", listener: (data: unknown) => void): unknown;
 }
 
@@ -36,6 +37,7 @@ interface WhiteboardRoomState {
   revision: number;
   scene: WhiteboardScene;
   connections: Set<WhiteboardConnection>;
+  handoffParticipants: Set<string>;
   presenceSequence: number;
   presenceRateWindows: Map<string, { startedAt: number; updates: number }>;
 }
@@ -55,7 +57,12 @@ export interface WhiteboardSessionHub {
   reserveObserverHandoff(
     roomId: string,
     participantId: string
-  ): (() => void) | undefined;
+  ):
+    | {
+        complete(): void;
+        release(): void;
+      }
+    | undefined;
   discardRoom(roomId: string): void;
   close(): void;
 }
@@ -237,6 +244,7 @@ export function createWhiteboardSessionHub(
       revision: 0,
       scene: blankScene(),
       connections: new Set(),
+      handoffParticipants: new Set(),
       presenceSequence: 0,
       presenceRateWindows: new Map(),
     };
@@ -509,6 +517,10 @@ export function createWhiteboardSessionHub(
 
     return () => {
       state.connections.delete(connection);
+      if (connection.handoffReserved) {
+        connection.handoffReserved = false;
+        state.handoffParticipants.delete(connection.participantId);
+      }
       if (connection.active) {
         connection.active = false;
         connection.presence = undefined;
@@ -536,7 +548,9 @@ export function createWhiteboardSessionHub(
     connect,
     reserveObserverHandoff(roomId, participantId) {
       const state = rooms.get(roomId);
-      if (!state) return undefined;
+      if (!state || state.handoffParticipants.has(participantId)) {
+        return undefined;
+      }
       const observer = [...state.connections].find(
         (connection) =>
           connection.participantId === participantId &&
@@ -545,11 +559,20 @@ export function createWhiteboardSessionHub(
       );
       if (!observer) return undefined;
       observer.handoffReserved = true;
-      let released = false;
-      return () => {
-        if (released) return;
-        released = true;
-        observer.handoffReserved = false;
+      state.handoffParticipants.add(participantId);
+      let settled = false;
+      return {
+        complete() {
+          if (settled) return;
+          settled = true;
+          observer.socket.close(1000, "whiteboard_handoff");
+        },
+        release() {
+          if (settled) return;
+          settled = true;
+          observer.handoffReserved = false;
+          state.handoffParticipants.delete(participantId);
+        },
       };
     },
     discardRoom(roomId) {

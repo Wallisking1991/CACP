@@ -461,13 +461,23 @@ describe("Collaborative Whiteboard workspace", () => {
 
   it("lets the participant retry a transient editor load failure", async () => {
     const observerDestroy = vi.fn();
+    let emitObservedCollaborators:
+      ((collaborators: WhiteboardCollaborator[]) => void) | undefined;
     const loadWhiteboardSession = vi.fn(
       async () => (options: { observeOnly?: boolean }) => ({
         subscribeStatus(listener: (status: WhiteboardSessionStatus) => void) {
           if (!options.observeOnly) listener("connected");
           return () => {};
         },
-        subscribeCollaborators: () => () => {},
+        subscribeCollaborators(
+          listener: (collaborators: WhiteboardCollaborator[]) => void
+        ) {
+          if (options.observeOnly) {
+            emitObservedCollaborators = listener;
+          }
+          listener([]);
+          return () => {};
+        },
         subscribeActivity: () => () => {},
         focusCollaborator: () => {},
         loadSharedScene: () => {},
@@ -509,10 +519,24 @@ describe("Collaborative Whiteboard workspace", () => {
       </LangProvider>
     );
 
+    await waitFor(() => expect(emitObservedCollaborators).toBeDefined());
+    act(() => {
+      emitObservedCollaborators?.([
+        {
+          participantId: "user_1",
+          displayName: "Owner",
+          color: { background: "#fee2e2", stroke: "#dc2626" },
+          canEdit: true,
+        },
+      ]);
+    });
+    expect(screen.getByLabelText(/1 active editor/i)).toHaveTextContent("1");
+
     fireEvent.click(screen.getByRole("tab", { name: /whiteboard/i }));
     expect(
       await screen.findByText(/whiteboard could not be loaded/i)
     ).toBeVisible();
+    expect(screen.getByLabelText(/1 active editor/i)).toHaveTextContent("1");
     expect(observerDestroy).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: /retry/i }));

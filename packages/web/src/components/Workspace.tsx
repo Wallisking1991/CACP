@@ -250,10 +250,16 @@ export default function Workspace({
   useEffect(() => {
     workspaceModeRef.current = workspaceMode;
   }, [workspaceMode]);
-  const [whiteboardActiveEditorCount, setWhiteboardActiveEditorCount] =
+  const [whiteboardObserverEditorCount, setWhiteboardObserverEditorCount] =
+    useState(0);
+  const [whiteboardSurfaceEditorCount, setWhiteboardSurfaceEditorCount] =
     useState(0);
   const [whiteboardActiveSessionRoomId, setWhiteboardActiveSessionRoomId] =
     useState<string>();
+  const whiteboardActiveEditorCount =
+    whiteboardActiveSessionRoomId === session.room_id
+      ? whiteboardSurfaceEditorCount
+      : whiteboardObserverEditorCount;
   const [hasWhiteboardActivity, setHasWhiteboardActivity] = useState(false);
   const [hasConversationActivity, setHasConversationActivity] = useState(false);
   const mainConversationActivityIds = useMemo(
@@ -307,9 +313,21 @@ export default function Workspace({
     [session.room_id]
   );
 
-  const handleWhiteboardCollaborators = useCallback(
+  const handleObservedWhiteboardCollaborators = useCallback(
     (collaborators: WhiteboardCollaborator[]) => {
-      setWhiteboardActiveEditorCount(
+      setWhiteboardObserverEditorCount(
+        new Set(
+          collaborators
+            .filter((collaborator) => collaborator.canEdit)
+            .map((collaborator) => collaborator.participantId)
+        ).size
+      );
+    },
+    []
+  );
+  const handleSurfaceWhiteboardCollaborators = useCallback(
+    (collaborators: WhiteboardCollaborator[]) => {
+      setWhiteboardSurfaceEditorCount(
         new Set(
           collaborators
             .filter((collaborator) => collaborator.canEdit)
@@ -340,7 +358,9 @@ export default function Workspace({
         ids: new Set(mainConversationActivityIds),
         replayReady: eventReplayReady,
       };
-      setWhiteboardActiveEditorCount(0);
+      setWhiteboardObserverEditorCount(0);
+      setWhiteboardSurfaceEditorCount(0);
+      setWhiteboardActiveSessionRoomId(undefined);
       setHasWhiteboardActivity(false);
       setHasConversationActivity(false);
       return;
@@ -1153,7 +1173,7 @@ export default function Workspace({
                   role: session.role === "agent" ? "observer" : session.role,
                 }}
                 loadSession={loadWhiteboardSessionFactory}
-                onCollaboratorsChange={handleWhiteboardCollaborators}
+                onCollaboratorsChange={handleObservedWhiteboardCollaborators}
                 onActivity={handleWhiteboardActivity}
               />
             )}
@@ -1181,7 +1201,7 @@ export default function Workspace({
                   name={`${room.roomName ?? session.room_id} — ${String(
                     t("workspace.whiteboard")
                   )}`}
-                  onCollaboratorsChange={handleWhiteboardCollaborators}
+                  onCollaboratorsChange={handleSurfaceWhiteboardCollaborators}
                   onActivity={handleWhiteboardActivity}
                   onSessionReady={handleWhiteboardSessionReady}
                 />

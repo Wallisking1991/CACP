@@ -36,6 +36,13 @@ function closeSocket(socket: WebSocket): Promise<void> {
   });
 }
 
+function waitForClose(socket: WebSocket): Promise<void> {
+  if (socket.readyState === WebSocket.CLOSED) return Promise.resolve();
+  return new Promise((resolve) => {
+    socket.addEventListener("close", () => resolve(), { once: true });
+  });
+}
+
 function createInbox(socket: WebSocket) {
   const messages: WhiteboardServerMessage[] = [];
   const waiters = new Set<() => void>();
@@ -789,6 +796,8 @@ describe("collaborative whiteboard stream", () => {
     await waitForOpen(active);
     await activeInbox.next("whiteboard.connected");
     await activeInbox.next("whiteboard.scene");
+    await waitForClose(observer);
+    expect(observer.readyState).toBe(WebSocket.CLOSED);
 
     const blocked = new WebSocket(
       `${url}?token=${encodeURIComponent(member.participant_token)}`
