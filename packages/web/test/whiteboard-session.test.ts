@@ -509,24 +509,29 @@ describe("WhiteboardSession", () => {
     expect(statuses).toContain("rejected");
     expect(sockets).toHaveLength(1);
     const remoteApplications = editor.updateScene.mock.calls.length;
-    sockets[0]!.receive(
+    sockets[0]!.serverClose();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sockets).toHaveLength(2);
+    expect(editor.setReadOnly).toHaveBeenLastCalledWith(true);
+    sockets[1]!.open();
+    sockets[1]!.receive(
       serverMessage("room_rejected", {
-        type: "whiteboard.elements.updated",
-        update_id: "other-update",
-        participant_id: "member_2",
-        revision: 1,
-        elements: [
-          {
-            id: "other-shape",
-            type: "diamond",
-            version: 1,
-            versionNonce: 53,
-          },
-        ],
-        app_state: {},
+        type: "whiteboard.connected",
+        participant_id: "member_1",
+        role: "member",
+        can_edit: true,
+      })
+    );
+    sockets[1]!.receive(
+      serverMessage("room_rejected", {
+        type: "whiteboard.scene",
+        revision: 0,
+        scene: { elements: [], app_state: {} },
       })
     );
     expect(editor.updateScene).toHaveBeenCalledTimes(remoteApplications);
+    expect(editor.setReadOnly).toHaveBeenLastCalledWith(false);
+    expect(statuses.at(-1)).toBe("rejected");
     editor.change({
       elements: [
         {
@@ -539,19 +544,127 @@ describe("WhiteboardSession", () => {
       appState: {},
       files: {},
     });
-    expect(JSON.parse(sockets[0]!.sent[1]!)).toMatchObject({
+    expect(JSON.parse(sockets[1]!.sent[0]!)).toMatchObject({
       update_id: "recovered-update",
-      base_revision: 1,
+      base_revision: 0,
       elements: [{ id: "shape_2" }],
     });
-    sockets[0]!.receive(
+    sockets[1]!.receive(
       serverMessage("room_rejected", {
         type: "whiteboard.ack",
         update_id: "recovered-update",
-        revision: 2,
+        revision: 1,
       })
     );
     expect(statuses.at(-1)).toBe("connected");
+    session.destroy();
+  });
+
+  it("requires an explicit choice when remote work arrives after rejection", () => {
+    const socket = new FakeSocket();
+    const editor = createEditor();
+    const statuses: string[] = [];
+    const session = createWhiteboardSession({
+      identity: {
+        roomId: "room_conflict",
+        participantId: "member_1",
+        token: "member-token",
+        role: "member",
+      },
+      editor: editor.editor,
+      socketFactory: () => socket,
+      createUpdateId: () => "oversized-update",
+      origin: "http://localhost:5173",
+    });
+    session.subscribeStatus((status) => statuses.push(status));
+    socket.open();
+    socket.receive(
+      serverMessage("room_conflict", {
+        type: "whiteboard.connected",
+        participant_id: "member_1",
+        role: "member",
+        can_edit: true,
+      })
+    );
+    socket.receive(
+      serverMessage("room_conflict", {
+        type: "whiteboard.scene",
+        revision: 0,
+        scene: { elements: [], app_state: {} },
+      })
+    );
+    editor.change({
+      elements: [
+        {
+          id: "local-shape",
+          type: "rectangle",
+          version: 1,
+          versionNonce: 61,
+        },
+      ],
+      appState: {},
+      files: {},
+    });
+    socket.receive(
+      serverMessage("room_conflict", {
+        type: "whiteboard.error",
+        code: "invalid_message",
+        message: "The update is too large.",
+        recoverable: true,
+      })
+    );
+    const remoteApplications = editor.updateScene.mock.calls.length;
+    socket.receive(
+      serverMessage("room_conflict", {
+        type: "whiteboard.elements.updated",
+        update_id: "other-update",
+        participant_id: "member_2",
+        revision: 1,
+        elements: [
+          {
+            id: "other-shape",
+            type: "diamond",
+            version: 1,
+            versionNonce: 62,
+          },
+        ],
+        app_state: {},
+      })
+    );
+
+    expect(statuses.at(-1)).toBe("conflicted");
+    expect(editor.setReadOnly).toHaveBeenLastCalledWith(true);
+    expect(editor.updateScene).toHaveBeenCalledTimes(remoteApplications);
+    editor.change({
+      elements: [
+        {
+          id: "local-shape",
+          type: "rectangle",
+          version: 2,
+          versionNonce: 63,
+        },
+      ],
+      appState: {},
+      files: {},
+    });
+    expect(socket.sent).toHaveLength(1);
+
+    session.loadSharedScene();
+
+    expect(editor.updateScene).toHaveBeenLastCalledWith({
+      elements: [
+        {
+          id: "other-shape",
+          type: "diamond",
+          version: 1,
+          versionNonce: 62,
+        },
+      ],
+      appState: {},
+      files: {},
+    });
+    expect(statuses.at(-1)).toBe("connected");
+    expect(editor.setReadOnly).toHaveBeenLastCalledWith(false);
     session.destroy();
   });
 });

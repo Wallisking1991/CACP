@@ -18,6 +18,7 @@ export type WhiteboardSessionStatus =
   | "connected"
   | "disconnected"
   | "rejected"
+  | "conflicted"
   | "forbidden";
 
 export interface WhiteboardSocketEvent {
@@ -53,6 +54,7 @@ export interface WhiteboardSessionController {
   subscribeStatus(
     listener: (status: WhiteboardSessionStatus) => void
   ): () => void;
+  loadSharedScene(): void;
   setRole(role: WhiteboardHumanRole): void;
   destroy(): void;
 }
@@ -133,6 +135,9 @@ export function createWhiteboardSession({
   let destroyed = false;
   let terminal = false;
   let rejectedUpdate = false;
+  let rejectedBaseRevision: number | undefined;
+  let pendingRemote:
+    { revision: number; scene: SharedWhiteboardScene } | undefined;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let inFlightUpdateId: string | undefined;
   let queuedScene: WhiteboardScene | undefined;
@@ -209,7 +214,6 @@ export function createWhiteboardSession({
     if (destroyed || terminal) return;
     synchronized = false;
     connectedHandshake = false;
-    rejectedUpdate = false;
     revision = undefined;
     inFlightUpdateId = undefined;
     queuedScene = undefined;
@@ -256,6 +260,22 @@ export function createWhiteboardSession({
       }
       if (message.type === "whiteboard.scene") {
         if (!connectedHandshake) return;
+        if (rejectedUpdate) {
+          revision = message.revision;
+          if (pendingRemote || message.revision !== rejectedBaseRevision) {
+            pendingRemote = {
+              revision: message.revision,
+              scene: message.scene,
+            };
+            synchronized = false;
+            setStatus("conflicted");
+          } else {
+            synchronized = true;
+            setStatus("rejected");
+          }
+          setEditorAccess();
+          return;
+        }
         revision = message.revision;
         applyRemoteScene(message.scene);
         synchronized = true;
@@ -268,6 +288,8 @@ export function createWhiteboardSession({
         revision = message.revision;
         inFlightUpdateId = undefined;
         rejectedUpdate = false;
+        rejectedBaseRevision = undefined;
+        pendingRemote = undefined;
         if (status === "rejected") {
           setStatus("connected");
           setEditorAccess();
@@ -278,10 +300,24 @@ export function createWhiteboardSession({
         return;
       }
       if (message.type === "whiteboard.elements.updated") {
+        if (rejectedUpdate) {
+          if (!pendingRemote || message.revision > pendingRemote.revision) {
+            pendingRemote = {
+              revision: message.revision,
+              scene: {
+                elements: message.elements,
+                app_state: message.app_state,
+              },
+            };
+          }
+          synchronized = false;
+          setStatus("conflicted");
+          setEditorAccess();
+          return;
+        }
         if (!synchronized || revision === undefined) return;
         if (message.revision <= revision) return;
         revision = message.revision;
-        if (rejectedUpdate) return;
         applyRemoteScene({
           elements: message.elements,
           app_state: message.app_state,
@@ -305,6 +341,8 @@ export function createWhiteboardSession({
           inFlightUpdateId = undefined;
           queuedScene = undefined;
           rejectedUpdate = true;
+          rejectedBaseRevision = revision;
+          pendingRemote = undefined;
           setStatus("rejected");
           setEditorAccess();
           return;
@@ -331,10 +369,15 @@ export function createWhiteboardSession({
       socket = undefined;
       synchronized = false;
       setStatus(
-        terminal ? "forbidden" : rejectedUpdate ? "rejected" : "disconnected"
+        terminal
+          ? "forbidden"
+          : pendingRemote
+            ? "conflicted"
+            : rejectedUpdate
+              ? "rejected"
+              : "disconnected"
       );
       setEditorAccess();
-      if (rejectedUpdate) return;
       scheduleReconnect();
     };
     nextSocket.addEventListener("open", onOpen);
@@ -350,6 +393,19 @@ export function createWhiteboardSession({
       statusListeners.add(listener);
       listener(status);
       return () => statusListeners.delete(listener);
+    },
+    loadSharedScene() {
+      if (!pendingRemote) return;
+      const remote = pendingRemote;
+      revision = remote.revision;
+      applyRemoteScene(remote.scene);
+      pendingRemote = undefined;
+      rejectedUpdate = false;
+      rejectedBaseRevision = undefined;
+      synchronized = connectedHandshake && socket?.readyState === SOCKET_OPEN;
+      setStatus(synchronized ? "connected" : "disconnected");
+      setEditorAccess();
+      if (!synchronized) scheduleReconnect();
     },
     setRole(nextRole) {
       role = nextRole;

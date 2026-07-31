@@ -191,6 +191,7 @@ describe("Workspace Orbit bubbles", () => {
         listener("connected");
         return () => {};
       },
+      loadSharedScene: () => {},
       setRole: () => {},
       destroy: () => {},
     }));

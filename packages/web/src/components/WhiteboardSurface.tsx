@@ -137,9 +137,11 @@ export function WhiteboardSurface({
       ? t("whiteboard.reconnecting")
       : connectionStatus === "rejected"
         ? t("whiteboard.syncRejected")
-        : connectionStatus === "forbidden"
-          ? t("whiteboard.accessUnavailable")
-          : t("whiteboard.syncing");
+        : connectionStatus === "conflicted"
+          ? t("whiteboard.syncConflict")
+          : connectionStatus === "forbidden"
+            ? t("whiteboard.accessUnavailable")
+            : t("whiteboard.syncing");
 
   return (
     <section className="whiteboard-surface" aria-label={editorLabel}>
@@ -171,13 +173,27 @@ export function WhiteboardSurface({
           className={`whiteboard-surface__status${
             connectionStatus === "forbidden"
               ? " whiteboard-surface__status--error"
-              : connectionStatus === "rejected"
+              : connectionStatus === "rejected" ||
+                  connectionStatus === "conflicted"
                 ? " whiteboard-surface__status--warning"
                 : ""
           }`}
-          role={connectionStatus === "forbidden" ? "alert" : "status"}
+          role={
+            connectionStatus === "forbidden" ||
+            connectionStatus === "conflicted"
+              ? "alert"
+              : "status"
+          }
         >
           {connectionMessage}
+          {connectionStatus === "conflicted" && (
+            <button
+              type="button"
+              onClick={() => sessionRef.current?.loadSharedScene()}
+            >
+              {t("whiteboard.loadShared")}
+            </button>
+          )}
         </div>
       )}
       <div

@@ -13,6 +13,8 @@
   "whiteboard.syncing": "Synchronizing whiteboard…",
   "whiteboard.reconnecting": "Connection interrupted. Reconnecting…",
   "whiteboard.syncRejected": "The latest changes are not shared. Reduce the board or export a copy; syncing will retry after your next edit.",
+  "whiteboard.syncConflict": "Another participant changed the shared board. Export your local copy, then load the shared board to continue.",
+  "whiteboard.loadShared": "Load shared board",
   "whiteboard.accessUnavailable": "Whiteboard access is unavailable.",
   "whiteboard.loadError": "The whiteboard could not be loaded.",
   "whiteboard.retry": "Retry",

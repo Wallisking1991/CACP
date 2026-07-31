@@ -72,6 +72,7 @@ const workspaceProps = {
   onRemoveParticipant: vi.fn(),
   loadWhiteboardSession: vi.fn(async () => () => ({
     subscribeStatus: () => () => {},
+    loadSharedScene: () => {},
     setRole: () => {},
     destroy: () => {},
   })),
@@ -92,6 +93,7 @@ describe("Collaborative Whiteboard workspace", () => {
     const loadWhiteboardEditorAdapter = vi.fn(async () => ({ mount }));
     const sessionController = {
       subscribeStatus: vi.fn(() => () => {}),
+      loadSharedScene: vi.fn(),
       setRole: vi.fn(),
       destroy: vi.fn(),
     };
@@ -441,12 +443,14 @@ describe("Collaborative Whiteboard workspace", () => {
         };
       },
     }));
+    const loadSharedScene = vi.fn();
     const loadWhiteboardSession = vi.fn(async () => () => ({
       subscribeStatus(listener: (status: WhiteboardSessionStatus) => void) {
         emitStatus = listener;
         listener("connected");
         return () => {};
       },
+      loadSharedScene,
       setRole: () => {},
       destroy: () => {},
     }));
@@ -470,6 +474,10 @@ describe("Collaborative Whiteboard workspace", () => {
       document.querySelector(".whiteboard-surface__status--warning")
     ).toBeVisible();
     expect(screen.getByText("Preserved local board")).toBeVisible();
+
+    act(() => emitStatus?.("conflicted"));
+    fireEvent.click(screen.getByRole("button", { name: /load shared board/i }));
+    expect(loadSharedScene).toHaveBeenCalledTimes(1);
   });
 
   it("does not expose a whiteboard workspace to agent sessions", () => {
