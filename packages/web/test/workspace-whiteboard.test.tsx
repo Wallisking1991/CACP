@@ -1,9 +1,16 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import type { CacpEvent } from "@cacp/protocol";
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
 import Workspace from "../src/components/Workspace.js";
 import { LangProvider } from "../src/i18n/LangProvider.js";
+import type { WhiteboardSessionStatus } from "../src/whiteboard/whiteboard-session.js";
 
 function event(
   type: CacpEvent["type"],
@@ -414,6 +421,55 @@ describe("Collaborative Whiteboard workspace", () => {
       await screen.findByText("Recovered whiteboard editor")
     ).toBeVisible();
     expect(loadWhiteboardEditorAdapter).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the editor visible with a clear warning after sync rejection", async () => {
+    let emitStatus: ((status: WhiteboardSessionStatus) => void) | undefined;
+    const loadWhiteboardEditorAdapter = vi.fn(async () => ({
+      mount(container: HTMLElement) {
+        const editorElement = document.createElement("div");
+        editorElement.textContent = "Preserved local board";
+        container.append(editorElement);
+        return {
+          getScene: () => ({ elements: [], appState: {}, files: {} }),
+          updateScene: () => {},
+          subscribeSceneChanges: () => () => {},
+          setDisplayOptions: () => {},
+          setReadOnly: () => {},
+          exportScene: async () => new Blob(),
+          destroy: () => editorElement.remove(),
+        };
+      },
+    }));
+    const loadWhiteboardSession = vi.fn(async () => () => ({
+      subscribeStatus(listener: (status: WhiteboardSessionStatus) => void) {
+        emitStatus = listener;
+        listener("connected");
+        return () => {};
+      },
+      setRole: () => {},
+      destroy: () => {},
+    }));
+
+    render(
+      <LangProvider>
+        <Workspace
+          {...workspaceProps}
+          loadWhiteboardEditorAdapter={loadWhiteboardEditorAdapter}
+          loadWhiteboardSession={loadWhiteboardSession}
+        />
+      </LangProvider>
+    );
+    fireEvent.click(screen.getByRole("tab", { name: /whiteboard/i }));
+    expect(await screen.findByText("Preserved local board")).toBeVisible();
+
+    act(() => emitStatus?.("rejected"));
+
+    expect(screen.getByText(/latest changes are not shared/i)).toBeVisible();
+    expect(
+      document.querySelector(".whiteboard-surface__status--warning")
+    ).toBeVisible();
+    expect(screen.getByText("Preserved local board")).toBeVisible();
   });
 
   it("does not expose a whiteboard workspace to agent sessions", () => {

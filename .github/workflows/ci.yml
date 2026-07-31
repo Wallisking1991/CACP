@@ -51,6 +51,12 @@ jobs:
       - name: Build
         run: corepack pnpm build
 
+      - name: Install browser for whiteboard smoke test
+        run: corepack pnpm exec playwright install --with-deps chromium
+
+      - name: Test whiteboard collaboration in two browsers
+        run: corepack pnpm test:whiteboard-browser
+
       - name: Scan working tree with Secretlint
         run: corepack pnpm security:secrets
 

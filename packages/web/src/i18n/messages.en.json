@@ -12,6 +12,7 @@
   "whiteboard.loading": "Loading whiteboard…",
   "whiteboard.syncing": "Synchronizing whiteboard…",
   "whiteboard.reconnecting": "Connection interrupted. Reconnecting…",
+  "whiteboard.syncRejected": "The latest changes are not shared. Reduce the board or export a copy; syncing will retry after your next edit.",
   "whiteboard.accessUnavailable": "Whiteboard access is unavailable.",
   "whiteboard.loadError": "The whiteboard could not be loaded.",
   "whiteboard.retry": "Retry",

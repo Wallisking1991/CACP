@@ -1424,6 +1424,20 @@ textarea.input {
   gap: 12px;
 }
 
+.whiteboard-surface__status--warning {
+  inset: 12px auto auto 50%;
+  display: block;
+  width: min(560px, calc(100% - 24px));
+  padding: 12px 16px;
+  transform: translateX(-50%);
+  border: 1px solid #d9a441;
+  border-radius: 12px;
+  background: #fff8e8;
+  color: #6f4d0b;
+  box-shadow: 0 8px 24px rgba(72, 48, 6, 0.12);
+  pointer-events: none;
+}
+
 .whiteboard-surface__status--error button {
   min-height: 44px;
   padding: 0 18px;

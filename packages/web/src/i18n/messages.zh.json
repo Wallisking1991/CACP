@@ -12,6 +12,7 @@
   "whiteboard.loading": "正在加载白板…",
   "whiteboard.syncing": "正在同步白板…",
   "whiteboard.reconnecting": "白板连接中断，正在重新连接…",
+  "whiteboard.syncRejected": "最新更改尚未共享。请缩减白板内容或导出副本；下次编辑后将再次尝试同步。",
   "whiteboard.accessUnavailable": "无法访问白板。",
   "whiteboard.loadError": "无法加载白板。",
   "whiteboard.retry": "重试",

@@ -13,7 +13,12 @@ import type {
 } from "./whiteboard-editor-adapter.js";
 
 export type WhiteboardSessionStatus =
-  "connecting" | "synchronizing" | "connected" | "disconnected" | "forbidden";
+  | "connecting"
+  | "synchronizing"
+  | "connected"
+  | "disconnected"
+  | "rejected"
+  | "forbidden";
 
 export interface WhiteboardSocketEvent {
   data?: unknown;
@@ -127,6 +132,7 @@ export function createWhiteboardSession({
   let applyingRemote = false;
   let destroyed = false;
   let terminal = false;
+  let rejectedUpdate = false;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let inFlightUpdateId: string | undefined;
   let queuedScene: WhiteboardScene | undefined;
@@ -142,7 +148,9 @@ export function createWhiteboardSession({
 
   function setEditorAccess() {
     editor.setReadOnly(
-      !synchronized || status !== "connected" || role === "observer"
+      !synchronized ||
+        (status !== "connected" && status !== "rejected") ||
+        role === "observer"
     );
   }
 
@@ -201,6 +209,7 @@ export function createWhiteboardSession({
     if (destroyed || terminal) return;
     synchronized = false;
     connectedHandshake = false;
+    rejectedUpdate = false;
     revision = undefined;
     inFlightUpdateId = undefined;
     queuedScene = undefined;
@@ -258,6 +267,11 @@ export function createWhiteboardSession({
         if (message.update_id !== inFlightUpdateId) return;
         revision = message.revision;
         inFlightUpdateId = undefined;
+        rejectedUpdate = false;
+        if (status === "rejected") {
+          setStatus("connected");
+          setEditorAccess();
+        }
         const nextScene = queuedScene;
         queuedScene = undefined;
         if (nextScene) sendScene(nextScene);
@@ -267,6 +281,7 @@ export function createWhiteboardSession({
         if (!synchronized || revision === undefined) return;
         if (message.revision <= revision) return;
         revision = message.revision;
+        if (rejectedUpdate) return;
         applyRemoteScene({
           elements: message.elements,
           app_state: message.app_state,
@@ -283,6 +298,14 @@ export function createWhiteboardSession({
           terminal = true;
           synchronized = false;
           setStatus("forbidden");
+          setEditorAccess();
+          return;
+        }
+        if (message.code === "invalid_message" && inFlightUpdateId) {
+          inFlightUpdateId = undefined;
+          queuedScene = undefined;
+          rejectedUpdate = true;
+          setStatus("rejected");
           setEditorAccess();
           return;
         }
@@ -307,8 +330,11 @@ export function createWhiteboardSession({
       nextSocket.removeEventListener("close", onClose);
       socket = undefined;
       synchronized = false;
-      setStatus(terminal ? "forbidden" : "disconnected");
+      setStatus(
+        terminal ? "forbidden" : rejectedUpdate ? "rejected" : "disconnected"
+      );
       setEditorAccess();
+      if (rejectedUpdate) return;
       scheduleReconnect();
     };
     nextSocket.addEventListener("open", onOpen);

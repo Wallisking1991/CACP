@@ -442,9 +442,10 @@ describe("WhiteboardSession", () => {
     session.destroy();
   });
 
-  it("resynchronizes instead of freezing after a rejected update", async () => {
+  it("preserves local work and retries after a rejected update", async () => {
     const sockets: FakeSocket[] = [];
     const editor = createEditor();
+    const statuses: string[] = [];
     const updateIds = ["rejected-update", "recovered-update"];
     const session = createWhiteboardSession({
       identity: {
@@ -463,6 +464,7 @@ describe("WhiteboardSession", () => {
       origin: "http://localhost:5173",
       reconnectDelayMs: 0,
     });
+    session.subscribeStatus((status) => statuses.push(status));
     sockets[0]!.open();
     sockets[0]!.receive(
       serverMessage("room_rejected", {
@@ -502,28 +504,29 @@ describe("WhiteboardSession", () => {
         update_id: "rejected-update",
       })
     );
-    expect(editor.setReadOnly).toHaveBeenLastCalledWith(true);
-    expect(sockets[0]!.close).toHaveBeenCalledTimes(1);
-    sockets[0]!.serverClose();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(sockets).toHaveLength(2);
-    sockets[1]!.open();
-    sockets[1]!.receive(
+    expect(editor.setReadOnly).toHaveBeenLastCalledWith(false);
+    expect(sockets[0]!.close).not.toHaveBeenCalled();
+    expect(statuses).toContain("rejected");
+    expect(sockets).toHaveLength(1);
+    const remoteApplications = editor.updateScene.mock.calls.length;
+    sockets[0]!.receive(
       serverMessage("room_rejected", {
-        type: "whiteboard.connected",
-        participant_id: "member_1",
-        role: "member",
-        can_edit: true,
+        type: "whiteboard.elements.updated",
+        update_id: "other-update",
+        participant_id: "member_2",
+        revision: 1,
+        elements: [
+          {
+            id: "other-shape",
+            type: "diamond",
+            version: 1,
+            versionNonce: 53,
+          },
+        ],
+        app_state: {},
       })
     );
-    sockets[1]!.receive(
-      serverMessage("room_rejected", {
-        type: "whiteboard.scene",
-        revision: 0,
-        scene: { elements: [], app_state: {} },
-      })
-    );
+    expect(editor.updateScene).toHaveBeenCalledTimes(remoteApplications);
     editor.change({
       elements: [
         {
@@ -536,11 +539,19 @@ describe("WhiteboardSession", () => {
       appState: {},
       files: {},
     });
-    expect(JSON.parse(sockets[1]!.sent[0]!)).toMatchObject({
+    expect(JSON.parse(sockets[0]!.sent[1]!)).toMatchObject({
       update_id: "recovered-update",
-      base_revision: 0,
+      base_revision: 1,
       elements: [{ id: "shape_2" }],
     });
+    sockets[0]!.receive(
+      serverMessage("room_rejected", {
+        type: "whiteboard.ack",
+        update_id: "recovered-update",
+        revision: 2,
+      })
+    );
+    expect(statuses.at(-1)).toBe("connected");
     session.destroy();
   });
 });

@@ -9,6 +9,7 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     include: ["test/**/*.{test,spec}.?(c|m)[jt]s?(x)"],
+    exclude: ["test/e2e/**"],
     setupFiles: ["test/setup.ts"],
     coverage: {
       provider: "v8",

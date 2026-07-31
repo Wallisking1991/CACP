@@ -1,8 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const localBrowser = process.env.CI ? {} : { channel: "chrome" as const };
+
 export default defineConfig({
-  testDir: "./packages/web/e2e",
-  testMatch: "whiteboard-collaboration.spec.ts",
+  testDir: "./packages/web/test/e2e",
+  testMatch: "whiteboard-collaboration.test.ts",
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 1 : 0,
@@ -20,7 +22,7 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"], channel: "chrome" },
+      use: { ...devices["Desktop Chrome"], ...localBrowser },
     },
   ],
   webServer: [
