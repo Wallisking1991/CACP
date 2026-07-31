@@ -14,7 +14,7 @@ interface WhiteboardSocket {
 
 interface WhiteboardConnection {
   participantId: string;
-  role: WhiteboardHumanRole;
+  resolveRole: () => WhiteboardHumanRole | undefined;
   socket: WhiteboardSocket;
 }
 
@@ -28,6 +28,7 @@ export interface WhiteboardConnectInput {
   roomId: string;
   participantId: string;
   role: WhiteboardHumanRole;
+  resolveRole: () => WhiteboardHumanRole | undefined;
   socket: WhiteboardSocket;
 }
 
@@ -103,7 +104,7 @@ export function createWhiteboardSessionHub(
     const state = roomState(input.roomId);
     const connection: WhiteboardConnection = {
       participantId: input.participantId,
-      role: input.role,
+      resolveRole: input.resolveRole,
       socket: input.socket,
     };
     state.connections.add(connection);
@@ -181,7 +182,8 @@ export function createWhiteboardSessionHub(
         return;
       }
       const update = parsed.data;
-      if (input.role === "observer") {
+      const currentRole = connection.resolveRole();
+      if (!currentRole || currentRole === "observer") {
         input.socket.send(
           JSON.stringify(
             whiteboardErrorMessage(

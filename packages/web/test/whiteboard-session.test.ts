@@ -441,4 +441,106 @@ describe("WhiteboardSession", () => {
     expect(editor.setReadOnly).toHaveBeenLastCalledWith(false);
     session.destroy();
   });
+
+  it("resynchronizes instead of freezing after a rejected update", async () => {
+    const sockets: FakeSocket[] = [];
+    const editor = createEditor();
+    const updateIds = ["rejected-update", "recovered-update"];
+    const session = createWhiteboardSession({
+      identity: {
+        roomId: "room_rejected",
+        participantId: "member_1",
+        token: "member-token",
+        role: "member",
+      },
+      editor: editor.editor,
+      socketFactory: () => {
+        const socket = new FakeSocket();
+        sockets.push(socket);
+        return socket;
+      },
+      createUpdateId: () => updateIds.shift()!,
+      origin: "http://localhost:5173",
+      reconnectDelayMs: 0,
+    });
+    sockets[0]!.open();
+    sockets[0]!.receive(
+      serverMessage("room_rejected", {
+        type: "whiteboard.connected",
+        participant_id: "member_1",
+        role: "member",
+        can_edit: true,
+      })
+    );
+    sockets[0]!.receive(
+      serverMessage("room_rejected", {
+        type: "whiteboard.scene",
+        revision: 0,
+        scene: { elements: [], app_state: {} },
+      })
+    );
+    editor.change({
+      elements: [
+        {
+          id: "shape_1",
+          type: "rectangle",
+          version: 1,
+          versionNonce: 51,
+        },
+      ],
+      appState: {},
+      files: {},
+    });
+    expect(sockets[0]!.sent).toHaveLength(1);
+
+    sockets[0]!.receive(
+      serverMessage("room_rejected", {
+        type: "whiteboard.error",
+        code: "invalid_message",
+        message: "The update is too large.",
+        recoverable: true,
+        update_id: "rejected-update",
+      })
+    );
+    expect(editor.setReadOnly).toHaveBeenLastCalledWith(true);
+    expect(sockets[0]!.close).toHaveBeenCalledTimes(1);
+    sockets[0]!.serverClose();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(sockets).toHaveLength(2);
+    sockets[1]!.open();
+    sockets[1]!.receive(
+      serverMessage("room_rejected", {
+        type: "whiteboard.connected",
+        participant_id: "member_1",
+        role: "member",
+        can_edit: true,
+      })
+    );
+    sockets[1]!.receive(
+      serverMessage("room_rejected", {
+        type: "whiteboard.scene",
+        revision: 0,
+        scene: { elements: [], app_state: {} },
+      })
+    );
+    editor.change({
+      elements: [
+        {
+          id: "shape_2",
+          type: "ellipse",
+          version: 1,
+          versionNonce: 52,
+        },
+      ],
+      appState: {},
+      files: {},
+    });
+    expect(JSON.parse(sockets[1]!.sent[0]!)).toMatchObject({
+      update_id: "recovered-update",
+      base_revision: 0,
+      elements: [{ id: "shape_2" }],
+    });
+    session.destroy();
+  });
 });

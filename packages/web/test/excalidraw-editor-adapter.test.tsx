@@ -7,7 +7,10 @@ import {
   type ExcalidrawApiPort,
   type ExcalidrawComponentProps,
 } from "../src/whiteboard/excalidraw-editor-adapter.js";
-import type { WhiteboardEditorController } from "../src/whiteboard/whiteboard-editor-adapter.js";
+import type {
+  WhiteboardEditorController,
+  WhiteboardScene,
+} from "../src/whiteboard/whiteboard-editor-adapter.js";
 
 function MenuItem({ children }: { children?: ReactNode }) {
   return <span>{children}</span>;
@@ -35,13 +38,15 @@ describe("Excalidraw whiteboard editor adapter", () => {
   it("controls scene, read-only state, local export menu, and cleanup through the public API", async () => {
     const updateScene = vi.fn();
     const addFiles = vi.fn();
+    let apiScene: WhiteboardScene = {
+      elements: [{ id: "shape_1" }],
+      appState: { viewBackgroundColor: "#ffffff" },
+      files: { file_1: { id: "file_1" } },
+    };
     const api: ExcalidrawApiPort = {
-      getScene: () => ({
-        elements: [{ id: "shape_1" }],
-        appState: { viewBackgroundColor: "#ffffff" },
-        files: { file_1: { id: "file_1" } },
-      }),
+      getScene: () => apiScene,
       updateScene: (scene) => {
+        apiScene = scene;
         updateScene(scene);
         addFiles(Object.values(scene.files));
       },
@@ -121,15 +126,22 @@ describe("Excalidraw whiteboard editor adapter", () => {
     };
     const onLocalSceneChange = vi.fn();
     const unsubscribe = controller.subscribeSceneChanges(onLocalSceneChange);
+    const localElement = { id: "local_shape" };
+    Object.defineProperty(localElement, "expensiveVendorState", {
+      enumerable: true,
+      get() {
+        throw new Error("Local changes must not serialize whole elements.");
+      },
+    });
     const localScene = {
-      elements: [{ id: "local_shape" }],
+      elements: [localElement],
       appState: { viewBackgroundColor: "#eeeeee" },
       files: {},
     };
     await act(async () => {
       emitSceneChange?.(localScene);
     });
-    expect(onLocalSceneChange).toHaveBeenCalledWith(localScene);
+    expect(onLocalSceneChange.mock.calls[0]?.[0]).toBe(localScene);
 
     controller.updateScene(nextScene);
     expect(updateScene).toHaveBeenCalledWith(nextScene);
@@ -138,6 +150,23 @@ describe("Excalidraw whiteboard editor adapter", () => {
       emitSceneChange?.(nextScene);
     });
     expect(onLocalSceneChange).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      emitSceneChange?.(localScene);
+    });
+    expect(onLocalSceneChange).toHaveBeenCalledTimes(1);
+
+    const localAfterRemote = {
+      elements: [{ id: "shape_3" }],
+      appState: { viewBackgroundColor: "#f8f8f7" },
+      files: { file_2: { id: "file_2" } },
+    };
+    apiScene = localAfterRemote;
+    await act(async () => {
+      emitSceneChange?.(localAfterRemote);
+    });
+    expect(onLocalSceneChange).toHaveBeenLastCalledWith(localAfterRemote);
+    expect(onLocalSceneChange).toHaveBeenCalledTimes(2);
     unsubscribe();
 
     await act(async () => {
@@ -160,7 +189,7 @@ describe("Excalidraw whiteboard editor adapter", () => {
     expect(
       container.querySelector("[data-testid='vendor-editor']")
     ).toHaveAttribute("data-name", "设计房间 — 白板");
-    expect(controller.getScene().elements).toEqual([{ id: "shape_1" }]);
+    expect(controller.getScene().elements).toEqual([{ id: "shape_3" }]);
 
     await expect(controller.exportScene("png")).resolves.toHaveProperty(
       "type",

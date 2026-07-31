@@ -1,5 +1,7 @@
 import {
   WhiteboardClientUpdateMessageSchema,
+  WhiteboardProtocolName,
+  WhiteboardProtocolVersion,
   WhiteboardServerMessageSchema,
   type WhiteboardHumanRole,
   type WhiteboardScene as SharedWhiteboardScene,
@@ -169,8 +171,8 @@ export function createWhiteboardSession({
     }
     const updateId = createUpdateId();
     const parsed = WhiteboardClientUpdateMessageSchema.safeParse({
-      protocol: "cacp-whiteboard",
-      version: "1.0.0",
+      protocol: WhiteboardProtocolName,
+      version: WhiteboardProtocolVersion,
       room_id: identity.roomId,
       type: "whiteboard.elements.update",
       update_id: updateId,
@@ -286,9 +288,12 @@ export function createWhiteboardSession({
         }
         if (
           message.code === "stale_revision" ||
-          message.code === "not_synchronized"
+          message.code === "not_synchronized" ||
+          message.code === "invalid_message"
         ) {
           synchronized = false;
+          inFlightUpdateId = undefined;
+          queuedScene = undefined;
           setStatus("disconnected");
           setEditorAccess();
           nextSocket.close();

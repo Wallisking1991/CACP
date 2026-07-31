@@ -336,6 +336,107 @@ describe("collaborative whiteboard stream", () => {
     });
   });
 
+  it("enforces role changes on an already-open whiteboard connection", async () => {
+    app = await buildServer({
+      dbPath: ":memory:",
+      config: localTestConfig(),
+    });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+
+    const room = (
+      await app.inject({
+        method: "POST",
+        url: "/rooms",
+        payload: { name: "Live permissions", display_name: "Owner" },
+      })
+    ).json() as {
+      room_id: string;
+      owner_token: string;
+    };
+    const member = await joinHuman(
+      app,
+      room.room_id,
+      room.owner_token,
+      "member",
+      "Changing role"
+    );
+    const socket = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/whiteboard` +
+        `?token=${encodeURIComponent(member.participant_token)}`
+    );
+    sockets.push(socket);
+    const inbox = createInbox(socket);
+    await waitForOpen(socket);
+    await inbox.next("whiteboard.connected");
+    await inbox.next("whiteboard.scene");
+
+    const demotion = await app.inject({
+      method: "POST",
+      url:
+        `/rooms/${room.room_id}/participants/` +
+        `${member.participant_id}/role`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: { role: "observer" },
+    });
+    expect(demotion.statusCode).toBe(201);
+    socket.send(
+      JSON.stringify({
+        protocol: "cacp-whiteboard",
+        version: "1.0.0",
+        room_id: room.room_id,
+        type: "whiteboard.elements.update",
+        update_id: "demoted-update",
+        base_revision: 0,
+        elements: [
+          {
+            id: "not-allowed",
+            type: "rectangle",
+            version: 1,
+            versionNonce: 501,
+          },
+        ],
+        app_state: {},
+      })
+    );
+    await expect(inbox.next("whiteboard.error")).resolves.toMatchObject({
+      code: "forbidden",
+      update_id: "demoted-update",
+    });
+
+    const promotion = await app.inject({
+      method: "POST",
+      url:
+        `/rooms/${room.room_id}/participants/` +
+        `${member.participant_id}/role`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: { role: "member" },
+    });
+    expect(promotion.statusCode).toBe(201);
+    socket.send(
+      JSON.stringify({
+        protocol: "cacp-whiteboard",
+        version: "1.0.0",
+        room_id: room.room_id,
+        type: "whiteboard.elements.update",
+        update_id: "promoted-update",
+        base_revision: 0,
+        elements: [
+          {
+            id: "now-allowed",
+            type: "rectangle",
+            version: 1,
+            versionNonce: 502,
+          },
+        ],
+        app_state: {},
+      })
+    );
+    await expect(inbox.next("whiteboard.ack")).resolves.toMatchObject({
+      update_id: "promoted-update",
+      revision: 1,
+    });
+  });
+
   it("lets an administrator edit the shared scene", async () => {
     app = await buildServer({
       dbPath: ":memory:",

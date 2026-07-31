@@ -16,6 +16,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "corepack pnpm --filter @cacp/protocol build && corepack pnpm -r --workspace-concurrency=4 test:unit",
+    "test:whiteboard-browser": "playwright test --config playwright.whiteboard.config.ts",
     "test:coverage": "corepack pnpm --filter @cacp/protocol build && corepack pnpm -r --workspace-concurrency=2 test:coverage",
     "dev:server": "corepack pnpm --filter @cacp/protocol build && corepack pnpm --filter @cacp/server dev",
     "dev:web": "corepack pnpm --filter @cacp/protocol build && corepack pnpm --filter @cacp/web dev",
@@ -43,6 +44,7 @@
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
+    "@playwright/test": "1.62.1",
     "@secretlint/secretlint-rule-preset-recommend": "13.0.4",
     "@types/node": "^22.10.7",
     "@vitest/coverage-v8": "2.1.9",

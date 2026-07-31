@@ -3422,6 +3422,14 @@ export async function buildServer(options: BuildServerOptions = {}) {
         roomId,
         participantId: participant.id,
         role: participant.role as WhiteboardHumanRole,
+        resolveRole: () => {
+          const current = request.query.token
+            ? store.getParticipantByToken(roomId, request.query.token)
+            : undefined;
+          return current && HUMAN_ROLES.includes(current.role)
+            ? (current.role as WhiteboardHumanRole)
+            : undefined;
+        },
         socket,
       });
       const forgetSocket = rememberSocket(roomId, participant.id, socket);

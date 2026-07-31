@@ -58,8 +58,13 @@ function editorLanguage(langCode: WhiteboardEditorMountOptions["langCode"]) {
 }
 
 function sceneFingerprint(scene: WhiteboardScene): string {
+  const elements = scene.elements.map((element) => {
+    if (!element || typeof element !== "object") return element;
+    const value = element as Record<string, unknown>;
+    return [value.id, value.version, value.versionNonce, value.isDeleted];
+  });
   return JSON.stringify({
-    elements: scene.elements,
+    elements,
     background: scene.appState.viewBackgroundColor,
     files: Object.keys(scene.files).sort(),
   });
@@ -91,12 +96,14 @@ export function createExcalidrawEditorAdapter(
       };
 
       const handleSceneChange = (scene: WhiteboardScene) => {
-        const fingerprint = sceneFingerprint(scene);
-        if (fingerprint === suppressedSceneFingerprint) {
+        if (suppressedSceneFingerprint !== undefined) {
+          const fingerprint = sceneFingerprint(scene);
+          if (fingerprint === suppressedSceneFingerprint) {
+            return;
+          }
+          if (api && fingerprint !== sceneFingerprint(api.getScene())) return;
           suppressedSceneFingerprint = undefined;
-          return;
         }
-        suppressedSceneFingerprint = undefined;
         for (const listener of sceneListeners) listener(scene);
       };
 
