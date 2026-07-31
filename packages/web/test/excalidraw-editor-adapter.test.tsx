@@ -37,6 +37,8 @@ const FakeMainMenu = Object.assign(
 describe("Excalidraw whiteboard editor adapter", () => {
   it("controls scene, read-only state, local export menu, and cleanup through the public API", async () => {
     const updateScene = vi.fn();
+    const updateCollaborators = vi.fn();
+    const focusViewport = vi.fn();
     const addFiles = vi.fn();
     let apiScene: WhiteboardScene = {
       elements: [{ id: "shape_1" }],
@@ -50,16 +52,24 @@ describe("Excalidraw whiteboard editor adapter", () => {
         updateScene(scene);
         addFiles(Object.values(scene.files));
       },
+      updateCollaborators,
+      focusViewport,
       exportScene: async () => new Blob([], { type: "image/png" }),
     };
     let emitSceneChange:
       ((scene: ReturnType<ExcalidrawApiPort["getScene"]>) => void) | undefined;
+    let emitPointerUpdate:
+      ExcalidrawComponentProps["onPointerUpdate"] | undefined;
+    let emitScrollChange:
+      ExcalidrawComponentProps["onScrollChange"] | undefined;
 
     function FakeExcalidraw({
       children,
       excalidrawAPI,
       langCode,
       name,
+      onPointerUpdate,
+      onScrollChange,
       onSceneChange,
       viewModeEnabled,
     }: ExcalidrawComponentProps) {
@@ -68,10 +78,14 @@ describe("Excalidraw whiteboard editor adapter", () => {
       }, [excalidrawAPI]);
       useEffect(() => {
         emitSceneChange = onSceneChange;
+        emitPointerUpdate = onPointerUpdate;
+        emitScrollChange = onScrollChange;
         return () => {
           emitSceneChange = undefined;
+          emitPointerUpdate = undefined;
+          emitScrollChange = undefined;
         };
-      }, [onSceneChange]);
+      }, [onPointerUpdate, onSceneChange, onScrollChange]);
 
       return (
         <div
@@ -168,6 +182,69 @@ describe("Excalidraw whiteboard editor adapter", () => {
     expect(onLocalSceneChange).toHaveBeenLastCalledWith(localAfterRemote);
     expect(onLocalSceneChange).toHaveBeenCalledTimes(2);
     unsubscribe();
+
+    const onPresenceChange = vi.fn();
+    const onPresenceOnlySceneChange = vi.fn();
+    const unsubscribePresenceOnlyScene = controller.subscribeSceneChanges(
+      onPresenceOnlySceneChange
+    );
+    const unsubscribePresence =
+      controller.subscribePresenceChanges(onPresenceChange);
+    await act(async () => {
+      emitPointerUpdate?.({
+        pointer: { x: 140, y: 90 },
+        button: "down",
+      });
+      emitScrollChange?.(-50, 25, 1.5);
+      emitSceneChange?.({
+        ...localAfterRemote,
+        appState: {
+          ...localAfterRemote.appState,
+          selectedElementIds: { shape_3: true },
+          scrollX: -50,
+          scrollY: 25,
+          zoom: { value: 1.5 },
+        },
+      });
+    });
+    expect(onPresenceChange).toHaveBeenLastCalledWith({
+      cursor: { x: 140, y: 90, button: "down" },
+      selectedElementIds: ["shape_3"],
+      viewport: { scrollX: -50, scrollY: 25, zoom: 1.5 },
+    });
+    expect(onPresenceOnlySceneChange).not.toHaveBeenCalled();
+    const presenceCallCount = onPresenceChange.mock.calls.length;
+    await act(async () => {
+      emitSceneChange?.({
+        ...localAfterRemote,
+        appState: {
+          ...localAfterRemote.appState,
+          selectedElementIds: { shape_3: true },
+          scrollX: -50,
+          scrollY: 25,
+          zoom: { value: 1.5 },
+        },
+      });
+    });
+    expect(onPresenceChange).toHaveBeenCalledTimes(presenceCallCount);
+    unsubscribePresenceOnlyScene();
+    unsubscribePresence();
+
+    const collaborator = {
+      participantId: "user_2",
+      displayName: "Alice",
+      color: { background: "#dbeafe", stroke: "#2563eb" },
+      canEdit: true,
+      cursor: { x: 320, y: 180, button: "up" as const },
+      selectedElementIds: ["shape_2"],
+      viewport: { scrollX: -100, scrollY: 40, zoom: 1.25 },
+    };
+    controller.setCollaborators([collaborator]);
+    controller.setCollaborators([collaborator]);
+    expect(updateCollaborators).toHaveBeenCalledWith([collaborator]);
+    expect(updateCollaborators).toHaveBeenCalledTimes(1);
+    controller.focusViewport(collaborator.viewport);
+    expect(focusViewport).toHaveBeenCalledWith(collaborator.viewport);
 
     await act(async () => {
       controller.setReadOnly(true);

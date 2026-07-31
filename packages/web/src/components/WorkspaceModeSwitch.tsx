@@ -6,11 +6,17 @@ export type WorkspaceMode = "conversation" | "whiteboard";
 export interface WorkspaceModeSwitchProps {
   mode: WorkspaceMode;
   onChange: (mode: WorkspaceMode) => void;
+  activeEditorCount?: number;
+  hasWhiteboardActivity?: boolean;
+  hasConversationActivity?: boolean;
 }
 
 export function WorkspaceModeSwitch({
   mode,
   onChange,
+  activeEditorCount = 0,
+  hasWhiteboardActivity = false,
+  hasConversationActivity = false,
 }: WorkspaceModeSwitchProps) {
   const t = useT();
   const conversationRef = useRef<HTMLButtonElement>(null);
@@ -62,6 +68,13 @@ export function WorkspaceModeSwitch({
         onKeyDown={(event) => handleKeyDown(event, "conversation")}
       >
         {t("workspace.conversation")}
+        {hasConversationActivity && (
+          <span
+            className="workspace-mode-switch__activity"
+            aria-label={t("workspace.conversationActivity")}
+            aria-live="polite"
+          />
+        )}
       </button>
       <button
         ref={whiteboardRef}
@@ -76,6 +89,24 @@ export function WorkspaceModeSwitch({
         onKeyDown={(event) => handleKeyDown(event, "whiteboard")}
       >
         {t("workspace.whiteboard")}
+        {activeEditorCount > 0 && (
+          <span
+            className="workspace-mode-switch__count"
+            aria-label={t("workspace.activeEditors", {
+              count: activeEditorCount,
+            })}
+            aria-live="polite"
+          >
+            {activeEditorCount}
+          </span>
+        )}
+        {hasWhiteboardActivity && (
+          <span
+            className="workspace-mode-switch__activity"
+            aria-label={t("workspace.whiteboardActivity")}
+            aria-live="polite"
+          />
+        )}
       </button>
     </div>
   );

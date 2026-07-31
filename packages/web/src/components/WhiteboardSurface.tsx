@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type {
+  WhiteboardCollaborator,
   WhiteboardEditorAdapterLoader,
   WhiteboardEditorController,
 } from "../whiteboard/whiteboard-editor-adapter.js";
@@ -7,6 +8,7 @@ import type {
   WhiteboardSessionController,
   WhiteboardSessionFactoryLoader,
   WhiteboardSessionIdentity,
+  WhiteboardSessionActivity,
   WhiteboardSessionStatus,
 } from "../whiteboard/whiteboard-session.js";
 import { useT } from "../i18n/useT.js";
@@ -17,6 +19,8 @@ export interface WhiteboardSurfaceProps {
   loadSession: WhiteboardSessionFactoryLoader;
   langCode: "en" | "zh";
   name: string;
+  onCollaboratorsChange?: (collaborators: WhiteboardCollaborator[]) => void;
+  onActivity?: (activity: WhiteboardSessionActivity) => void;
 }
 
 export function WhiteboardSurface({
@@ -25,6 +29,8 @@ export function WhiteboardSurface({
   loadSession,
   langCode,
   name,
+  onCollaboratorsChange,
+  onActivity,
 }: WhiteboardSurfaceProps) {
   const t = useT();
   const { participantId, role, roomId, token } = identity;
@@ -35,6 +41,12 @@ export function WhiteboardSurface({
   );
   const sessionRef = useRef<WhiteboardSessionController | undefined>(undefined);
   const unsubscribeStatusRef = useRef<(() => void) | undefined>(undefined);
+  const unsubscribeCollaboratorsRef = useRef<(() => void) | undefined>(
+    undefined
+  );
+  const unsubscribeActivityRef = useRef<(() => void) | undefined>(undefined);
+  const onCollaboratorsChangeRef = useRef(onCollaboratorsChange);
+  const onActivityRef = useRef(onActivity);
   const latestRoleRef = useRef(role);
   const mountOptionsRef = useRef({
     ariaLabel: editorLabel,
@@ -48,6 +60,17 @@ export function WhiteboardSurface({
   const [connectionStatus, setConnectionStatus] =
     useState<WhiteboardSessionStatus>("connecting");
   const [attempt, setAttempt] = useState(0);
+  const [collaborators, setCollaborators] = useState<WhiteboardCollaborator[]>(
+    []
+  );
+
+  useEffect(() => {
+    onCollaboratorsChangeRef.current = onCollaboratorsChange;
+  }, [onCollaboratorsChange]);
+
+  useEffect(() => {
+    onActivityRef.current = onActivity;
+  }, [onActivity]);
 
   useEffect(() => {
     latestRoleRef.current = role;
@@ -95,10 +118,28 @@ export function WhiteboardSurface({
         sessionRef.current = whiteboardSession;
         unsubscribeStatusRef.current =
           whiteboardSession.subscribeStatus(setConnectionStatus);
+        unsubscribeCollaboratorsRef.current =
+          whiteboardSession.subscribeCollaborators((nextCollaborators) => {
+            setCollaborators(nextCollaborators);
+            onCollaboratorsChangeRef.current?.(nextCollaborators);
+          });
+        unsubscribeActivityRef.current = whiteboardSession.subscribeActivity(
+          (activity) => {
+            onActivityRef.current?.(activity);
+          }
+        );
         setStatus("ready");
       } catch {
         unsubscribeStatusRef.current?.();
         unsubscribeStatusRef.current = undefined;
+        unsubscribeCollaboratorsRef.current?.();
+        unsubscribeCollaboratorsRef.current = undefined;
+        unsubscribeActivityRef.current?.();
+        unsubscribeActivityRef.current = undefined;
+        if (!disposed) {
+          setCollaborators([]);
+          onCollaboratorsChangeRef.current?.([]);
+        }
         sessionRef.current?.destroy();
         sessionRef.current = undefined;
         controllerRef.current?.destroy();
@@ -113,6 +154,12 @@ export function WhiteboardSurface({
       disposed = true;
       unsubscribeStatusRef.current?.();
       unsubscribeStatusRef.current = undefined;
+      unsubscribeCollaboratorsRef.current?.();
+      unsubscribeCollaboratorsRef.current = undefined;
+      unsubscribeActivityRef.current?.();
+      unsubscribeActivityRef.current = undefined;
+      setCollaborators([]);
+      onCollaboratorsChangeRef.current?.([]);
       sessionRef.current?.destroy();
       sessionRef.current = undefined;
       controllerRef.current?.destroy();
@@ -145,6 +192,59 @@ export function WhiteboardSurface({
 
   return (
     <section className="whiteboard-surface" aria-label={editorLabel}>
+      {status === "ready" && collaborators.length > 0 && (
+        <div
+          className="whiteboard-collaborators"
+          aria-label={t("whiteboard.collaborators")}
+        >
+          {collaborators.map((collaborator) => {
+            const isPeer = collaborator.participantId !== participantId;
+            const canFollow = isPeer && collaborator.viewport !== undefined;
+            const contents = (
+              <>
+                <span
+                  className="whiteboard-collaborators__avatar"
+                  style={{
+                    background: collaborator.color.background,
+                    borderColor: collaborator.color.stroke,
+                  }}
+                  aria-hidden="true"
+                >
+                  {collaborator.displayName.slice(0, 1).toUpperCase()}
+                </span>
+                <span className="whiteboard-collaborators__name">
+                  {collaborator.displayName}
+                </span>
+              </>
+            );
+            return canFollow ? (
+              <button
+                key={collaborator.participantId}
+                type="button"
+                className="whiteboard-collaborators__person"
+                aria-label={t("whiteboard.viewCollaborator", {
+                  name: collaborator.displayName,
+                })}
+                onClick={() =>
+                  sessionRef.current?.focusCollaborator(
+                    collaborator.participantId
+                  )
+                }
+              >
+                {contents}
+              </button>
+            ) : (
+              <span
+                key={collaborator.participantId}
+                className="whiteboard-collaborators__person"
+                aria-label={collaborator.displayName}
+              >
+                {contents}
+              </span>
+            );
+          })}
+        </div>
+      )}
       {status === "loading" && (
         <div className="whiteboard-surface__status" role="status">
           {t("whiteboard.loading")}

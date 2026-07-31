@@ -23,6 +23,11 @@ export interface ServerConfig {
   presenceChangeLimit: number;
   typingEventLimit: number;
   orbitEventLimit: number;
+  whiteboardPresenceHeartbeatMs: number;
+  whiteboardPresenceTtlMs: number;
+  whiteboardPresenceSweepMs: number;
+  whiteboardPresenceUpdateLimit: number;
+  whiteboardPresenceWindowMs: number;
 }
 
 function boolValue(value: string | undefined, fallback: boolean): boolean {
@@ -102,6 +107,26 @@ export function loadServerConfig(
     presenceChangeLimit: intValue(env.CACP_PRESENCE_CHANGE_LIMIT, 30),
     typingEventLimit: intValue(env.CACP_TYPING_EVENT_LIMIT, 60),
     orbitEventLimit: intValue(env.CACP_ORBIT_EVENT_LIMIT, 120),
+    whiteboardPresenceHeartbeatMs: intValue(
+      env.CACP_WHITEBOARD_PRESENCE_HEARTBEAT_MS,
+      3_000
+    ),
+    whiteboardPresenceTtlMs: intValue(
+      env.CACP_WHITEBOARD_PRESENCE_TTL_MS,
+      10_000
+    ),
+    whiteboardPresenceSweepMs: intValue(
+      env.CACP_WHITEBOARD_PRESENCE_SWEEP_MS,
+      1_000
+    ),
+    whiteboardPresenceUpdateLimit: intValue(
+      env.CACP_WHITEBOARD_PRESENCE_UPDATE_LIMIT,
+      30
+    ),
+    whiteboardPresenceWindowMs: intValue(
+      env.CACP_WHITEBOARD_PRESENCE_WINDOW_MS,
+      1_000
+    ),
   };
 }
 

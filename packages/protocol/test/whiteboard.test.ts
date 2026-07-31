@@ -97,4 +97,59 @@ describe("Collaborative Whiteboard wire protocol", () => {
       false
     );
   });
+
+  it("keeps transient collaborator presence outside scene revisions and durable events", () => {
+    const presence = WhiteboardClientMessageSchema.parse({
+      protocol: "cacp-whiteboard",
+      version: WhiteboardProtocolVersion,
+      type: "whiteboard.presence.update",
+      room_id: "room_1",
+      cursor: { x: 120, y: 80, button: "up" },
+      selected_element_ids: ["shape_1"],
+      viewport: { scroll_x: -20, scroll_y: 15, zoom: 1.25 },
+    });
+    expect(presence.type).toBe("whiteboard.presence.update");
+    expect(CacpEventSchema.safeParse(presence).success).toBe(false);
+    expect(presence).not.toHaveProperty("revision");
+
+    const collaborator = {
+      participant_id: "user_2",
+      display_name: "Alice",
+      color: {
+        background: "#dbeafe",
+        stroke: "#2563eb",
+      },
+      can_edit: true,
+      cursor: { x: 120, y: 80, button: "up" },
+      selected_element_ids: ["shape_1"],
+      viewport: { scroll_x: -20, scroll_y: 15, zoom: 1.25 },
+    };
+    const snapshot = WhiteboardServerMessageSchema.parse({
+      protocol: "cacp-whiteboard",
+      version: WhiteboardProtocolVersion,
+      type: "whiteboard.presence.snapshot",
+      room_id: "room_1",
+      collaborators: [collaborator],
+    });
+    expect(snapshot.type).toBe("whiteboard.presence.snapshot");
+
+    const updated = WhiteboardServerMessageSchema.parse({
+      protocol: "cacp-whiteboard",
+      version: WhiteboardProtocolVersion,
+      type: "whiteboard.presence.updated",
+      room_id: "room_1",
+      collaborator,
+    });
+    expect(updated.type).toBe("whiteboard.presence.updated");
+    expect(updated).not.toHaveProperty("revision");
+
+    const left = WhiteboardServerMessageSchema.parse({
+      protocol: "cacp-whiteboard",
+      version: WhiteboardProtocolVersion,
+      type: "whiteboard.presence.left",
+      room_id: "room_1",
+      participant_id: "user_2",
+    });
+    expect(left.type).toBe("whiteboard.presence.left");
+  });
 });

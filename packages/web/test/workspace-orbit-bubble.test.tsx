@@ -179,6 +179,9 @@ describe("Workspace Orbit bubbles", () => {
           getScene: () => ({ elements: [], appState: {}, files: {} }),
           updateScene: () => {},
           subscribeSceneChanges: () => () => {},
+          subscribePresenceChanges: () => () => {},
+          setCollaborators: () => {},
+          focusViewport: () => {},
           setDisplayOptions: () => {},
           setReadOnly: () => {},
           exportScene: async () => new Blob(),
@@ -191,6 +194,9 @@ describe("Workspace Orbit bubbles", () => {
         listener("connected");
         return () => {};
       },
+      subscribeCollaborators: () => () => {},
+      subscribeActivity: () => () => {},
+      focusCollaborator: () => {},
       loadSharedScene: () => {},
       setRole: () => {},
       destroy: () => {},

@@ -1084,6 +1084,7 @@ export const AgentUpdatedPayloadSchema = z.object({
 export const WhiteboardProtocolName = "cacp-whiteboard" as const;
 export const WhiteboardProtocolVersion = "1.0.0" as const;
 export const WhiteboardMaxElements = 10_000;
+export const WhiteboardMaxSelectedElements = 200;
 
 const WhiteboardWireBaseSchema = z.object({
   protocol: z.literal(WhiteboardProtocolName),
@@ -1126,6 +1127,7 @@ export const WhiteboardConnectedMessageSchema = WhiteboardWireBaseSchema.extend(
     participant_id: z.string().min(1).max(200),
     role: WhiteboardHumanRoleSchema,
     can_edit: z.boolean(),
+    presence_heartbeat_ms: z.number().int().positive().optional(),
   }
 ).strict();
 
@@ -1160,6 +1162,70 @@ export const WhiteboardAckMessageSchema = WhiteboardWireBaseSchema.extend({
   revision: z.number().int().positive(),
 }).strict();
 
+export const WhiteboardCursorSchema = z
+  .object({
+    x: z.number().finite().min(-10_000_000).max(10_000_000),
+    y: z.number().finite().min(-10_000_000).max(10_000_000),
+    button: z.enum(["up", "down"]),
+  })
+  .strict();
+
+export const WhiteboardViewportSchema = z
+  .object({
+    scroll_x: z.number().finite().min(-10_000_000).max(10_000_000),
+    scroll_y: z.number().finite().min(-10_000_000).max(10_000_000),
+    zoom: z.number().finite().min(0.05).max(30),
+  })
+  .strict();
+
+export const WhiteboardClientPresenceMessageSchema =
+  WhiteboardWireBaseSchema.extend({
+    type: z.literal("whiteboard.presence.update"),
+    cursor: WhiteboardCursorSchema.nullable(),
+    selected_element_ids: z
+      .array(z.string().min(1).max(200))
+      .max(WhiteboardMaxSelectedElements),
+    viewport: WhiteboardViewportSchema,
+  }).strict();
+
+export const WhiteboardCollaboratorSchema = z
+  .object({
+    participant_id: z.string().min(1).max(200),
+    display_name: z.string().min(1).max(200),
+    color: z
+      .object({
+        background: z.string().regex(/^#[0-9a-f]{6}$/i),
+        stroke: z.string().regex(/^#[0-9a-f]{6}$/i),
+      })
+      .strict(),
+    can_edit: z.boolean(),
+    cursor: WhiteboardCursorSchema.nullable().optional(),
+    selected_element_ids: z
+      .array(z.string().min(1).max(200))
+      .max(WhiteboardMaxSelectedElements)
+      .optional(),
+    viewport: WhiteboardViewportSchema.optional(),
+  })
+  .strict();
+
+export const WhiteboardPresenceSnapshotMessageSchema =
+  WhiteboardWireBaseSchema.extend({
+    type: z.literal("whiteboard.presence.snapshot"),
+    collaborators: z.array(WhiteboardCollaboratorSchema).max(100),
+  }).strict();
+
+export const WhiteboardPresenceUpdatedMessageSchema =
+  WhiteboardWireBaseSchema.extend({
+    type: z.literal("whiteboard.presence.updated"),
+    collaborator: WhiteboardCollaboratorSchema,
+  }).strict();
+
+export const WhiteboardPresenceLeftMessageSchema =
+  WhiteboardWireBaseSchema.extend({
+    type: z.literal("whiteboard.presence.left"),
+    participant_id: z.string().min(1).max(200),
+  }).strict();
+
 export const WhiteboardErrorCodeSchema = z.enum([
   "invalid_token",
   "origin_not_allowed",
@@ -1169,6 +1235,7 @@ export const WhiteboardErrorCodeSchema = z.enum([
   "invalid_message",
   "not_synchronized",
   "stale_revision",
+  "rate_limited",
   "internal_error",
 ]);
 
@@ -1183,6 +1250,7 @@ export const WhiteboardErrorMessageSchema = WhiteboardWireBaseSchema.extend({
 
 export const WhiteboardClientMessageSchema = z.discriminatedUnion("type", [
   WhiteboardClientUpdateMessageSchema,
+  WhiteboardClientPresenceMessageSchema,
 ]);
 
 export const WhiteboardServerMessageSchema = z.discriminatedUnion("type", [
@@ -1190,6 +1258,9 @@ export const WhiteboardServerMessageSchema = z.discriminatedUnion("type", [
   WhiteboardSceneMessageSchema,
   WhiteboardElementsUpdatedMessageSchema,
   WhiteboardAckMessageSchema,
+  WhiteboardPresenceSnapshotMessageSchema,
+  WhiteboardPresenceUpdatedMessageSchema,
+  WhiteboardPresenceLeftMessageSchema,
   WhiteboardErrorMessageSchema,
 ]);
 
@@ -1261,6 +1332,23 @@ export type WhiteboardElementsUpdatedMessage = z.infer<
   typeof WhiteboardElementsUpdatedMessageSchema
 >;
 export type WhiteboardAckMessage = z.infer<typeof WhiteboardAckMessageSchema>;
+export type WhiteboardCursor = z.infer<typeof WhiteboardCursorSchema>;
+export type WhiteboardViewport = z.infer<typeof WhiteboardViewportSchema>;
+export type WhiteboardClientPresenceMessage = z.infer<
+  typeof WhiteboardClientPresenceMessageSchema
+>;
+export type WhiteboardCollaborator = z.infer<
+  typeof WhiteboardCollaboratorSchema
+>;
+export type WhiteboardPresenceSnapshotMessage = z.infer<
+  typeof WhiteboardPresenceSnapshotMessageSchema
+>;
+export type WhiteboardPresenceUpdatedMessage = z.infer<
+  typeof WhiteboardPresenceUpdatedMessageSchema
+>;
+export type WhiteboardPresenceLeftMessage = z.infer<
+  typeof WhiteboardPresenceLeftMessageSchema
+>;
 export type WhiteboardErrorCode = z.infer<typeof WhiteboardErrorCodeSchema>;
 export type WhiteboardErrorMessage = z.infer<
   typeof WhiteboardErrorMessageSchema

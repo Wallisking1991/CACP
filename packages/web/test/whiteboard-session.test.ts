@@ -65,7 +65,14 @@ function createEditor() {
     files: {},
   };
   const listeners = new Set<(nextScene: WhiteboardScene) => void>();
+  const presenceListeners = new Set<
+    (
+      presence: import("../src/whiteboard/whiteboard-editor-adapter.js").WhiteboardPresence
+    ) => void
+  >();
   const setReadOnly = vi.fn();
+  const setCollaborators = vi.fn();
+  const focusViewport = vi.fn();
   const updateScene = vi.fn((nextScene: WhiteboardScene) => {
     scene = nextScene;
   });
@@ -76,6 +83,12 @@ function createEditor() {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
+    subscribePresenceChanges(listener) {
+      presenceListeners.add(listener);
+      return () => presenceListeners.delete(listener);
+    },
+    setCollaborators,
+    focusViewport,
     setDisplayOptions: () => {},
     setReadOnly,
     exportScene: async () => new Blob(),
@@ -85,9 +98,16 @@ function createEditor() {
     editor,
     setReadOnly,
     updateScene,
+    setCollaborators,
+    focusViewport,
     change(nextScene: WhiteboardScene) {
       scene = nextScene;
       for (const listener of listeners) listener(nextScene);
+    },
+    changePresence(
+      presence: import("../src/whiteboard/whiteboard-editor-adapter.js").WhiteboardPresence
+    ) {
+      for (const listener of presenceListeners) listener(presence);
     },
   };
 }
@@ -102,6 +122,149 @@ function serverMessage(roomId: string, message: Record<string, unknown>) {
 }
 
 describe("WhiteboardSession", () => {
+  it("throttles ephemeral presence, renders collaborators, and follows their viewport", () => {
+    vi.useFakeTimers();
+    try {
+      const socket = new FakeSocket();
+      const editor = createEditor();
+      const collaboratorSnapshots: Array<
+        import("../src/whiteboard/whiteboard-editor-adapter.js").WhiteboardCollaborator[]
+      > = [];
+      const activities: string[] = [];
+      const session = createWhiteboardSession({
+        identity: {
+          roomId: "room_presence",
+          participantId: "user_1",
+          token: "owner-token",
+          role: "owner",
+        },
+        editor: editor.editor,
+        socketFactory: () => socket,
+        origin: "http://localhost:5173",
+        presenceThrottleMs: 50,
+      });
+      session.subscribeCollaborators((collaborators) =>
+        collaboratorSnapshots.push(collaborators)
+      );
+      session.subscribeActivity((activity) => activities.push(activity.kind));
+
+      socket.open();
+      socket.receive(
+        serverMessage("room_presence", {
+          type: "whiteboard.connected",
+          participant_id: "user_1",
+          role: "owner",
+          can_edit: true,
+          presence_heartbeat_ms: 1_000,
+        })
+      );
+      socket.receive(
+        serverMessage("room_presence", {
+          type: "whiteboard.scene",
+          revision: 0,
+          scene: { elements: [], app_state: {} },
+        })
+      );
+      const alice = {
+        participant_id: "user_2",
+        display_name: "Alice",
+        color: { background: "#dbeafe", stroke: "#2563eb" },
+        can_edit: true,
+        cursor: { x: 100, y: 80, button: "up" },
+        selected_element_ids: ["shape_1"],
+        viewport: { scroll_x: -20, scroll_y: 10, zoom: 1.25 },
+      };
+      socket.receive(
+        serverMessage("room_presence", {
+          type: "whiteboard.presence.snapshot",
+          collaborators: [
+            {
+              participant_id: "user_1",
+              display_name: "Owner",
+              color: { background: "#dcfce7", stroke: "#16a34a" },
+              can_edit: true,
+            },
+            alice,
+          ],
+        })
+      );
+
+      expect(collaboratorSnapshots.at(-1)).toHaveLength(2);
+      expect(editor.setCollaborators).toHaveBeenLastCalledWith([
+        {
+          participantId: "user_2",
+          displayName: "Alice",
+          color: { background: "#dbeafe", stroke: "#2563eb" },
+          canEdit: true,
+          cursor: { x: 100, y: 80, button: "up" },
+          selectedElementIds: ["shape_1"],
+          viewport: { scrollX: -20, scrollY: 10, zoom: 1.25 },
+        },
+      ]);
+      session.focusCollaborator("user_2");
+      expect(editor.focusViewport).toHaveBeenCalledWith({
+        scrollX: -20,
+        scrollY: 10,
+        zoom: 1.25,
+      });
+
+      editor.changePresence({
+        cursor: { x: 10, y: 20, button: "up" },
+        selectedElementIds: [],
+        viewport: { scrollX: 0, scrollY: 0, zoom: 1 },
+      });
+      editor.changePresence({
+        cursor: { x: 30, y: 40, button: "down" },
+        selectedElementIds: ["shape_2"],
+        viewport: { scrollX: -40, scrollY: 15, zoom: 1.5 },
+      });
+      expect(
+        socket.sent
+          .map((item) => JSON.parse(item) as { type: string })
+          .filter((item) => item.type === "whiteboard.presence.update")
+      ).toHaveLength(1);
+      vi.advanceTimersByTime(50);
+      const presenceFrames = socket.sent
+        .map((item) => JSON.parse(item) as Record<string, unknown>)
+        .filter((item) => item.type === "whiteboard.presence.update");
+      expect(presenceFrames).toHaveLength(2);
+      expect(presenceFrames[1]).toMatchObject({
+        cursor: { x: 30, y: 40, button: "down" },
+        selected_element_ids: ["shape_2"],
+        viewport: { scroll_x: -40, scroll_y: 15, zoom: 1.5 },
+      });
+
+      socket.receive(
+        serverMessage("room_presence", {
+          type: "whiteboard.presence.updated",
+          collaborator: {
+            ...alice,
+            cursor: { x: 200, y: 120, button: "down" },
+          },
+        })
+      );
+      expect(activities).toContain("presence");
+      socket.receive(
+        serverMessage("room_presence", {
+          type: "whiteboard.presence.left",
+          participant_id: "user_2",
+        })
+      );
+      expect(collaboratorSnapshots.at(-1)).toHaveLength(1);
+      expect(editor.setCollaborators).toHaveBeenLastCalledWith([]);
+
+      vi.advanceTimersByTime(950);
+      expect(
+        socket.sent
+          .map((item) => JSON.parse(item) as { type: string })
+          .filter((item) => item.type === "whiteboard.presence.update")
+      ).toHaveLength(3);
+      session.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("waits for the authoritative scene before sending local edits", () => {
     const socket = new FakeSocket();
     const socketFactory = vi.fn(() => socket);
@@ -564,6 +727,7 @@ describe("WhiteboardSession", () => {
     const socket = new FakeSocket();
     const editor = createEditor();
     const statuses: string[] = [];
+    const activities: string[] = [];
     const session = createWhiteboardSession({
       identity: {
         roomId: "room_conflict",
@@ -577,6 +741,7 @@ describe("WhiteboardSession", () => {
       origin: "http://localhost:5173",
     });
     session.subscribeStatus((status) => statuses.push(status));
+    session.subscribeActivity((activity) => activities.push(activity.kind));
     socket.open();
     socket.receive(
       serverMessage("room_conflict", {
@@ -633,6 +798,7 @@ describe("WhiteboardSession", () => {
     );
 
     expect(statuses.at(-1)).toBe("conflicted");
+    expect(activities).toContain("scene");
     expect(editor.setReadOnly).toHaveBeenLastCalledWith(true);
     expect(editor.updateScene).toHaveBeenCalledTimes(remoteApplications);
     editor.change({

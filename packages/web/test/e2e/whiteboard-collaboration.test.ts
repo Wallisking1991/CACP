@@ -100,7 +100,7 @@ async function openWhiteboard(page: Page, roomId: string): Promise<void> {
   await expect(page.locator(".whiteboard-surface__status")).toHaveCount(0);
 }
 
-test("shares a real Excalidraw shape and text between two browsers", async ({
+test("shares real Excalidraw content and collaborator presence between two browsers", async ({
   browser,
   request,
 }) => {
@@ -137,6 +137,10 @@ test("shares a real Excalidraw shape and text between two browsers", async ({
     openWhiteboard(ownerPage, owner.room_id),
     openWhiteboard(memberPage, member.room_id),
   ]);
+  await expect(ownerPage.getByLabel("2 active editors")).toBeAttached();
+  await expect(
+    ownerPage.getByRole("button", { name: "View Member's area" })
+  ).toBeVisible({ timeout: 5_000 });
   const ownerEditor = ownerPage.getByRole("application", {
     name: "Collaborative Whiteboard",
   });

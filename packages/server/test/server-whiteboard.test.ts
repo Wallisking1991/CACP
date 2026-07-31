@@ -47,11 +47,14 @@ function createInbox(socket: WebSocket) {
   });
 
   async function next(
-    type: WhiteboardServerMessage["type"]
+    type: WhiteboardServerMessage["type"],
+    predicate: (message: WhiteboardServerMessage) => boolean = () => true
   ): Promise<WhiteboardServerMessage> {
     const deadline = Date.now() + 2_000;
     while (true) {
-      const index = messages.findIndex((message) => message.type === type);
+      const index = messages.findIndex(
+        (message) => message.type === type && predicate(message)
+      );
       if (index !== -1) return messages.splice(index, 1)[0]!;
       const remaining = deadline - Date.now();
       if (remaining <= 0) {
@@ -231,6 +234,303 @@ describe("collaborative whiteboard stream", () => {
       revision: 1,
       elements: [rectangle],
       app_state: { viewBackgroundColor: "#ffffff" },
+    });
+  });
+
+  it("broadcasts live presence and removes it on disconnect or heartbeat expiry", async () => {
+    app = await buildServer({
+      dbPath: ":memory:",
+      config: localTestConfig({
+        whiteboardPresenceHeartbeatMs: 25,
+        whiteboardPresenceTtlMs: 100,
+        whiteboardPresenceSweepMs: 10,
+      }),
+    });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const room = (
+      await app.inject({
+        method: "POST",
+        url: "/rooms",
+        payload: { name: "Presence board", display_name: "Owner" },
+      })
+    ).json() as {
+      room_id: string;
+      owner_id: string;
+      owner_token: string;
+    };
+    const member = await joinHuman(
+      app,
+      room.room_id,
+      room.owner_token,
+      "member",
+      "Alice"
+    );
+
+    const ownerSocket = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/whiteboard` +
+        `?token=${encodeURIComponent(room.owner_token)}`
+    );
+    sockets.push(ownerSocket);
+    const ownerInbox = createInbox(ownerSocket);
+    await waitForOpen(ownerSocket);
+    await ownerInbox.next("whiteboard.connected");
+    await ownerInbox.next("whiteboard.scene");
+    await expect(
+      ownerInbox.next("whiteboard.presence.snapshot")
+    ).resolves.toMatchObject({
+      collaborators: [
+        {
+          participant_id: room.owner_id,
+          display_name: "Owner",
+          can_edit: true,
+        },
+      ],
+    });
+
+    const memberSocket = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/whiteboard` +
+        `?token=${encodeURIComponent(member.participant_token)}`
+    );
+    sockets.push(memberSocket);
+    const memberInbox = createInbox(memberSocket);
+    await waitForOpen(memberSocket);
+    await memberInbox.next("whiteboard.connected");
+    await memberInbox.next("whiteboard.scene");
+    await expect(
+      memberInbox.next("whiteboard.presence.snapshot")
+    ).resolves.toMatchObject({
+      collaborators: expect.arrayContaining([
+        expect.objectContaining({
+          participant_id: room.owner_id,
+          display_name: "Owner",
+        }),
+        expect.objectContaining({
+          participant_id: member.participant_id,
+          display_name: "Alice",
+        }),
+      ]),
+    });
+    await expect(
+      ownerInbox.next("whiteboard.presence.updated")
+    ).resolves.toMatchObject({
+      collaborator: {
+        participant_id: member.participant_id,
+        display_name: "Alice",
+        can_edit: true,
+      },
+    });
+
+    memberSocket.send(
+      JSON.stringify({
+        protocol: "cacp-whiteboard",
+        version: "1.0.0",
+        room_id: room.room_id,
+        type: "whiteboard.presence.update",
+        cursor: { x: 320, y: 180, button: "down" },
+        selected_element_ids: ["shape_1"],
+        viewport: { scroll_x: -50, scroll_y: 25, zoom: 1.5 },
+      })
+    );
+    const active = await ownerInbox.next("whiteboard.presence.updated");
+    expect(active).toMatchObject({
+      collaborator: {
+        participant_id: member.participant_id,
+        display_name: "Alice",
+        color: {
+          background: expect.stringMatching(/^#[0-9a-f]{6}$/i),
+          stroke: expect.stringMatching(/^#[0-9a-f]{6}$/i),
+        },
+        cursor: { x: 320, y: 180, button: "down" },
+        selected_element_ids: ["shape_1"],
+        viewport: { scroll_x: -50, scroll_y: 25, zoom: 1.5 },
+      },
+    });
+    expect(active).not.toHaveProperty("revision");
+    const activeMemberColor =
+      active.type === "whiteboard.presence.updated"
+        ? active.collaborator.color
+        : undefined;
+
+    await expect(
+      ownerInbox.next(
+        "whiteboard.presence.left",
+        (message) =>
+          message.type === "whiteboard.presence.left" &&
+          message.participant_id === member.participant_id
+      )
+    ).resolves.toMatchObject({
+      participant_id: member.participant_id,
+    });
+
+    memberSocket.send(
+      JSON.stringify({
+        protocol: "cacp-whiteboard",
+        version: "1.0.0",
+        room_id: room.room_id,
+        type: "whiteboard.presence.update",
+        cursor: null,
+        selected_element_ids: [],
+        viewport: { scroll_x: 0, scroll_y: 0, zoom: 1 },
+      })
+    );
+    await expect(
+      ownerInbox.next("whiteboard.presence.updated")
+    ).resolves.toMatchObject({
+      collaborator: {
+        participant_id: member.participant_id,
+        cursor: null,
+      },
+    });
+    await closeSocket(memberSocket);
+    await expect(
+      ownerInbox.next(
+        "whiteboard.presence.left",
+        (message) =>
+          message.type === "whiteboard.presence.left" &&
+          message.participant_id === member.participant_id
+      )
+    ).resolves.toMatchObject({
+      participant_id: member.participant_id,
+    });
+
+    const reconnect = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/whiteboard` +
+        `?token=${encodeURIComponent(member.participant_token)}`
+    );
+    sockets.push(reconnect);
+    const reconnectInbox = createInbox(reconnect);
+    await waitForOpen(reconnect);
+    await reconnectInbox.next("whiteboard.connected");
+    await reconnectInbox.next("whiteboard.scene");
+    const reconnectedPresence = await reconnectInbox.next(
+      "whiteboard.presence.snapshot"
+    );
+    expect(reconnectedPresence).toMatchObject({
+      collaborators: expect.arrayContaining([
+        expect.objectContaining({
+          participant_id: member.participant_id,
+        }),
+      ]),
+    });
+    const reconnectedMember = (
+      reconnectedPresence as {
+        collaborators: Array<{
+          participant_id: string;
+          color: { background: string; stroke: string };
+          cursor?: unknown;
+          selected_element_ids?: string[];
+          viewport?: unknown;
+        }>;
+      }
+    ).collaborators.find(
+      (collaborator) => collaborator.participant_id === member.participant_id
+    );
+    expect(reconnectedMember).not.toHaveProperty("cursor");
+    expect(reconnectedMember).not.toHaveProperty("selected_element_ids");
+    expect(reconnectedMember).not.toHaveProperty("viewport");
+    expect(reconnectedMember?.color).toEqual(activeMemberColor);
+  });
+
+  it("bounds presence broadcasts without mutating the shared scene", async () => {
+    app = await buildServer({
+      dbPath: ":memory:",
+      config: localTestConfig({
+        whiteboardPresenceUpdateLimit: 1,
+        whiteboardPresenceWindowMs: 1_000,
+      }),
+    });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const room = (
+      await app.inject({
+        method: "POST",
+        url: "/rooms",
+        payload: { name: "Bounded presence", display_name: "Owner" },
+      })
+    ).json() as {
+      room_id: string;
+      owner_token: string;
+    };
+    const member = await joinHuman(
+      app,
+      room.room_id,
+      room.owner_token,
+      "member",
+      "Alice"
+    );
+    const ownerSocket = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/whiteboard` +
+        `?token=${encodeURIComponent(room.owner_token)}`
+    );
+    const memberSocket = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/whiteboard` +
+        `?token=${encodeURIComponent(member.participant_token)}`
+    );
+    sockets.push(ownerSocket, memberSocket);
+    const ownerInbox = createInbox(ownerSocket);
+    const memberInbox = createInbox(memberSocket);
+    await Promise.all([waitForOpen(ownerSocket), waitForOpen(memberSocket)]);
+    await ownerInbox.next("whiteboard.connected");
+    await ownerInbox.next("whiteboard.scene");
+    await ownerInbox.next("whiteboard.presence.snapshot");
+    await memberInbox.next("whiteboard.connected");
+    await memberInbox.next("whiteboard.scene");
+    await memberInbox.next("whiteboard.presence.snapshot");
+    await ownerInbox.next("whiteboard.presence.updated");
+
+    const presence = {
+      protocol: "cacp-whiteboard",
+      version: "1.0.0",
+      room_id: room.room_id,
+      type: "whiteboard.presence.update",
+      cursor: { x: 30, y: 40, button: "up" },
+      selected_element_ids: [],
+      viewport: { scroll_x: 0, scroll_y: 0, zoom: 1 },
+    };
+    memberSocket.send(JSON.stringify(presence));
+    await expect(
+      ownerInbox.next("whiteboard.presence.updated")
+    ).resolves.toMatchObject({
+      collaborator: {
+        participant_id: member.participant_id,
+        cursor: presence.cursor,
+      },
+    });
+
+    memberSocket.send(
+      JSON.stringify({
+        ...presence,
+        cursor: { x: 31, y: 41, button: "down" },
+      })
+    );
+    await expect(
+      memberInbox.next(
+        "whiteboard.error",
+        (message) =>
+          message.type === "whiteboard.error" && message.code === "rate_limited"
+      )
+    ).resolves.toMatchObject({
+      code: "rate_limited",
+      recoverable: true,
+    });
+
+    const lateJoiner = await joinHuman(
+      app,
+      room.room_id,
+      room.owner_token,
+      "observer",
+      "Viewer"
+    );
+    const lateSocket = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/whiteboard` +
+        `?token=${encodeURIComponent(lateJoiner.participant_token)}`
+    );
+    sockets.push(lateSocket);
+    const lateInbox = createInbox(lateSocket);
+    await waitForOpen(lateSocket);
+    await lateInbox.next("whiteboard.connected");
+    await expect(lateInbox.next("whiteboard.scene")).resolves.toMatchObject({
+      revision: 0,
+      scene: { elements: [], app_state: {} },
     });
   });
 
@@ -532,6 +832,18 @@ describe("collaborative whiteboard stream", () => {
     await waitForOpen(firstSocket);
     await firstInbox.next("whiteboard.connected");
     await firstInbox.next("whiteboard.scene");
+    await firstInbox.next("whiteboard.presence.snapshot");
+    firstSocket.send(
+      JSON.stringify({
+        protocol: "cacp-whiteboard",
+        version: "1.0.0",
+        room_id: room.room_id,
+        type: "whiteboard.presence.update",
+        cursor: { x: 10, y: 20, button: "up" },
+        selected_element_ids: [],
+        viewport: { scroll_x: 0, scroll_y: 0, zoom: 1 },
+      })
+    );
     const textElement = {
       id: "text-1",
       type: "text",

@@ -930,6 +930,11 @@ textarea.input {
 }
 
 .workspace-mode-switch button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   min-height: 36px;
   padding: 7px 13px;
   border: 0;
@@ -944,6 +949,32 @@ textarea.input {
     background var(--motion-fast) ease,
     color var(--motion-fast) ease,
     box-shadow var(--motion-fast) ease;
+}
+
+.workspace-mode-switch__count {
+  min-width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(28, 24, 19, 0.1);
+  color: currentColor;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.workspace-mode-switch button.is-active .workspace-mode-switch__count {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.workspace-mode-switch__activity {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #ea580c;
+  box-shadow: 0 0 0 2px rgba(234, 88, 12, 0.12);
 }
 
 .workspace-mode-switch button:hover {
@@ -1406,6 +1437,76 @@ textarea.input {
   position: relative;
 }
 
+.whiteboard-collaborators {
+  position: absolute;
+  z-index: 3;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 24px);
+  padding: 6px;
+  overflow-x: auto;
+  border: 1px solid rgba(28, 24, 19, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 6px 20px rgba(28, 24, 19, 0.1);
+  backdrop-filter: blur(10px);
+}
+
+.whiteboard-collaborators__person {
+  min-width: 0;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 8px 3px 3px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  transition:
+    background var(--motion-fast) ease,
+    color var(--motion-fast) ease;
+}
+
+button.whiteboard-collaborators__person {
+  cursor: pointer;
+}
+
+button.whiteboard-collaborators__person:hover {
+  background: var(--surface-warm);
+  color: var(--ink);
+}
+
+button.whiteboard-collaborators__person:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.whiteboard-collaborators__avatar {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  display: inline-grid;
+  place-items: center;
+  border: 2px solid;
+  border-radius: 50%;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.whiteboard-collaborators__name {
+  max-width: 112px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .whiteboard-surface__status {
   position: absolute;
   inset: 0;
@@ -1425,6 +1526,7 @@ textarea.input {
 }
 
 .whiteboard-surface__status--warning {
+  z-index: 4;
   inset: 12px auto auto 50%;
   display: flex;
   align-items: center;

@@ -25,6 +25,11 @@ export function localTestConfig(
     presenceChangeLimit: 30,
     typingEventLimit: 60,
     orbitEventLimit: 120,
+    whiteboardPresenceHeartbeatMs: 3_000,
+    whiteboardPresenceTtlMs: 10_000,
+    whiteboardPresenceSweepMs: 1_000,
+    whiteboardPresenceUpdateLimit: 30,
+    whiteboardPresenceWindowMs: 1_000,
     ...overrides,
   };
 }
@@ -55,6 +60,11 @@ export function cloudTestConfig(
     presenceChangeLimit: 30,
     typingEventLimit: 60,
     orbitEventLimit: 120,
+    whiteboardPresenceHeartbeatMs: 3_000,
+    whiteboardPresenceTtlMs: 10_000,
+    whiteboardPresenceSweepMs: 1_000,
+    whiteboardPresenceUpdateLimit: 30,
+    whiteboardPresenceWindowMs: 1_000,
     ...overrides,
   };
 }

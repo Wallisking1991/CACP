@@ -78,9 +78,15 @@ import AgentRippleOverlay from "./AgentRippleOverlay.js";
 import { WhiteboardSurface } from "./WhiteboardSurface.js";
 import type { WorkspaceMode } from "./WorkspaceModeSwitch.js";
 import { loadExcalidrawEditorAdapter } from "../whiteboard/load-excalidraw-editor-adapter.js";
-import type { WhiteboardEditorAdapterLoader } from "../whiteboard/whiteboard-editor-adapter.js";
+import type {
+  WhiteboardCollaborator,
+  WhiteboardEditorAdapterLoader,
+} from "../whiteboard/whiteboard-editor-adapter.js";
 import { loadWhiteboardSession } from "../whiteboard/load-whiteboard-session.js";
-import type { WhiteboardSessionFactoryLoader } from "../whiteboard/whiteboard-session.js";
+import type {
+  WhiteboardSessionActivity,
+  WhiteboardSessionFactoryLoader,
+} from "../whiteboard/whiteboard-session.js";
 import { LangContext } from "../i18n/LangProvider.js";
 
 export interface WorkspaceProps {
@@ -237,6 +243,29 @@ export default function Workspace({
     canUseWhiteboard &&
     workspaceState.roomId === session.room_id &&
     workspaceState.whiteboardOpened;
+  const workspaceModeRef = useRef(workspaceMode);
+  useEffect(() => {
+    workspaceModeRef.current = workspaceMode;
+  }, [workspaceMode]);
+  const [whiteboardActiveEditorCount, setWhiteboardActiveEditorCount] =
+    useState(0);
+  const [hasWhiteboardActivity, setHasWhiteboardActivity] = useState(false);
+  const [hasConversationActivity, setHasConversationActivity] = useState(false);
+  const mainConversationActivityIds = useMemo(
+    () => [
+      ...room.messages.map(
+        (message) =>
+          message.message_id ??
+          `${message.actor_id}:${message.created_at}:${message.kind}`
+      ),
+      ...room.streamingTurns.map((turn) => `turn:${turn.turn_id}`),
+    ],
+    [room.messages, room.streamingTurns]
+  );
+  const mainConversationActivityRef = useRef({
+    roomId: session.room_id,
+    ids: new Set(mainConversationActivityIds),
+  });
   const panelOpenRef = useRef(panelOpen);
   useEffect(() => {
     panelOpenRef.current = panelOpen;
@@ -244,6 +273,11 @@ export default function Workspace({
 
   const handleWorkspaceModeChange = useCallback(
     (mode: WorkspaceMode) => {
+      if (mode === "whiteboard") {
+        setHasWhiteboardActivity(false);
+      } else {
+        setHasConversationActivity(false);
+      }
       setWorkspaceState((current) => ({
         roomId: session.room_id,
         mode,
@@ -254,6 +288,52 @@ export default function Workspace({
     },
     [session.room_id]
   );
+
+  const handleWhiteboardCollaborators = useCallback(
+    (collaborators: WhiteboardCollaborator[]) => {
+      setWhiteboardActiveEditorCount(
+        new Set(
+          collaborators
+            .filter((collaborator) => collaborator.canEdit)
+            .map((collaborator) => collaborator.participantId)
+        ).size
+      );
+    },
+    []
+  );
+
+  const handleWhiteboardActivity = useCallback(
+    (_activity: WhiteboardSessionActivity) => {
+      if (workspaceModeRef.current !== "whiteboard") {
+        setHasWhiteboardActivity(true);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    const previous = mainConversationActivityRef.current;
+    if (previous.roomId !== session.room_id) {
+      mainConversationActivityRef.current = {
+        roomId: session.room_id,
+        ids: new Set(mainConversationActivityIds),
+      };
+      setWhiteboardActiveEditorCount(0);
+      setHasWhiteboardActivity(false);
+      setHasConversationActivity(false);
+      return;
+    }
+    const hasNewActivity = mainConversationActivityIds.some(
+      (activityId) => !previous.ids.has(activityId)
+    );
+    mainConversationActivityRef.current = {
+      roomId: session.room_id,
+      ids: new Set(mainConversationActivityIds),
+    };
+    if (hasNewActivity && workspaceModeRef.current === "whiteboard") {
+      setHasConversationActivity(true);
+    }
+  }, [mainConversationActivityIds, session.room_id]);
   const [unreadOrbit, setUnreadOrbit] = useState(0);
   const [unreadMentions, setUnreadMentions] = useState(0);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
@@ -853,6 +933,9 @@ export default function Workspace({
             onWorkspaceModeChange={
               canUseWhiteboard ? handleWorkspaceModeChange : undefined
             }
+            whiteboardActiveEditorCount={whiteboardActiveEditorCount}
+            hasWhiteboardActivity={hasWhiteboardActivity}
+            hasConversationActivity={hasConversationActivity}
           />
 
           <div
@@ -1051,6 +1134,8 @@ export default function Workspace({
                   name={`${room.roomName ?? session.room_id} — ${String(
                     t("workspace.whiteboard")
                   )}`}
+                  onCollaboratorsChange={handleWhiteboardCollaborators}
+                  onActivity={handleWhiteboardActivity}
                 />
               )}
             </div>

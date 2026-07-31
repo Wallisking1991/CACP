@@ -4,6 +4,37 @@ export interface WhiteboardScene {
   files: Record<string, unknown>;
 }
 
+export interface WhiteboardCursor {
+  x: number;
+  y: number;
+  button: "up" | "down";
+}
+
+export interface WhiteboardViewport {
+  scrollX: number;
+  scrollY: number;
+  zoom: number;
+}
+
+export interface WhiteboardPresence {
+  cursor: WhiteboardCursor | null;
+  selectedElementIds: readonly string[];
+  viewport: WhiteboardViewport;
+}
+
+export interface WhiteboardCollaborator {
+  participantId: string;
+  displayName: string;
+  color: {
+    background: string;
+    stroke: string;
+  };
+  canEdit: boolean;
+  cursor?: WhiteboardCursor | null;
+  selectedElementIds?: readonly string[];
+  viewport?: WhiteboardViewport;
+}
+
 export type WhiteboardExportFormat = "png" | "svg" | "excalidraw";
 
 export interface WhiteboardEditorDisplayOptions {
@@ -16,6 +47,11 @@ export interface WhiteboardEditorController {
   getScene(): WhiteboardScene;
   updateScene(scene: WhiteboardScene): void;
   subscribeSceneChanges(listener: (scene: WhiteboardScene) => void): () => void;
+  subscribePresenceChanges(
+    listener: (presence: WhiteboardPresence) => void
+  ): () => void;
+  setCollaborators(collaborators: readonly WhiteboardCollaborator[]): void;
+  focusViewport(viewport: WhiteboardViewport): void;
   setDisplayOptions(options: WhiteboardEditorDisplayOptions): void;
   setReadOnly(readOnly: boolean): void;
   exportScene(format?: WhiteboardExportFormat): Promise<Blob>;

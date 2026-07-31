@@ -1,14 +1,18 @@
 import {
+  WhiteboardClientPresenceMessageSchema,
   WhiteboardClientUpdateMessageSchema,
   WhiteboardProtocolName,
   WhiteboardProtocolVersion,
   WhiteboardServerMessageSchema,
   type WhiteboardHumanRole,
+  type WhiteboardCollaborator as WireWhiteboardCollaborator,
   type WhiteboardScene as SharedWhiteboardScene,
 } from "@cacp/protocol";
 
 import type {
+  WhiteboardCollaborator,
   WhiteboardEditorController,
+  WhiteboardPresence,
   WhiteboardScene,
 } from "./whiteboard-editor-adapter.js";
 
@@ -54,9 +58,21 @@ export interface WhiteboardSessionController {
   subscribeStatus(
     listener: (status: WhiteboardSessionStatus) => void
   ): () => void;
+  subscribeCollaborators(
+    listener: (collaborators: WhiteboardCollaborator[]) => void
+  ): () => void;
+  subscribeActivity(
+    listener: (activity: WhiteboardSessionActivity) => void
+  ): () => void;
+  focusCollaborator(participantId: string): void;
   loadSharedScene(): void;
   setRole(role: WhiteboardHumanRole): void;
   destroy(): void;
+}
+
+export interface WhiteboardSessionActivity {
+  kind: "scene" | "presence";
+  participantId: string;
 }
 
 export interface CreateWhiteboardSessionOptions {
@@ -66,6 +82,7 @@ export interface CreateWhiteboardSessionOptions {
   createUpdateId?: () => string;
   origin?: string;
   reconnectDelayMs?: number;
+  presenceThrottleMs?: number;
 }
 
 export type WhiteboardSessionFactory = (
@@ -117,6 +134,57 @@ function remoteScene(
   };
 }
 
+function editorCollaborator(
+  collaborator: WireWhiteboardCollaborator
+): WhiteboardCollaborator {
+  return {
+    participantId: collaborator.participant_id,
+    displayName: collaborator.display_name,
+    color: collaborator.color,
+    canEdit: collaborator.can_edit,
+    ...("cursor" in collaborator ? { cursor: collaborator.cursor } : {}),
+    ...(collaborator.selected_element_ids
+      ? { selectedElementIds: collaborator.selected_element_ids }
+      : {}),
+    ...(collaborator.viewport
+      ? {
+          viewport: {
+            scrollX: collaborator.viewport.scroll_x,
+            scrollY: collaborator.viewport.scroll_y,
+            zoom: collaborator.viewport.zoom,
+          },
+        }
+      : {}),
+  };
+}
+
+function initialPresence(
+  editor: WhiteboardEditorController
+): WhiteboardPresence {
+  const appState = editor.getScene().appState;
+  const zoom = appState.zoom;
+  return {
+    cursor: null,
+    selectedElementIds: Object.entries(
+      (appState.selectedElementIds as Record<string, boolean> | undefined) ?? {}
+    )
+      .filter(([, selected]) => selected)
+      .map(([id]) => id),
+    viewport: {
+      scrollX: typeof appState.scrollX === "number" ? appState.scrollX : 0,
+      scrollY: typeof appState.scrollY === "number" ? appState.scrollY : 0,
+      zoom:
+        typeof zoom === "number"
+          ? zoom
+          : zoom &&
+              typeof zoom === "object" &&
+              typeof (zoom as { value?: unknown }).value === "number"
+            ? (zoom as { value: number }).value
+            : 1,
+    },
+  };
+}
+
 export function createWhiteboardSession({
   identity,
   editor,
@@ -124,6 +192,7 @@ export function createWhiteboardSession({
   createUpdateId = defaultUpdateId,
   origin = window.location.origin,
   reconnectDelayMs = 1_000,
+  presenceThrottleMs = 50,
 }: CreateWhiteboardSessionOptions): WhiteboardSessionController {
   let role = identity.role;
   let status: WhiteboardSessionStatus = "connecting";
@@ -141,8 +210,20 @@ export function createWhiteboardSession({
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let inFlightUpdateId: string | undefined;
   let queuedScene: WhiteboardScene | undefined;
+  let presence = initialPresence(editor);
+  let presenceDirty = false;
+  let lastPresenceSentAt = Number.NEGATIVE_INFINITY;
+  let presenceThrottleTimer: ReturnType<typeof setTimeout> | undefined;
+  let presenceHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  const collaborators = new Map<string, WhiteboardCollaborator>();
   const statusListeners = new Set<
     (nextStatus: WhiteboardSessionStatus) => void
+  >();
+  const collaboratorListeners = new Set<
+    (nextCollaborators: WhiteboardCollaborator[]) => void
+  >();
+  const activityListeners = new Set<
+    (activity: WhiteboardSessionActivity) => void
   >();
 
   function setStatus(nextStatus: WhiteboardSessionStatus) {
@@ -157,6 +238,84 @@ export function createWhiteboardSession({
         (status !== "connected" && status !== "rejected") ||
         role === "observer"
     );
+  }
+
+  function collaboratorList() {
+    return [...collaborators.values()];
+  }
+
+  function notifyCollaborators() {
+    const nextCollaborators = collaboratorList();
+    editor.setCollaborators(
+      nextCollaborators.filter(
+        (collaborator) => collaborator.participantId !== identity.participantId
+      )
+    );
+    for (const listener of collaboratorListeners) {
+      listener(nextCollaborators);
+    }
+  }
+
+  function notifyActivity(activity: WhiteboardSessionActivity) {
+    if (activity.participantId === identity.participantId) return;
+    for (const listener of activityListeners) listener(activity);
+  }
+
+  function clearPresenceTimers() {
+    if (presenceThrottleTimer) clearTimeout(presenceThrottleTimer);
+    if (presenceHeartbeatTimer) clearInterval(presenceHeartbeatTimer);
+    presenceThrottleTimer = undefined;
+    presenceHeartbeatTimer = undefined;
+  }
+
+  function sendPresence() {
+    if (
+      destroyed ||
+      !connectedHandshake ||
+      socket?.readyState !== SOCKET_OPEN
+    ) {
+      return;
+    }
+    const parsed = WhiteboardClientPresenceMessageSchema.safeParse({
+      protocol: WhiteboardProtocolName,
+      version: WhiteboardProtocolVersion,
+      room_id: identity.roomId,
+      type: "whiteboard.presence.update",
+      cursor: presence.cursor,
+      selected_element_ids: presence.selectedElementIds,
+      viewport: {
+        scroll_x: presence.viewport.scrollX,
+        scroll_y: presence.viewport.scrollY,
+        zoom: presence.viewport.zoom,
+      },
+    });
+    if (!parsed.success) return;
+    socket.send(JSON.stringify(parsed.data));
+    lastPresenceSentAt = Date.now();
+    presenceDirty = false;
+  }
+
+  function schedulePresence(nextPresence: WhiteboardPresence) {
+    presence = nextPresence;
+    presenceDirty = true;
+    if (!connectedHandshake || socket?.readyState !== SOCKET_OPEN) return;
+    const remaining = presenceThrottleMs - (Date.now() - lastPresenceSentAt);
+    if (remaining <= 0) {
+      if (presenceThrottleTimer) clearTimeout(presenceThrottleTimer);
+      presenceThrottleTimer = undefined;
+      sendPresence();
+      return;
+    }
+    if (presenceThrottleTimer) return;
+    presenceThrottleTimer = setTimeout(() => {
+      presenceThrottleTimer = undefined;
+      if (presenceDirty) sendPresence();
+    }, remaining);
+  }
+
+  function startPresenceHeartbeat(heartbeatMs: number) {
+    if (presenceHeartbeatTimer) clearInterval(presenceHeartbeatTimer);
+    presenceHeartbeatTimer = setInterval(sendPresence, heartbeatMs);
   }
 
   function applyRemoteScene(scene: SharedWhiteboardScene) {
@@ -201,6 +360,7 @@ export function createWhiteboardSession({
   const unsubscribeEditor = editor.subscribeSceneChanges((scene) => {
     if (!applyingRemote) sendScene(scene);
   });
+  const unsubscribePresence = editor.subscribePresenceChanges(schedulePresence);
 
   function scheduleReconnect() {
     if (destroyed || terminal || reconnectTimer) return;
@@ -214,6 +374,7 @@ export function createWhiteboardSession({
     if (destroyed || terminal) return;
     synchronized = false;
     connectedHandshake = false;
+    clearPresenceTimers();
     revision = undefined;
     inFlightUpdateId = undefined;
     queuedScene = undefined;
@@ -255,6 +416,8 @@ export function createWhiteboardSession({
         }
         connectedHandshake = true;
         role = message.role;
+        startPresenceHeartbeat(message.presence_heartbeat_ms ?? 3_000);
+        if (presenceDirty) sendPresence();
         setEditorAccess();
         return;
       }
@@ -299,6 +462,30 @@ export function createWhiteboardSession({
         if (nextScene) sendScene(nextScene);
         return;
       }
+      if (message.type === "whiteboard.presence.snapshot") {
+        collaborators.clear();
+        for (const collaborator of message.collaborators) {
+          const view = editorCollaborator(collaborator);
+          collaborators.set(view.participantId, view);
+        }
+        notifyCollaborators();
+        return;
+      }
+      if (message.type === "whiteboard.presence.updated") {
+        const collaborator = editorCollaborator(message.collaborator);
+        collaborators.set(collaborator.participantId, collaborator);
+        notifyCollaborators();
+        notifyActivity({
+          kind: "presence",
+          participantId: collaborator.participantId,
+        });
+        return;
+      }
+      if (message.type === "whiteboard.presence.left") {
+        collaborators.delete(message.participant_id);
+        notifyCollaborators();
+        return;
+      }
       if (message.type === "whiteboard.elements.updated") {
         if (rejectedUpdate) {
           if (!pendingRemote || message.revision > pendingRemote.revision) {
@@ -313,6 +500,10 @@ export function createWhiteboardSession({
           synchronized = false;
           setStatus("conflicted");
           setEditorAccess();
+          notifyActivity({
+            kind: "scene",
+            participantId: message.participant_id,
+          });
           return;
         }
         if (!synchronized || revision === undefined) return;
@@ -321,6 +512,10 @@ export function createWhiteboardSession({
         applyRemoteScene({
           elements: message.elements,
           app_state: message.app_state,
+        });
+        notifyActivity({
+          kind: "scene",
+          participantId: message.participant_id,
         });
         return;
       }
@@ -368,6 +563,9 @@ export function createWhiteboardSession({
       nextSocket.removeEventListener("close", onClose);
       socket = undefined;
       synchronized = false;
+      clearPresenceTimers();
+      collaborators.clear();
+      notifyCollaborators();
       setStatus(
         terminal
           ? "forbidden"
@@ -394,6 +592,19 @@ export function createWhiteboardSession({
       listener(status);
       return () => statusListeners.delete(listener);
     },
+    subscribeCollaborators(listener) {
+      collaboratorListeners.add(listener);
+      listener(collaboratorList());
+      return () => collaboratorListeners.delete(listener);
+    },
+    subscribeActivity(listener) {
+      activityListeners.add(listener);
+      return () => activityListeners.delete(listener);
+    },
+    focusCollaborator(participantId) {
+      const collaborator = collaborators.get(participantId);
+      if (collaborator?.viewport) editor.focusViewport(collaborator.viewport);
+    },
     loadSharedScene() {
       if (!pendingRemote) return;
       const remote = pendingRemote;
@@ -416,7 +627,9 @@ export function createWhiteboardSession({
       destroyed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       reconnectTimer = undefined;
+      clearPresenceTimers();
       unsubscribeEditor();
+      unsubscribePresence();
       const activeSocket = socket;
       socket = undefined;
       if (
@@ -427,6 +640,10 @@ export function createWhiteboardSession({
         activeSocket.close();
       }
       statusListeners.clear();
+      collaboratorListeners.clear();
+      activityListeners.clear();
+      collaborators.clear();
+      editor.setCollaborators([]);
     },
   };
 }

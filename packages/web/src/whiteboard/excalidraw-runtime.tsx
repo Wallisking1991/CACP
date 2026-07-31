@@ -13,6 +13,8 @@ import type {
   BinaryFiles,
   ExcalidrawImperativeAPI,
   ExcalidrawProps,
+  Collaborator,
+  SocketId,
 } from "@excalidraw/excalidraw/types";
 import type {
   ExcalidrawElement,
@@ -26,7 +28,9 @@ import type {
 } from "./excalidraw-editor-adapter.js";
 import type {
   WhiteboardExportFormat,
+  WhiteboardCollaborator,
   WhiteboardScene,
+  WhiteboardViewport,
 } from "./whiteboard-editor-adapter.js";
 
 function toExcalidrawElements(scene: WhiteboardScene) {
@@ -93,6 +97,48 @@ export function createExcalidrawApiPort(
       const files = Object.values(toExcalidrawFiles(scene));
       if (files.length > 0) api.addFiles(files as BinaryFileData[]);
     },
+    updateCollaborators(collaborators: readonly WhiteboardCollaborator[]) {
+      const vendorCollaborators = new Map<SocketId, Collaborator>();
+      for (const collaborator of collaborators) {
+        vendorCollaborators.set(collaborator.participantId as SocketId, {
+          id: collaborator.participantId,
+          socketId: collaborator.participantId as SocketId,
+          username: collaborator.displayName,
+          color: collaborator.color,
+          ...(collaborator.cursor
+            ? {
+                pointer: {
+                  x: collaborator.cursor.x,
+                  y: collaborator.cursor.y,
+                  tool: "pointer",
+                } as const,
+                button: collaborator.cursor.button,
+              }
+            : {}),
+          ...(collaborator.selectedElementIds
+            ? {
+                selectedElementIds: Object.fromEntries(
+                  collaborator.selectedElementIds.map((id) => [id, true])
+                ),
+              }
+            : {}),
+        });
+      }
+      api.updateScene({
+        collaborators: vendorCollaborators,
+        captureUpdate: CaptureUpdateAction.NEVER,
+      });
+    },
+    focusViewport(viewport: WhiteboardViewport) {
+      api.updateScene({
+        appState: {
+          scrollX: viewport.scrollX,
+          scrollY: viewport.scrollY,
+          zoom: { value: viewport.zoom },
+        } as AppState,
+        captureUpdate: CaptureUpdateAction.NEVER,
+      });
+    },
     exportScene(format) {
       return exportScene(api, format);
     },
@@ -102,6 +148,8 @@ export function createExcalidrawApiPort(
 function renderExcalidraw({
   ariaLabel: _ariaLabel,
   excalidrawAPI,
+  onPointerUpdate,
+  onScrollChange,
   onSceneChange,
   validateEmbeddable: _validateEmbeddable,
   ...props
@@ -116,6 +164,13 @@ function renderExcalidraw({
         appState: appState as unknown as Record<string, unknown>,
         files: files as unknown as Record<string, unknown>,
       }),
+    onPointerUpdate: ({ pointer, button }) =>
+      onPointerUpdate({
+        pointer: { x: pointer.x, y: pointer.y },
+        button,
+      }),
+    onScrollChange: (scrollX, scrollY, zoom) =>
+      onScrollChange(scrollX, scrollY, zoom.value),
     UIOptions: {
       canvasActions: {
         changeViewBackgroundColor: true,

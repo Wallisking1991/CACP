@@ -5,7 +5,10 @@ import type {
   WhiteboardEditorDisplayOptions,
   WhiteboardEditorMountOptions,
   WhiteboardExportFormat,
+  WhiteboardCollaborator,
+  WhiteboardPresence,
   WhiteboardScene,
+  WhiteboardViewport,
 } from "./whiteboard-editor-adapter.js";
 
 interface ExcalidrawRoot {
@@ -16,6 +19,8 @@ interface ExcalidrawRoot {
 export interface ExcalidrawApiPort {
   getScene(): WhiteboardScene;
   updateScene(scene: WhiteboardScene): void;
+  updateCollaborators(collaborators: readonly WhiteboardCollaborator[]): void;
+  focusViewport(viewport: WhiteboardViewport): void;
   exportScene(format: WhiteboardExportFormat): Promise<Blob>;
 }
 
@@ -27,6 +32,11 @@ export interface ExcalidrawComponentProps {
   handleKeyboardGlobally: boolean;
   langCode: "en" | "zh-CN";
   name: string;
+  onPointerUpdate: (payload: {
+    pointer: { x: number; y: number };
+    button: "up" | "down";
+  }) => void;
+  onScrollChange: (scrollX: number, scrollY: number, zoom: number) => void;
   onSceneChange: (scene: WhiteboardScene) => void;
   validateEmbeddable: () => false;
   viewModeEnabled: boolean;
@@ -70,6 +80,23 @@ function sceneFingerprint(scene: WhiteboardScene): string {
   });
 }
 
+function presenceFingerprint(presence: WhiteboardPresence): string {
+  return JSON.stringify(presence);
+}
+
+function collaboratorFingerprint(
+  collaborators: readonly WhiteboardCollaborator[]
+): string {
+  return JSON.stringify(
+    collaborators.map((collaborator) => ({
+      ...collaborator,
+      selectedElementIds: collaborator.selectedElementIds
+        ? [...collaborator.selectedElementIds].sort()
+        : undefined,
+    }))
+  );
+}
+
 export function createExcalidrawEditorAdapter(
   runtime: ExcalidrawRuntime
 ): WhiteboardEditorAdapter {
@@ -81,7 +108,18 @@ export function createExcalidrawEditorAdapter(
       let readOnly = options.readOnly;
       let destroyed = false;
       let suppressedSceneFingerprint: string | undefined;
+      let lastSceneFingerprint: string | undefined;
+      let lastCollaboratorFingerprint: string | undefined;
       const sceneListeners = new Set<(scene: WhiteboardScene) => void>();
+      const presenceListeners = new Set<
+        (presence: WhiteboardPresence) => void
+      >();
+      let presence: WhiteboardPresence = {
+        cursor: null,
+        selectedElementIds: [],
+        viewport: { scrollX: 0, scrollY: 0, zoom: 1 },
+      };
+      let lastPresenceFingerprint = presenceFingerprint(presence);
       let resolveApi: (value: ExcalidrawApiPort) => void = () => {};
       const apiReady = new Promise<ExcalidrawApiPort>((resolve) => {
         resolveApi = resolve;
@@ -96,15 +134,85 @@ export function createExcalidrawEditorAdapter(
       };
 
       const handleSceneChange = (scene: WhiteboardScene) => {
+        const selectedElementIds = Object.entries(
+          (scene.appState.selectedElementIds as
+            Record<string, boolean> | undefined) ?? {}
+        )
+          .filter(([, selected]) => selected)
+          .map(([id]) => id);
+        const zoom = scene.appState.zoom;
+        const nextPresence: WhiteboardPresence = {
+          ...presence,
+          selectedElementIds,
+          viewport: {
+            scrollX:
+              typeof scene.appState.scrollX === "number"
+                ? scene.appState.scrollX
+                : presence.viewport.scrollX,
+            scrollY:
+              typeof scene.appState.scrollY === "number"
+                ? scene.appState.scrollY
+                : presence.viewport.scrollY,
+            zoom:
+              typeof zoom === "number"
+                ? zoom
+                : zoom &&
+                    typeof zoom === "object" &&
+                    typeof (zoom as { value?: unknown }).value === "number"
+                  ? (zoom as { value: number }).value
+                  : presence.viewport.zoom,
+          },
+        };
+        const nextPresenceFingerprint = presenceFingerprint(nextPresence);
+        presence = nextPresence;
+        if (nextPresenceFingerprint !== lastPresenceFingerprint) {
+          lastPresenceFingerprint = nextPresenceFingerprint;
+          for (const listener of presenceListeners) listener(presence);
+        }
+
+        const fingerprint = sceneFingerprint(scene);
         if (suppressedSceneFingerprint !== undefined) {
-          const fingerprint = sceneFingerprint(scene);
           if (fingerprint === suppressedSceneFingerprint) {
+            lastSceneFingerprint = fingerprint;
             return;
           }
           if (api && fingerprint !== sceneFingerprint(api.getScene())) return;
           suppressedSceneFingerprint = undefined;
         }
+        if (fingerprint === lastSceneFingerprint) return;
+        lastSceneFingerprint = fingerprint;
         for (const listener of sceneListeners) listener(scene);
+      };
+
+      const handlePointerUpdate: ExcalidrawComponentProps["onPointerUpdate"] =
+        ({ pointer, button }) => {
+          const nextPresence = {
+            ...presence,
+            cursor: { x: pointer.x, y: pointer.y, button },
+          };
+          const nextPresenceFingerprint = presenceFingerprint(nextPresence);
+          presence = nextPresence;
+          if (nextPresenceFingerprint !== lastPresenceFingerprint) {
+            lastPresenceFingerprint = nextPresenceFingerprint;
+            for (const listener of presenceListeners) listener(presence);
+          }
+        };
+
+      const handleScrollChange: ExcalidrawComponentProps["onScrollChange"] = (
+        scrollX,
+        scrollY,
+        zoom
+      ) => {
+        const nextPresence = {
+          ...presence,
+          viewport: { scrollX, scrollY, zoom },
+        };
+        const nextPresenceFingerprint = presenceFingerprint(nextPresence);
+        presence = nextPresence;
+        if (nextPresenceFingerprint !== lastPresenceFingerprint) {
+          lastPresenceFingerprint = nextPresenceFingerprint;
+          for (const listener of presenceListeners) listener(presence);
+        }
       };
 
       const renderEditor = () => {
@@ -122,6 +230,8 @@ export function createExcalidrawEditorAdapter(
               handleKeyboardGlobally={false}
               langCode={editorLanguage(displayOptions.langCode)}
               name={displayOptions.name}
+              onPointerUpdate={handlePointerUpdate}
+              onScrollChange={handleScrollChange}
               onSceneChange={handleSceneChange}
               validateEmbeddable={() => false}
               viewModeEnabled={readOnly}
@@ -144,6 +254,7 @@ export function createExcalidrawEditorAdapter(
       try {
         renderEditor();
         api = await apiReady;
+        lastSceneFingerprint = sceneFingerprint(api.getScene());
       } catch (cause) {
         destroyed = true;
         root.unmount();
@@ -170,6 +281,22 @@ export function createExcalidrawEditorAdapter(
           sceneListeners.add(listener);
           return () => sceneListeners.delete(listener);
         },
+        subscribePresenceChanges(listener) {
+          if (destroyed) return () => {};
+          presenceListeners.add(listener);
+          return () => presenceListeners.delete(listener);
+        },
+        setCollaborators(collaborators) {
+          if (!api || destroyed) return;
+          const fingerprint = collaboratorFingerprint(collaborators);
+          if (fingerprint === lastCollaboratorFingerprint) return;
+          lastCollaboratorFingerprint = fingerprint;
+          api.updateCollaborators(collaborators);
+        },
+        focusViewport(viewport) {
+          if (!api || destroyed) return;
+          api.focusViewport(viewport);
+        },
         setDisplayOptions(nextDisplayOptions) {
           if (destroyed) return;
           displayOptions = nextDisplayOptions;
@@ -192,6 +319,7 @@ export function createExcalidrawEditorAdapter(
           if (destroyed) return;
           destroyed = true;
           sceneListeners.clear();
+          presenceListeners.clear();
           api = undefined;
           root.unmount();
         },

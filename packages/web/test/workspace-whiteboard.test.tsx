@@ -11,6 +11,7 @@ import { describe, expect, it, vi } from "vitest";
 import Workspace from "../src/components/Workspace.js";
 import { LangProvider } from "../src/i18n/LangProvider.js";
 import type { WhiteboardSessionStatus } from "../src/whiteboard/whiteboard-session.js";
+import type { WhiteboardCollaborator } from "../src/whiteboard/whiteboard-editor-adapter.js";
 
 function event(
   type: CacpEvent["type"],
@@ -72,6 +73,9 @@ const workspaceProps = {
   onRemoveParticipant: vi.fn(),
   loadWhiteboardSession: vi.fn(async () => () => ({
     subscribeStatus: () => () => {},
+    subscribeCollaborators: () => () => {},
+    subscribeActivity: () => () => {},
+    focusCollaborator: () => {},
     loadSharedScene: () => {},
     setRole: () => {},
     destroy: () => {},
@@ -84,6 +88,9 @@ describe("Collaborative Whiteboard workspace", () => {
       getScene: () => ({ elements: [], appState: {}, files: {} }),
       updateScene: vi.fn(),
       subscribeSceneChanges: () => () => {},
+      subscribePresenceChanges: () => () => {},
+      setCollaborators: () => {},
+      focusViewport: () => {},
       setDisplayOptions: () => {},
       setReadOnly: vi.fn(),
       exportScene: async () => new Blob(),
@@ -93,6 +100,9 @@ describe("Collaborative Whiteboard workspace", () => {
     const loadWhiteboardEditorAdapter = vi.fn(async () => ({ mount }));
     const sessionController = {
       subscribeStatus: vi.fn(() => () => {}),
+      subscribeCollaborators: vi.fn(() => () => {}),
+      subscribeActivity: vi.fn(() => () => {}),
+      focusCollaborator: vi.fn(),
       loadSharedScene: vi.fn(),
       setRole: vi.fn(),
       destroy: vi.fn(),
@@ -142,6 +152,9 @@ describe("Collaborative Whiteboard workspace", () => {
           getScene: () => ({ elements: [], appState: {}, files: {} }),
           updateScene: () => {},
           subscribeSceneChanges: () => () => {},
+          subscribePresenceChanges: () => () => {},
+          setCollaborators: () => {},
+          focusViewport: () => {},
           setDisplayOptions: () => {},
           setReadOnly: () => {},
           exportScene: async () => new Blob(),
@@ -257,6 +270,9 @@ describe("Collaborative Whiteboard workspace", () => {
           getScene: () => ({ elements: [], appState: {}, files: {} }),
           updateScene: () => {},
           subscribeSceneChanges: () => () => {},
+          subscribePresenceChanges: () => () => {},
+          setCollaborators: () => {},
+          focusViewport: () => {},
           setDisplayOptions: () => {},
           setReadOnly: () => {},
           exportScene: async () => new Blob(),
@@ -301,6 +317,9 @@ describe("Collaborative Whiteboard workspace", () => {
       getScene: () => ({ elements: [], appState: {}, files: {} }),
       updateScene: () => {},
       subscribeSceneChanges: () => () => {},
+      subscribePresenceChanges: () => () => {},
+      setCollaborators: () => {},
+      focusViewport: () => {},
       setDisplayOptions: () => {},
       setReadOnly,
       exportScene: async () => new Blob(),
@@ -340,6 +359,9 @@ describe("Collaborative Whiteboard workspace", () => {
       getScene: () => ({ elements: [], appState: {}, files: {} }),
       updateScene: () => {},
       subscribeSceneChanges: () => () => {},
+      subscribePresenceChanges: () => () => {},
+      setCollaborators: () => {},
+      focusViewport: () => {},
       setDisplayOptions: () => {},
       setReadOnly: () => {},
       exportScene: async () => new Blob(),
@@ -395,6 +417,9 @@ describe("Collaborative Whiteboard workspace", () => {
             getScene: () => ({ elements: [], appState: {}, files: {} }),
             updateScene: () => {},
             subscribeSceneChanges: () => () => {},
+            subscribePresenceChanges: () => () => {},
+            setCollaborators: () => {},
+            focusViewport: () => {},
             setDisplayOptions: () => {},
             setReadOnly: () => {},
             exportScene: async () => new Blob(),
@@ -436,6 +461,9 @@ describe("Collaborative Whiteboard workspace", () => {
           getScene: () => ({ elements: [], appState: {}, files: {} }),
           updateScene: () => {},
           subscribeSceneChanges: () => () => {},
+          subscribePresenceChanges: () => () => {},
+          setCollaborators: () => {},
+          focusViewport: () => {},
           setDisplayOptions: () => {},
           setReadOnly: () => {},
           exportScene: async () => new Blob(),
@@ -450,6 +478,9 @@ describe("Collaborative Whiteboard workspace", () => {
         listener("connected");
         return () => {};
       },
+      subscribeCollaborators: () => () => {},
+      subscribeActivity: () => () => {},
+      focusCollaborator: () => {},
       loadSharedScene,
       setRole: () => {},
       destroy: () => {},
@@ -478,6 +509,149 @@ describe("Collaborative Whiteboard workspace", () => {
     act(() => emitStatus?.("conflicted"));
     fireEvent.click(screen.getByRole("button", { name: /load shared board/i }));
     expect(loadSharedScene).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows collaborators, follows their viewport, and clears quiet activity in both directions", async () => {
+    let emitCollaborators:
+      ((collaborators: WhiteboardCollaborator[]) => void) | undefined;
+    let emitActivity:
+      | ((activity: {
+          kind: "scene" | "presence";
+          participantId: string;
+        }) => void)
+      | undefined;
+    const focusCollaborator = vi.fn();
+    const loadWhiteboardSession = vi.fn(async () => () => ({
+      subscribeStatus(listener: (status: WhiteboardSessionStatus) => void) {
+        listener("connected");
+        return () => {};
+      },
+      subscribeCollaborators(
+        listener: (collaborators: WhiteboardCollaborator[]) => void
+      ) {
+        emitCollaborators = listener;
+        listener([]);
+        return () => {};
+      },
+      subscribeActivity(
+        listener: (activity: {
+          kind: "scene" | "presence";
+          participantId: string;
+        }) => void
+      ) {
+        emitActivity = listener;
+        return () => {};
+      },
+      focusCollaborator,
+      loadSharedScene: () => {},
+      setRole: () => {},
+      destroy: () => {},
+    }));
+    const loadWhiteboardEditorAdapter = vi.fn(async () => ({
+      mount(container: HTMLElement) {
+        const editor = document.createElement("div");
+        editor.textContent = "Presence-aware board";
+        container.append(editor);
+        return {
+          getScene: () => ({ elements: [], appState: {}, files: {} }),
+          updateScene: () => {},
+          subscribeSceneChanges: () => () => {},
+          subscribePresenceChanges: () => () => {},
+          setCollaborators: () => {},
+          focusViewport: () => {},
+          setDisplayOptions: () => {},
+          setReadOnly: () => {},
+          exportScene: async () => new Blob(),
+          destroy: () => editor.remove(),
+        };
+      },
+    }));
+    const view = render(
+      <LangProvider>
+        <Workspace
+          {...workspaceProps}
+          loadWhiteboardEditorAdapter={loadWhiteboardEditorAdapter}
+          loadWhiteboardSession={loadWhiteboardSession}
+        />
+      </LangProvider>
+    );
+    fireEvent.click(screen.getByRole("tab", { name: /whiteboard/i }));
+    expect(await screen.findByText("Presence-aware board")).toBeVisible();
+
+    act(() =>
+      emitCollaborators?.([
+        {
+          participantId: "user_1",
+          displayName: "Wei",
+          color: { background: "#dcfce7", stroke: "#16a34a" },
+          canEdit: true,
+        },
+        {
+          participantId: "user_2",
+          displayName: "Alice",
+          color: { background: "#dbeafe", stroke: "#2563eb" },
+          canEdit: true,
+          viewport: { scrollX: -20, scrollY: 10, zoom: 1.25 },
+        },
+        {
+          participantId: "viewer_1",
+          displayName: "Observer",
+          color: { background: "#fef3c7", stroke: "#d97706" },
+          canEdit: false,
+        },
+      ])
+    );
+    expect(screen.getByLabelText(/2 active editors/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /view alice.+area/i }));
+    expect(focusCollaborator).toHaveBeenCalledWith("user_2");
+
+    act(() => emitActivity?.({ kind: "presence", participantId: "user_2" }));
+    expect(
+      screen.queryByLabelText(/unseen whiteboard activity/i)
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /main conversation/i }));
+    act(() => emitActivity?.({ kind: "scene", participantId: "user_2" }));
+    expect(
+      screen.getByLabelText(/unseen whiteboard activity/i)
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /whiteboard/i }));
+    expect(
+      screen.queryByLabelText(/unseen whiteboard activity/i)
+    ).not.toBeInTheDocument();
+
+    view.rerender(
+      <LangProvider>
+        <Workspace
+          {...workspaceProps}
+          events={[
+            ...workspaceProps.events,
+            event(
+              "message.created",
+              {
+                message_id: "message_1",
+                content: { text: "New main-thread thought", attachments: [] },
+                kind: "human",
+                created_at: "2026-07-31T00:00:05.000Z",
+              },
+              5,
+              "user_2"
+            ),
+          ]}
+          loadWhiteboardEditorAdapter={loadWhiteboardEditorAdapter}
+          loadWhiteboardSession={loadWhiteboardSession}
+        />
+      </LangProvider>
+    );
+    expect(
+      screen.getByLabelText(/new main conversation activity/i)
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /main conversation/i }));
+    expect(
+      screen.queryByLabelText(/new main conversation activity/i)
+    ).not.toBeInTheDocument();
   });
 
   it("does not expose a whiteboard workspace to agent sessions", () => {

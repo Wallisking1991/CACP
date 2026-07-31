@@ -851,6 +851,11 @@ export async function buildServer(options: BuildServerOptions = {}) {
   const socketCounts = new Map<string, number>();
   const whiteboards = createWhiteboardSessionHub({
     maxMessageBytes: config.bodyLimitBytes,
+    presenceHeartbeatMs: config.whiteboardPresenceHeartbeatMs,
+    presenceTtlMs: config.whiteboardPresenceTtlMs,
+    presenceSweepMs: config.whiteboardPresenceSweepMs,
+    presenceUpdateLimit: config.whiteboardPresenceUpdateLimit,
+    presenceWindowMs: config.whiteboardPresenceWindowMs,
   });
   const participantSockets = new Map<
     string,
@@ -3421,6 +3426,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       const forgetWhiteboard = whiteboards.connect({
         roomId,
         participantId: participant.id,
+        displayName: participant.display_name,
         role: participant.role as WhiteboardHumanRole,
         resolveRole: () => {
           const current = request.query.token

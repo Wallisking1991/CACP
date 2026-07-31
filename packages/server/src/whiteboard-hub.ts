@@ -2,6 +2,8 @@ import {
   WhiteboardClientMessageSchema,
   WhiteboardProtocolName,
   WhiteboardProtocolVersion,
+  type WhiteboardCollaborator,
+  type WhiteboardClientPresenceMessage,
   type WhiteboardErrorCode,
   type WhiteboardHumanRole,
   type WhiteboardScene,
@@ -14,8 +16,18 @@ interface WhiteboardSocket {
 
 interface WhiteboardConnection {
   participantId: string;
+  displayName: string;
+  color: WhiteboardCollaborator["color"];
   resolveRole: () => WhiteboardHumanRole | undefined;
   socket: WhiteboardSocket;
+  active: boolean;
+  lastSeenAt: number;
+  presenceWindowStartedAt: number;
+  presenceUpdatesInWindow: number;
+  presence?: Pick<
+    WhiteboardClientPresenceMessage,
+    "cursor" | "selected_element_ids" | "viewport"
+  >;
 }
 
 interface WhiteboardRoomState {
@@ -27,6 +39,7 @@ interface WhiteboardRoomState {
 export interface WhiteboardConnectInput {
   roomId: string;
   participantId: string;
+  displayName: string;
   role: WhiteboardHumanRole;
   resolveRole: () => WhiteboardHumanRole | undefined;
   socket: WhiteboardSocket;
@@ -40,7 +53,23 @@ export interface WhiteboardSessionHub {
 
 interface WhiteboardHubOptions {
   maxMessageBytes: number;
+  presenceHeartbeatMs: number;
+  presenceTtlMs: number;
+  presenceSweepMs: number;
+  presenceUpdateLimit: number;
+  presenceWindowMs: number;
 }
+
+const collaboratorColors: readonly WhiteboardCollaborator["color"][] = [
+  { background: "#dbeafe", stroke: "#2563eb" },
+  { background: "#dcfce7", stroke: "#16a34a" },
+  { background: "#fef3c7", stroke: "#d97706" },
+  { background: "#fce7f3", stroke: "#db2777" },
+  { background: "#ede9fe", stroke: "#7c3aed" },
+  { background: "#cffafe", stroke: "#0891b2" },
+  { background: "#fee2e2", stroke: "#dc2626" },
+  { background: "#e0e7ff", stroke: "#4f46e5" },
+];
 
 const blankScene = (): WhiteboardScene => ({
   elements: [],
@@ -56,6 +85,16 @@ function messageText(data: unknown): string | undefined {
     return new TextDecoder().decode(new Uint8Array(data));
   }
   return undefined;
+}
+
+function stableCollaboratorColor(
+  participantId: string
+): WhiteboardCollaborator["color"] {
+  let hash = 0;
+  for (const character of participantId) {
+    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  }
+  return collaboratorColors[hash % collaboratorColors.length]!;
 }
 
 export function whiteboardErrorMessage(
@@ -88,6 +127,87 @@ export function createWhiteboardSessionHub(
 ): WhiteboardSessionHub {
   const rooms = new Map<string, WhiteboardRoomState>();
 
+  function collaboratorFor(
+    connection: WhiteboardConnection
+  ): WhiteboardCollaborator {
+    const role = connection.resolveRole();
+    return {
+      participant_id: connection.participantId,
+      display_name: connection.displayName,
+      color: connection.color,
+      can_edit: role !== undefined && role !== "observer",
+      ...(connection.presence ?? {}),
+    };
+  }
+
+  function activeCollaborators(
+    state: WhiteboardRoomState
+  ): WhiteboardCollaborator[] {
+    const latest = new Map<string, WhiteboardConnection>();
+    for (const connection of state.connections) {
+      if (!connection.active) continue;
+      const existing = latest.get(connection.participantId);
+      if (!existing || existing.lastSeenAt <= connection.lastSeenAt) {
+        latest.set(connection.participantId, connection);
+      }
+    }
+    return [...latest.values()].map(collaboratorFor);
+  }
+
+  function sendPresenceUpdated(
+    roomId: string,
+    state: WhiteboardRoomState,
+    connection: WhiteboardConnection,
+    except?: WhiteboardConnection
+  ) {
+    const message = JSON.stringify({
+      protocol: WhiteboardProtocolName,
+      version: WhiteboardProtocolVersion,
+      room_id: roomId,
+      type: "whiteboard.presence.updated",
+      collaborator: collaboratorFor(connection),
+    });
+    for (const peer of state.connections) {
+      if (peer !== except) peer.socket.send(message);
+    }
+  }
+
+  function sendPresenceLeft(
+    roomId: string,
+    state: WhiteboardRoomState,
+    participantId: string
+  ) {
+    const replacement = [...state.connections]
+      .filter(
+        (candidate) =>
+          candidate.active && candidate.participantId === participantId
+      )
+      .sort((left, right) => right.lastSeenAt - left.lastSeenAt)[0];
+    if (replacement) {
+      sendPresenceUpdated(roomId, state, replacement);
+      return;
+    }
+    const message = JSON.stringify({
+      protocol: WhiteboardProtocolName,
+      version: WhiteboardProtocolVersion,
+      room_id: roomId,
+      type: "whiteboard.presence.left",
+      participant_id: participantId,
+    });
+    for (const peer of state.connections) peer.socket.send(message);
+  }
+
+  function deactivatePresence(
+    roomId: string,
+    state: WhiteboardRoomState,
+    connection: WhiteboardConnection
+  ) {
+    if (!connection.active) return;
+    connection.active = false;
+    connection.presence = undefined;
+    sendPresenceLeft(roomId, state, connection.participantId);
+  }
+
   function roomState(roomId: string): WhiteboardRoomState {
     const existing = rooms.get(roomId);
     if (existing) return existing;
@@ -104,8 +224,14 @@ export function createWhiteboardSessionHub(
     const state = roomState(input.roomId);
     const connection: WhiteboardConnection = {
       participantId: input.participantId,
+      displayName: input.displayName,
+      color: stableCollaboratorColor(input.participantId),
       resolveRole: input.resolveRole,
       socket: input.socket,
+      active: true,
+      lastSeenAt: Date.now(),
+      presenceWindowStartedAt: Date.now(),
+      presenceUpdatesInWindow: 0,
     };
     state.connections.add(connection);
     const base = {
@@ -121,6 +247,7 @@ export function createWhiteboardSessionHub(
         participant_id: input.participantId,
         role: input.role,
         can_edit: input.role !== "observer",
+        presence_heartbeat_ms: options.presenceHeartbeatMs,
       })
     );
     input.socket.send(
@@ -131,6 +258,14 @@ export function createWhiteboardSessionHub(
         scene: state.scene,
       })
     );
+    input.socket.send(
+      JSON.stringify({
+        ...base,
+        type: "whiteboard.presence.snapshot",
+        collaborators: activeCollaborators(state),
+      })
+    );
+    sendPresenceUpdated(input.roomId, state, connection, connection);
 
     input.socket.on("message", (data) => {
       const text = messageText(data);
@@ -181,7 +316,66 @@ export function createWhiteboardSessionHub(
         );
         return;
       }
-      const update = parsed.data;
+      const message = parsed.data;
+      if (message.type === "whiteboard.presence.update") {
+        if (!connection.resolveRole()) {
+          input.socket.send(
+            JSON.stringify(
+              whiteboardErrorMessage(
+                input.roomId,
+                "forbidden",
+                "This participant cannot publish whiteboard presence.",
+                false
+              )
+            )
+          );
+          return;
+        }
+        const now = Date.now();
+        if (
+          now - connection.presenceWindowStartedAt >=
+          options.presenceWindowMs
+        ) {
+          connection.presenceWindowStartedAt = now;
+          connection.presenceUpdatesInWindow = 0;
+        }
+        if (connection.presenceUpdatesInWindow >= options.presenceUpdateLimit) {
+          input.socket.send(
+            JSON.stringify(
+              whiteboardErrorMessage(
+                input.roomId,
+                "rate_limited",
+                "Whiteboard presence is updating too quickly.",
+                true
+              )
+            )
+          );
+          return;
+        }
+        connection.presenceUpdatesInWindow += 1;
+        const wasActive = connection.active;
+        const nextPresence = {
+          cursor: message.cursor,
+          selected_element_ids: message.selected_element_ids,
+          viewport: message.viewport,
+        };
+        const presenceChanged =
+          JSON.stringify(connection.presence) !== JSON.stringify(nextPresence);
+        connection.active = true;
+        connection.lastSeenAt = now;
+        connection.presence = nextPresence;
+        if (!wasActive || presenceChanged) {
+          sendPresenceUpdated(
+            input.roomId,
+            state,
+            connection,
+            wasActive ? connection : undefined
+          );
+        }
+        return;
+      }
+
+      const update = message;
       const currentRole = connection.resolveRole();
       if (!currentRole || currentRole === "observer") {
         input.socket.send(
@@ -244,8 +438,28 @@ export function createWhiteboardSessionHub(
 
     return () => {
       state.connections.delete(connection);
+      if (connection.active) {
+        connection.active = false;
+        connection.presence = undefined;
+        sendPresenceLeft(input.roomId, state, connection.participantId);
+      }
     };
   }
+
+  const presenceSweep = setInterval(() => {
+    const now = Date.now();
+    for (const [roomId, state] of rooms) {
+      for (const connection of state.connections) {
+        if (
+          connection.active &&
+          now - connection.lastSeenAt >= options.presenceTtlMs
+        ) {
+          deactivatePresence(roomId, state, connection);
+        }
+      }
+    }
+  }, options.presenceSweepMs);
+  presenceSweep.unref?.();
 
   return {
     connect,
@@ -253,6 +467,7 @@ export function createWhiteboardSessionHub(
       rooms.delete(roomId);
     },
     close() {
+      clearInterval(presenceSweep);
       rooms.clear();
     },
   };
