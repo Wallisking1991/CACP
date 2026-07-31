@@ -17,6 +17,19 @@ describe("server cloud config", () => {
       })
     ).toThrow("CACP_DEPLOYMENT_MODE must be local or cloud");
   });
+
+  it("rejects presence timing that can expire a healthy whiteboard client", () => {
+    expect(() =>
+      loadServerConfig({
+        CACP_WHITEBOARD_PRESENCE_HEARTBEAT_MS: "100",
+        CACP_WHITEBOARD_PRESENCE_SWEEP_MS: "25",
+        CACP_WHITEBOARD_PRESENCE_TTL_MS: "125",
+      })
+    ).toThrow(
+      "CACP whiteboard presence TTL must exceed heartbeat plus sweep interval"
+    );
+  });
+
   it("forces local launch off in cloud mode", () => {
     const config = loadServerConfig({
       CACP_DEPLOYMENT_MODE: "cloud",

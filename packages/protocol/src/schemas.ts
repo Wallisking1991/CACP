@@ -1188,6 +1188,11 @@ export const WhiteboardClientPresenceMessageSchema =
     viewport: WhiteboardViewportSchema,
   }).strict();
 
+export const WhiteboardClientPresenceLeaveMessageSchema =
+  WhiteboardWireBaseSchema.extend({
+    type: z.literal("whiteboard.presence.leave"),
+  }).strict();
+
 export const WhiteboardCollaboratorSchema = z
   .object({
     participant_id: z.string().min(1).max(200),
@@ -1251,6 +1256,7 @@ export const WhiteboardErrorMessageSchema = WhiteboardWireBaseSchema.extend({
 export const WhiteboardClientMessageSchema = z.discriminatedUnion("type", [
   WhiteboardClientUpdateMessageSchema,
   WhiteboardClientPresenceMessageSchema,
+  WhiteboardClientPresenceLeaveMessageSchema,
 ]);
 
 export const WhiteboardServerMessageSchema = z.discriminatedUnion("type", [
@@ -1336,6 +1342,9 @@ export type WhiteboardCursor = z.infer<typeof WhiteboardCursorSchema>;
 export type WhiteboardViewport = z.infer<typeof WhiteboardViewportSchema>;
 export type WhiteboardClientPresenceMessage = z.infer<
   typeof WhiteboardClientPresenceMessageSchema
+>;
+export type WhiteboardClientPresenceLeaveMessage = z.infer<
+  typeof WhiteboardClientPresenceLeaveMessageSchema
 >;
 export type WhiteboardCollaborator = z.infer<
   typeof WhiteboardCollaboratorSchema

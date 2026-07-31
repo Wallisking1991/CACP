@@ -112,6 +112,16 @@ describe("Collaborative Whiteboard wire protocol", () => {
     expect(CacpEventSchema.safeParse(presence).success).toBe(false);
     expect(presence).not.toHaveProperty("revision");
 
+    const leave = WhiteboardClientMessageSchema.parse({
+      protocol: "cacp-whiteboard",
+      version: WhiteboardProtocolVersion,
+      type: "whiteboard.presence.leave",
+      room_id: "room_1",
+    });
+    expect(leave.type).toBe("whiteboard.presence.leave");
+    expect(CacpEventSchema.safeParse(leave).success).toBe(false);
+    expect(leave).not.toHaveProperty("revision");
+
     const collaborator = {
       participant_id: "user_2",
       display_name: "Alice",

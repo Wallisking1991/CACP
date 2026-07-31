@@ -121,7 +121,75 @@ function serverMessage(roomId: string, message: Record<string, unknown>) {
   };
 }
 
+function sentFrames(socket: FakeSocket, type: string) {
+  return socket.sent
+    .map((frame) => JSON.parse(frame) as Record<string, unknown>)
+    .filter((frame) => frame.type === type);
+}
+
 describe("WhiteboardSession", () => {
+  it("keeps observation passive and publishes presence only while enabled", () => {
+    vi.useFakeTimers();
+    try {
+      const socket = new FakeSocket();
+      const editor = createEditor();
+      const session = createWhiteboardSession({
+        identity: {
+          roomId: "room_passive",
+          participantId: "user_1",
+          token: "owner-token",
+          role: "owner",
+        },
+        editor: editor.editor,
+        socketFactory: () => socket,
+        origin: "http://localhost:5173",
+        presenceEnabled: false,
+      });
+
+      socket.open();
+      socket.receive(
+        serverMessage("room_passive", {
+          type: "whiteboard.connected",
+          participant_id: "user_1",
+          role: "owner",
+          can_edit: true,
+          presence_heartbeat_ms: 100,
+        })
+      );
+      socket.receive(
+        serverMessage("room_passive", {
+          type: "whiteboard.scene",
+          revision: 0,
+          scene: { elements: [], app_state: {} },
+        })
+      );
+      vi.advanceTimersByTime(300);
+      expect(
+        socket.sent.filter(
+          (frame) => JSON.parse(frame).type === "whiteboard.presence.update"
+        )
+      ).toHaveLength(0);
+
+      session.setPresenceEnabled(true);
+      expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({
+        type: "whiteboard.presence.update",
+        cursor: null,
+        selected_element_ids: [],
+      });
+
+      session.setPresenceEnabled(false);
+      expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({
+        type: "whiteboard.presence.leave",
+      });
+      const sentAfterLeave = socket.sent.length;
+      vi.advanceTimersByTime(300);
+      expect(socket.sent).toHaveLength(sentAfterLeave);
+      session.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("throttles ephemeral presence, renders collaborators, and follows their viewport", () => {
     vi.useFakeTimers();
     try {
@@ -344,7 +412,7 @@ describe("WhiteboardSession", () => {
       },
       files: {},
     });
-    expect(JSON.parse(socket.sent[0]!)).toEqual({
+    expect(sentFrames(socket, "whiteboard.elements.update")[0]).toEqual({
       protocol: "cacp-whiteboard",
       version: "1.0.0",
       room_id: "room_1",
@@ -439,7 +507,7 @@ describe("WhiteboardSession", () => {
       appState: {},
       files: {},
     });
-    expect(socket.sent).toEqual([]);
+    expect(sentFrames(socket, "whiteboard.elements.update")).toEqual([]);
     session.destroy();
   });
 
@@ -500,7 +568,7 @@ describe("WhiteboardSession", () => {
       appState: {},
       files: {},
     });
-    expect(socket.sent).toHaveLength(1);
+    expect(sentFrames(socket, "whiteboard.elements.update")).toHaveLength(1);
 
     socket.receive(
       serverMessage("room_queue", {
@@ -509,8 +577,8 @@ describe("WhiteboardSession", () => {
         revision: 1,
       })
     );
-    expect(socket.sent).toHaveLength(2);
-    expect(JSON.parse(socket.sent[1]!)).toMatchObject({
+    expect(sentFrames(socket, "whiteboard.elements.update")).toHaveLength(2);
+    expect(sentFrames(socket, "whiteboard.elements.update")[1]).toMatchObject({
       update_id: "update_2",
       base_revision: 1,
       elements: [{ id: "shape_1", version: 2 }],
@@ -656,7 +724,9 @@ describe("WhiteboardSession", () => {
       appState: {},
       files: {},
     });
-    expect(sockets[0]!.sent).toHaveLength(1);
+    expect(sentFrames(sockets[0]!, "whiteboard.elements.update")).toHaveLength(
+      1
+    );
 
     sockets[0]!.receive(
       serverMessage("room_rejected", {
@@ -707,7 +777,9 @@ describe("WhiteboardSession", () => {
       appState: {},
       files: {},
     });
-    expect(JSON.parse(sockets[1]!.sent[0]!)).toMatchObject({
+    expect(
+      sentFrames(sockets[1]!, "whiteboard.elements.update")[0]
+    ).toMatchObject({
       update_id: "recovered-update",
       base_revision: 0,
       elements: [{ id: "shape_2" }],
@@ -813,7 +885,7 @@ describe("WhiteboardSession", () => {
       appState: {},
       files: {},
     });
-    expect(socket.sent).toHaveLength(1);
+    expect(sentFrames(socket, "whiteboard.elements.update")).toHaveLength(1);
 
     session.loadSharedScene();
 

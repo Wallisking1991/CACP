@@ -14,6 +14,7 @@ import type {
 import { useT } from "../i18n/useT.js";
 
 export interface WhiteboardSurfaceProps {
+  active: boolean;
   identity: WhiteboardSessionIdentity;
   loadEditorAdapter: WhiteboardEditorAdapterLoader;
   loadSession: WhiteboardSessionFactoryLoader;
@@ -24,6 +25,7 @@ export interface WhiteboardSurfaceProps {
 }
 
 export function WhiteboardSurface({
+  active,
   identity,
   loadEditorAdapter,
   loadSession,
@@ -48,6 +50,7 @@ export function WhiteboardSurface({
   const onCollaboratorsChangeRef = useRef(onCollaboratorsChange);
   const onActivityRef = useRef(onActivity);
   const latestRoleRef = useRef(role);
+  const latestActiveRef = useRef(active);
   const mountOptionsRef = useRef({
     ariaLabel: editorLabel,
     langCode,
@@ -75,6 +78,10 @@ export function WhiteboardSurface({
   useEffect(() => {
     latestRoleRef.current = role;
   }, [role]);
+
+  useEffect(() => {
+    latestActiveRef.current = active;
+  }, [active]);
 
   useEffect(() => {
     mountOptionsRef.current = {
@@ -114,6 +121,7 @@ export function WhiteboardSurface({
             token,
           },
           editor: controller,
+          presenceEnabled: latestActiveRef.current,
         });
         sessionRef.current = whiteboardSession;
         unsubscribeStatusRef.current =
@@ -178,6 +186,10 @@ export function WhiteboardSurface({
   useEffect(() => {
     sessionRef.current?.setRole(role);
   }, [role]);
+
+  useEffect(() => {
+    sessionRef.current?.setPresenceEnabled(active);
+  }, [active]);
 
   const connectionMessage =
     connectionStatus === "disconnected"

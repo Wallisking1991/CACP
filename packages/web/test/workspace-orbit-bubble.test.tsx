@@ -199,6 +199,7 @@ describe("Workspace Orbit bubbles", () => {
       focusCollaborator: () => {},
       loadSharedScene: () => {},
       setRole: () => {},
+      setPresenceEnabled: () => {},
       destroy: () => {},
     }));
     const view = render(

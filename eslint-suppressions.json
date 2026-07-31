@@ -122,12 +122,9 @@
       "count": 3
     },
     "react-hooks/exhaustive-deps": {
-      "count": 2
-    },
-    "react-hooks/refs": {
       "count": 1
     },
-    "react-hooks/set-state-in-effect": {
+    "react-hooks/refs": {
       "count": 1
     }
   },

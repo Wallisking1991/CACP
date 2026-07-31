@@ -72,7 +72,7 @@ export function loadServerConfig(
     throw new Error(
       "CACP_TOKEN_SECRET must be at least 32 characters in cloud mode"
     );
-  return {
+  const config: ServerConfig = {
     deploymentMode,
     enableLocalLaunch:
       deploymentMode === "cloud"
@@ -128,6 +128,15 @@ export function loadServerConfig(
       1_000
     ),
   };
+  if (
+    config.whiteboardPresenceTtlMs <=
+    config.whiteboardPresenceHeartbeatMs + config.whiteboardPresenceSweepMs
+  ) {
+    throw new Error(
+      "CACP whiteboard presence TTL must exceed heartbeat plus sweep interval"
+    );
+  }
+  return config;
 }
 
 export function hasAllowedOrigin(

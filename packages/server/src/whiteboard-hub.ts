@@ -22,8 +22,6 @@ interface WhiteboardConnection {
   socket: WhiteboardSocket;
   active: boolean;
   lastSeenAt: number;
-  presenceWindowStartedAt: number;
-  presenceUpdatesInWindow: number;
   presence?: Pick<
     WhiteboardClientPresenceMessage,
     "cursor" | "selected_element_ids" | "viewport"
@@ -34,6 +32,7 @@ interface WhiteboardRoomState {
   revision: number;
   scene: WhiteboardScene;
   connections: Set<WhiteboardConnection>;
+  presenceRateWindows: Map<string, { startedAt: number; updates: number }>;
 }
 
 export interface WhiteboardConnectInput {
@@ -215,6 +214,7 @@ export function createWhiteboardSessionHub(
       revision: 0,
       scene: blankScene(),
       connections: new Set(),
+      presenceRateWindows: new Map(),
     };
     rooms.set(roomId, created);
     return created;
@@ -228,10 +228,8 @@ export function createWhiteboardSessionHub(
       color: stableCollaboratorColor(input.participantId),
       resolveRole: input.resolveRole,
       socket: input.socket,
-      active: true,
+      active: false,
       lastSeenAt: Date.now(),
-      presenceWindowStartedAt: Date.now(),
-      presenceUpdatesInWindow: 0,
     };
     state.connections.add(connection);
     const base = {
@@ -265,8 +263,6 @@ export function createWhiteboardSessionHub(
         collaborators: activeCollaborators(state),
       })
     );
-    sendPresenceUpdated(input.roomId, state, connection, connection);
-
     input.socket.on("message", (data) => {
       const text = messageText(data);
       if (
@@ -317,6 +313,10 @@ export function createWhiteboardSessionHub(
         return;
       }
       const message = parsed.data;
+      if (message.type === "whiteboard.presence.leave") {
+        deactivatePresence(input.roomId, state, connection);
+        return;
+      }
       if (message.type === "whiteboard.presence.update") {
         if (!connection.resolveRole()) {
           input.socket.send(
@@ -332,14 +332,27 @@ export function createWhiteboardSessionHub(
           return;
         }
         const now = Date.now();
-        if (
-          now - connection.presenceWindowStartedAt >=
-          options.presenceWindowMs
-        ) {
-          connection.presenceWindowStartedAt = now;
-          connection.presenceUpdatesInWindow = 0;
+        const wasActive = connection.active;
+        const nextPresence = {
+          cursor: message.cursor,
+          selected_element_ids: message.selected_element_ids,
+          viewport: message.viewport,
+        };
+        const presenceChanged =
+          JSON.stringify(connection.presence) !== JSON.stringify(nextPresence);
+        if (wasActive && !presenceChanged) {
+          connection.lastSeenAt = now;
+          return;
         }
-        if (connection.presenceUpdatesInWindow >= options.presenceUpdateLimit) {
+        const rateWindow = state.presenceRateWindows.get(
+          connection.participantId
+        );
+        const currentWindow =
+          !rateWindow || now - rateWindow.startedAt >= options.presenceWindowMs
+            ? { startedAt: now, updates: 0 }
+            : rateWindow;
+        state.presenceRateWindows.set(connection.participantId, currentWindow);
+        if (currentWindow.updates >= options.presenceUpdateLimit) {
           input.socket.send(
             JSON.stringify(
               whiteboardErrorMessage(
@@ -352,26 +365,11 @@ export function createWhiteboardSessionHub(
           );
           return;
         }
-        connection.presenceUpdatesInWindow += 1;
-        const wasActive = connection.active;
-        const nextPresence = {
-          cursor: message.cursor,
-          selected_element_ids: message.selected_element_ids,
-          viewport: message.viewport,
-        };
-        const presenceChanged =
-          JSON.stringify(connection.presence) !== JSON.stringify(nextPresence);
+        currentWindow.updates += 1;
         connection.active = true;
         connection.lastSeenAt = now;
         connection.presence = nextPresence;
-        if (!wasActive || presenceChanged) {
-          sendPresenceUpdated(
-            input.roomId,
-            state,
-            connection,
-            wasActive ? connection : undefined
-          );
-        }
+        sendPresenceUpdated(input.roomId, state, connection, connection);
         return;
       }
 

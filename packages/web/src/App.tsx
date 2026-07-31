@@ -77,6 +77,8 @@ export default function App() {
   const currentSession = urlRoomId ? allSessions[urlRoomId] : undefined;
 
   const [events, setEvents] = useState<CacpEvent[]>([]);
+  const [eventReplayReadyRoomId, setEventReplayReadyRoomId] =
+    useState<string>();
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(false);
   const [createdInvite, setCreatedInvite] = useState<{
@@ -102,34 +104,55 @@ export default function App() {
       }
     | undefined
   >();
-  const [validating, setValidating] = useState(false);
-  const [sessionValid, setSessionValid] = useState<boolean | undefined>();
+  const currentSessionValidationKey = currentSession
+    ? `${currentSession.room_id}:${currentSession.token}`
+    : undefined;
+  const [sessionValidation, setSessionValidation] = useState<{
+    key: string;
+    valid: boolean;
+  }>();
+  const sessionValid =
+    sessionValidation && sessionValidation.key === currentSessionValidationKey
+      ? sessionValidation.valid
+      : undefined;
+  const validating =
+    currentSessionValidationKey !== undefined && sessionValid === undefined;
   const waitingRoomRef = useRef(waitingRoom);
   waitingRoomRef.current = waitingRoom;
 
   // Validate session when URL roomId changes
   useEffect(() => {
-    if (!urlRoomId || !currentSession) {
-      setSessionValid(undefined);
-      return;
-    }
-    setValidating(true);
-    setSessionValid(undefined);
+    if (!urlRoomId || !currentSession || !currentSessionValidationKey) return;
+    let cancelled = false;
     getRoomMe(currentSession)
-      .then(() => setSessionValid(true))
+      .then(() => {
+        if (!cancelled) {
+          setSessionValidation({
+            key: currentSessionValidationKey,
+            valid: true,
+          });
+        }
+      })
       .catch(() => {
-        setSessionValid(false);
+        if (cancelled) return;
+        setSessionValidation({
+          key: currentSessionValidationKey,
+          valid: false,
+        });
         const next = { ...allSessions };
         delete next[urlRoomId];
         setAllSessions(next);
         saveAllSessions(window.localStorage, next);
-      })
-      .finally(() => setValidating(false));
-  }, [urlRoomId, currentSession?.room_id, currentSession?.token]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [allSessions, currentSession, currentSessionValidationKey, urlRoomId]);
 
   // WebSocket connection for current room
   useEffect(() => {
     if (!currentSession || !sessionValid) return;
+    let cancelled = false;
     const socket = connectEvents(
       currentSession,
       (event) => {
@@ -186,7 +209,24 @@ export default function App() {
         }
       }
     );
-    return () => clearEventSocket(socket);
+    void fetchRoomEvents(currentSession)
+      .then((replayedEvents) => {
+        if (cancelled) return;
+        setEvents((current) =>
+          replayedEvents.reduce(
+            (merged, replayedEvent) => mergeEvent(merged, replayedEvent),
+            current.filter(
+              (currentEvent) => currentEvent.room_id === currentSession.room_id
+            )
+          )
+        );
+        setEventReplayReadyRoomId(currentSession.room_id);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      clearEventSocket(socket);
+    };
   }, [currentSession, sessionValid]);
 
   // Poll join-request status when in waiting room
@@ -519,6 +559,7 @@ export default function App() {
           <Workspace
             session={currentSession}
             events={events}
+            eventReplayReady={eventReplayReadyRoomId === currentSession.room_id}
             onLeaveRoom={handleLeaveRoom}
             onSendMessage={handleSendMessage}
             onSelectAgent={handleSelectAgent}

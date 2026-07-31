@@ -1,5 +1,6 @@
 import {
   WhiteboardClientPresenceMessageSchema,
+  WhiteboardClientPresenceLeaveMessageSchema,
   WhiteboardClientUpdateMessageSchema,
   WhiteboardProtocolName,
   WhiteboardProtocolVersion,
@@ -67,6 +68,7 @@ export interface WhiteboardSessionController {
   focusCollaborator(participantId: string): void;
   loadSharedScene(): void;
   setRole(role: WhiteboardHumanRole): void;
+  setPresenceEnabled(enabled: boolean): void;
   destroy(): void;
 }
 
@@ -83,6 +85,7 @@ export interface CreateWhiteboardSessionOptions {
   origin?: string;
   reconnectDelayMs?: number;
   presenceThrottleMs?: number;
+  presenceEnabled?: boolean;
 }
 
 export type WhiteboardSessionFactory = (
@@ -193,6 +196,7 @@ export function createWhiteboardSession({
   origin = window.location.origin,
   reconnectDelayMs = 1_000,
   presenceThrottleMs = 50,
+  presenceEnabled: initialPresenceEnabled = true,
 }: CreateWhiteboardSessionOptions): WhiteboardSessionController {
   let role = identity.role;
   let status: WhiteboardSessionStatus = "connecting";
@@ -211,8 +215,10 @@ export function createWhiteboardSession({
   let inFlightUpdateId: string | undefined;
   let queuedScene: WhiteboardScene | undefined;
   let presence = initialPresence(editor);
-  let presenceDirty = false;
+  let presenceEnabled = initialPresenceEnabled;
+  let presenceDirty = initialPresenceEnabled;
   let lastPresenceSentAt = Number.NEGATIVE_INFINITY;
+  let presenceHeartbeatMs = 3_000;
   let presenceThrottleTimer: ReturnType<typeof setTimeout> | undefined;
   let presenceHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
   const collaborators = new Map<string, WhiteboardCollaborator>();
@@ -271,6 +277,7 @@ export function createWhiteboardSession({
   function sendPresence() {
     if (
       destroyed ||
+      !presenceEnabled ||
       !connectedHandshake ||
       socket?.readyState !== SOCKET_OPEN
     ) {
@@ -297,7 +304,8 @@ export function createWhiteboardSession({
 
   function schedulePresence(nextPresence: WhiteboardPresence) {
     presence = nextPresence;
-    presenceDirty = true;
+    presenceDirty = presenceEnabled;
+    if (!presenceEnabled) return;
     if (!connectedHandshake || socket?.readyState !== SOCKET_OPEN) return;
     const remaining = presenceThrottleMs - (Date.now() - lastPresenceSentAt);
     if (remaining <= 0) {
@@ -314,8 +322,30 @@ export function createWhiteboardSession({
   }
 
   function startPresenceHeartbeat(heartbeatMs: number) {
+    presenceHeartbeatMs = heartbeatMs;
     if (presenceHeartbeatTimer) clearInterval(presenceHeartbeatTimer);
+    if (!presenceEnabled) {
+      presenceHeartbeatTimer = undefined;
+      return;
+    }
     presenceHeartbeatTimer = setInterval(sendPresence, heartbeatMs);
+  }
+
+  function sendPresenceLeave() {
+    if (
+      destroyed ||
+      !connectedHandshake ||
+      socket?.readyState !== SOCKET_OPEN
+    ) {
+      return;
+    }
+    const parsed = WhiteboardClientPresenceLeaveMessageSchema.safeParse({
+      protocol: WhiteboardProtocolName,
+      version: WhiteboardProtocolVersion,
+      room_id: identity.roomId,
+      type: "whiteboard.presence.leave",
+    });
+    if (parsed.success) socket.send(JSON.stringify(parsed.data));
   }
 
   function applyRemoteScene(scene: SharedWhiteboardScene) {
@@ -416,8 +446,12 @@ export function createWhiteboardSession({
         }
         connectedHandshake = true;
         role = message.role;
-        startPresenceHeartbeat(message.presence_heartbeat_ms ?? 3_000);
-        if (presenceDirty) sendPresence();
+        presenceHeartbeatMs = message.presence_heartbeat_ms ?? 3_000;
+        if (presenceEnabled) {
+          startPresenceHeartbeat(presenceHeartbeatMs);
+          presenceDirty = true;
+          sendPresence();
+        }
         setEditorAccess();
         return;
       }
@@ -621,6 +655,21 @@ export function createWhiteboardSession({
     setRole(nextRole) {
       role = nextRole;
       setEditorAccess();
+    },
+    setPresenceEnabled(enabled) {
+      if (presenceEnabled === enabled) return;
+      presenceEnabled = enabled;
+      clearPresenceTimers();
+      if (enabled) {
+        presenceDirty = true;
+        if (connectedHandshake && socket?.readyState === SOCKET_OPEN) {
+          sendPresence();
+          startPresenceHeartbeat(presenceHeartbeatMs);
+        }
+      } else {
+        presenceDirty = false;
+        sendPresenceLeave();
+      }
     },
     destroy() {
       if (destroyed) return;

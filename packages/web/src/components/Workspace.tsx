@@ -76,6 +76,7 @@ import { OrbitToggleTab } from "./OrbitToggleTab.js";
 import { OrbitClearConfirmDialog } from "./OrbitClearConfirmDialog.js";
 import AgentRippleOverlay from "./AgentRippleOverlay.js";
 import { WhiteboardSurface } from "./WhiteboardSurface.js";
+import { WhiteboardActivityObserver } from "./WhiteboardActivityObserver.js";
 import type { WorkspaceMode } from "./WorkspaceModeSwitch.js";
 import { loadExcalidrawEditorAdapter } from "../whiteboard/load-excalidraw-editor-adapter.js";
 import type {
@@ -120,6 +121,7 @@ export interface WorkspaceProps {
   };
   loadWhiteboardEditorAdapter?: WhiteboardEditorAdapterLoader;
   loadWhiteboardSession?: WhiteboardSessionFactoryLoader;
+  eventReplayReady?: boolean;
 }
 
 export default function Workspace({
@@ -140,6 +142,7 @@ export default function Workspace({
   createdPairing,
   loadWhiteboardEditorAdapter = loadExcalidrawEditorAdapter,
   loadWhiteboardSession: loadWhiteboardSessionFactory = loadWhiteboardSession,
+  eventReplayReady = true,
 }: WorkspaceProps) {
   const t = useT();
   const lang = useContext(LangContext)?.lang ?? "en";
@@ -259,12 +262,25 @@ export default function Workspace({
           `${message.actor_id}:${message.created_at}:${message.kind}`
       ),
       ...room.streamingTurns.map((turn) => `turn:${turn.turn_id}`),
+      ...room.streamingTurns.map(
+        (turn) =>
+          `turn-state:${turn.turn_id}:${JSON.stringify({
+            text: turn.text,
+            phase: turn.phase,
+            current: turn.current,
+            metrics: turn.metrics,
+            detail: turn.detail,
+            thinkingText: turn.thinkingText,
+            thinkingDone: turn.thinkingDone,
+          })}`
+      ),
     ],
     [room.messages, room.streamingTurns]
   );
   const mainConversationActivityRef = useRef({
     roomId: session.room_id,
     ids: new Set(mainConversationActivityIds),
+    replayReady: eventReplayReady,
   });
   const panelOpenRef = useRef(panelOpen);
   useEffect(() => {
@@ -317,10 +333,19 @@ export default function Workspace({
       mainConversationActivityRef.current = {
         roomId: session.room_id,
         ids: new Set(mainConversationActivityIds),
+        replayReady: eventReplayReady,
       };
       setWhiteboardActiveEditorCount(0);
       setHasWhiteboardActivity(false);
       setHasConversationActivity(false);
+      return;
+    }
+    if (!eventReplayReady || !previous.replayReady) {
+      mainConversationActivityRef.current = {
+        roomId: session.room_id,
+        ids: new Set(mainConversationActivityIds),
+        replayReady: eventReplayReady,
+      };
       return;
     }
     const hasNewActivity = mainConversationActivityIds.some(
@@ -329,11 +354,12 @@ export default function Workspace({
     mainConversationActivityRef.current = {
       roomId: session.room_id,
       ids: new Set(mainConversationActivityIds),
+      replayReady: true,
     };
     if (hasNewActivity && workspaceModeRef.current === "whiteboard") {
       setHasConversationActivity(true);
     }
-  }, [mainConversationActivityIds, session.room_id]);
+  }, [eventReplayReady, mainConversationActivityIds, session.room_id]);
   const [unreadOrbit, setUnreadOrbit] = useState(0);
   const [unreadMentions, setUnreadMentions] = useState(0);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
@@ -1113,6 +1139,20 @@ export default function Workspace({
           </div>
 
           {canUseWhiteboard && (
+            <WhiteboardActivityObserver
+              identity={{
+                roomId: session.room_id,
+                participantId: session.participant_id,
+                token: session.token,
+                role: session.role === "agent" ? "observer" : session.role,
+              }}
+              loadSession={loadWhiteboardSessionFactory}
+              onCollaboratorsChange={handleWhiteboardCollaborators}
+              onActivity={handleWhiteboardActivity}
+            />
+          )}
+
+          {canUseWhiteboard && (
             <div
               id="whiteboard-workspace-panel"
               className="whiteboard-workspace"
@@ -1122,6 +1162,7 @@ export default function Workspace({
             >
               {whiteboardOpened && (
                 <WhiteboardSurface
+                  active={workspaceMode === "whiteboard"}
                   identity={{
                     roomId: session.room_id,
                     participantId: session.participant_id,
@@ -1134,8 +1175,6 @@ export default function Workspace({
                   name={`${room.roomName ?? session.room_id} — ${String(
                     t("workspace.whiteboard")
                   )}`}
-                  onCollaboratorsChange={handleWhiteboardCollaborators}
-                  onActivity={handleWhiteboardActivity}
                 />
               )}
             </div>
