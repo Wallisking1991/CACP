@@ -126,11 +126,15 @@ describe("Collaborative Whiteboard workspace", () => {
     expect(loadWhiteboardEditorAdapter).not.toHaveBeenCalled();
     expect(createSession).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ presenceEnabled: false })
+      expect.objectContaining({
+        observeOnly: true,
+        presenceEnabled: false,
+      })
     );
     fireEvent.click(screen.getByRole("tab", { name: /whiteboard/i }));
 
     await waitFor(() => expect(createSession).toHaveBeenCalledTimes(2));
+    expect(sessionController.destroy).toHaveBeenCalledTimes(1);
     expect(createSession).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
@@ -532,6 +536,12 @@ describe("Collaborative Whiteboard workspace", () => {
       | undefined;
     let emitSurfaceCollaborators:
       ((collaborators: WhiteboardCollaborator[]) => void) | undefined;
+    let emitSurfaceActivity:
+      | ((activity: {
+          kind: "scene" | "presence";
+          participantId: string;
+        }) => void)
+      | undefined;
     const focusCollaborator = vi.fn();
     const setSurfacePresenceEnabled = vi.fn();
     const loadWhiteboardSession = vi.fn(
@@ -557,6 +567,7 @@ describe("Collaborative Whiteboard workspace", () => {
             }) => void
           ) {
             if (passive) emitObservedActivity = listener;
+            else emitSurfaceActivity = listener;
             return () => {};
           },
           focusCollaborator,
@@ -623,7 +634,7 @@ describe("Collaborative Whiteboard workspace", () => {
     ).not.toBeInTheDocument();
 
     act(() =>
-      emitObservedCollaborators?.([
+      emitSurfaceCollaborators?.([
         {
           participantId: "user_1",
           displayName: "Wei",
@@ -645,23 +656,12 @@ describe("Collaborative Whiteboard workspace", () => {
         },
       ])
     );
-    act(() =>
-      emitSurfaceCollaborators?.([
-        {
-          participantId: "user_2",
-          displayName: "Alice",
-          color: { background: "#dbeafe", stroke: "#2563eb" },
-          canEdit: true,
-          viewport: { scrollX: -20, scrollY: 10, zoom: 1.25 },
-        },
-      ])
-    );
     expect(screen.getByLabelText(/2 active editors/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /view alice.+area/i }));
     expect(focusCollaborator).toHaveBeenCalledWith("user_2");
 
     act(() =>
-      emitObservedActivity?.({ kind: "presence", participantId: "user_2" })
+      emitSurfaceActivity?.({ kind: "presence", participantId: "user_2" })
     );
     expect(
       screen.queryByLabelText(/unseen whiteboard activity/i)
@@ -670,7 +670,7 @@ describe("Collaborative Whiteboard workspace", () => {
     fireEvent.click(screen.getByRole("tab", { name: /main conversation/i }));
     expect(setSurfacePresenceEnabled).toHaveBeenLastCalledWith(false);
     act(() =>
-      emitObservedActivity?.({ kind: "scene", participantId: "user_2" })
+      emitSurfaceActivity?.({ kind: "scene", participantId: "user_2" })
     );
     expect(
       screen.getByLabelText(/unseen whiteboard activity/i)

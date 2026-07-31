@@ -1127,6 +1127,7 @@ export const WhiteboardConnectedMessageSchema = WhiteboardWireBaseSchema.extend(
     participant_id: z.string().min(1).max(200),
     role: WhiteboardHumanRoleSchema,
     can_edit: z.boolean(),
+    observe_only: z.boolean().optional(),
     presence_heartbeat_ms: z.number().int().positive().optional(),
   }
 ).strict();
@@ -1154,6 +1155,13 @@ export const WhiteboardElementsUpdatedMessageSchema =
     revision: z.number().int().positive(),
     elements: z.array(WhiteboardElementSchema).max(WhiteboardMaxElements),
     app_state: WhiteboardSharedAppStateSchema,
+  }).strict();
+
+export const WhiteboardSceneActivityMessageSchema =
+  WhiteboardWireBaseSchema.extend({
+    type: z.literal("whiteboard.scene.activity"),
+    participant_id: z.string().min(1).max(200),
+    revision: z.number().int().positive(),
   }).strict();
 
 export const WhiteboardAckMessageSchema = WhiteboardWireBaseSchema.extend({
@@ -1263,6 +1271,7 @@ export const WhiteboardServerMessageSchema = z.discriminatedUnion("type", [
   WhiteboardConnectedMessageSchema,
   WhiteboardSceneMessageSchema,
   WhiteboardElementsUpdatedMessageSchema,
+  WhiteboardSceneActivityMessageSchema,
   WhiteboardAckMessageSchema,
   WhiteboardPresenceSnapshotMessageSchema,
   WhiteboardPresenceUpdatedMessageSchema,
@@ -1336,6 +1345,9 @@ export type WhiteboardClientUpdateMessage = z.infer<
 >;
 export type WhiteboardElementsUpdatedMessage = z.infer<
   typeof WhiteboardElementsUpdatedMessageSchema
+>;
+export type WhiteboardSceneActivityMessage = z.infer<
+  typeof WhiteboardSceneActivityMessageSchema
 >;
 export type WhiteboardAckMessage = z.infer<typeof WhiteboardAckMessageSchema>;
 export type WhiteboardCursor = z.infer<typeof WhiteboardCursorSchema>;

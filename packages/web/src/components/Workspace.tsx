@@ -1138,7 +1138,7 @@ export default function Workspace({
             )}
           </div>
 
-          {canUseWhiteboard && (
+          {canUseWhiteboard && !whiteboardOpened && (
             <WhiteboardActivityObserver
               identity={{
                 roomId: session.room_id,
@@ -1175,6 +1175,8 @@ export default function Workspace({
                   name={`${room.roomName ?? session.room_id} — ${String(
                     t("workspace.whiteboard")
                   )}`}
+                  onCollaboratorsChange={handleWhiteboardCollaborators}
+                  onActivity={handleWhiteboardActivity}
                 />
               )}
             </div>

@@ -291,6 +291,14 @@ describe("collaborative whiteboard stream", () => {
         viewport: { scroll_x: 0, scroll_y: 0, zoom: 1 },
       })
     );
+    await expect(
+      ownerInbox.next("whiteboard.presence.updated")
+    ).resolves.toMatchObject({
+      collaborator: {
+        participant_id: room.owner_id,
+        can_edit: true,
+      },
+    });
 
     const memberSocket = new WebSocket(
       `ws://${addressOf(app)}/rooms/${room.room_id}/whiteboard` +
@@ -643,6 +651,71 @@ describe("collaborative whiteboard stream", () => {
     });
   });
 
+  it("sends compact scene activity to an observe-only connection", async () => {
+    app = await buildServer({
+      dbPath: ":memory:",
+      config: localTestConfig(),
+    });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const room = (
+      await app.inject({
+        method: "POST",
+        url: "/rooms",
+        payload: { name: "Compact observer", display_name: "Owner" },
+      })
+    ).json() as {
+      room_id: string;
+      owner_id: string;
+      owner_token: string;
+    };
+    const baseUrl =
+      `ws://${addressOf(app)}/rooms/${room.room_id}/whiteboard` +
+      `?token=${encodeURIComponent(room.owner_token)}`;
+    const observerSocket = new WebSocket(`${baseUrl}&mode=observe`);
+    const editorSocket = new WebSocket(baseUrl);
+    sockets.push(observerSocket, editorSocket);
+    const observerInbox = createInbox(observerSocket);
+    const editorInbox = createInbox(editorSocket);
+    await Promise.all([waitForOpen(observerSocket), waitForOpen(editorSocket)]);
+
+    await expect(
+      observerInbox.next("whiteboard.connected")
+    ).resolves.toMatchObject({ observe_only: true });
+    await observerInbox.next("whiteboard.presence.snapshot");
+    await editorInbox.next("whiteboard.connected");
+    await editorInbox.next("whiteboard.scene");
+    await editorInbox.next("whiteboard.presence.snapshot");
+
+    editorSocket.send(
+      JSON.stringify({
+        protocol: "cacp-whiteboard",
+        version: "1.0.0",
+        room_id: room.room_id,
+        type: "whiteboard.elements.update",
+        update_id: "compact-update",
+        base_revision: 0,
+        elements: [
+          {
+            id: "compact-shape",
+            type: "rectangle",
+            version: 1,
+            versionNonce: 601,
+          },
+        ],
+        app_state: {},
+      })
+    );
+    await editorInbox.next("whiteboard.ack");
+    await expect(
+      observerInbox.next("whiteboard.scene.activity")
+    ).resolves.toEqual(
+      expect.objectContaining({
+        participant_id: room.owner_id,
+        revision: 1,
+      })
+    );
+  });
+
   it("keeps observers read-only and refuses agent sessions", async () => {
     app = await buildServer({
       dbPath: ":memory:",
@@ -773,11 +846,36 @@ describe("collaborative whiteboard stream", () => {
       `ws://${addressOf(app)}/rooms/${room.room_id}/whiteboard` +
         `?token=${encodeURIComponent(member.participant_token)}`
     );
-    sockets.push(socket);
+    const watcherSocket = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/whiteboard` +
+        `?token=${encodeURIComponent(room.owner_token)}&mode=observe`
+    );
+    sockets.push(socket, watcherSocket);
     const inbox = createInbox(socket);
-    await waitForOpen(socket);
+    const watcherInbox = createInbox(watcherSocket);
+    await Promise.all([waitForOpen(socket), waitForOpen(watcherSocket)]);
     await inbox.next("whiteboard.connected");
     await inbox.next("whiteboard.scene");
+    await watcherInbox.next("whiteboard.connected");
+    await watcherInbox.next("whiteboard.presence.snapshot");
+    const memberPresence = {
+      protocol: "cacp-whiteboard",
+      version: "1.0.0",
+      room_id: room.room_id,
+      type: "whiteboard.presence.update",
+      cursor: null,
+      selected_element_ids: [],
+      viewport: { scroll_x: 0, scroll_y: 0, zoom: 1 },
+    };
+    socket.send(JSON.stringify(memberPresence));
+    await expect(
+      watcherInbox.next("whiteboard.presence.updated")
+    ).resolves.toMatchObject({
+      collaborator: {
+        participant_id: member.participant_id,
+        can_edit: true,
+      },
+    });
 
     const demotion = await app.inject({
       method: "POST",
@@ -788,6 +886,15 @@ describe("collaborative whiteboard stream", () => {
       payload: { role: "observer" },
     });
     expect(demotion.statusCode).toBe(201);
+    socket.send(JSON.stringify(memberPresence));
+    await expect(
+      watcherInbox.next("whiteboard.presence.updated")
+    ).resolves.toMatchObject({
+      collaborator: {
+        participant_id: member.participant_id,
+        can_edit: false,
+      },
+    });
     socket.send(
       JSON.stringify({
         protocol: "cacp-whiteboard",
@@ -821,6 +928,15 @@ describe("collaborative whiteboard stream", () => {
       payload: { role: "member" },
     });
     expect(promotion.statusCode).toBe(201);
+    socket.send(JSON.stringify(memberPresence));
+    await expect(
+      watcherInbox.next("whiteboard.presence.updated")
+    ).resolves.toMatchObject({
+      collaborator: {
+        participant_id: member.participant_id,
+        can_edit: true,
+      },
+    });
     socket.send(
       JSON.stringify({
         protocol: "cacp-whiteboard",

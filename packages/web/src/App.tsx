@@ -50,6 +50,7 @@ const roomRoles: ReadonlySet<RoomSession["role"]> = new Set([
   "observer",
   "agent",
 ]);
+const eventReplayRetryDelaysMs = [250, 1_000] as const;
 
 function isRoomRole(value: string): value is RoomSession["role"] {
   return roomRoles.has(value as RoomSession["role"]);
@@ -77,7 +78,7 @@ export default function App() {
   const currentSession = urlRoomId ? allSessions[urlRoomId] : undefined;
 
   const [events, setEvents] = useState<CacpEvent[]>([]);
-  const [eventReplayReadyRoomId, setEventReplayReadyRoomId] =
+  const [eventReplayReadySessionKey, setEventReplayReadySessionKey] =
     useState<string>();
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(false);
@@ -153,6 +154,7 @@ export default function App() {
   useEffect(() => {
     if (!currentSession || !sessionValid) return;
     let cancelled = false;
+    let replayRetryTimer: ReturnType<typeof setTimeout> | undefined;
     const socket = connectEvents(
       currentSession,
       (event) => {
@@ -209,25 +211,44 @@ export default function App() {
         }
       }
     );
-    void fetchRoomEvents(currentSession)
-      .then((replayedEvents) => {
-        if (cancelled) return;
-        setEvents((current) =>
-          replayedEvents.reduce(
-            (merged, replayedEvent) => mergeEvent(merged, replayedEvent),
-            current.filter(
-              (currentEvent) => currentEvent.room_id === currentSession.room_id
+    const bootstrapReplay = (attempt: number) => {
+      void fetchRoomEvents(currentSession)
+        .then((replayedEvents) => {
+          if (cancelled) return;
+          setEvents((current) =>
+            replayedEvents.reduce(
+              (merged, replayedEvent) => mergeEvent(merged, replayedEvent),
+              current.filter(
+                (currentEvent) =>
+                  currentEvent.room_id === currentSession.room_id
+              )
             )
-          )
-        );
-        setEventReplayReadyRoomId(currentSession.room_id);
-      })
-      .catch(() => {});
+          );
+          setEventReplayReadySessionKey(currentSessionValidationKey);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          const retryDelay = eventReplayRetryDelaysMs[attempt];
+          if (retryDelay !== undefined) {
+            replayRetryTimer = setTimeout(
+              () => bootstrapReplay(attempt + 1),
+              retryDelay
+            );
+            return;
+          }
+          // The live stream remains authoritative. After bounded retries,
+          // treat everything received so far as the read baseline instead of
+          // permanently disabling unread activity.
+          setEventReplayReadySessionKey(currentSessionValidationKey);
+        });
+    };
+    bootstrapReplay(0);
     return () => {
       cancelled = true;
+      if (replayRetryTimer) clearTimeout(replayRetryTimer);
       clearEventSocket(socket);
     };
-  }, [currentSession, sessionValid]);
+  }, [currentSession, currentSessionValidationKey, sessionValid]);
 
   // Poll join-request status when in waiting room
   useEffect(() => {
@@ -559,7 +580,9 @@ export default function App() {
           <Workspace
             session={currentSession}
             events={events}
-            eventReplayReady={eventReplayReadyRoomId === currentSession.room_id}
+            eventReplayReady={
+              eventReplayReadySessionKey === currentSessionValidationKey
+            }
             onLeaveRoom={handleLeaveRoom}
             onSendMessage={handleSendMessage}
             onSelectAgent={handleSelectAgent}

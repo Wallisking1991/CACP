@@ -27,6 +27,7 @@ describe("Collaborative Whiteboard wire protocol", () => {
       participant_id: "user_1",
       role: "owner",
       can_edit: true,
+      observe_only: true,
     });
     expect(connected.type).toBe("whiteboard.connected");
 
@@ -161,5 +162,17 @@ describe("Collaborative Whiteboard wire protocol", () => {
       participant_id: "user_2",
     });
     expect(left.type).toBe("whiteboard.presence.left");
+
+    const activity = WhiteboardServerMessageSchema.parse({
+      protocol: "cacp-whiteboard",
+      version: WhiteboardProtocolVersion,
+      type: "whiteboard.scene.activity",
+      room_id: "room_1",
+      participant_id: "user_2",
+      revision: 2,
+    });
+    expect(activity.type).toBe("whiteboard.scene.activity");
+    expect(activity).not.toHaveProperty("elements");
+    expect(CacpEventSchema.safeParse(activity).success).toBe(false);
   });
 });

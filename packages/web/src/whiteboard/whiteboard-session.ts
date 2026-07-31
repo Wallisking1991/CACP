@@ -86,6 +86,7 @@ export interface CreateWhiteboardSessionOptions {
   reconnectDelayMs?: number;
   presenceThrottleMs?: number;
   presenceEnabled?: boolean;
+  observeOnly?: boolean;
 }
 
 export type WhiteboardSessionFactory = (
@@ -106,10 +107,15 @@ function defaultUpdateId(): string {
   return `whiteboard_${crypto.randomUUID()}`;
 }
 
-function whiteboardUrl(origin: string, identity: WhiteboardSessionIdentity) {
+function whiteboardUrl(
+  origin: string,
+  identity: WhiteboardSessionIdentity,
+  observeOnly: boolean
+) {
   const url = new URL(`/rooms/${identity.roomId}/whiteboard`, origin);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.searchParams.set("token", identity.token);
+  if (observeOnly) url.searchParams.set("mode", "observe");
   return url.toString();
 }
 
@@ -197,6 +203,7 @@ export function createWhiteboardSession({
   reconnectDelayMs = 1_000,
   presenceThrottleMs = 50,
   presenceEnabled: initialPresenceEnabled = true,
+  observeOnly = false,
 }: CreateWhiteboardSessionOptions): WhiteboardSessionController {
   let role = identity.role;
   let status: WhiteboardSessionStatus = "connecting";
@@ -411,7 +418,9 @@ export function createWhiteboardSession({
     setStatus("connecting");
     setEditorAccess();
 
-    const nextSocket = socketFactory(whiteboardUrl(origin, identity));
+    const nextSocket = socketFactory(
+      whiteboardUrl(origin, identity, observeOnly)
+    );
     socket = nextSocket;
     const onOpen = () => {
       if (socket !== nextSocket || destroyed) return;
@@ -503,6 +512,11 @@ export function createWhiteboardSession({
           collaborators.set(view.participantId, view);
         }
         notifyCollaborators();
+        if (observeOnly && connectedHandshake) {
+          synchronized = true;
+          setStatus("connected");
+          setEditorAccess();
+        }
         return;
       }
       if (message.type === "whiteboard.presence.updated") {
@@ -553,12 +567,20 @@ export function createWhiteboardSession({
         });
         return;
       }
+      if (message.type === "whiteboard.scene.activity") {
+        notifyActivity({
+          kind: "scene",
+          participantId: message.participant_id,
+        });
+        return;
+      }
       if (message.type === "whiteboard.error") {
         if (
           message.code === "forbidden" ||
           message.code === "invalid_token" ||
           message.code === "origin_not_allowed" ||
-          message.code === "room_ended"
+          message.code === "room_ended" ||
+          message.code === "room_full"
         ) {
           terminal = true;
           synchronized = false;
@@ -657,6 +679,7 @@ export function createWhiteboardSession({
       setEditorAccess();
     },
     setPresenceEnabled(enabled) {
+      if (observeOnly && enabled) return;
       if (presenceEnabled === enabled) return;
       presenceEnabled = enabled;
       clearPresenceTimers();

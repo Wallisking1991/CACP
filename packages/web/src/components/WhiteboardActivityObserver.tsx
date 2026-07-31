@@ -57,6 +57,7 @@ export function WhiteboardActivityObserver({
             token,
           },
           editor,
+          observeOnly: true,
           presenceEnabled: false,
         });
         if (disposed) {

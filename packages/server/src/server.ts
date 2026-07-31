@@ -3368,106 +3368,103 @@ export async function buildServer(options: BuildServerOptions = {}) {
     }
   );
 
-  app.get<{ Params: { roomId: string }; Querystring: { token?: string } }>(
-    "/rooms/:roomId/whiteboard",
-    { websocket: true },
-    (socket, request) => {
-      const roomId = request.params.roomId;
-      const rejectConnection = (
-        code:
-          | "origin_not_allowed"
-          | "room_ended"
-          | "room_full"
-          | "invalid_token"
-          | "forbidden",
-        message: string
-      ) => {
-        socket.send(
-          JSON.stringify(whiteboardErrorMessage(roomId, code, message, false))
-        );
-        socket.close(1008, code);
-      };
+  app.get<{
+    Params: { roomId: string };
+    Querystring: { token?: string; mode?: string };
+  }>("/rooms/:roomId/whiteboard", { websocket: true }, (socket, request) => {
+    const roomId = request.params.roomId;
+    const rejectConnection = (
+      code:
+        | "origin_not_allowed"
+        | "room_ended"
+        | "room_full"
+        | "invalid_token"
+        | "forbidden",
+      message: string
+    ) => {
+      socket.send(
+        JSON.stringify(whiteboardErrorMessage(roomId, code, message, false))
+      );
+      socket.close(1008, code);
+    };
 
-      if (!hasAllowedOrigin(config, request.headers.origin)) {
-        rejectConnection(
-          "origin_not_allowed",
-          "This origin cannot open a whiteboard session."
-        );
-        return;
-      }
-      if (!aliveRooms.has(roomId)) {
-        rejectConnection("room_ended", "This live room has ended.");
-        return;
-      }
-      const currentCount = socketCounts.get(roomId) ?? 0;
-      if (currentCount >= config.maxSocketsPerRoom) {
-        rejectConnection("room_full", "This room has too many open sockets.");
-        return;
-      }
-      const participant = request.query.token
-        ? store.getParticipantByToken(roomId, request.query.token)
-        : undefined;
-      if (!participant) {
-        rejectConnection(
-          "invalid_token",
-          "A valid participant token is required."
-        );
-        return;
-      }
-      if (!HUMAN_ROLES.includes(participant.role)) {
-        rejectConnection(
-          "forbidden",
-          "Agents cannot open a whiteboard session."
-        );
-        return;
-      }
-
-      socketCounts.set(roomId, currentCount + 1);
-      const forgetWhiteboard = whiteboards.connect({
-        roomId,
-        participantId: participant.id,
-        displayName: participant.display_name,
-        role: participant.role as WhiteboardHumanRole,
-        resolveRole: () => {
-          const current = request.query.token
-            ? store.getParticipantByToken(roomId, request.query.token)
-            : undefined;
-          return current && HUMAN_ROLES.includes(current.role)
-            ? (current.role as WhiteboardHumanRole)
-            : undefined;
-        },
-        socket,
-      });
-      const forgetSocket = rememberSocket(roomId, participant.id, socket);
-      clearPendingOffline(roomId, participant.id);
-      socket.on("close", () => {
-        forgetWhiteboard();
-        forgetSocket();
-        if (isClosing || !aliveRooms.has(roomId)) {
-          socketCounts.delete(roomId);
-          return;
-        }
-        socketCounts.set(
-          roomId,
-          Math.max(0, (socketCounts.get(roomId) ?? 1) - 1)
-        );
-        const key = socketKey(roomId, participant.id);
-        if (pendingOffline.has(key)) clearTimeout(pendingOffline.get(key));
-        pendingOffline.set(
-          key,
-          setTimeout(() => {
-            pendingOffline.delete(key);
-            void autoRemoveParticipant(roomId, participant).catch((error) => {
-              app.log.error(
-                { error, roomId, participantId: participant.id },
-                "automatic participant cleanup failed"
-              );
-            });
-          }, REMOVAL_GRACE_MS)
-        );
-      });
+    if (!hasAllowedOrigin(config, request.headers.origin)) {
+      rejectConnection(
+        "origin_not_allowed",
+        "This origin cannot open a whiteboard session."
+      );
+      return;
     }
-  );
+    if (!aliveRooms.has(roomId)) {
+      rejectConnection("room_ended", "This live room has ended.");
+      return;
+    }
+    const currentCount = socketCounts.get(roomId) ?? 0;
+    if (currentCount >= config.maxSocketsPerRoom) {
+      rejectConnection("room_full", "This room has too many open sockets.");
+      return;
+    }
+    const participant = request.query.token
+      ? store.getParticipantByToken(roomId, request.query.token)
+      : undefined;
+    if (!participant) {
+      rejectConnection(
+        "invalid_token",
+        "A valid participant token is required."
+      );
+      return;
+    }
+    if (!HUMAN_ROLES.includes(participant.role)) {
+      rejectConnection("forbidden", "Agents cannot open a whiteboard session.");
+      return;
+    }
+
+    socketCounts.set(roomId, currentCount + 1);
+    const forgetWhiteboard = whiteboards.connect({
+      roomId,
+      participantId: participant.id,
+      displayName: participant.display_name,
+      role: participant.role as WhiteboardHumanRole,
+      resolveRole: () => {
+        const current = request.query.token
+          ? store.getParticipantByToken(roomId, request.query.token)
+          : undefined;
+        return current && HUMAN_ROLES.includes(current.role)
+          ? (current.role as WhiteboardHumanRole)
+          : undefined;
+      },
+      socket,
+      observeOnly: request.query.mode === "observe",
+    });
+    const forgetSocket = rememberSocket(roomId, participant.id, socket);
+    clearPendingOffline(roomId, participant.id);
+    socket.on("close", () => {
+      forgetWhiteboard();
+      forgetSocket();
+      if (isClosing || !aliveRooms.has(roomId)) {
+        socketCounts.delete(roomId);
+        return;
+      }
+      socketCounts.set(
+        roomId,
+        Math.max(0, (socketCounts.get(roomId) ?? 1) - 1)
+      );
+      const key = socketKey(roomId, participant.id);
+      if (pendingOffline.has(key)) clearTimeout(pendingOffline.get(key));
+      pendingOffline.set(
+        key,
+        setTimeout(() => {
+          pendingOffline.delete(key);
+          void autoRemoveParticipant(roomId, participant).catch((error) => {
+            app.log.error(
+              { error, roomId, participantId: participant.id },
+              "automatic participant cleanup failed"
+            );
+          });
+        }, REMOVAL_GRACE_MS)
+      );
+    });
+  });
 
   app.get<{ Params: { roomId: string }; Querystring: { token?: string } }>(
     "/rooms/:roomId/stream",

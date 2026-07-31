@@ -190,6 +190,82 @@ describe("WhiteboardSession", () => {
     }
   });
 
+  it("uses a compact observe-only stream and stops retrying when the room is full", () => {
+    vi.useFakeTimers();
+    try {
+      const sockets: FakeSocket[] = [];
+      const urls: string[] = [];
+      const editor = createEditor();
+      const activities: string[] = [];
+      const statuses: string[] = [];
+      const session = createWhiteboardSession({
+        identity: {
+          roomId: "room_observe",
+          participantId: "user_1",
+          token: "owner-token",
+          role: "owner",
+        },
+        editor: editor.editor,
+        socketFactory: (url) => {
+          urls.push(url);
+          const socket = new FakeSocket();
+          sockets.push(socket);
+          return socket;
+        },
+        origin: "http://localhost:5173",
+        observeOnly: true,
+        presenceEnabled: false,
+        reconnectDelayMs: 10,
+      });
+      session.subscribeActivity((activity) => activities.push(activity.kind));
+      session.subscribeStatus((status) => statuses.push(status));
+
+      expect(new URL(urls[0]!).searchParams.get("mode")).toBe("observe");
+      sockets[0]!.open();
+      sockets[0]!.receive(
+        serverMessage("room_observe", {
+          type: "whiteboard.connected",
+          participant_id: "user_1",
+          role: "owner",
+          can_edit: true,
+          observe_only: true,
+        })
+      );
+      sockets[0]!.receive(
+        serverMessage("room_observe", {
+          type: "whiteboard.presence.snapshot",
+          collaborators: [],
+        })
+      );
+      expect(statuses.at(-1)).toBe("connected");
+      sockets[0]!.receive(
+        serverMessage("room_observe", {
+          type: "whiteboard.scene.activity",
+          participant_id: "user_2",
+          revision: 1,
+        })
+      );
+      expect(activities).toEqual(["scene"]);
+      expect(editor.updateScene).not.toHaveBeenCalled();
+
+      sockets[0]!.receive(
+        serverMessage("room_observe", {
+          type: "whiteboard.error",
+          code: "room_full",
+          message: "This room has too many open sockets.",
+          recoverable: false,
+        })
+      );
+      sockets[0]!.serverClose(1008);
+      vi.advanceTimersByTime(100);
+      expect(statuses.at(-1)).toBe("forbidden");
+      expect(sockets).toHaveLength(1);
+      session.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("throttles ephemeral presence, renders collaborators, and follows their viewport", () => {
     vi.useFakeTimers();
     try {

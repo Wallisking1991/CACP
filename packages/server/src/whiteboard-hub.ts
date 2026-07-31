@@ -20,8 +20,10 @@ interface WhiteboardConnection {
   color: WhiteboardCollaborator["color"];
   resolveRole: () => WhiteboardHumanRole | undefined;
   socket: WhiteboardSocket;
+  observeOnly: boolean;
   active: boolean;
   lastSeenAt: number;
+  lastCanEdit?: boolean;
   presence?: Pick<
     WhiteboardClientPresenceMessage,
     "cursor" | "selected_element_ids" | "viewport"
@@ -42,6 +44,7 @@ export interface WhiteboardConnectInput {
   role: WhiteboardHumanRole;
   resolveRole: () => WhiteboardHumanRole | undefined;
   socket: WhiteboardSocket;
+  observeOnly?: boolean;
 }
 
 export interface WhiteboardSessionHub {
@@ -156,8 +159,7 @@ export function createWhiteboardSessionHub(
   function sendPresenceUpdated(
     roomId: string,
     state: WhiteboardRoomState,
-    connection: WhiteboardConnection,
-    except?: WhiteboardConnection
+    connection: WhiteboardConnection
   ) {
     const message = JSON.stringify({
       protocol: WhiteboardProtocolName,
@@ -167,7 +169,7 @@ export function createWhiteboardSessionHub(
       collaborator: collaboratorFor(connection),
     });
     for (const peer of state.connections) {
-      if (peer !== except) peer.socket.send(message);
+      peer.socket.send(message);
     }
   }
 
@@ -228,6 +230,7 @@ export function createWhiteboardSessionHub(
       color: stableCollaboratorColor(input.participantId),
       resolveRole: input.resolveRole,
       socket: input.socket,
+      observeOnly: input.observeOnly ?? false,
       active: false,
       lastSeenAt: Date.now(),
     };
@@ -245,17 +248,20 @@ export function createWhiteboardSessionHub(
         participant_id: input.participantId,
         role: input.role,
         can_edit: input.role !== "observer",
+        observe_only: connection.observeOnly,
         presence_heartbeat_ms: options.presenceHeartbeatMs,
       })
     );
-    input.socket.send(
-      JSON.stringify({
-        ...base,
-        type: "whiteboard.scene",
-        revision: state.revision,
-        scene: state.scene,
-      })
-    );
+    if (!connection.observeOnly) {
+      input.socket.send(
+        JSON.stringify({
+          ...base,
+          type: "whiteboard.scene",
+          revision: state.revision,
+          scene: state.scene,
+        })
+      );
+    }
     input.socket.send(
       JSON.stringify({
         ...base,
@@ -332,6 +338,7 @@ export function createWhiteboardSessionHub(
           return;
         }
         const now = Date.now();
+        const canEdit = connection.resolveRole() !== "observer";
         const wasActive = connection.active;
         const nextPresence = {
           cursor: message.cursor,
@@ -340,8 +347,15 @@ export function createWhiteboardSessionHub(
         };
         const presenceChanged =
           JSON.stringify(connection.presence) !== JSON.stringify(nextPresence);
-        if (wasActive && !presenceChanged) {
+        const metadataChanged = wasActive && connection.lastCanEdit !== canEdit;
+        if (wasActive && !presenceChanged && !metadataChanged) {
           connection.lastSeenAt = now;
+          return;
+        }
+        if (wasActive && !presenceChanged && metadataChanged) {
+          connection.lastCanEdit = canEdit;
+          connection.lastSeenAt = now;
+          sendPresenceUpdated(input.roomId, state, connection);
           return;
         }
         const rateWindow = state.presenceRateWindows.get(
@@ -367,13 +381,28 @@ export function createWhiteboardSessionHub(
         }
         currentWindow.updates += 1;
         connection.active = true;
+        connection.lastCanEdit = canEdit;
         connection.lastSeenAt = now;
         connection.presence = nextPresence;
-        sendPresenceUpdated(input.roomId, state, connection, connection);
+        sendPresenceUpdated(input.roomId, state, connection);
         return;
       }
 
       const update = message;
+      if (connection.observeOnly) {
+        input.socket.send(
+          JSON.stringify(
+            whiteboardErrorMessage(
+              input.roomId,
+              "forbidden",
+              "This connection only observes whiteboard activity.",
+              false,
+              { updateId: update.update_id }
+            )
+          )
+        );
+        return;
+      }
       const currentRole = connection.resolveRole();
       if (!currentRole || currentRole === "observer") {
         input.socket.send(
@@ -429,8 +458,16 @@ export function createWhiteboardSessionHub(
         elements: state.scene.elements,
         app_state: state.scene.app_state,
       });
+      const activity = JSON.stringify({
+        ...base,
+        type: "whiteboard.scene.activity",
+        participant_id: input.participantId,
+        revision: state.revision,
+      });
       for (const peer of state.connections) {
-        if (peer !== connection) peer.socket.send(broadcast);
+        if (peer !== connection) {
+          peer.socket.send(peer.observeOnly ? activity : broadcast);
+        }
       }
     });
 
