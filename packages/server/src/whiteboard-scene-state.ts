@@ -140,7 +140,10 @@ function attachmentCount(elements: readonly WhiteboardElement[]) {
 export function createWhiteboardSceneState(
   options: WhiteboardSceneStateOptions = {}
 ) {
-  const maxElements = options.maxElements ?? WhiteboardMaxElements;
+  const maxElements = Math.min(
+    options.maxElements ?? WhiteboardMaxElements,
+    WhiteboardMaxElements
+  );
   const maxAttachments = options.maxAttachments ?? WhiteboardMaxAttachments;
   const maxSceneBytes = options.maxSceneBytes ?? DEFAULT_MAX_SCENE_BYTES;
   const updateLimit = options.updateLimit ?? DEFAULT_UPDATE_LIMIT;

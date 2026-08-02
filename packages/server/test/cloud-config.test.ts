@@ -30,6 +30,17 @@ describe("server cloud config", () => {
     );
   });
 
+  it("caps whiteboard elements at the wire limit and configures envelope rate", () => {
+    const config = loadServerConfig({
+      CACP_WHITEBOARD_MAX_ELEMENTS: "50000",
+      CACP_WHITEBOARD_INBOUND_MESSAGE_LIMIT: "12",
+      CACP_WHITEBOARD_INBOUND_MESSAGE_WINDOW_MS: "250",
+    });
+    expect(config.whiteboardMaxElements).toBe(10_000);
+    expect(config.whiteboardInboundMessageLimit).toBe(12);
+    expect(config.whiteboardInboundMessageWindowMs).toBe(250);
+  });
+
   it("forces local launch off in cloud mode", () => {
     const config = loadServerConfig({
       CACP_DEPLOYMENT_MODE: "cloud",

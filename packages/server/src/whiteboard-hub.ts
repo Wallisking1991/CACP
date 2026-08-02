@@ -39,6 +39,10 @@ interface WhiteboardRoomState {
   handoffParticipants: Set<string>;
   presenceSequence: number;
   presenceRateWindows: Map<string, { startedAt: number; updates: number }>;
+  inboundMessageRateWindows: Map<
+    string,
+    { startedAt: number; updates: number }
+  >;
   ended: boolean;
 }
 
@@ -76,6 +80,8 @@ interface WhiteboardHubOptions {
   presenceWindowMs: number;
   sceneUpdateLimit: number;
   sceneWindowMs: number;
+  inboundMessageLimit: number;
+  inboundMessageWindowMs: number;
   maxElements: number;
   maxAttachments: number;
   maxSceneBytes: number;
@@ -254,6 +260,7 @@ export function createWhiteboardSessionHub(
       handoffParticipants: new Set(),
       presenceSequence: 0,
       presenceRateWindows: new Map(),
+      inboundMessageRateWindows: new Map(),
       ended: false,
     };
     rooms.set(roomId, created);
@@ -344,6 +351,32 @@ export function createWhiteboardSessionHub(
         );
         return;
       }
+      const now = Date.now();
+      const previousEnvelope = state.inboundMessageRateWindows.get(
+        input.participantId
+      );
+      const envelope =
+        !previousEnvelope ||
+        now - previousEnvelope.startedAt >= options.inboundMessageWindowMs
+          ? { startedAt: now, updates: 0 }
+          : previousEnvelope;
+      state.inboundMessageRateWindows.set(input.participantId, envelope);
+      if (envelope.updates >= options.inboundMessageLimit) {
+        const snapshot = state.sceneState.snapshot();
+        input.socket.send(
+          JSON.stringify(
+            whiteboardErrorMessage(
+              input.roomId,
+              "rate_limited",
+              "Whiteboard messages are arriving too quickly.",
+              true,
+              { currentRevision: snapshot.revision }
+            )
+          )
+        );
+        return;
+      }
+      envelope.updates += 1;
       const text = messageText(data);
       if (
         text === undefined ||

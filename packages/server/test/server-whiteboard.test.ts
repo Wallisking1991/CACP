@@ -810,6 +810,46 @@ describe("collaborative whiteboard stream", () => {
     });
   });
 
+  it("rate-limits inbound envelopes before parsing repeated malformed data", async () => {
+    app = await buildServer({
+      dbPath: ":memory:",
+      config: localTestConfig({
+        whiteboardInboundMessageLimit: 1,
+        whiteboardInboundMessageWindowMs: 1_000,
+      }),
+    });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const room = (
+      await app.inject({
+        method: "POST",
+        url: "/rooms",
+        payload: { name: "Envelope limited board", display_name: "Owner" },
+      })
+    ).json() as { room_id: string; owner_token: string };
+    const socket = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/whiteboard` +
+        `?token=${encodeURIComponent(room.owner_token)}`
+    );
+    sockets.push(socket);
+    const inbox = createInbox(socket);
+    await waitForOpen(socket);
+    await inbox.next("whiteboard.connected");
+    await inbox.next("whiteboard.scene");
+    await inbox.next("whiteboard.presence.snapshot");
+
+    socket.send("{");
+    await expect(inbox.next("whiteboard.error")).resolves.toMatchObject({
+      code: "invalid_message",
+      recoverable: true,
+    });
+    socket.send('{"deeply":"malformed"');
+    await expect(inbox.next("whiteboard.error")).resolves.toMatchObject({
+      code: "rate_limited",
+      current_revision: 0,
+      recoverable: true,
+    });
+  });
+
   it("broadcasts live presence and removes it on disconnect or heartbeat expiry", async () => {
     app = await buildServer({
       dbPath: ":memory:",

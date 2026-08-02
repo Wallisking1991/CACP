@@ -858,6 +858,8 @@ export async function buildServer(options: BuildServerOptions = {}) {
     presenceWindowMs: config.whiteboardPresenceWindowMs,
     sceneUpdateLimit: config.whiteboardSceneUpdateLimit,
     sceneWindowMs: config.whiteboardSceneWindowMs,
+    inboundMessageLimit: config.whiteboardInboundMessageLimit,
+    inboundMessageWindowMs: config.whiteboardInboundMessageWindowMs,
     maxElements: config.whiteboardMaxElements,
     maxAttachments: config.whiteboardMaxAttachments,
     maxSceneBytes: config.whiteboardMaxSceneBytes,

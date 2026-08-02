@@ -1,3 +1,5 @@
+import { WhiteboardMaxElements } from "@cacp/protocol";
+
 export type DeploymentMode = "local" | "cloud";
 
 export interface ServerConfig {
@@ -30,6 +32,8 @@ export interface ServerConfig {
   whiteboardPresenceWindowMs: number;
   whiteboardSceneUpdateLimit: number;
   whiteboardSceneWindowMs: number;
+  whiteboardInboundMessageLimit: number;
+  whiteboardInboundMessageWindowMs: number;
   whiteboardMaxElements: number;
   whiteboardMaxAttachments: number;
   whiteboardMaxSceneBytes: number;
@@ -141,7 +145,18 @@ export function loadServerConfig(
       env.CACP_WHITEBOARD_SCENE_WINDOW_MS,
       1_000
     ),
-    whiteboardMaxElements: intValue(env.CACP_WHITEBOARD_MAX_ELEMENTS, 10_000),
+    whiteboardInboundMessageLimit: intValue(
+      env.CACP_WHITEBOARD_INBOUND_MESSAGE_LIMIT,
+      60
+    ),
+    whiteboardInboundMessageWindowMs: intValue(
+      env.CACP_WHITEBOARD_INBOUND_MESSAGE_WINDOW_MS,
+      1_000
+    ),
+    whiteboardMaxElements: Math.min(
+      intValue(env.CACP_WHITEBOARD_MAX_ELEMENTS, WhiteboardMaxElements),
+      WhiteboardMaxElements
+    ),
     whiteboardMaxAttachments: intValue(
       env.CACP_WHITEBOARD_MAX_ATTACHMENTS,
       100
