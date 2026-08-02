@@ -850,6 +850,65 @@ describe("collaborative whiteboard stream", () => {
     });
   });
 
+  it("acknowledges an exact accepted replay before the envelope rate limit", async () => {
+    app = await buildServer({
+      dbPath: ":memory:",
+      config: localTestConfig({
+        whiteboardInboundMessageLimit: 1,
+        whiteboardInboundMessageWindowMs: 1_000,
+      }),
+    });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const room = (
+      await app.inject({
+        method: "POST",
+        url: "/rooms",
+        payload: { name: "Idempotent limited board", display_name: "Owner" },
+      })
+    ).json() as { room_id: string; owner_token: string };
+    const socket = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/whiteboard` +
+        `?token=${encodeURIComponent(room.owner_token)}`
+    );
+    sockets.push(socket);
+    const inbox = createInbox(socket);
+    await waitForOpen(socket);
+    await inbox.next("whiteboard.connected");
+    await inbox.next("whiteboard.scene");
+    await inbox.next("whiteboard.presence.snapshot");
+
+    const frame = JSON.stringify({
+      protocol: "cacp-whiteboard",
+      version: "1.0.0",
+      room_id: room.room_id,
+      type: "whiteboard.elements.update",
+      update_id: "accepted-before-envelope-limit",
+      base_revision: 0,
+      elements: [
+        {
+          id: "shape-1",
+          type: "rectangle",
+          version: 1,
+          versionNonce: 901,
+        },
+      ],
+      app_state: {},
+    });
+    socket.send(frame);
+    await inbox.next("whiteboard.elements.updated");
+    await expect(inbox.next("whiteboard.ack")).resolves.toMatchObject({
+      update_id: "accepted-before-envelope-limit",
+      revision: 1,
+    });
+
+    socket.send(frame);
+    await expect(inbox.next("whiteboard.ack")).resolves.toMatchObject({
+      update_id: "accepted-before-envelope-limit",
+      revision: 1,
+    });
+    await expect(inbox.none("whiteboard.error")).resolves.toBe(true);
+  });
+
   it("broadcasts live presence and removes it on disconnect or heartbeat expiry", async () => {
     app = await buildServer({
       dbPath: ":memory:",

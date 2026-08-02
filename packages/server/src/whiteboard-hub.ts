@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   WhiteboardClientMessageSchema,
   WhiteboardProtocolName,
@@ -42,6 +43,10 @@ interface WhiteboardRoomState {
   inboundMessageRateWindows: Map<
     string,
     { startedAt: number; updates: number }
+  >;
+  acceptedFrameAcks: Map<
+    string,
+    Map<string, { updateId: string; revision: number }>
   >;
   ended: boolean;
 }
@@ -108,6 +113,10 @@ function messageText(data: unknown): string | undefined {
     return new TextDecoder().decode(new Uint8Array(data));
   }
   return undefined;
+}
+
+function messageFingerprint(text: string): string {
+  return createHash("sha256").update(text).digest("base64url");
 }
 
 function stableCollaboratorColor(
@@ -261,6 +270,7 @@ export function createWhiteboardSessionHub(
       presenceSequence: 0,
       presenceRateWindows: new Map(),
       inboundMessageRateWindows: new Map(),
+      acceptedFrameAcks: new Map(),
       ended: false,
     };
     rooms.set(roomId, created);
@@ -351,6 +361,35 @@ export function createWhiteboardSessionHub(
         );
         return;
       }
+      const text = messageText(data);
+      const validEnvelope =
+        text !== undefined &&
+        new TextEncoder().encode(text).byteLength <= options.maxMessageBytes;
+      const frameFingerprint = validEnvelope
+        ? messageFingerprint(text)
+        : undefined;
+      const acceptedReplay = frameFingerprint
+        ? state.acceptedFrameAcks
+            .get(input.participantId)
+            ?.get(frameFingerprint)
+        : undefined;
+      const replayRole = connection.resolveRole();
+      if (
+        acceptedReplay &&
+        !connection.observeOnly &&
+        replayRole !== undefined &&
+        replayRole !== "observer"
+      ) {
+        input.socket.send(
+          JSON.stringify({
+            ...base,
+            type: "whiteboard.ack",
+            update_id: acceptedReplay.updateId,
+            revision: acceptedReplay.revision,
+          })
+        );
+        return;
+      }
       const now = Date.now();
       const previousEnvelope = state.inboundMessageRateWindows.get(
         input.participantId
@@ -377,11 +416,7 @@ export function createWhiteboardSessionHub(
         return;
       }
       envelope.updates += 1;
-      const text = messageText(data);
-      if (
-        text === undefined ||
-        new TextEncoder().encode(text).byteLength > options.maxMessageBytes
-      ) {
+      if (!validEnvelope || text === undefined) {
         sendInvalidAttempt("The whiteboard message is invalid or too large.");
         return;
       }
@@ -529,6 +564,22 @@ export function createWhiteboardSessionHub(
           )
         );
         return;
+      }
+      if (frameFingerprint && !applied.replayed) {
+        let participantAcks = state.acceptedFrameAcks.get(input.participantId);
+        if (!participantAcks) {
+          participantAcks = new Map();
+          state.acceptedFrameAcks.set(input.participantId, participantAcks);
+        }
+        participantAcks.set(frameFingerprint, {
+          updateId: update.update_id,
+          revision: applied.revision,
+        });
+        while (participantAcks.size > options.deduplicationLimit) {
+          const oldest = participantAcks.keys().next().value;
+          if (oldest === undefined) break;
+          participantAcks.delete(oldest);
+        }
       }
       if (applied.replayed) {
         input.socket.send(
