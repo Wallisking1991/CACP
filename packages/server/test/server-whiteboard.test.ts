@@ -909,6 +909,100 @@ describe("collaborative whiteboard stream", () => {
     await expect(inbox.none("whiteboard.error")).resolves.toBe(true);
   });
 
+  it("evicts replay ACKs with the room-wide authoritative deduplication window", async () => {
+    app = await buildServer({
+      dbPath: ":memory:",
+      config: localTestConfig({
+        whiteboardInboundMessageLimit: 1,
+        whiteboardInboundMessageWindowMs: 1_000,
+        whiteboardDeduplicationLimit: 1,
+      }),
+    });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const room = (
+      await app.inject({
+        method: "POST",
+        url: "/rooms",
+        payload: { name: "Bounded replay board", display_name: "Owner" },
+      })
+    ).json() as { room_id: string; owner_token: string };
+    const member = await joinHuman(
+      app,
+      room.room_id,
+      room.owner_token,
+      "member",
+      "Alice"
+    );
+    const url = `ws://${addressOf(app)}/rooms/${room.room_id}/whiteboard`;
+    const ownerSocket = new WebSocket(
+      `${url}?token=${encodeURIComponent(room.owner_token)}`
+    );
+    const memberSocket = new WebSocket(
+      `${url}?token=${encodeURIComponent(member.participant_token)}`
+    );
+    sockets.push(ownerSocket, memberSocket);
+    const ownerInbox = createInbox(ownerSocket);
+    const memberInbox = createInbox(memberSocket);
+    await Promise.all([waitForOpen(ownerSocket), waitForOpen(memberSocket)]);
+    for (const inbox of [ownerInbox, memberInbox]) {
+      await inbox.next("whiteboard.connected");
+      await inbox.next("whiteboard.scene");
+      await inbox.next("whiteboard.presence.snapshot");
+    }
+
+    const ownerFrame = JSON.stringify({
+      protocol: "cacp-whiteboard",
+      version: "1.0.0",
+      room_id: room.room_id,
+      type: "whiteboard.elements.update",
+      update_id: "owner-evicted",
+      base_revision: 0,
+      elements: [
+        {
+          id: "owner-shape",
+          type: "rectangle",
+          version: 1,
+          versionNonce: 910,
+        },
+      ],
+      app_state: {},
+    });
+    ownerSocket.send(ownerFrame);
+    await ownerInbox.next("whiteboard.elements.updated");
+    await ownerInbox.next("whiteboard.ack");
+    await memberInbox.next("whiteboard.elements.updated");
+
+    memberSocket.send(
+      JSON.stringify({
+        protocol: "cacp-whiteboard",
+        version: "1.0.0",
+        room_id: room.room_id,
+        type: "whiteboard.elements.update",
+        update_id: "member-replaces-owner",
+        base_revision: 1,
+        elements: [
+          {
+            id: "member-shape",
+            type: "ellipse",
+            version: 1,
+            versionNonce: 911,
+          },
+        ],
+        app_state: {},
+      })
+    );
+    await memberInbox.next("whiteboard.elements.updated");
+    await memberInbox.next("whiteboard.ack");
+    await ownerInbox.next("whiteboard.elements.updated");
+
+    ownerSocket.send(ownerFrame);
+    await expect(ownerInbox.next("whiteboard.error")).resolves.toMatchObject({
+      code: "rate_limited",
+      current_revision: 2,
+    });
+    await expect(ownerInbox.none("whiteboard.ack")).resolves.toBe(true);
+  });
+
   it("broadcasts live presence and removes it on disconnect or heartbeat expiry", async () => {
     app = await buildServer({
       dbPath: ":memory:",

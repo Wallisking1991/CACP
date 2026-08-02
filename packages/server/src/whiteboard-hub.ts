@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { Buffer } from "node:buffer";
 import {
   WhiteboardClientMessageSchema,
   WhiteboardProtocolName,
@@ -44,10 +45,8 @@ interface WhiteboardRoomState {
     string,
     { startedAt: number; updates: number }
   >;
-  acceptedFrameAcks: Map<
-    string,
-    Map<string, { updateId: string; revision: number }>
-  >;
+  replayLookupRateWindows: Map<string, { startedAt: number; updates: number }>;
+  acceptedFrameAcks: Map<string, { updateId: string; revision: number }>;
   ended: boolean;
 }
 
@@ -115,8 +114,20 @@ function messageText(data: unknown): string | undefined {
   return undefined;
 }
 
+function messageByteLength(data: unknown): number | undefined {
+  if (typeof data === "string") return Buffer.byteLength(data, "utf8");
+  if (data instanceof Uint8Array || data instanceof ArrayBuffer) {
+    return data.byteLength;
+  }
+  return undefined;
+}
+
 function messageFingerprint(text: string): string {
   return createHash("sha256").update(text).digest("base64url");
+}
+
+function acceptedFrameKey(participantId: string, fingerprint: string): string {
+  return JSON.stringify([participantId, fingerprint]);
 }
 
 function stableCollaboratorColor(
@@ -270,6 +281,7 @@ export function createWhiteboardSessionHub(
       presenceSequence: 0,
       presenceRateWindows: new Map(),
       inboundMessageRateWindows: new Map(),
+      replayLookupRateWindows: new Map(),
       acceptedFrameAcks: new Map(),
       ended: false,
     };
@@ -361,36 +373,10 @@ export function createWhiteboardSessionHub(
         );
         return;
       }
-      const text = messageText(data);
-      const validEnvelope =
-        text !== undefined &&
-        new TextEncoder().encode(text).byteLength <= options.maxMessageBytes;
-      const frameFingerprint = validEnvelope
-        ? messageFingerprint(text)
-        : undefined;
-      const acceptedReplay = frameFingerprint
-        ? state.acceptedFrameAcks
-            .get(input.participantId)
-            ?.get(frameFingerprint)
-        : undefined;
-      const replayRole = connection.resolveRole();
-      if (
-        acceptedReplay &&
-        !connection.observeOnly &&
-        replayRole !== undefined &&
-        replayRole !== "observer"
-      ) {
-        input.socket.send(
-          JSON.stringify({
-            ...base,
-            type: "whiteboard.ack",
-            update_id: acceptedReplay.updateId,
-            revision: acceptedReplay.revision,
-          })
-        );
-        return;
-      }
       const now = Date.now();
+      const byteLength = messageByteLength(data);
+      const validEnvelope =
+        byteLength !== undefined && byteLength <= options.maxMessageBytes;
       const previousEnvelope = state.inboundMessageRateWindows.get(
         input.participantId
       );
@@ -401,6 +387,47 @@ export function createWhiteboardSessionHub(
           : previousEnvelope;
       state.inboundMessageRateWindows.set(input.participantId, envelope);
       if (envelope.updates >= options.inboundMessageLimit) {
+        const previousReplayWindow = state.replayLookupRateWindows.get(
+          input.participantId
+        );
+        const replayWindow =
+          !previousReplayWindow ||
+          now - previousReplayWindow.startedAt >= options.inboundMessageWindowMs
+            ? { startedAt: now, updates: 0 }
+            : previousReplayWindow;
+        state.replayLookupRateWindows.set(input.participantId, replayWindow);
+        if (
+          validEnvelope &&
+          replayWindow.updates < options.inboundMessageLimit
+        ) {
+          replayWindow.updates += 1;
+          const replayText = messageText(data);
+          const replayFingerprint = replayText
+            ? messageFingerprint(replayText)
+            : undefined;
+          const acceptedReplay = replayFingerprint
+            ? state.acceptedFrameAcks.get(
+                acceptedFrameKey(input.participantId, replayFingerprint)
+              )
+            : undefined;
+          const replayRole = connection.resolveRole();
+          if (
+            acceptedReplay &&
+            !connection.observeOnly &&
+            replayRole !== undefined &&
+            replayRole !== "observer"
+          ) {
+            input.socket.send(
+              JSON.stringify({
+                ...base,
+                type: "whiteboard.ack",
+                update_id: acceptedReplay.updateId,
+                revision: acceptedReplay.revision,
+              })
+            );
+            return;
+          }
+        }
         const snapshot = state.sceneState.snapshot();
         input.socket.send(
           JSON.stringify(
@@ -416,7 +443,12 @@ export function createWhiteboardSessionHub(
         return;
       }
       envelope.updates += 1;
-      if (!validEnvelope || text === undefined) {
+      if (!validEnvelope) {
+        sendInvalidAttempt("The whiteboard message is invalid or too large.");
+        return;
+      }
+      const text = messageText(data);
+      if (text === undefined) {
         sendInvalidAttempt("The whiteboard message is invalid or too large.");
         return;
       }
@@ -565,20 +597,18 @@ export function createWhiteboardSessionHub(
         );
         return;
       }
-      if (frameFingerprint && !applied.replayed) {
-        let participantAcks = state.acceptedFrameAcks.get(input.participantId);
-        if (!participantAcks) {
-          participantAcks = new Map();
-          state.acceptedFrameAcks.set(input.participantId, participantAcks);
-        }
-        participantAcks.set(frameFingerprint, {
-          updateId: update.update_id,
-          revision: applied.revision,
-        });
-        while (participantAcks.size > options.deduplicationLimit) {
-          const oldest = participantAcks.keys().next().value;
+      if (!applied.replayed) {
+        state.acceptedFrameAcks.set(
+          acceptedFrameKey(input.participantId, messageFingerprint(text)),
+          {
+            updateId: update.update_id,
+            revision: applied.revision,
+          }
+        );
+        while (state.acceptedFrameAcks.size > options.deduplicationLimit) {
+          const oldest = state.acceptedFrameAcks.keys().next().value;
           if (oldest === undefined) break;
-          participantAcks.delete(oldest);
+          state.acceptedFrameAcks.delete(oldest);
         }
       }
       if (applied.replayed) {
