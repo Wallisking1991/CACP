@@ -1,3 +1,5 @@
+import { Buffer } from "node:buffer";
+import { gzipSync, gunzipSync } from "node:zlib";
 import {
   WhiteboardMaxAttachments,
   WhiteboardMaxElements,
@@ -5,6 +7,7 @@ import {
   type WhiteboardElement,
   type WhiteboardErrorCode,
   type WhiteboardScene,
+  type WhiteboardSnapshot,
 } from "@cacp/protocol";
 
 const DEFAULT_UPDATE_LIMIT = 20;
@@ -12,6 +15,9 @@ const DEFAULT_UPDATE_WINDOW_MS = 1_000;
 const DEFAULT_DEDUPLICATION_LIMIT = 2_000;
 const DEFAULT_MAX_SCENE_BYTES = 4 * 1024 * 1024;
 const MAX_STRUCTURED_DEPTH = 32;
+const DEFAULT_SNAPSHOT_CADENCE_MS = 30_000;
+const DEFAULT_SNAPSHOT_COUNT = 20;
+const DEFAULT_SNAPSHOT_BYTES = 8 * 1024 * 1024;
 
 export interface WhiteboardSceneStateOptions {
   maxElements?: number;
@@ -20,11 +26,37 @@ export interface WhiteboardSceneStateOptions {
   updateLimit?: number;
   updateWindowMs?: number;
   deduplicationLimit?: number;
+  snapshotCadenceMs?: number;
+  maxSnapshotCount?: number;
+  maxSnapshotBytes?: number;
   commitScene?: (
     scene: WhiteboardScene,
     participantId: string
   ) => string | undefined;
+  commitSnapshotAttachments?: (
+    attachmentIds: string[],
+    participantId: string
+  ) => string | undefined;
 }
+
+export type WhiteboardSceneMutationResult =
+  | {
+      kind: "accepted";
+      revision: number;
+      previousRevision: number;
+      targetRevision?: number;
+      scene: WhiteboardScene;
+    }
+  | {
+      kind: "rejected";
+      code:
+        | "stale_revision"
+        | "snapshot_not_found"
+        | "snapshot_unavailable"
+        | "invalid_message";
+      message: string;
+      currentRevision: number;
+    };
 
 export type WhiteboardSceneApplyResult =
   | {
@@ -46,6 +78,12 @@ export type WhiteboardSceneApplyResult =
 interface DeduplicationRecord {
   fingerprint: string;
   revision: number;
+}
+
+interface StoredWhiteboardSnapshot {
+  metadata: WhiteboardSnapshot;
+  compressedScene: Buffer;
+  attachmentIds: string[];
 }
 
 function stableSerialize(value: unknown): string {
@@ -160,8 +198,21 @@ export function createWhiteboardSceneState(
   const updateWindowMs = options.updateWindowMs ?? DEFAULT_UPDATE_WINDOW_MS;
   const deduplicationLimit =
     options.deduplicationLimit ?? DEFAULT_DEDUPLICATION_LIMIT;
+  const snapshotCadenceMs =
+    options.snapshotCadenceMs ?? DEFAULT_SNAPSHOT_CADENCE_MS;
+  const maxSnapshotCount = Math.max(
+    1,
+    options.maxSnapshotCount ?? DEFAULT_SNAPSHOT_COUNT
+  );
+  const maxSnapshotBytes = Math.max(
+    1,
+    options.maxSnapshotBytes ?? DEFAULT_SNAPSHOT_BYTES
+  );
   let revision = 0;
   let scene: WhiteboardScene = { elements: [], app_state: {} };
+  let snapshotSequence = 0;
+  let lastAutomaticSnapshotAt: number | undefined;
+  let snapshots: StoredWhiteboardSnapshot[] = [];
   const deduplicationRecords = new Map<string, DeduplicationRecord>();
   const rateWindows = new Map<string, { startedAt: number; updates: number }>();
 
@@ -195,9 +246,190 @@ export function createWhiteboardSceneState(
     return undefined;
   }
 
+  function snapshotAttachmentIds(): string[] {
+    const ids = new Set<string>();
+    for (const snapshot of snapshots) {
+      for (const attachmentId of snapshot.attachmentIds) ids.add(attachmentId);
+    }
+    return [...ids];
+  }
+
+  function captureSnapshot(
+    reason: WhiteboardSnapshot["reason"],
+    participantId: string,
+    now: number,
+    protectedAttachmentIds: readonly string[] = []
+  ): boolean {
+    const compressedScene = gzipSync(Buffer.from(stableSerialize(scene)));
+    if (compressedScene.byteLength > maxSnapshotBytes) return false;
+    const previousSnapshots = snapshots;
+    const next: StoredWhiteboardSnapshot = {
+      metadata: {
+        snapshot_id: `snapshot_${++snapshotSequence}`,
+        revision,
+        created_at: new Date(now).toISOString(),
+        reason,
+        element_count: scene.elements.filter(
+          (element) => element.isDeleted !== true
+        ).length,
+        compressed_bytes: compressedScene.byteLength,
+      },
+      compressedScene,
+      attachmentIds: whiteboardAttachmentIds(scene.elements),
+    };
+    snapshots = [...snapshots, next];
+    let totalBytes = snapshots.reduce(
+      (total, snapshot) => total + snapshot.compressedScene.byteLength,
+      0
+    );
+    while (
+      snapshots.length > maxSnapshotCount ||
+      totalBytes > maxSnapshotBytes
+    ) {
+      const removed = snapshots.shift();
+      if (!removed) break;
+      totalBytes -= removed.compressedScene.byteLength;
+    }
+    try {
+      const rejection = options.commitSnapshotAttachments?.(
+        [...new Set([...snapshotAttachmentIds(), ...protectedAttachmentIds])],
+        participantId
+      );
+      if (rejection) throw new Error(rejection);
+    } catch {
+      snapshots = previousSnapshots;
+      snapshotSequence -= 1;
+      try {
+        options.commitSnapshotAttachments?.(
+          snapshotAttachmentIds(),
+          participantId
+        );
+      } catch {
+        // The authoritative scene remains valid even if recovery retention fails.
+      }
+      return false;
+    }
+    if (reason === "automatic") lastAutomaticSnapshotAt = now;
+    return true;
+  }
+
+  function mutationRejection(
+    code: Extract<WhiteboardSceneMutationResult, { kind: "rejected" }>["code"],
+    message: string
+  ): WhiteboardSceneMutationResult {
+    return { kind: "rejected", code, message, currentRevision: revision };
+  }
+
+  function commitMutation(
+    participantId: string,
+    nextScene: WhiteboardScene,
+    expectedRevision: number,
+    now: number,
+    targetRevision?: number
+  ): WhiteboardSceneMutationResult {
+    if (expectedRevision !== revision) {
+      return mutationRejection(
+        "stale_revision",
+        "The whiteboard changed after this operation was confirmed."
+      );
+    }
+    const protectedAttachmentIds = whiteboardAttachmentIds(nextScene.elements);
+    if (
+      !captureSnapshot(
+        "pre_operation",
+        participantId,
+        now,
+        protectedAttachmentIds
+      )
+    ) {
+      return mutationRejection(
+        "snapshot_unavailable",
+        "The current whiteboard could not be retained within the recovery budget."
+      );
+    }
+    try {
+      const commitRejection = options.commitScene?.(nextScene, participantId);
+      if (commitRejection) {
+        return mutationRejection("invalid_message", commitRejection);
+      }
+    } catch {
+      return mutationRejection(
+        "invalid_message",
+        "The whiteboard scene references could not be committed."
+      );
+    }
+    const previousRevision = revision;
+    revision += 1;
+    scene = nextScene;
+    try {
+      options.commitSnapshotAttachments?.(
+        snapshotAttachmentIds(),
+        participantId
+      );
+    } catch {
+      // Extra recovery references are safe and are retried on the next capture.
+    }
+    deduplicationRecords.clear();
+    rateWindows.clear();
+    return {
+      kind: "accepted",
+      revision,
+      previousRevision,
+      ...(targetRevision !== undefined ? { targetRevision } : {}),
+      scene,
+    };
+  }
+
   return {
     snapshot() {
       return { revision, scene };
+    },
+    listSnapshots(): WhiteboardSnapshot[] {
+      return snapshots.map((snapshot) => snapshot.metadata).reverse();
+    },
+    clear(
+      participantId: string,
+      expectedRevision: number,
+      now = Date.now()
+    ): WhiteboardSceneMutationResult {
+      return commitMutation(
+        participantId,
+        { elements: [], app_state: {} },
+        expectedRevision,
+        now
+      );
+    },
+    restore(
+      participantId: string,
+      snapshotId: string,
+      expectedRevision: number,
+      now = Date.now()
+    ): WhiteboardSceneMutationResult {
+      if (expectedRevision !== revision) {
+        return mutationRejection(
+          "stale_revision",
+          "The whiteboard changed after this operation was confirmed."
+        );
+      }
+      const target = snapshots.find(
+        (snapshot) => snapshot.metadata.snapshot_id === snapshotId
+      );
+      if (!target) {
+        return mutationRejection(
+          "snapshot_not_found",
+          "This temporary whiteboard snapshot is no longer available."
+        );
+      }
+      const restoredScene = JSON.parse(
+        gunzipSync(target.compressedScene).toString("utf8")
+      ) as WhiteboardScene;
+      return commitMutation(
+        participantId,
+        restoredScene,
+        expectedRevision,
+        now,
+        target.metadata.revision
+      );
     },
     consumeInvalidAttempt(participantId: string, now = Date.now()) {
       return consumeRateAttempt(participantId, now);
@@ -263,6 +495,7 @@ export function createWhiteboardSceneState(
         );
       }
 
+      const previousSceneFingerprint = stableSerialize(scene);
       const elements = reconcileWhiteboardElements(
         scene.elements,
         update.elements
@@ -308,6 +541,14 @@ export function createWhiteboardSceneState(
       if (deduplicationRecords.size > deduplicationLimit) {
         const oldestKey = deduplicationRecords.keys().next().value;
         if (oldestKey !== undefined) deduplicationRecords.delete(oldestKey);
+      }
+
+      if (
+        stableSerialize(scene) !== previousSceneFingerprint &&
+        (lastAutomaticSnapshotAt === undefined ||
+          now - lastAutomaticSnapshotAt >= snapshotCadenceMs)
+      ) {
+        captureSnapshot("automatic", participantId, now);
       }
 
       return { kind: "accepted", replayed: false, revision, scene };

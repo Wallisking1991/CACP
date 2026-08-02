@@ -38,6 +38,9 @@ export function localTestConfig(
     whiteboardMaxAttachments: 100,
     whiteboardMaxSceneBytes: 4 * 1024 * 1024,
     whiteboardDeduplicationLimit: 2_000,
+    whiteboardSnapshotCadenceMs: 30_000,
+    whiteboardSnapshotMaxCount: 20,
+    whiteboardSnapshotMaxBytes: 8 * 1024 * 1024,
     ...overrides,
   };
 }
@@ -81,6 +84,9 @@ export function cloudTestConfig(
     whiteboardMaxAttachments: 100,
     whiteboardMaxSceneBytes: 4 * 1024 * 1024,
     whiteboardDeduplicationLimit: 2_000,
+    whiteboardSnapshotCadenceMs: 30_000,
+    whiteboardSnapshotMaxCount: 20,
+    whiteboardSnapshotMaxBytes: 8 * 1024 * 1024,
     ...overrides,
   };
 }

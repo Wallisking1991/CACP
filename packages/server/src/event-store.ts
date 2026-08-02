@@ -773,7 +773,8 @@ export class EventStore {
   replaceWhiteboardAttachmentReferences(
     roomId: string,
     attachmentIds: string[],
-    actor: { participantId: string; isOwner: boolean }
+    actor: { participantId: string; isOwner: boolean },
+    referenceId = "scene"
   ): { orphaned: StoredAttachment[] } {
     const desiredIds = [...new Set(attachmentIds)];
     return this.transaction(() => {
@@ -798,7 +799,6 @@ export class EventStore {
         }
       }
 
-      const referenceId = "scene";
       const current = this.getAttachmentsForReferences(roomId, "whiteboard", [
         referenceId,
       ]);

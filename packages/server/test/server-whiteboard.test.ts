@@ -550,7 +550,7 @@ describe("collaborative whiteboard stream", () => {
     });
   });
 
-  it("binds same-room image attachments to the authoritative scene and cleans deleted images", async () => {
+  it("binds same-room image attachments and retains deleted images needed by recovery", async () => {
     app = await buildServer({
       dbPath: ":memory:",
       config: localTestConfig(),
@@ -667,7 +667,8 @@ describe("collaborative whiteboard stream", () => {
       url: `/rooms/${room.room_id}/attachments/${attachmentId}`,
       headers: { authorization: `Bearer ${room.owner_token}` },
     });
-    expect(deletedDownload.statusCode).toBe(404);
+    expect(deletedDownload.statusCode).toBe(200);
+    expect(deletedDownload.rawPayload).toEqual(OnePixelPng);
 
     const otherRoom = (
       await app.inject({
@@ -2333,5 +2334,191 @@ describe("collaborative whiteboard stream", () => {
       code: "room_ended",
       recoverable: false,
     });
+  });
+
+  it("lists bounded recovery points and applies authorized clear and restore operations", async () => {
+    app = await buildServer({
+      dbPath: ":memory:",
+      config: localTestConfig({
+        whiteboardSnapshotCadenceMs: 60_000,
+        whiteboardSnapshotMaxCount: 3,
+        whiteboardSnapshotMaxBytes: 1024 * 1024,
+      }),
+    });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const room = (
+      await app.inject({
+        method: "POST",
+        url: "/rooms",
+        payload: { name: "Recovery board", display_name: "Owner" },
+      })
+    ).json() as {
+      room_id: string;
+      owner_id: string;
+      owner_token: string;
+    };
+    const member = await joinHuman(
+      app,
+      room.room_id,
+      room.owner_token,
+      "member",
+      "Recovery admin"
+    );
+    const url = `ws://${addressOf(app)}/rooms/${room.room_id}/whiteboard`;
+    const ownerSocket = new WebSocket(
+      `${url}?token=${encodeURIComponent(room.owner_token)}`
+    );
+    const memberSocket = new WebSocket(
+      `${url}?token=${encodeURIComponent(member.participant_token)}`
+    );
+    sockets.push(ownerSocket, memberSocket);
+    const ownerInbox = createInbox(ownerSocket);
+    const memberInbox = createInbox(memberSocket);
+    await Promise.all([waitForOpen(ownerSocket), waitForOpen(memberSocket)]);
+    for (const inbox of [ownerInbox, memberInbox]) {
+      await inbox.next("whiteboard.connected");
+      await inbox.next("whiteboard.scene");
+      await inbox.next("whiteboard.presence.snapshot");
+    }
+
+    const recoveryImageId = await uploadImage(
+      app,
+      room.room_id,
+      room.owner_token
+    );
+    const shape = {
+      id: "recover-image",
+      type: "image",
+      version: 1,
+      versionNonce: 601,
+      fileId: recoveryImageId,
+      status: "saved",
+    };
+    ownerSocket.send(
+      JSON.stringify({
+        protocol: "cacp-whiteboard",
+        version: "1.0.0",
+        room_id: room.room_id,
+        type: "whiteboard.elements.update",
+        update_id: "recover-update",
+        base_revision: 0,
+        elements: [shape],
+        app_state: {},
+      })
+    );
+    await ownerInbox.next("whiteboard.elements.updated");
+    await ownerInbox.next("whiteboard.ack");
+    await memberInbox.next("whiteboard.elements.updated");
+
+    const forbiddenList = await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/whiteboard/snapshots`,
+      headers: { authorization: `Bearer ${member.participant_token}` },
+    });
+    expect(forbiddenList.statusCode).toBe(403);
+    const list = await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/whiteboard/snapshots`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+    });
+    expect(list.statusCode).toBe(200);
+    const listed = list.json() as {
+      current_revision: number;
+      snapshots: Array<{ snapshot_id: string; revision: number }>;
+    };
+    expect(listed).toMatchObject({ current_revision: 1 });
+    expect(listed.snapshots).toHaveLength(1);
+    const target = listed.snapshots[0]!;
+
+    const forbiddenClear = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/whiteboard/clear`,
+      headers: { authorization: `Bearer ${member.participant_token}` },
+      payload: { expected_revision: 1 },
+    });
+    expect(forbiddenClear.statusCode).toBe(403);
+    const staleClear = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/whiteboard/clear`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: { expected_revision: 0 },
+    });
+    expect(staleClear.statusCode).toBe(409);
+    expect(staleClear.json()).toMatchObject({
+      error: "stale_revision",
+      current_revision: 1,
+    });
+
+    const cleared = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/whiteboard/clear`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: { expected_revision: 1 },
+    });
+    expect(cleared.statusCode).toBe(201);
+    expect(cleared.json()).toMatchObject({
+      operation: "clear",
+      previous_revision: 1,
+      revision: 2,
+    });
+    for (const inbox of [ownerInbox, memberInbox]) {
+      await expect(inbox.next("whiteboard.scene")).resolves.toMatchObject({
+        revision: 2,
+        scene: { elements: [] },
+      });
+    }
+
+    const promote = await app.inject({
+      method: "POST",
+      url:
+        `/rooms/${room.room_id}/participants/` +
+        `${member.participant_id}/role`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: { role: "admin" },
+    });
+    expect(promote.statusCode).toBe(201);
+    const restored = await app.inject({
+      method: "POST",
+      url:
+        `/rooms/${room.room_id}/whiteboard/snapshots/` +
+        `${target.snapshot_id}/restore`,
+      headers: { authorization: `Bearer ${member.participant_token}` },
+      payload: { expected_revision: 2 },
+    });
+    expect(restored.statusCode).toBe(201);
+    expect(restored.json()).toMatchObject({
+      operation: "restore",
+      previous_revision: 2,
+      target_revision: 1,
+      revision: 3,
+    });
+    for (const inbox of [ownerInbox, memberInbox]) {
+      await expect(inbox.next("whiteboard.scene")).resolves.toMatchObject({
+        revision: 3,
+        scene: { elements: [shape] },
+      });
+    }
+    const restoredImage = await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/attachments/${recoveryImageId}`,
+      headers: { authorization: `Bearer ${member.participant_token}` },
+    });
+    expect(restoredImage.statusCode).toBe(200);
+    expect(restoredImage.rawPayload).toEqual(OnePixelPng);
+
+    const events = await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/events`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+    });
+    const eventTypes = (
+      events.json() as { events: Array<{ type: string }> }
+    ).events.map((event) => event.type);
+    expect(
+      eventTypes.filter((type) => type === "whiteboard.cleared")
+    ).toHaveLength(1);
+    expect(
+      eventTypes.filter((type) => type === "whiteboard.restored")
+    ).toHaveLength(1);
   });
 });

@@ -27,6 +27,147 @@ const rectangle = {
 };
 
 describe("whiteboard scene state", () => {
+  it("keeps a throttled snapshot ring bounded by count and compressed bytes", () => {
+    const state = createWhiteboardSceneState({
+      snapshotCadenceMs: 1_000,
+      maxSnapshotCount: 2,
+      maxSnapshotBytes: 2_000,
+    });
+
+    state.apply("owner_1", update({ elements: [rectangle] }), 0);
+    state.apply(
+      "owner_1",
+      update({
+        update_id: "update_2",
+        base_revision: 1,
+        elements: [{ ...rectangle, version: 2, versionNonce: 101, x: 30 }],
+      }),
+      500
+    );
+    expect(state.listSnapshots()).toMatchObject([
+      { revision: 1, reason: "automatic", element_count: 1 },
+    ]);
+
+    state.apply(
+      "owner_1",
+      update({
+        update_id: "update_3",
+        base_revision: 2,
+        elements: [{ ...rectangle, version: 3, versionNonce: 102, x: 40 }],
+      }),
+      1_000
+    );
+    state.apply(
+      "owner_1",
+      update({
+        update_id: "update_4",
+        base_revision: 3,
+        elements: [{ ...rectangle, version: 4, versionNonce: 103, x: 50 }],
+      }),
+      2_000
+    );
+
+    const snapshots = state.listSnapshots();
+    expect(snapshots).toHaveLength(2);
+    expect(snapshots.map((snapshot) => snapshot.revision)).toEqual([4, 3]);
+    expect(
+      snapshots.reduce(
+        (total, snapshot) => total + snapshot.compressed_bytes,
+        0
+      )
+    ).toBeLessThanOrEqual(2_000);
+  });
+
+  it("captures pre-operation state and clears or restores into monotonic revisions", () => {
+    const committed: unknown[] = [];
+    const state = createWhiteboardSceneState({
+      snapshotCadenceMs: 10_000,
+      commitScene(scene) {
+        committed.push(scene);
+        return undefined;
+      },
+    });
+    state.apply("owner_1", update({ elements: [rectangle] }), 0);
+    const target = state.listSnapshots()[0]!;
+
+    expect(state.clear("owner_1", 0, 1)).toMatchObject({
+      kind: "rejected",
+      code: "stale_revision",
+      currentRevision: 1,
+    });
+    expect(state.clear("owner_1", 1, 2)).toMatchObject({
+      kind: "accepted",
+      revision: 2,
+      scene: { elements: [], app_state: {} },
+    });
+    expect(state.listSnapshots()).toContainEqual(
+      expect.objectContaining({ revision: 1, reason: "pre_operation" })
+    );
+
+    expect(state.restore("owner_1", target.snapshot_id, 1, 3)).toMatchObject({
+      kind: "rejected",
+      code: "stale_revision",
+      currentRevision: 2,
+    });
+    expect(state.restore("owner_1", "missing", 2, 4)).toMatchObject({
+      kind: "rejected",
+      code: "snapshot_not_found",
+      currentRevision: 2,
+    });
+    expect(state.restore("owner_1", target.snapshot_id, 2, 5)).toMatchObject({
+      kind: "accepted",
+      revision: 3,
+      scene: { elements: [rectangle] },
+      targetRevision: 1,
+    });
+    expect(state.snapshot()).toMatchObject({
+      revision: 3,
+      scene: { elements: [rectangle] },
+    });
+    expect(committed).toHaveLength(3);
+  });
+
+  it("pins restored image attachments while the target snapshot is evicted", () => {
+    const snapshotAttachmentCommits: string[][] = [];
+    const state = createWhiteboardSceneState({
+      maxSnapshotCount: 1,
+      snapshotCadenceMs: 10_000,
+      commitScene: () => undefined,
+      commitSnapshotAttachments(attachmentIds) {
+        snapshotAttachmentCommits.push(attachmentIds);
+        return undefined;
+      },
+    });
+    const image = {
+      id: "image_1",
+      type: "image",
+      version: 1,
+      versionNonce: 1,
+      fileId: "att_image",
+    };
+    state.apply("owner_1", update({ elements: [image] }), 0);
+    const target = state.listSnapshots()[0]!;
+    state.apply(
+      "owner_1",
+      update({
+        update_id: "delete_image",
+        base_revision: 1,
+        elements: [{ ...image, version: 2, isDeleted: true }],
+      }),
+      1
+    );
+
+    expect(state.restore("owner_1", target.snapshot_id, 2, 2)).toMatchObject({
+      kind: "accepted",
+      revision: 3,
+    });
+    expect(snapshotAttachmentCommits).toEqual([
+      ["att_image"],
+      ["att_image"],
+      [],
+    ]);
+  });
+
   it("merges independent stale-base elements without losing either edit", () => {
     const state = createWhiteboardSceneState();
 

@@ -40,6 +40,7 @@ import {
   type VoteRecord,
   type LocalAgentProvider,
   type WhiteboardHumanRole,
+  WhiteboardSnapshotMutationRequestSchema,
 } from "@cacp/protocol";
 import {
   bearerToken,
@@ -865,50 +866,74 @@ export async function buildServer(options: BuildServerOptions = {}) {
     maxAttachments: config.whiteboardMaxAttachments,
     maxSceneBytes: config.whiteboardMaxSceneBytes,
     deduplicationLimit: config.whiteboardDeduplicationLimit,
-    commitScene: ({ roomId, participantId, scene }) => {
-      const participant = store
-        .getParticipants(roomId)
-        .find((candidate) => candidate.id === participantId);
-      if (!participant) return "The whiteboard participant is unavailable.";
-      try {
-        const { orphaned } = store.replaceWhiteboardAttachmentReferences(
-          roomId,
-          whiteboardAttachmentIds(scene.elements),
-          {
-            participantId,
-            isOwner: participant.role === "owner",
-          }
-        );
-        for (const attachment of orphaned) {
-          void attachmentStore
-            .delete(roomId, attachment.attachment_id)
-            .catch((error) => {
-              app.log.error(
-                { error, roomId, attachmentId: attachment.attachment_id },
-                "whiteboard attachment file cleanup failed"
-              );
-            });
-        }
-        return undefined;
-      } catch (error) {
-        const code = error instanceof Error ? error.message : String(error);
-        if (code === "whiteboard_attachment_not_found") {
-          return "A referenced whiteboard image does not belong to this room.";
-        }
-        if (code === "whiteboard_attachment_forbidden") {
-          return "A referenced whiteboard image is not readable by this participant.";
-        }
-        if (code === "whiteboard_attachment_not_image") {
-          return "Only verified image attachments can be placed on the whiteboard.";
-        }
-        app.log.error(
-          { error, roomId, participantId },
-          "whiteboard attachment references could not be committed"
-        );
-        return "The whiteboard image references could not be committed.";
-      }
-    },
+    snapshotCadenceMs: config.whiteboardSnapshotCadenceMs,
+    snapshotMaxCount: config.whiteboardSnapshotMaxCount,
+    snapshotMaxBytes: config.whiteboardSnapshotMaxBytes,
+    commitScene: ({ roomId, participantId, scene }) =>
+      commitWhiteboardAttachmentReferences(
+        roomId,
+        participantId,
+        whiteboardAttachmentIds(scene.elements),
+        "scene"
+      ),
+    commitSnapshotAttachments: ({ roomId, participantId, attachmentIds }) =>
+      commitWhiteboardAttachmentReferences(
+        roomId,
+        participantId,
+        attachmentIds,
+        "snapshots"
+      ),
   });
+
+  function commitWhiteboardAttachmentReferences(
+    roomId: string,
+    participantId: string,
+    attachmentIds: string[],
+    referenceId: "scene" | "snapshots"
+  ): string | undefined {
+    const participant = store
+      .getParticipants(roomId)
+      .find((candidate) => candidate.id === participantId);
+    if (!participant) return "The whiteboard participant is unavailable.";
+    try {
+      const { orphaned } = store.replaceWhiteboardAttachmentReferences(
+        roomId,
+        attachmentIds,
+        {
+          participantId,
+          isOwner: participant.role === "owner",
+        },
+        referenceId
+      );
+      for (const attachment of orphaned) {
+        void attachmentStore
+          .delete(roomId, attachment.attachment_id)
+          .catch((error) => {
+            app.log.error(
+              { error, roomId, attachmentId: attachment.attachment_id },
+              "whiteboard attachment file cleanup failed"
+            );
+          });
+      }
+      return undefined;
+    } catch (error) {
+      const code = error instanceof Error ? error.message : String(error);
+      if (code === "whiteboard_attachment_not_found") {
+        return "A referenced whiteboard image does not belong to this room.";
+      }
+      if (code === "whiteboard_attachment_forbidden") {
+        return "A referenced whiteboard image is not readable by this participant.";
+      }
+      if (code === "whiteboard_attachment_not_image") {
+        return "Only verified image attachments can be placed on the whiteboard.";
+      }
+      app.log.error(
+        { error, roomId, participantId },
+        "whiteboard attachment references could not be committed"
+      );
+      return "The whiteboard image references could not be committed.";
+    }
+  }
   const participantSockets = new Map<
     string,
     Set<{ close: (code?: number, reason?: string) => void }>
@@ -3115,6 +3140,117 @@ export async function buildServer(options: BuildServerOptions = {}) {
           releaseAttachmentBytes(request.params.roomId, reservedBytes);
         }
       }
+    }
+  );
+
+  app.get<{ Params: { roomId: string } }>(
+    "/rooms/:roomId/whiteboard/snapshots",
+    async (request, reply) => {
+      const participant = requireParticipant(
+        store,
+        request.params.roomId,
+        request
+      );
+      if (!participant) return deny(reply, "invalid_token");
+      if (!hasHumanRole(participant, ["owner", "admin"])) {
+        return deny(reply, "forbidden", 403);
+      }
+      const listed = whiteboards.listSnapshots(request.params.roomId);
+      return reply.send({
+        current_revision: listed.currentRevision,
+        snapshots: listed.snapshots,
+      });
+    }
+  );
+
+  app.post<{ Params: { roomId: string } }>(
+    "/rooms/:roomId/whiteboard/clear",
+    async (request, reply) => {
+      const participant = requireParticipant(
+        store,
+        request.params.roomId,
+        request
+      );
+      if (!participant) return deny(reply, "invalid_token");
+      if (!hasHumanRole(participant, ["owner", "admin"])) {
+        return deny(reply, "forbidden", 403);
+      }
+      const body = WhiteboardSnapshotMutationRequestSchema.parse(request.body);
+      const result = whiteboards.clear(
+        request.params.roomId,
+        participant.id,
+        body.expected_revision
+      );
+      if (result.kind === "rejected") {
+        return reply
+          .code(result.code === "snapshot_not_found" ? 404 : 409)
+          .send({
+            error: result.code,
+            message: result.message,
+            current_revision: result.currentRevision,
+          });
+      }
+      appendAndPublish(
+        event(request.params.roomId, "whiteboard.cleared", participant.id, {
+          previous_revision: result.previousRevision,
+          revision: result.revision,
+          cleared_by: participant.id,
+          cleared_at: new Date().toISOString(),
+        })
+      );
+      return reply.code(201).send({
+        operation: "clear",
+        previous_revision: result.previousRevision,
+        revision: result.revision,
+      });
+    }
+  );
+
+  app.post<{
+    Params: { roomId: string; snapshotId: string };
+  }>(
+    "/rooms/:roomId/whiteboard/snapshots/:snapshotId/restore",
+    async (request, reply) => {
+      const participant = requireParticipant(
+        store,
+        request.params.roomId,
+        request
+      );
+      if (!participant) return deny(reply, "invalid_token");
+      if (!hasHumanRole(participant, ["owner", "admin"])) {
+        return deny(reply, "forbidden", 403);
+      }
+      const body = WhiteboardSnapshotMutationRequestSchema.parse(request.body);
+      const result = whiteboards.restore(
+        request.params.roomId,
+        participant.id,
+        request.params.snapshotId,
+        body.expected_revision
+      );
+      if (result.kind === "rejected") {
+        return reply
+          .code(result.code === "snapshot_not_found" ? 404 : 409)
+          .send({
+            error: result.code,
+            message: result.message,
+            current_revision: result.currentRevision,
+          });
+      }
+      appendAndPublish(
+        event(request.params.roomId, "whiteboard.restored", participant.id, {
+          previous_revision: result.previousRevision,
+          target_revision: result.targetRevision,
+          revision: result.revision,
+          restored_by: participant.id,
+          restored_at: new Date().toISOString(),
+        })
+      );
+      return reply.code(201).send({
+        operation: "restore",
+        previous_revision: result.previousRevision,
+        target_revision: result.targetRevision,
+        revision: result.revision,
+      });
     }
   );
 

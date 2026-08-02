@@ -212,6 +212,8 @@ export const EventTypeSchema = z.enum([
   "orbit.like.changed",
   "orbit.cleared",
   "orbit.notes.quoted",
+  "whiteboard.cleared",
+  "whiteboard.restored",
 ]);
 
 export const CacpEventSchema = z.object({
@@ -1122,6 +1124,39 @@ export const WhiteboardSceneSchema = z
   })
   .strict();
 
+export const WhiteboardSnapshotSchema = z
+  .object({
+    snapshot_id: z.string().min(1).max(200),
+    revision: z.number().int().nonnegative(),
+    created_at: z.string().datetime(),
+    reason: z.enum(["automatic", "pre_operation"]),
+    element_count: z.number().int().nonnegative(),
+    compressed_bytes: z.number().int().positive(),
+  })
+  .strict();
+
+export const WhiteboardSnapshotListSchema = z
+  .object({
+    current_revision: z.number().int().nonnegative(),
+    snapshots: z.array(WhiteboardSnapshotSchema),
+  })
+  .strict();
+
+export const WhiteboardSnapshotMutationRequestSchema = z
+  .object({
+    expected_revision: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const WhiteboardSnapshotMutationResultSchema = z
+  .object({
+    operation: z.enum(["clear", "restore"]),
+    previous_revision: z.number().int().nonnegative(),
+    target_revision: z.number().int().nonnegative().optional(),
+    revision: z.number().int().positive(),
+  })
+  .strict();
+
 export const WhiteboardConnectedMessageSchema = WhiteboardWireBaseSchema.extend(
   {
     type: z.literal("whiteboard.connected"),
@@ -1335,6 +1370,16 @@ export type WhiteboardSharedAppState = z.infer<
   typeof WhiteboardSharedAppStateSchema
 >;
 export type WhiteboardScene = z.infer<typeof WhiteboardSceneSchema>;
+export type WhiteboardSnapshot = z.infer<typeof WhiteboardSnapshotSchema>;
+export type WhiteboardSnapshotList = z.infer<
+  typeof WhiteboardSnapshotListSchema
+>;
+export type WhiteboardSnapshotMutationRequest = z.infer<
+  typeof WhiteboardSnapshotMutationRequestSchema
+>;
+export type WhiteboardSnapshotMutationResult = z.infer<
+  typeof WhiteboardSnapshotMutationResultSchema
+>;
 export type WhiteboardConnectedMessage = z.infer<
   typeof WhiteboardConnectedMessageSchema
 >;

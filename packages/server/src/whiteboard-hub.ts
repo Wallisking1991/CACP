@@ -9,8 +9,12 @@ import {
   type WhiteboardErrorCode,
   type WhiteboardHumanRole,
   type WhiteboardScene,
+  type WhiteboardSnapshot,
 } from "@cacp/protocol";
-import { createWhiteboardSceneState } from "./whiteboard-scene-state.js";
+import {
+  createWhiteboardSceneState,
+  type WhiteboardSceneMutationResult,
+} from "./whiteboard-scene-state.js";
 
 interface WhiteboardSocket {
   send(data: string): void;
@@ -73,6 +77,21 @@ export interface WhiteboardSessionHub {
       }
     | undefined;
   discardRoom(roomId: string): void;
+  listSnapshots(roomId: string): {
+    currentRevision: number;
+    snapshots: WhiteboardSnapshot[];
+  };
+  clear(
+    roomId: string,
+    participantId: string,
+    expectedRevision: number
+  ): WhiteboardSceneMutationResult;
+  restore(
+    roomId: string,
+    participantId: string,
+    snapshotId: string,
+    expectedRevision: number
+  ): WhiteboardSceneMutationResult;
   close(): void;
 }
 
@@ -91,10 +110,18 @@ interface WhiteboardHubOptions {
   maxAttachments: number;
   maxSceneBytes: number;
   deduplicationLimit: number;
+  snapshotCadenceMs: number;
+  snapshotMaxCount: number;
+  snapshotMaxBytes: number;
   commitScene?: (input: {
     roomId: string;
     participantId: string;
     scene: WhiteboardScene;
+  }) => string | undefined;
+  commitSnapshotAttachments?: (input: {
+    roomId: string;
+    participantId: string;
+    attachmentIds: string[];
   }) => string | undefined;
 }
 
@@ -281,8 +308,17 @@ export function createWhiteboardSessionHub(
         maxAttachments: options.maxAttachments,
         maxSceneBytes: options.maxSceneBytes,
         deduplicationLimit: options.deduplicationLimit,
+        snapshotCadenceMs: options.snapshotCadenceMs,
+        maxSnapshotCount: options.snapshotMaxCount,
+        maxSnapshotBytes: options.snapshotMaxBytes,
         commitScene: (scene, participantId) =>
           options.commitScene?.({ roomId, participantId, scene }),
+        commitSnapshotAttachments: (attachmentIds, participantId) =>
+          options.commitSnapshotAttachments?.({
+            roomId,
+            participantId,
+            attachmentIds,
+          }),
       }),
       connections: new Set(),
       handoffParticipants: new Set(),
@@ -295,6 +331,36 @@ export function createWhiteboardSessionHub(
     };
     rooms.set(roomId, created);
     return created;
+  }
+
+  function broadcastAuthoritativeScene(
+    roomId: string,
+    state: WhiteboardRoomState,
+    participantId: string,
+    result: Extract<WhiteboardSceneMutationResult, { kind: "accepted" }>
+  ) {
+    const base = {
+      protocol: WhiteboardProtocolName,
+      version: WhiteboardProtocolVersion,
+      room_id: roomId,
+    };
+    const sceneMessage = JSON.stringify({
+      ...base,
+      type: "whiteboard.scene",
+      revision: result.revision,
+      scene: result.scene,
+    });
+    const activityMessage = JSON.stringify({
+      ...base,
+      type: "whiteboard.scene.activity",
+      participant_id: participantId,
+      revision: result.revision,
+    });
+    for (const connection of state.connections) {
+      connection.socket.send(
+        connection.observeOnly ? activityMessage : sceneMessage
+      );
+    }
   }
 
   function connect(input: WhiteboardConnectInput): () => void {
@@ -735,6 +801,35 @@ export function createWhiteboardSessionHub(
         connection.socket.send(message);
       }
       rooms.delete(roomId);
+    },
+    listSnapshots(roomId) {
+      const state = roomState(roomId);
+      return {
+        currentRevision: state.sceneState.snapshot().revision,
+        snapshots: state.sceneState.listSnapshots(),
+      };
+    },
+    clear(roomId, participantId, expectedRevision) {
+      const state = roomState(roomId);
+      const result = state.sceneState.clear(participantId, expectedRevision);
+      if (result.kind === "accepted") {
+        state.acceptedFrameAcks.clear();
+        broadcastAuthoritativeScene(roomId, state, participantId, result);
+      }
+      return result;
+    },
+    restore(roomId, participantId, snapshotId, expectedRevision) {
+      const state = roomState(roomId);
+      const result = state.sceneState.restore(
+        participantId,
+        snapshotId,
+        expectedRevision
+      );
+      if (result.kind === "accepted") {
+        state.acceptedFrameAcks.clear();
+        broadcastAuthoritativeScene(roomId, state, participantId, result);
+      }
+      return result;
     },
     close() {
       clearInterval(presenceSweep);

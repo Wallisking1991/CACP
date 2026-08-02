@@ -30,15 +30,21 @@ describe("server cloud config", () => {
     );
   });
 
-  it("caps whiteboard elements at the wire limit and configures envelope rate", () => {
+  it("caps whiteboard elements and configures traffic and snapshot budgets", () => {
     const config = loadServerConfig({
       CACP_WHITEBOARD_MAX_ELEMENTS: "50000",
       CACP_WHITEBOARD_INBOUND_MESSAGE_LIMIT: "12",
       CACP_WHITEBOARD_INBOUND_MESSAGE_WINDOW_MS: "250",
+      CACP_WHITEBOARD_SNAPSHOT_CADENCE_MS: "5000",
+      CACP_WHITEBOARD_SNAPSHOT_MAX_COUNT: "7",
+      CACP_WHITEBOARD_SNAPSHOT_MAX_BYTES: "123456",
     });
     expect(config.whiteboardMaxElements).toBe(10_000);
     expect(config.whiteboardInboundMessageLimit).toBe(12);
     expect(config.whiteboardInboundMessageWindowMs).toBe(250);
+    expect(config.whiteboardSnapshotCadenceMs).toBe(5_000);
+    expect(config.whiteboardSnapshotMaxCount).toBe(7);
+    expect(config.whiteboardSnapshotMaxBytes).toBe(123_456);
   });
 
   it("forces local launch off in cloud mode", () => {

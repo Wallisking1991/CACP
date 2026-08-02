@@ -360,4 +360,60 @@ test("shares real Excalidraw content and collaborator presence between two brows
       ).toBe(true);
     }
   }
+
+  const currentRevision = Math.max(
+    ...memberMessages
+      .filter((message) => message.type === "whiteboard.elements.updated")
+      .map((message) => Number(message.revision))
+  );
+  await ownerPage.getByRole("button", { name: "Recovery" }).click();
+  await expect(
+    ownerPage.getByRole("dialog", { name: "Whiteboard recovery" })
+  ).toBeVisible();
+  await expect(
+    ownerPage.getByText(`Current revision: ${currentRevision}`, { exact: true })
+  ).toBeVisible();
+  await ownerPage.getByRole("button", { name: "Clear board" }).click();
+  await expect(
+    ownerPage.getByText(
+      "All current whiteboard content will be removed for every participant. A temporary recovery point is created first."
+    )
+  ).toBeVisible();
+  await ownerPage.getByRole("button", { name: "Confirm clear" }).click();
+  await expect
+    .poll(() =>
+      memberMessages.some(
+        (message) =>
+          message.type === "whiteboard.scene" &&
+          Number(message.revision) === currentRevision + 1 &&
+          Array.isArray(
+            (message.scene as JsonResponse | undefined)?.elements
+          ) &&
+          ((message.scene as JsonResponse).elements as unknown[]).length === 0
+      )
+    )
+    .toBe(true);
+
+  await ownerPage.getByRole("button", { name: "Restore revision 1" }).click();
+  await expect(
+    ownerPage.getByText(
+      "The whole shared whiteboard will be replaced for every participant and local undo history will reset."
+    )
+  ).toBeVisible();
+  await ownerPage.getByRole("button", { name: "Confirm restore" }).click();
+  await expect
+    .poll(() =>
+      memberMessages.some(
+        (message) =>
+          message.type === "whiteboard.scene" &&
+          Number(message.revision) === currentRevision + 2 &&
+          Array.isArray(
+            (message.scene as JsonResponse | undefined)?.elements
+          ) &&
+          ((message.scene as JsonResponse).elements as JsonResponse[]).some(
+            (element) => element.type === "rectangle"
+          )
+      )
+    )
+    .toBe(true);
 });

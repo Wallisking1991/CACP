@@ -16,6 +16,7 @@ import type {
 } from "../whiteboard/whiteboard-session.js";
 import { createWhiteboardImageAssetManager } from "../whiteboard/whiteboard-image-assets.js";
 import { useT } from "../i18n/useT.js";
+import { WhiteboardRecoveryDialog } from "./WhiteboardRecoveryDialog.js";
 
 export interface WhiteboardSurfaceProps {
   active: boolean;
@@ -83,6 +84,7 @@ export function WhiteboardSurface({
   const [exportError, setExportError] = useState<string | undefined>(undefined);
   const [insertingImage, setInsertingImage] = useState(false);
   const [imageInsertError, setImageInsertError] = useState(false);
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
 
   useEffect(() => {
     onCollaboratorsChangeRef.current = onCollaboratorsChange;
@@ -439,6 +441,11 @@ export function WhiteboardSurface({
               </button>
             </>
           )}
+          {(role === "owner" || role === "admin") && (
+            <button type="button" onClick={() => setRecoveryOpen(true)}>
+              {t("whiteboard.manageRecovery")}
+            </button>
+          )}
           <label>
             <span className="sr-only">{t("whiteboard.exportScope")}</span>
             <select
@@ -480,6 +487,17 @@ export function WhiteboardSurface({
         ref={hostRef}
         className="whiteboard-surface__editor"
         aria-hidden={status !== "ready"}
+      />
+      <WhiteboardRecoveryDialog
+        langCode={langCode}
+        open={recoveryOpen}
+        session={{
+          room_id: roomId,
+          participant_id: participantId,
+          token,
+          role,
+        }}
+        onClose={() => setRecoveryOpen(false)}
       />
     </section>
   );

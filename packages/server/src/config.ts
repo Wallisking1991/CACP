@@ -38,6 +38,9 @@ export interface ServerConfig {
   whiteboardMaxAttachments: number;
   whiteboardMaxSceneBytes: number;
   whiteboardDeduplicationLimit: number;
+  whiteboardSnapshotCadenceMs: number;
+  whiteboardSnapshotMaxCount: number;
+  whiteboardSnapshotMaxBytes: number;
 }
 
 function boolValue(value: string | undefined, fallback: boolean): boolean {
@@ -168,6 +171,18 @@ export function loadServerConfig(
     whiteboardDeduplicationLimit: intValue(
       env.CACP_WHITEBOARD_DEDUPLICATION_LIMIT,
       2_000
+    ),
+    whiteboardSnapshotCadenceMs: intValue(
+      env.CACP_WHITEBOARD_SNAPSHOT_CADENCE_MS,
+      30_000
+    ),
+    whiteboardSnapshotMaxCount: intValue(
+      env.CACP_WHITEBOARD_SNAPSHOT_MAX_COUNT,
+      20
+    ),
+    whiteboardSnapshotMaxBytes: intValue(
+      env.CACP_WHITEBOARD_SNAPSHOT_MAX_BYTES,
+      8 * 1024 * 1024
     ),
   };
   if (

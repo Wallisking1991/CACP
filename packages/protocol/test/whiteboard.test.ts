@@ -3,6 +3,8 @@ import {
   CacpEventSchema,
   WhiteboardClientMessageSchema,
   WhiteboardProtocolVersion,
+  WhiteboardSnapshotListSchema,
+  WhiteboardSnapshotMutationRequestSchema,
   WhiteboardServerMessageSchema,
 } from "../src/index.js";
 
@@ -174,5 +176,31 @@ describe("Collaborative Whiteboard wire protocol", () => {
     expect(activity.type).toBe("whiteboard.scene.activity");
     expect(activity).not.toHaveProperty("elements");
     expect(CacpEventSchema.safeParse(activity).success).toBe(false);
+  });
+
+  it("validates temporary snapshot listing and revision-safe mutations", () => {
+    expect(
+      WhiteboardSnapshotListSchema.parse({
+        current_revision: 4,
+        snapshots: [
+          {
+            snapshot_id: "snapshot_2",
+            revision: 3,
+            created_at: "2026-08-02T01:02:03.000Z",
+            reason: "pre_operation",
+            element_count: 2,
+            compressed_bytes: 128,
+          },
+        ],
+      })
+    ).toMatchObject({ current_revision: 4 });
+    expect(
+      WhiteboardSnapshotMutationRequestSchema.parse({ expected_revision: 4 })
+    ).toEqual({ expected_revision: 4 });
+    expect(
+      WhiteboardSnapshotMutationRequestSchema.safeParse({
+        expected_revision: -1,
+      }).success
+    ).toBe(false);
   });
 });

@@ -1,7 +1,11 @@
 import {
   CacpEventSchema,
+  WhiteboardSnapshotListSchema,
+  WhiteboardSnapshotMutationResultSchema,
   type AttachmentRef,
   type CacpEvent,
+  type WhiteboardSnapshotList,
+  type WhiteboardSnapshotMutationResult,
 } from "@cacp/protocol";
 export {
   deleteAttachment,
@@ -190,6 +194,84 @@ export async function clearOrbit(session: RoomSession): Promise<{ ok: true }> {
     `/rooms/${session.room_id}/orbit/clear`,
     session.token,
     {}
+  );
+}
+
+export class WhiteboardOperationError extends Error {
+  constructor(
+    readonly code: string,
+    readonly currentRevision?: number
+  ) {
+    super(code);
+    this.name = "WhiteboardOperationError";
+  }
+}
+
+async function whiteboardJson<T>(
+  response: Response,
+  parse: (value: unknown) => T
+) {
+  const value = (await response.json()) as unknown;
+  if (!response.ok) {
+    const error = value as { error?: unknown; current_revision?: unknown };
+    throw new WhiteboardOperationError(
+      typeof error.error === "string"
+        ? error.error
+        : "whiteboard_operation_failed",
+      typeof error.current_revision === "number"
+        ? error.current_revision
+        : undefined
+    );
+  }
+  return parse(value);
+}
+
+export async function fetchWhiteboardSnapshots(
+  session: RoomSession
+): Promise<WhiteboardSnapshotList> {
+  const response = await fetch(
+    `/rooms/${session.room_id}/whiteboard/snapshots`,
+    { headers: { authorization: `Bearer ${session.token}` } }
+  );
+  return whiteboardJson(response, (value) =>
+    WhiteboardSnapshotListSchema.parse(value)
+  );
+}
+
+async function mutateWhiteboard(
+  session: RoomSession,
+  path: string,
+  expectedRevision: number
+): Promise<WhiteboardSnapshotMutationResult> {
+  const response = await fetch(`/rooms/${session.room_id}${path}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${session.token}`,
+    },
+    body: JSON.stringify({ expected_revision: expectedRevision }),
+  });
+  return whiteboardJson(response, (value) =>
+    WhiteboardSnapshotMutationResultSchema.parse(value)
+  );
+}
+
+export function clearWhiteboard(
+  session: RoomSession,
+  expectedRevision: number
+): Promise<WhiteboardSnapshotMutationResult> {
+  return mutateWhiteboard(session, "/whiteboard/clear", expectedRevision);
+}
+
+export function restoreWhiteboardSnapshot(
+  session: RoomSession,
+  snapshotId: string,
+  expectedRevision: number
+): Promise<WhiteboardSnapshotMutationResult> {
+  return mutateWhiteboard(
+    session,
+    `/whiteboard/snapshots/${encodeURIComponent(snapshotId)}/restore`,
+    expectedRevision
   );
 }
 
