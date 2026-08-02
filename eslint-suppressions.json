@@ -102,11 +102,6 @@
       "count": 1
     }
   },
-  "packages/server/test/server-room-ended.test.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
   "packages/server/test/server-snapshot.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1

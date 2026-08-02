@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import {
+  cancelAttachmentUpload,
   deleteAttachment,
   promoteWhiteboardSelection,
   uploadAttachment,
@@ -10,6 +11,7 @@ import {
 import { useT } from "../i18n/useT.js";
 import type { AgentView } from "../room-state.js";
 import type { WhiteboardPromotionArtifacts } from "../whiteboard/whiteboard-editor-adapter.js";
+import { useDialogKeyboard } from "./useDialogKeyboard.js";
 
 interface UploadedPromotionAttachments {
   pngId: string;
@@ -46,9 +48,23 @@ export function WhiteboardPromotionDialog({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
   const [uploaded, setUploaded] = useState<UploadedPromotionAttachments>();
-  const idempotencyKey = useRef(newIdempotencyKey());
-
-  if (!open || !artifacts) return null;
+  const [operationKeys] = useState(() => {
+    const promotion = newIdempotencyKey();
+    return {
+      promotion,
+      png: `${promotion}:png`,
+      source: `${promotion}:source`,
+    };
+  });
+  const abortControllerRef = useRef<AbortController | undefined>(undefined);
+  const mountedRef = useRef(false);
+  const completedRef = useRef(false);
+  const activeSessionKeyRef = useRef("");
+  const uploadedRef = useRef<UploadedPromotionAttachments | undefined>(
+    undefined
+  );
+  const dialogRef = useRef<HTMLElement>(null);
+  const instructionRef = useRef<HTMLTextAreaElement>(null);
 
   const capabilities = agent?.input_capabilities;
   const capabilityReady = Boolean(
@@ -70,11 +86,61 @@ export function WhiteboardPromotionDialog({
     );
   };
   const close = () => {
+    if (submitting) return;
     const attachments = uploaded;
     setUploaded(undefined);
+    uploadedRef.current = undefined;
+    abortControllerRef.current?.abort();
+    void Promise.allSettled([
+      cancelAttachmentUpload(session, operationKeys.png),
+      cancelAttachmentUpload(session, operationKeys.source),
+    ]);
     void cleanupUploaded(attachments);
     onClose();
   };
+
+  useDialogKeyboard(
+    dialogRef,
+    open && Boolean(artifacts),
+    () => {
+      if (!submitting) close();
+    },
+    instructionRef
+  );
+
+  useEffect(() => {
+    const cleanupSession = {
+      room_id: session.room_id,
+      token: session.token,
+    };
+    const sessionKey = `${session.room_id}\u0000${session.token}`;
+    activeSessionKeyRef.current = sessionKey;
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      abortControllerRef.current?.abort();
+      queueMicrotask(() => {
+        const strictModeReplay =
+          mountedRef.current && activeSessionKeyRef.current === sessionKey;
+        if (strictModeReplay || completedRef.current) return;
+        const attachments = uploadedRef.current;
+        uploadedRef.current = undefined;
+        void Promise.allSettled([
+          cancelAttachmentUpload(cleanupSession, operationKeys.png),
+          cancelAttachmentUpload(cleanupSession, operationKeys.source),
+          ...(attachments
+            ? [
+                deleteAttachment(cleanupSession, attachments.pngId),
+                deleteAttachment(cleanupSession, attachments.sourceId),
+              ]
+            : []),
+        ]);
+      });
+    };
+  }, [operationKeys, session.room_id, session.token]);
+
+  if (!open || !artifacts) return null;
+
   const submit = async () => {
     if (
       submitting ||
@@ -87,6 +153,8 @@ export function WhiteboardPromotionDialog({
     }
     setSubmitting(true);
     setError(undefined);
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
     let attachments = uploaded;
     try {
       if (!attachments) {
@@ -98,7 +166,11 @@ export function WhiteboardPromotionDialog({
               [artifacts.png],
               `whiteboard-selection-r${expectedRevision}.png`,
               { type: "image/png" }
-            )
+            ),
+            {
+              idempotencyKey: operationKeys.png,
+              signal: abortController.signal,
+            }
           );
           pngId = png.attachment_id;
           const source = await uploadAttachment(
@@ -107,13 +179,18 @@ export function WhiteboardPromotionDialog({
               [artifacts.source],
               `whiteboard-selection-r${expectedRevision}.excalidraw`,
               { type: "application/vnd.excalidraw+json" }
-            )
+            ),
+            {
+              idempotencyKey: operationKeys.source,
+              signal: abortController.signal,
+            }
           );
           attachments = {
             pngId,
             sourceId: source.attachment_id,
           };
-          setUploaded(attachments);
+          uploadedRef.current = attachments;
+          if (mountedRef.current) setUploaded(attachments);
         } catch (cause) {
           if (pngId) {
             await Promise.allSettled([deleteAttachment(session, pngId)]);
@@ -121,37 +198,50 @@ export function WhiteboardPromotionDialog({
           throw cause;
         }
       }
-      await promoteWhiteboardSelection(session, {
-        expected_revision: expectedRevision,
-        selected_element_ids: [...artifacts.selectedElementIds],
-        ...(artifacts.frameId ? { frame_id: artifacts.frameId } : {}),
-        png_attachment_id: attachments.pngId,
-        source_attachment_id: attachments.sourceId,
-        agent_id: agent.agent_id,
-        instruction: instruction.trim(),
-        idempotency_key: idempotencyKey.current,
-      });
-      setUploaded(undefined);
+      await promoteWhiteboardSelection(
+        session,
+        {
+          expected_revision: expectedRevision,
+          selected_element_ids: [...artifacts.selectedElementIds],
+          ...(artifacts.frameId ? { frame_id: artifacts.frameId } : {}),
+          png_attachment_id: attachments.pngId,
+          source_attachment_id: attachments.sourceId,
+          agent_id: agent.agent_id,
+          instruction: instruction.trim(),
+          idempotency_key: operationKeys.promotion,
+        },
+        { signal: abortController.signal }
+      );
+      completedRef.current = true;
+      uploadedRef.current = undefined;
+      if (mountedRef.current) setUploaded(undefined);
       onPromoted?.();
       onClose();
     } catch (cause) {
-      setError(
-        cause instanceof WhiteboardOperationError &&
-          cause.code === "stale_revision"
-          ? String(t("whiteboard.promotionStale"))
-          : String(t("whiteboard.promotionError"))
-      );
+      if (mountedRef.current && !abortController.signal.aborted) {
+        setError(
+          cause instanceof WhiteboardOperationError &&
+            cause.code === "stale_revision"
+            ? String(t("whiteboard.promotionStale"))
+            : String(t("whiteboard.promotionError"))
+        );
+      }
     } finally {
-      setSubmitting(false);
+      if (abortControllerRef.current === abortController) {
+        abortControllerRef.current = undefined;
+      }
+      if (mountedRef.current) setSubmitting(false);
     }
   };
 
   return (
     <div className="whiteboard-recovery-backdrop">
       <section
+        ref={dialogRef}
         className="whiteboard-promotion-dialog"
         role="dialog"
         aria-modal="true"
+        tabIndex={-1}
         aria-labelledby="whiteboard-promotion-title"
       >
         <header>
@@ -161,7 +251,12 @@ export function WhiteboardPromotionDialog({
             </h2>
             <p>{t("whiteboard.promotionDescription")}</p>
           </div>
-          <button type="button" onClick={close} aria-label={t("common.close")}>
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={close}
+            aria-label={t("common.close")}
+          >
             ×
           </button>
         </header>
@@ -199,6 +294,7 @@ export function WhiteboardPromotionDialog({
           <label>
             <span>{t("whiteboard.promotionInstruction")}</span>
             <textarea
+              ref={instructionRef}
               value={instruction}
               maxLength={4000}
               rows={4}

@@ -4,7 +4,27 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { FastifyInstance } from "fastify";
 import { buildServer } from "../src/server.js";
+import { FileSystemAttachmentStore } from "../src/attachment-store.js";
 import { localTestConfig } from "./test-config.js";
+
+const OnePixelPng = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+  "base64"
+);
+
+function multipartImage() {
+  const boundary = "cacp-room-ended-whiteboard";
+  return {
+    headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+    payload: Buffer.concat([
+      Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="pixel.png"\r\nContent-Type: image/png\r\n\r\n`
+      ),
+      OnePixelPng,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]),
+  };
+}
 
 async function ownerAndRoom(app: FastifyInstance) {
   const created = await app.inject({
@@ -156,6 +176,27 @@ function waitForFirstMessageOrClose(
   });
 }
 
+function waitForWhiteboardMessage(
+  socket: WebSocket,
+  type: string,
+  timeoutMs = 2_000
+): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      socket.removeEventListener("message", onMessage);
+      reject(new Error(`timed out waiting for ${type}`));
+    }, timeoutMs);
+    const onMessage = (event: MessageEvent) => {
+      const message = JSON.parse(String(event.data)) as Record<string, unknown>;
+      if (message.type !== type) return;
+      clearTimeout(timeout);
+      socket.removeEventListener("message", onMessage);
+      resolve(message);
+    };
+    socket.addEventListener("message", onMessage);
+  });
+}
+
 describe("aliveRooms registry / room_ended responses (T4)", () => {
   let app: FastifyInstance | undefined;
   let secondApp: FastifyInstance | undefined;
@@ -211,6 +252,130 @@ describe("aliveRooms registry / room_ended responses (T4)", () => {
     });
     expect(evRes.statusCode).toBe(410);
     expect(evRes.json()).toEqual({ error: "room_ended" });
+  });
+
+  it("does not revive whiteboard runtime state or attachment references after restart", async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), "cacp-t4-whiteboard-"));
+    const dbPath = join(tmpDir, "test.db");
+    const attachmentStore = new FileSystemAttachmentStore(
+      join(tmpDir, "attachments")
+    );
+    app = await buildServer({
+      dbPath,
+      config: localTestConfig(),
+      attachmentStore,
+    });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const room = await ownerAndRoom(app);
+    const multipart = multipartImage();
+    const uploaded = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/attachments`,
+      headers: {
+        ...multipart.headers,
+        authorization: `Bearer ${room.owner_token}`,
+      },
+      payload: multipart.payload,
+    });
+    expect(uploaded.statusCode).toBe(201);
+    const attachmentId = (
+      uploaded.json() as { attachment: { attachment_id: string } }
+    ).attachment.attachment_id;
+
+    const socket = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/whiteboard` +
+        `?token=${encodeURIComponent(room.owner_token)}`
+    );
+    const initialScene = waitForWhiteboardMessage(socket, "whiteboard.scene");
+    await initialScene;
+    const presenceUpdated = waitForWhiteboardMessage(
+      socket,
+      "whiteboard.presence.updated"
+    );
+    socket.send(
+      JSON.stringify({
+        protocol: "cacp-whiteboard",
+        version: "1.0.0",
+        room_id: room.room_id,
+        type: "whiteboard.presence.update",
+        cursor: { x: 12, y: 24, button: "up" },
+        selected_element_ids: ["restart-image"],
+        viewport: { scroll_x: 0, scroll_y: 0, zoom: 1 },
+      })
+    );
+    await presenceUpdated;
+    const sceneUpdate = {
+      protocol: "cacp-whiteboard",
+      version: "1.0.0",
+      room_id: room.room_id,
+      type: "whiteboard.elements.update",
+      update_id: "restart-dedup",
+      base_revision: 0,
+      elements: [
+        {
+          id: "restart-image",
+          type: "image",
+          version: 1,
+          versionNonce: 44,
+          fileId: attachmentId,
+        },
+      ],
+      app_state: {},
+    };
+    const firstAck = waitForWhiteboardMessage(socket, "whiteboard.ack");
+    socket.send(JSON.stringify(sceneUpdate));
+    await expect(firstAck).resolves.toMatchObject({
+      update_id: "restart-dedup",
+      revision: 1,
+    });
+    const replayAck = waitForWhiteboardMessage(socket, "whiteboard.ack");
+    socket.send(JSON.stringify(sceneUpdate));
+    await expect(replayAck).resolves.toMatchObject({
+      update_id: "restart-dedup",
+      revision: 1,
+    });
+    const beforeRestart = await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/whiteboard/snapshots`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+    });
+    expect(beforeRestart.statusCode).toBe(200);
+    expect(beforeRestart.json().snapshots).toHaveLength(1);
+    expect(await attachmentStore.storedFiles()).toHaveLength(1);
+
+    socket.close();
+    await app.close();
+    app = undefined;
+    secondApp = await buildServer({
+      dbPath,
+      config: localTestConfig(),
+      attachmentStore,
+    });
+    await secondApp.listen({ host: "127.0.0.1", port: 0 });
+
+    for (const url of [
+      `/rooms/${room.room_id}/whiteboard/snapshots`,
+      `/rooms/${room.room_id}/attachments/${attachmentId}`,
+    ]) {
+      const response = await secondApp.inject({
+        method: "GET",
+        url,
+        headers: { authorization: `Bearer ${room.owner_token}` },
+      });
+      expect(response.statusCode).toBe(410);
+      expect(response.json()).toEqual({ error: "room_ended" });
+    }
+    expect(await attachmentStore.storedFiles()).toEqual([]);
+
+    const restartedSocket = new WebSocket(
+      `ws://${addressOf(secondApp)}/rooms/${room.room_id}/whiteboard` +
+        `?token=${encodeURIComponent(room.owner_token)}`
+    );
+    const restartedClose = waitForOpenOrClose(restartedSocket);
+    await expect(
+      waitForWhiteboardMessage(restartedSocket, "whiteboard.error")
+    ).resolves.toMatchObject({ code: "room_ended", recoverable: false });
+    await expect(restartedClose).resolves.toMatchObject({ closed: true });
   });
 
   it("rejects every room-scoped REST mutation after server restart", async () => {

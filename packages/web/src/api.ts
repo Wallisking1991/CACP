@@ -11,6 +11,7 @@ import {
   type WhiteboardPromotionResult,
 } from "@cacp/protocol";
 export {
+  cancelAttachmentUpload,
   deleteAttachment,
   fetchAttachmentBlob,
   fetchAttachmentUsage,
@@ -280,7 +281,8 @@ export function restoreWhiteboardSnapshot(
 
 export async function promoteWhiteboardSelection(
   session: RoomSession,
-  request: WhiteboardPromotionRequest
+  request: WhiteboardPromotionRequest,
+  options: { signal?: AbortSignal } = {}
 ): Promise<WhiteboardPromotionResult> {
   const response = await fetch(
     `/rooms/${session.room_id}/whiteboard/promotions`,
@@ -291,6 +293,7 @@ export async function promoteWhiteboardSelection(
         authorization: `Bearer ${session.token}`,
       },
       body: JSON.stringify(request),
+      signal: options.signal,
     }
   );
   return whiteboardJson(response, (value) =>

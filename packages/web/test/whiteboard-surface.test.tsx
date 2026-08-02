@@ -430,4 +430,74 @@ describe("WhiteboardSurface exports", () => {
       instruction: "Implement this architecture.",
     });
   });
+
+  it("refuses a promotion preview when the authoritative revision changes during export", async () => {
+    let revision = 4;
+    let finishExport: (() => void) | undefined;
+    const createPromotionArtifacts = vi.fn(
+      () =>
+        new Promise<{
+          selectedElementIds: string[];
+          png: Blob;
+          source: Blob;
+        }>((resolve) => {
+          finishExport = () =>
+            resolve({
+              selectedElementIds: ["shape_1"],
+              png: new Blob(["png"], { type: "image/png" }),
+              source: new Blob(["source"], {
+                type: "application/vnd.excalidraw+json",
+              }),
+            });
+        })
+    );
+    const controller: WhiteboardEditorController = {
+      getScene: () => ({ elements: [], appState: {}, files: {} }),
+      updateScene: () => {},
+      resetHistory: () => {},
+      subscribeSceneChanges: () => () => {},
+      subscribePresenceChanges: () => () => {},
+      setCollaborators: () => {},
+      focusViewport: () => {},
+      createPromotionArtifacts,
+      setDisplayOptions: () => {},
+      setReadOnly: () => {},
+      exportScene: async () => new Blob(),
+      destroy: () => {},
+    };
+
+    render(
+      <WhiteboardSurface
+        active
+        identity={{
+          roomId: "room_race",
+          participantId: "owner_1",
+          token: "secret",
+          role: "owner",
+        }}
+        loadEditorAdapter={async () => ({ mount: async () => controller })}
+        loadSession={async () => () => ({
+          ...sessionController(),
+          currentRevision: () => revision,
+        })}
+        langCode="en"
+        name="Revision race"
+      />
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Send selection to main conversation",
+      })
+    );
+    revision = 5;
+    finishExport?.();
+
+    expect(
+      await screen.findByText(
+        "The selected whiteboard content could not be prepared."
+      )
+    ).toHaveAttribute("role", "alert");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
 });

@@ -10,7 +10,9 @@ import { dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import type { Readable } from "node:stream";
+import { isDeepStrictEqual } from "node:util";
 
 import Fastify, { type FastifyReply } from "fastify";
 import multipart from "@fastify/multipart";
@@ -40,6 +42,7 @@ import {
   type VoteRecord,
   type LocalAgentProvider,
   type WhiteboardHumanRole,
+  type WhiteboardElement,
   type WhiteboardPromotionResult,
   WhiteboardPromotionRequestSchema,
   WhiteboardSnapshotMutationRequestSchema,
@@ -50,6 +53,7 @@ import {
   hasAnyRole,
   hasHumanRole,
 } from "./auth.js";
+import { AttachmentUploadRegistry } from "./attachment-upload-registry.js";
 import {
   findActiveAgentId,
   findAgentCapabilities,
@@ -465,6 +469,94 @@ function attachmentRef(attachment: StoredAttachment): AttachmentRef {
   });
 }
 
+async function readAttachmentBytes(stream: Readable): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+function isMatchingExcalidrawSource(
+  bytes: Buffer,
+  selectedElementIds: readonly string[],
+  liveElements: ReadonlyMap<string, WhiteboardElement>,
+  expectedImageFiles: ReadonlyMap<
+    string,
+    { mediaType: string; sha256: string }
+  >,
+  frameId?: string
+): boolean {
+  let source: unknown;
+  try {
+    source = JSON.parse(bytes.toString("utf8"));
+  } catch {
+    return false;
+  }
+  if (!source || typeof source !== "object") return false;
+  const document = source as Record<string, unknown>;
+  if (
+    document.type !== "excalidraw" ||
+    typeof document.version !== "number" ||
+    !document.appState ||
+    typeof document.appState !== "object" ||
+    !document.files ||
+    typeof document.files !== "object" ||
+    !Array.isArray(document.elements)
+  ) {
+    return false;
+  }
+  const sourceElements = new Map<string, Record<string, unknown>>();
+  for (const value of document.elements) {
+    if (!value || typeof value !== "object") return false;
+    const element = value as Record<string, unknown>;
+    if (
+      typeof element.id !== "string" ||
+      typeof element.type !== "string" ||
+      typeof element.version !== "number" ||
+      typeof element.versionNonce !== "number" ||
+      element.isDeleted === true ||
+      sourceElements.has(element.id)
+    ) {
+      return false;
+    }
+    sourceElements.set(element.id, element);
+  }
+  if (sourceElements.size !== selectedElementIds.length) return false;
+  for (const elementId of selectedElementIds) {
+    const sourceElement = sourceElements.get(elementId);
+    const liveElement = liveElements.get(elementId);
+    if (
+      !sourceElement ||
+      !liveElement ||
+      !isDeepStrictEqual(sourceElement, liveElement)
+    ) {
+      return false;
+    }
+  }
+  if (frameId && sourceElements.get(frameId)?.type !== "frame") return false;
+
+  const sourceFiles = document.files as Record<string, unknown>;
+  if (Object.keys(sourceFiles).length !== expectedImageFiles.size) return false;
+  for (const [fileId, expected] of expectedImageFiles) {
+    const sourceFile = sourceFiles[fileId];
+    if (!sourceFile || typeof sourceFile !== "object") return false;
+    const dataURL = (sourceFile as Record<string, unknown>).dataURL;
+    if (typeof dataURL !== "string") return false;
+    const match = /^data:([^;,]+);base64,([A-Za-z0-9+/]*={0,2})$/u.exec(
+      dataURL
+    );
+    if (!match || match[1] !== expected.mediaType) return false;
+    const decoded = Buffer.from(match[2]!, "base64");
+    if (
+      createHash("sha256").update(decoded).digest("hex") !== expected.sha256
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function validateAgentAttachmentInput(
   events: CacpEvent[],
   agentId: string,
@@ -692,6 +784,12 @@ const HALT_TRIGGER_FAILURE_ERRORS = new Set([
   "agent_session_not_ready",
 ]);
 
+const AttachmentUploadIdempotencyKeySchema = z
+  .string()
+  .min(8)
+  .max(200)
+  .regex(/^[A-Za-z0-9._:-]+$/u);
+
 interface QueuedMainInput {
   input_id: string;
   author_id: string;
@@ -699,6 +797,7 @@ interface QueuedMainInput {
   author_role: ParticipantRole;
   content: StructuredMessageContent;
   source: "composer" | "orbit_promote" | "whiteboard_promote";
+  target_agent_id?: string;
   created_at: string;
 }
 
@@ -774,6 +873,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
     string,
     Map<string, { fingerprint: string; result: WhiteboardPromotionResult }>
   >();
+  const attachmentUploads = new AttachmentUploadRegistry<{
+    attachment: AttachmentRef;
+    expires_with_room: true;
+  }>();
   const MAX_QUEUED_PER_ROOM = 50;
   function getQueuedMainInputs(roomId: string): QueuedMainInput[] {
     let arr = queuedMainInputs.get(roomId);
@@ -958,6 +1061,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     orbitStates.delete(roomId);
     queuedMainInputs.delete(roomId);
     whiteboardPromotions.delete(roomId);
+    attachmentUploads.discardRoom(roomId);
     socketCounts.delete(roomId);
     pendingAttachmentBytes.delete(roomId);
     for (const [key, timer] of [...pendingOffline.entries()]) {
@@ -1939,30 +2043,33 @@ export async function buildServer(options: BuildServerOptions = {}) {
       authorRole: ParticipantRole;
       content: StructuredMessageContent;
       source: "composer" | "orbit_promote" | "whiteboard_promote";
+      targetAgentId?: string;
     }
   ): CacpEvent[] {
     const events = store.listEvents(roomId);
     const turnEvents = events;
     const activeAgentId = findActiveAgentId(events);
     if (!activeAgentId) return [];
-    const activeAgent = findParticipant(roomId, activeAgentId);
+    const targetAgentId = input.targetAgentId ?? activeAgentId;
+    if (targetAgentId !== activeAgentId) return [];
+    const activeAgent = findParticipant(roomId, targetAgentId);
     if (
       !activeAgent ||
       activeAgent.role !== "agent" ||
       activeAgent.type !== "agent"
     )
       return [];
-    if (!isAgentOnline(events, activeAgentId)) return [];
+    if (!isAgentOnline(events, targetAgentId)) return [];
     if (findAnyOpenTurn(turnEvents)) return [];
 
-    const capabilities = findAgentCapabilities(events, activeAgentId);
+    const capabilities = findAgentCapabilities(events, targetAgentId);
     const localProvider = providerForCapabilities(capabilities);
     if (localProvider) {
       const ready =
         localProvider === "claude-code"
-          ? hasClaudeSessionReady(events, activeAgentId) ||
-            hasLocalAgentSessionReady(events, activeAgentId, localProvider)
-          : hasLocalAgentSessionReady(events, activeAgentId, localProvider);
+          ? hasClaudeSessionReady(events, targetAgentId) ||
+            hasLocalAgentSessionReady(events, targetAgentId, localProvider)
+          : hasLocalAgentSessionReady(events, targetAgentId, localProvider);
       if (!ready) return [];
     }
 
@@ -1972,7 +2079,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     return [
       event(roomId, "agent.turn.requested", input.actorId, {
         turn_id: turnId,
-        agent_id: activeAgentId,
+        agent_id: targetAgentId,
         reason: "human_message",
         source: input.source,
         speaker_name: input.authorName,
@@ -2096,8 +2203,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
 
   /**
    * T5: Pop the FIFO head of the room's queued main inputs and trigger a
-   * fresh agent turn for it. Called from `/agent-turns/:turnId/complete` and
-   * `/fail` after the terminal event is committed and broadcast.
+   * fresh agent turn for it after a turn ends or an Agent becomes ready.
    *
    * Spec §4: only one agent turn may be active at a time, and queued inputs
    * trigger FIFO once the active turn ends — UNLESS the previous turn failed
@@ -2110,14 +2216,9 @@ export async function buildServer(options: BuildServerOptions = {}) {
    */
   function triggerNextQueuedMainInput(
     roomId: string,
-    terminalReason: "completed" | "failed",
     failureError?: string
   ): boolean {
-    if (
-      terminalReason === "failed" &&
-      failureError &&
-      HALT_TRIGGER_FAILURE_ERRORS.has(failureError)
-    )
+    if (failureError && HALT_TRIGGER_FAILURE_ERRORS.has(failureError))
       return false;
     const queue = queuedMainInputs.get(roomId);
     if (!queue || queue.length === 0) return false;
@@ -2130,21 +2231,23 @@ export async function buildServer(options: BuildServerOptions = {}) {
     const events = store.listEvents(roomId);
     const activeAgentId = findActiveAgentId(events);
     if (!activeAgentId) return false;
-    if (!isAgentOnline(events, activeAgentId)) return false;
-    const capabilities = findAgentCapabilities(events, activeAgentId);
+    const targetAgentId = next.target_agent_id ?? activeAgentId;
+    if (targetAgentId !== activeAgentId) return false;
+    if (!isAgentOnline(events, targetAgentId)) return false;
+    const capabilities = findAgentCapabilities(events, targetAgentId);
     const localProvider = providerForCapabilities(capabilities);
     if (localProvider) {
       const ready =
         localProvider === "claude-code"
-          ? hasClaudeSessionReady(events, activeAgentId) ||
-            hasLocalAgentSessionReady(events, activeAgentId, localProvider)
-          : hasLocalAgentSessionReady(events, activeAgentId, localProvider);
+          ? hasClaudeSessionReady(events, targetAgentId) ||
+            hasLocalAgentSessionReady(events, targetAgentId, localProvider)
+          : hasLocalAgentSessionReady(events, targetAgentId, localProvider);
       if (!ready) return false;
     }
     if (
       validateAgentAttachmentInput(
         events,
-        activeAgentId,
+        targetAgentId,
         next.content.attachments
       )
     )
@@ -2161,6 +2264,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       authorRole: next.author_role,
       content: next.content,
       source: next.source,
+      targetAgentId: next.target_agent_id,
     });
     const turnEvent = turnRequestEvents.find(
       (nextEvent) => nextEvent.type === "agent.turn.requested"
@@ -2189,7 +2293,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       store.grantAttachmentsToAgent(
         roomId,
         next.content.attachments.map((attachment) => attachment.attachment_id),
-        activeAgentId,
+        targetAgentId,
         next.input_id
       );
       return store.appendEvent(turnEvent);
@@ -3049,6 +3153,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     async (request, reply) => {
       if (!aliveRooms.has(request.params.roomId))
         return reply.code(410).send({ error: "room_ended" });
+      if (!messageLimiter.allow(request.ip)) return tooMany(reply);
       const participant = requireParticipant(
         store,
         request.params.roomId,
@@ -3057,11 +3162,31 @@ export async function buildServer(options: BuildServerOptions = {}) {
       if (!participant) return deny(reply, "invalid_token");
       if (!hasHumanRole(participant, ["owner", "admin", "member"]))
         return deny(reply, "forbidden", 403);
-      if (
-        roomAttachmentBytesWithReservations(request.params.roomId) >=
-        config.maxRoomAttachmentBytes
-      )
-        return deny(reply, "room_attachment_quota_exceeded", 409);
+      const rawIdempotencyKey = request.headers["idempotency-key"];
+      const parsedIdempotencyKey =
+        typeof rawIdempotencyKey === "string"
+          ? AttachmentUploadIdempotencyKeySchema.safeParse(rawIdempotencyKey)
+          : undefined;
+      if (parsedIdempotencyKey && !parsedIdempotencyKey.success) {
+        return deny(reply, "invalid_idempotency_key", 400);
+      }
+      const idempotencyKey = parsedIdempotencyKey?.data;
+      const uploadIdentity = idempotencyKey
+        ? {
+            roomId: request.params.roomId,
+            participantId: participant.id,
+            idempotencyKey,
+          }
+        : undefined;
+      if (uploadIdentity && attachmentUploads.isCancelled(uploadIdentity)) {
+        return deny(reply, "attachment_upload_cancelled", 409);
+      }
+      const releaseUploadReservation = uploadIdentity
+        ? attachmentUploads.reserve(uploadIdentity)
+        : undefined;
+      if (uploadIdentity && !releaseUploadReservation) {
+        return deny(reply, "attachment_upload_capacity_exceeded", 429);
+      }
 
       let staged: Awaited<ReturnType<AttachmentStore["stage"]>> | undefined;
       let committedAttachmentId: string | undefined;
@@ -3087,38 +3212,93 @@ export async function buildServer(options: BuildServerOptions = {}) {
           config.maxAttachmentBytes
         );
         if (part.file.truncated) throw new Error("attachment_too_large");
-        if (!reserveAttachmentBytes(request.params.roomId, staged.sizeBytes))
-          throw new Error("room_attachment_quota_exceeded");
-        reservedBytes = staged.sizeBytes;
-
         const validated = await validateAttachment({
           path: staged.path,
           filename: part.filename,
           claimedMediaType: part.mimetype,
         });
-        const attachmentId = prefixedId("att");
-        await attachmentStore.commit(
-          staged,
-          request.params.roomId,
-          attachmentId
-        );
-        committedAttachmentId = attachmentId;
-        const stored = store.createAttachment({
-          attachment_id: attachmentId,
-          room_id: request.params.roomId,
-          created_by: participant.id,
-          name: validated.name,
-          media_type: validated.mediaType,
-          size_bytes: staged.sizeBytes,
-          sha256: staged.sha256,
-          kind: validated.kind,
-          disposition: validated.disposition,
-          created_at: new Date().toISOString(),
-        });
-        return reply.code(201).send({
-          attachment: attachmentRef(stored),
-          expires_with_room: true,
-        });
+        const fingerprint = JSON.stringify([
+          participant.id,
+          validated.name,
+          validated.mediaType,
+          staged.sizeBytes,
+          staged.sha256,
+        ]);
+        const createAttachment = async () => {
+          const stagedAttachment = staged!;
+          if (!aliveRooms.has(request.params.roomId)) {
+            throw new Error("room_ended");
+          }
+          if (
+            !reserveAttachmentBytes(
+              request.params.roomId,
+              stagedAttachment.sizeBytes
+            )
+          ) {
+            throw new Error("room_attachment_quota_exceeded");
+          }
+          reservedBytes = stagedAttachment.sizeBytes;
+          const attachmentId = prefixedId("att");
+          await attachmentStore.commit(
+            stagedAttachment,
+            request.params.roomId,
+            attachmentId
+          );
+          committedAttachmentId = attachmentId;
+          if (!aliveRooms.has(request.params.roomId)) {
+            throw new Error("room_ended");
+          }
+          const stored = store.createAttachment({
+            attachment_id: attachmentId,
+            room_id: request.params.roomId,
+            created_by: participant.id,
+            name: validated.name,
+            media_type: validated.mediaType,
+            size_bytes: stagedAttachment.sizeBytes,
+            sha256: stagedAttachment.sha256,
+            kind: validated.kind,
+            disposition: validated.disposition,
+            created_at: new Date().toISOString(),
+          });
+          return {
+            attachment: attachmentRef(stored),
+            expires_with_room: true as const,
+          };
+        };
+        const result = uploadIdentity
+          ? !aliveRooms.has(request.params.roomId)
+            ? ({ status: "cancelled" } as const)
+            : await attachmentUploads.run({
+                ...uploadIdentity,
+                fingerprint,
+                canReplay: (candidate) =>
+                  Boolean(
+                    store.getAttachment(
+                      request.params.roomId,
+                      candidate.attachment.attachment_id
+                    )
+                  ),
+                create: createAttachment,
+              })
+          : { status: "created" as const, result: await createAttachment() };
+        if (result.status === "conflict") {
+          throw new Error("attachment_idempotency_conflict");
+        }
+        if (result.status === "capacity_exceeded") {
+          throw new Error("attachment_upload_capacity_exceeded");
+        }
+        if (result.status === "cancelled") {
+          throw new Error(
+            aliveRooms.has(request.params.roomId)
+              ? "attachment_upload_cancelled"
+              : "room_ended"
+          );
+        }
+        if (result.status === "replayed") {
+          await attachmentStore.discard(staged);
+          staged = undefined;
+        }
+        return reply.code(201).send(result.result);
       } catch (error) {
         if (staged && !committedAttachmentId) {
           await attachmentStore.discard(staged);
@@ -3128,10 +3308,22 @@ export async function buildServer(options: BuildServerOptions = {}) {
             request.params.roomId,
             committedAttachmentId
           );
+          store.deleteAttachment(request.params.roomId, committedAttachmentId);
         }
         const code = error instanceof Error ? error.message : String(error);
+        if (code === "room_ended") {
+          return reply.code(410).send({ error: "room_ended" });
+        }
         if (code === "attachment_too_large") return deny(reply, code, 413);
         if (code === "room_attachment_quota_exceeded")
+          return deny(reply, code, 409);
+        if (code === "attachment_upload_capacity_exceeded") {
+          return deny(reply, code, 429);
+        }
+        if (
+          code === "attachment_idempotency_conflict" ||
+          code === "attachment_upload_cancelled"
+        )
           return deny(reply, code, 409);
         if (
           code === "attachment_empty" ||
@@ -3143,10 +3335,66 @@ export async function buildServer(options: BuildServerOptions = {}) {
         request.log.error({ error }, "attachment upload failed");
         return deny(reply, "attachment_upload_failed", 500);
       } finally {
+        releaseUploadReservation?.();
         if (reservedBytes > 0) {
           releaseAttachmentBytes(request.params.roomId, reservedBytes);
         }
       }
+    }
+  );
+
+  app.delete<{
+    Params: { roomId: string; idempotencyKey: string };
+  }>(
+    "/rooms/:roomId/attachment-uploads/:idempotencyKey",
+    async (request, reply) => {
+      if (!aliveRooms.has(request.params.roomId)) {
+        return reply.code(410).send({ error: "room_ended" });
+      }
+      if (!messageLimiter.allow(request.ip)) return tooMany(reply);
+      const participant = requireParticipant(
+        store,
+        request.params.roomId,
+        request
+      );
+      if (!participant) return deny(reply, "invalid_token");
+      if (!hasHumanRole(participant, ["owner", "admin", "member"])) {
+        return deny(reply, "forbidden", 403);
+      }
+      const parsedKey = AttachmentUploadIdempotencyKeySchema.safeParse(
+        request.params.idempotencyKey
+      );
+      if (!parsedKey.success) {
+        return deny(reply, "invalid_idempotency_key", 400);
+      }
+      const cancellation = attachmentUploads.cancel({
+        roomId: request.params.roomId,
+        participantId: participant.id,
+        idempotencyKey: parsedKey.data,
+      });
+      if (cancellation.status === "capacity_exceeded") {
+        return deny(reply, "attachment_upload_capacity_exceeded", 429);
+      }
+      if (cancellation.status === "room_closed") {
+        return reply.code(410).send({ error: "room_ended" });
+      }
+      const uploaded = cancellation.completed;
+      if (uploaded) {
+        const attachmentId = uploaded.attachment.attachment_id;
+        const attachment = store.getAttachment(
+          request.params.roomId,
+          attachmentId
+        );
+        if (
+          attachment &&
+          attachment.created_by === participant.id &&
+          attachment.message_id === null
+        ) {
+          await attachmentStore.delete(request.params.roomId, attachmentId);
+          store.deleteAttachment(request.params.roomId, attachmentId);
+        }
+      }
+      return reply.code(204).send();
     }
   );
 
@@ -3265,13 +3513,13 @@ export async function buildServer(options: BuildServerOptions = {}) {
     "/rooms/:roomId/whiteboard/promotions",
     async (request, reply) => {
       if (!messageLimiter.allow(request.ip)) return tooMany(reply);
-      const participant = requireParticipant(
+      const participantAtRequest = requireParticipant(
         store,
         request.params.roomId,
         request
       );
-      if (!participant) return deny(reply, "invalid_token");
-      if (!hasHumanRole(participant, ["owner", "admin"])) {
+      if (!participantAtRequest) return deny(reply, "invalid_token");
+      if (!hasHumanRole(participantAtRequest, ["owner", "admin"])) {
         return deny(reply, "forbidden", 403);
       }
       const body = WhiteboardPromotionRequestSchema.parse(request.body);
@@ -3293,7 +3541,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
           current_revision: authoritative.revision,
         });
       }
-      const liveElements = new Map(
+      let liveElements = new Map(
         authoritative.scene.elements
           .filter((element) => element.isDeleted !== true)
           .map((element) => [element.id, element] as const)
@@ -3318,7 +3566,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
         storedAttachments.length !== 2 ||
         storedAttachments.some(
           (attachment) =>
-            attachment.created_by !== participant.id ||
+            attachment.created_by !== participantAtRequest.id ||
             attachment.message_id !== null
         )
       ) {
@@ -3340,6 +3588,91 @@ export async function buildServer(options: BuildServerOptions = {}) {
         !source.name.toLowerCase().endsWith(".excalidraw")
       ) {
         return deny(reply, "promotion_source_required", 409);
+      }
+      const selectedImageFileIds = [
+        ...new Set(
+          body.selected_element_ids.flatMap((elementId) => {
+            const element = liveElements.get(elementId);
+            return element?.type === "image" &&
+              typeof element.fileId === "string"
+              ? [element.fileId]
+              : [];
+          })
+        ),
+      ];
+      const expectedImageAttachments = store.getAttachments(
+        roomId,
+        selectedImageFileIds
+      );
+      const expectedImageFiles = new Map(
+        expectedImageAttachments
+          .filter((attachment) => attachment.kind === "image")
+          .map(
+            (attachment) =>
+              [
+                attachment.attachment_id,
+                {
+                  mediaType: attachment.media_type,
+                  sha256: attachment.sha256,
+                },
+              ] as const
+          )
+      );
+      if (expectedImageFiles.size !== selectedImageFileIds.length) {
+        return deny(reply, "promotion_source_mismatch", 409);
+      }
+      const sourceBytes = await readAttachmentBytes(
+        attachmentStore.open(roomId, source.attachment_id)
+      );
+      if (!aliveRooms.has(roomId)) {
+        return reply.code(410).send({ error: "room_ended" });
+      }
+      const currentParticipant = requireParticipant(store, roomId, request);
+      if (!currentParticipant) return deny(reply, "invalid_token");
+      if (!hasHumanRole(currentParticipant, ["owner", "admin"])) {
+        return deny(reply, "forbidden", 403);
+      }
+      const concurrent = whiteboardPromotions
+        .get(roomId)
+        ?.get(body.idempotency_key);
+      if (concurrent) {
+        if (concurrent.fingerprint !== fingerprint) {
+          return deny(reply, "idempotency_conflict", 409);
+        }
+        return reply.code(201).send(concurrent.result);
+      }
+      const latest = whiteboards.snapshot(roomId);
+      if (body.expected_revision !== latest.revision) {
+        return reply.code(409).send({
+          error: "stale_revision",
+          current_revision: latest.revision,
+        });
+      }
+      liveElements = new Map(
+        latest.scene.elements
+          .filter((element) => element.isDeleted !== true)
+          .map((element) => [element.id, element] as const)
+      );
+      if (
+        body.selected_element_ids.some(
+          (elementId) => !liveElements.has(elementId)
+        )
+      ) {
+        return deny(reply, "selection_not_found", 409);
+      }
+      if (body.frame_id && liveElements.get(body.frame_id)?.type !== "frame") {
+        return deny(reply, "invalid_frame", 409);
+      }
+      if (
+        !isMatchingExcalidrawSource(
+          sourceBytes,
+          body.selected_element_ids,
+          liveElements,
+          expectedImageFiles,
+          body.frame_id
+        )
+      ) {
+        return deny(reply, "promotion_source_mismatch", 409);
       }
       const content = {
         text: body.instruction,
@@ -3386,15 +3719,20 @@ export async function buildServer(options: BuildServerOptions = {}) {
       }
       const inputId = prefixedId("input");
       const now = new Date().toISOString();
-      const accepted = event(roomId, "main_input.accepted", participant.id, {
-        input_id: inputId,
-        author_id: participant.id,
-        content,
-        source: "whiteboard_promote",
-        created_at: now,
-        message_id: inputId,
-      });
-      const queued = event(roomId, "main_input.queued", participant.id, {
+      const accepted = event(
+        roomId,
+        "main_input.accepted",
+        currentParticipant.id,
+        {
+          input_id: inputId,
+          author_id: currentParticipant.id,
+          content,
+          source: "whiteboard_promote",
+          created_at: now,
+          message_id: inputId,
+        }
+      );
+      const queued = event(roomId, "main_input.queued", currentParticipant.id, {
         input_id: inputId,
         queued_after_turn_id: openTurn
           ? openTurn.turn_id
@@ -3406,11 +3744,12 @@ export async function buildServer(options: BuildServerOptions = {}) {
       let messageCreated: CacpEvent | undefined;
       if (!openTurn) {
         turnRequestEvents = createMainInputTurnRequestEvents(roomId, {
-          actorId: participant.id,
-          authorName: participant.display_name,
-          authorRole: participant.role,
+          actorId: currentParticipant.id,
+          authorName: currentParticipant.display_name,
+          authorRole: currentParticipant.role,
           content,
           source: "whiteboard_promote",
+          targetAgentId: body.agent_id,
         });
         const turnRequest = turnRequestEvents.find(
           (nextEvent) => nextEvent.type === "agent.turn.requested"
@@ -3418,17 +3757,27 @@ export async function buildServer(options: BuildServerOptions = {}) {
         if (!turnRequest || typeof turnRequest.payload.turn_id !== "string") {
           return deny(reply, "active_agent_unavailable", 409);
         }
-        triggered = event(roomId, "main_input.triggered", participant.id, {
-          input_id: inputId,
-          trigger_turn_id: turnRequest.payload.turn_id,
-          message_id: inputId,
-        });
-        messageCreated = event(roomId, "message.created", participant.id, {
-          message_id: inputId,
-          content,
-          kind: "human",
-          created_at: now,
-        });
+        triggered = event(
+          roomId,
+          "main_input.triggered",
+          currentParticipant.id,
+          {
+            input_id: inputId,
+            trigger_turn_id: turnRequest.payload.turn_id,
+            message_id: inputId,
+          }
+        );
+        messageCreated = event(
+          roomId,
+          "message.created",
+          currentParticipant.id,
+          {
+            message_id: inputId,
+            content,
+            kind: "human",
+            created_at: now,
+          }
+        );
       }
 
       const stored = store.transaction(() => {
@@ -3454,11 +3803,12 @@ export async function buildServer(options: BuildServerOptions = {}) {
       if (openTurn) {
         queue.push({
           input_id: inputId,
-          author_id: participant.id,
-          author_name: participant.display_name,
-          author_role: participant.role,
+          author_id: currentParticipant.id,
+          author_name: currentParticipant.display_name,
+          author_role: currentParticipant.role,
           content,
           source: "whiteboard_promote",
+          target_agent_id: body.agent_id,
           created_at: now,
         });
       }
@@ -3467,9 +3817,9 @@ export async function buildServer(options: BuildServerOptions = {}) {
         status: openTurn ? "queued" : "triggered",
         attachment_count: 2,
       };
-      const promotions = roomPromotions ?? new Map();
+      const promotions = whiteboardPromotions.get(roomId) ?? new Map();
       promotions.set(body.idempotency_key, { fingerprint, result });
-      if (!roomPromotions) whiteboardPromotions.set(roomId, promotions);
+      whiteboardPromotions.set(roomId, promotions);
 
       if (stored.message) {
         bus.publish({ event: stored.message, delivery: roomDelivery() });
@@ -5637,6 +5987,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
           agent_id: body.agent_id,
         })
       );
+      triggerNextQueuedMainInput(request.params.roomId);
       return reply.code(201).send({ ok: true, agent_id: body.agent_id });
     }
   );
@@ -5955,6 +6306,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
           body
         )
       );
+      triggerNextQueuedMainInput(request.params.roomId);
       return reply.code(201).send({ ok: true });
     }
   );
@@ -6265,6 +6617,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
           body
         )
       );
+      triggerNextQueuedMainInput(request.params.roomId);
       return reply.code(201).send({ ok: true });
     }
   );
@@ -7555,7 +7908,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       // pop the FIFO head of the queued main inputs (if any) and trigger a
       // fresh turn for it. Done after publishEvents so clients see
       // `agent.turn.completed` strictly before `main_input.triggered`.
-      triggerNextQueuedMainInput(request.params.roomId, "completed");
+      triggerNextQueuedMainInput(request.params.roomId);
       return reply.code(201).send({ ok: true, message_id: messageId });
     }
   );
@@ -7609,11 +7962,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       );
       // T5: trigger the next queued main input, BUT not if the failure reason
       // indicates the agent is offline / session not ready (spec §4).
-      triggerNextQueuedMainInput(
-        request.params.roomId,
-        "failed",
-        failurePayload.error
-      );
+      triggerNextQueuedMainInput(request.params.roomId, failurePayload.error);
       return reply.code(201).send({ ok: true });
     }
   );

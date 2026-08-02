@@ -6,6 +6,7 @@ import type {
   WhiteboardExportFormat,
   WhiteboardExportScope,
   WhiteboardPromotionArtifacts,
+  WhiteboardTemplateId,
 } from "../whiteboard/whiteboard-editor-adapter.js";
 import type { AgentView } from "../room-state.js";
 import type {
@@ -20,6 +21,13 @@ import { createWhiteboardImageAssetManager } from "../whiteboard/whiteboard-imag
 import { useT } from "../i18n/useT.js";
 import { WhiteboardRecoveryDialog } from "./WhiteboardRecoveryDialog.js";
 import { WhiteboardPromotionDialog } from "./WhiteboardPromotionDialog.js";
+import { WhiteboardTemplateMenu } from "./WhiteboardTemplateMenu.js";
+import { WhiteboardActionMenu } from "./WhiteboardActionMenu.js";
+import { useDialogKeyboard } from "./useDialogKeyboard.js";
+import {
+  usePhoneWhiteboard,
+  useWhiteboardOnboarding,
+} from "./useWhiteboardPresentation.js";
 
 export interface WhiteboardSurfaceProps {
   active: boolean;
@@ -33,6 +41,7 @@ export interface WhiteboardSurfaceProps {
   onActivity?: (activity: WhiteboardSessionActivity) => void;
   onSessionReady?: () => void;
   onAttachmentUsageChanged?: () => void;
+  onPromotionComplete?: () => void;
 }
 
 export function WhiteboardSurface({
@@ -47,12 +56,20 @@ export function WhiteboardSurface({
   onActivity,
   onSessionReady,
   onAttachmentUsageChanged,
+  onPromotionComplete,
 }: WhiteboardSurfaceProps) {
   const t = useT();
   const { participantId, role, roomId, token } = identity;
   const editorLabel = String(t("whiteboard.editorLabel"));
   const hostRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const promotionButtonRef = useRef<HTMLButtonElement>(null);
+  const templateButtonRef = useRef<HTMLButtonElement>(null);
+  const recoveryButtonRef = useRef<HTMLButtonElement>(null);
+  const mobileActionsButtonRef = useRef<HTMLButtonElement>(null);
+  const mobileActionsDialogRef = useRef<HTMLElement>(null);
+  const mobileActionsCloseRef = useRef<HTMLButtonElement>(null);
+  const promotionCompletedRef = useRef(false);
   const controllerRef = useRef<WhiteboardEditorController | undefined>(
     undefined
   );
@@ -63,6 +80,7 @@ export function WhiteboardSurface({
   );
   const unsubscribeActivityRef = useRef<(() => void) | undefined>(undefined);
   const unsubscribeErrorRef = useRef<(() => void) | undefined>(undefined);
+  const unsubscribeOnboardingRef = useRef<(() => void) | undefined>(undefined);
   const onCollaboratorsChangeRef = useRef(onCollaboratorsChange);
   const onActivityRef = useRef(onActivity);
   const onSessionReadyRef = useRef(onSessionReady);
@@ -97,6 +115,31 @@ export function WhiteboardSurface({
   const [promotionRevision, setPromotionRevision] = useState<number>();
   const [promotionError, setPromotionError] = useState<string>();
   const [preparingPromotion, setPreparingPromotion] = useState(false);
+  const [templateOpen, setTemplateOpen] = useState(false);
+  const [insertingTemplate, setInsertingTemplate] = useState(false);
+  const [templateError, setTemplateError] = useState(false);
+  const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
+  const isPhoneWhiteboard = usePhoneWhiteboard();
+  const { visible: showOnboarding, dismiss: dismissOnboarding } =
+    useWhiteboardOnboarding(roomId, participantId);
+  const dismissOnboardingRef = useRef(dismissOnboarding);
+  useEffect(() => {
+    dismissOnboardingRef.current = dismissOnboarding;
+  }, [dismissOnboarding]);
+  const closeMobileActions = () => {
+    setMobileActionsOpen(false);
+    requestAnimationFrame(() => mobileActionsButtonRef.current?.focus());
+  };
+  useDialogKeyboard(
+    mobileActionsDialogRef,
+    isPhoneWhiteboard &&
+      mobileActionsOpen &&
+      !templateOpen &&
+      !recoveryOpen &&
+      !promotionArtifacts,
+    closeMobileActions,
+    mobileActionsCloseRef
+  );
   const canManageRecovery =
     status === "ready" &&
     connectionStatus === "connected" &&
@@ -160,6 +203,20 @@ export function WhiteboardSurface({
           return;
         }
         controllerRef.current = controller;
+        unsubscribeOnboardingRef.current = controller.subscribeSceneChanges(
+          (scene) => {
+            if (
+              scene.elements.some(
+                (element) =>
+                  typeof element === "object" &&
+                  element !== null &&
+                  (element as { isDeleted?: boolean }).isDeleted !== true
+              )
+            ) {
+              dismissOnboardingRef.current();
+            }
+          }
+        );
         controller.setDisplayOptions(mountOptionsRef.current);
         controller.setReadOnly(true);
         const whiteboardSession = createSession({
@@ -204,6 +261,8 @@ export function WhiteboardSurface({
         unsubscribeActivityRef.current = undefined;
         unsubscribeErrorRef.current?.();
         unsubscribeErrorRef.current = undefined;
+        unsubscribeOnboardingRef.current?.();
+        unsubscribeOnboardingRef.current = undefined;
         if (!disposed) {
           setCollaborators([]);
           onCollaboratorsChangeRef.current?.([]);
@@ -228,6 +287,8 @@ export function WhiteboardSurface({
       unsubscribeActivityRef.current = undefined;
       unsubscribeErrorRef.current?.();
       unsubscribeErrorRef.current = undefined;
+      unsubscribeOnboardingRef.current?.();
+      unsubscribeOnboardingRef.current = undefined;
       setSessionError(undefined);
       setCollaborators([]);
       onCollaboratorsChangeRef.current?.([]);
@@ -318,18 +379,34 @@ export function WhiteboardSurface({
     }
   };
 
-  const preparePromotion = async () => {
+  const preparePromotion = async (fromMobileActions = false) => {
     const controller = controllerRef.current;
-    const revision = sessionRef.current?.currentRevision?.();
+    const revisionBeforeExport = sessionRef.current?.currentRevision?.();
+    if (fromMobileActions) setMobileActionsOpen(false);
+    const restoreMobileFocus = () => {
+      if (fromMobileActions) {
+        requestAnimationFrame(() => mobileActionsButtonRef.current?.focus());
+      }
+    };
     setPromotionError(undefined);
-    if (!controller?.createPromotionArtifacts || revision === undefined) {
+    if (
+      !controller?.createPromotionArtifacts ||
+      revisionBeforeExport === undefined
+    ) {
       setPromotionError(String(t("whiteboard.promotionUnavailable")));
+      restoreMobileFocus();
       return;
     }
     setPreparingPromotion(true);
     try {
       const artifacts = await controller.createPromotionArtifacts();
-      setPromotionRevision(revision);
+      const revisionAfterExport = sessionRef.current?.currentRevision?.();
+      if (revisionAfterExport !== revisionBeforeExport) {
+        setPromotionError(String(t("whiteboard.promotionUnavailable")));
+        restoreMobileFocus();
+        return;
+      }
+      setPromotionRevision(revisionBeforeExport);
       setPromotionArtifacts(artifacts);
     } catch (cause) {
       setPromotionError(
@@ -338,10 +415,88 @@ export function WhiteboardSurface({
           ? String(t("whiteboard.promotionEmptySelection"))
           : String(t("whiteboard.promotionUnavailable"))
       );
+      restoreMobileFocus();
     } finally {
       setPreparingPromotion(false);
     }
   };
+
+  const insertTemplate = async (templateId: WhiteboardTemplateId) => {
+    const controller = controllerRef.current;
+    if (!controller?.insertTemplate) {
+      setTemplateError(true);
+      return;
+    }
+    setInsertingTemplate(true);
+    setTemplateError(false);
+    try {
+      await controller.insertTemplate(templateId);
+      setTemplateOpen(false);
+      requestAnimationFrame(() =>
+        (isPhoneWhiteboard
+          ? mobileActionsButtonRef.current
+          : templateButtonRef.current
+        )?.focus()
+      );
+      dismissOnboardingRef.current();
+    } catch {
+      setTemplateError(true);
+    } finally {
+      setInsertingTemplate(false);
+    }
+  };
+
+  const closeTemplateMenu = () => {
+    setTemplateOpen(false);
+    requestAnimationFrame(() =>
+      (isPhoneWhiteboard
+        ? mobileActionsButtonRef.current
+        : templateButtonRef.current
+      )?.focus()
+    );
+  };
+
+  const closeRecovery = () => {
+    setRecoveryOpen(false);
+    requestAnimationFrame(() =>
+      (isPhoneWhiteboard
+        ? mobileActionsButtonRef.current
+        : recoveryButtonRef.current
+      )?.focus()
+    );
+  };
+
+  const actionMenu = (mobile: boolean) => (
+    <WhiteboardActionMenu
+      mobile={mobile}
+      canEdit={role !== "observer"}
+      canManage={canManageRecovery}
+      editDisabled={connectionStatus !== "connected"}
+      state={{
+        exportScope,
+        insertingImage,
+        preparingPromotion,
+        templateOpen,
+      }}
+      promotionTriggerRef={promotionButtonRef}
+      recoveryTriggerRef={recoveryButtonRef}
+      templateTriggerRef={templateButtonRef}
+      actions={{
+        addImage: () => imageInputRef.current?.click(),
+        export: (format) => void exportWhiteboard(format),
+        openRecovery: () => {
+          if (mobile) setMobileActionsOpen(false);
+          setRecoveryOpen(true);
+        },
+        preparePromotion: () => void preparePromotion(mobile),
+        setExportScope,
+        toggleTemplates: () => {
+          if (mobile) setMobileActionsOpen(false);
+          setTemplateOpen((current) => !current);
+        },
+      }}
+    />
+  );
 
   return (
     <section className="whiteboard-surface" aria-label={editorLabel}>
@@ -461,86 +616,82 @@ export function WhiteboardSurface({
         </div>
       )}
       {status === "ready" && (
-        <div
-          className="whiteboard-export-tools"
-          aria-label={t("whiteboard.exportTools")}
-        >
+        <>
           {role !== "observer" && (
-            <>
-              <input
-                ref={imageInputRef}
-                className="whiteboard-export-tools__file"
-                type="file"
-                accept="image/png,image/jpeg,image/gif,image/webp"
-                onChange={(event) => {
-                  const input = event.currentTarget;
-                  const file = input.files?.[0];
-                  if (file) void insertImage(file);
-                  input.value = "";
-                }}
-              />
-              <button
-                type="button"
-                disabled={insertingImage || connectionStatus !== "connected"}
-                onClick={() => imageInputRef.current?.click()}
-              >
-                {t(
-                  insertingImage
-                    ? "whiteboard.addingImage"
-                    : "whiteboard.addImage"
-                )}
-              </button>
-            </>
+            <input
+              ref={imageInputRef}
+              className="whiteboard-export-tools__file"
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              onChange={(event) => {
+                const input = event.currentTarget;
+                const file = input.files?.[0];
+                if (file) void insertImage(file);
+                input.value = "";
+              }}
+            />
           )}
-          {canManageRecovery && (
+          {isPhoneWhiteboard ? (
             <>
-              <button
-                type="button"
-                disabled={preparingPromotion}
-                onClick={() => void preparePromotion()}
-              >
-                {t(
-                  preparingPromotion
-                    ? "whiteboard.promotionPreparing"
-                    : "whiteboard.promoteSelection"
-                )}
-              </button>
-              <button type="button" onClick={() => setRecoveryOpen(true)}>
-                {t("whiteboard.manageRecovery")}
-              </button>
+              <div className="whiteboard-mobile-toolbar">
+                <button
+                  ref={mobileActionsButtonRef}
+                  type="button"
+                  aria-expanded={mobileActionsOpen}
+                  aria-controls="whiteboard-mobile-actions"
+                  onClick={() => setMobileActionsOpen(true)}
+                >
+                  {t("whiteboard.advancedActions")}
+                </button>
+              </div>
+              {mobileActionsOpen && (
+                <>
+                  <div
+                    className="whiteboard-mobile-actions-backdrop"
+                    aria-hidden="true"
+                    onClick={closeMobileActions}
+                  />
+                  <section
+                    ref={mobileActionsDialogRef}
+                    id="whiteboard-mobile-actions"
+                    className="whiteboard-mobile-actions"
+                    role="dialog"
+                    aria-modal="true"
+                    tabIndex={-1}
+                    aria-labelledby="whiteboard-mobile-actions-title"
+                  >
+                    <header>
+                      <div>
+                        <h2 id="whiteboard-mobile-actions-title">
+                          {t("whiteboard.advancedActions")}
+                        </h2>
+                        <p>{t("whiteboard.advancedActionsDescription")}</p>
+                      </div>
+                      <button
+                        ref={mobileActionsCloseRef}
+                        type="button"
+                        onClick={closeMobileActions}
+                        aria-label={t("common.close")}
+                      >
+                        ×
+                      </button>
+                    </header>
+                    <div className="whiteboard-mobile-actions__grid">
+                      {actionMenu(true)}
+                    </div>
+                  </section>
+                </>
+              )}
             </>
+          ) : (
+            <div
+              className="whiteboard-export-tools"
+              aria-label={t("whiteboard.exportTools")}
+            >
+              {actionMenu(false)}
+            </div>
           )}
-          <label>
-            <span className="sr-only">{t("whiteboard.exportScope")}</span>
-            <select
-              aria-label={t("whiteboard.exportScope")}
-              value={exportScope}
-              onChange={(event) =>
-                setExportScope(
-                  event.currentTarget.value as WhiteboardExportScope
-                )
-              }
-            >
-              <option value="scene">{t("whiteboard.exportScene")}</option>
-              <option value="selection">
-                {t("whiteboard.exportSelection")}
-              </option>
-            </select>
-          </label>
-          {(["png", "svg", "excalidraw"] as const).map((format) => (
-            <button
-              key={format}
-              type="button"
-              onClick={() => void exportWhiteboard(format)}
-              aria-label={t("whiteboard.exportFormat", {
-                format:
-                  format === "excalidraw" ? "Excalidraw" : format.toUpperCase(),
-              })}
-            >
-              {format === "excalidraw" ? ".excalidraw" : format.toUpperCase()}
-            </button>
-          ))}
-        </div>
+        </>
       )}
       {status === "ready" && exportError && (
         <div className="whiteboard-surface__export-error" role="alert">
@@ -552,6 +703,39 @@ export function WhiteboardSurface({
           {promotionError}
         </div>
       )}
+      {status === "ready" && templateError && (
+        <div className="whiteboard-surface__export-error" role="alert">
+          {t("whiteboard.templateInsertError")}
+        </div>
+      )}
+      {status === "ready" && showOnboarding && (
+        <aside
+          className="whiteboard-onboarding"
+          aria-labelledby="whiteboard-onboarding-title"
+        >
+          <button
+            type="button"
+            aria-label={t("whiteboard.dismissOnboarding")}
+            onClick={() => dismissOnboardingRef.current()}
+          >
+            ×
+          </button>
+          <strong id="whiteboard-onboarding-title">
+            {t("whiteboard.onboardingTitle")}
+          </strong>
+          <span>{t("whiteboard.onboardingBody")}</span>
+        </aside>
+      )}
+      {status === "ready" &&
+        connectionStatus === "connected" &&
+        role !== "observer" &&
+        templateOpen && (
+          <WhiteboardTemplateMenu
+            busy={insertingTemplate}
+            onClose={closeTemplateMenu}
+            onInsert={(templateId) => void insertTemplate(templateId)}
+          />
+        )}
       <div
         ref={hostRef}
         className="whiteboard-surface__editor"
@@ -567,7 +751,7 @@ export function WhiteboardSurface({
             token,
             role,
           }}
-          onClose={() => setRecoveryOpen(false)}
+          onClose={closeRecovery}
         />
       )}
       {promotionArtifacts && canManageRecovery && (
@@ -585,8 +769,21 @@ export function WhiteboardSurface({
           onClose={() => {
             setPromotionArtifacts(undefined);
             setPromotionRevision(undefined);
+            if (!promotionCompletedRef.current) {
+              requestAnimationFrame(() =>
+                (isPhoneWhiteboard
+                  ? mobileActionsButtonRef.current
+                  : promotionButtonRef.current
+                )?.focus()
+              );
+            }
+            promotionCompletedRef.current = false;
           }}
-          onPromoted={onAttachmentUsageChanged}
+          onPromoted={() => {
+            promotionCompletedRef.current = true;
+            onAttachmentUsageChanged?.();
+            onPromotionComplete?.();
+          }}
         />
       )}
     </section>

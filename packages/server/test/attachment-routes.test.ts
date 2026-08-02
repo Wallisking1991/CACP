@@ -38,6 +38,31 @@ class ConcurrentStageAttachmentStore extends FileSystemAttachmentStore {
   }
 }
 
+class PausedCommitAttachmentStore extends FileSystemAttachmentStore {
+  private releaseCommit: (() => void) | undefined;
+  private markCommitStarted: (() => void) | undefined;
+  readonly commitStarted = new Promise<void>((resolve) => {
+    this.markCommitStarted = resolve;
+  });
+  private readonly commitReleased = new Promise<void>((resolve) => {
+    this.releaseCommit = resolve;
+  });
+
+  override async commit(
+    staged: StagedAttachment,
+    roomId: string,
+    attachmentId: string
+  ): Promise<void> {
+    this.markCommitStarted?.();
+    await this.commitReleased;
+    return super.commit(staged, roomId, attachmentId);
+  }
+
+  resumeCommit(): void {
+    this.releaseCommit?.();
+  }
+}
+
 function multipartFile(
   name: string,
   mediaType: string,
@@ -78,7 +103,8 @@ async function upload(
   token: string,
   name = "pixel.png",
   mediaType = "image/png",
-  bytes = OnePixelPng
+  bytes = OnePixelPng,
+  idempotencyKey?: string
 ) {
   const multipart = multipartFile(name, mediaType, bytes);
   return await app.inject({
@@ -87,6 +113,7 @@ async function upload(
     headers: {
       ...multipart.headers,
       authorization: `Bearer ${token}`,
+      ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}),
     },
     payload: multipart.payload,
   });
@@ -258,6 +285,198 @@ describe("ephemeral room attachments", () => {
       headers: { authorization: `Bearer ${room.owner_token}` },
     });
     expect(emptyUsage.json()).toMatchObject({ used_bytes: 0 });
+  });
+
+  it("replays an idempotent upload without consuming quota twice and cancels it by participant", async () => {
+    const { app, room, attachmentStore } = await fixture();
+    const key = "whiteboard-promotion-1-png";
+
+    const first = await upload(
+      app,
+      room.room_id,
+      room.owner_token,
+      "selection.png",
+      "image/png",
+      OnePixelPng,
+      key
+    );
+    const retry = await upload(
+      app,
+      room.room_id,
+      room.owner_token,
+      "selection.png",
+      "image/png",
+      OnePixelPng,
+      key
+    );
+
+    expect(first.statusCode).toBe(201);
+    expect(retry.statusCode).toBe(201);
+    expect(retry.json()).toEqual(first.json());
+    expect(await attachmentStore.storedFiles()).toHaveLength(1);
+    const usage = await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/attachments`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+    });
+    expect(usage.json()).toMatchObject({ used_bytes: OnePixelPng.length });
+
+    const conflict = await upload(
+      app,
+      room.room_id,
+      room.owner_token,
+      "different.txt",
+      "text/plain",
+      Buffer.from("different"),
+      key
+    );
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict.json()).toMatchObject({
+      error: "attachment_idempotency_conflict",
+    });
+
+    const cancelled = await app.inject({
+      method: "DELETE",
+      url: `/rooms/${room.room_id}/attachment-uploads/${key}`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+    });
+    expect(cancelled.statusCode).toBe(204);
+    expect(await attachmentStore.storedFiles()).toEqual([]);
+    const cancelledRetry = await upload(
+      app,
+      room.room_id,
+      room.owner_token,
+      "selection.png",
+      "image/png",
+      OnePixelPng,
+      key
+    );
+    expect(cancelledRetry.statusCode).toBe(409);
+    expect(cancelledRetry.json()).toMatchObject({
+      error: "attachment_upload_cancelled",
+    });
+  });
+
+  it("coalesces concurrent uploads that use the same idempotency key", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cacp-attachments-idempotent-"));
+    roots.push(root);
+    const attachmentStore = new ConcurrentStageAttachmentStore(root);
+    const app = await buildServer({
+      dbPath: ":memory:",
+      config: localTestConfig(),
+      attachmentStore,
+    });
+    apps.push(app);
+    const room = await createRoom(app);
+    const key = "whiteboard-promotion-concurrent-png";
+
+    const [first, second] = await Promise.all([
+      upload(
+        app,
+        room.room_id,
+        room.owner_token,
+        "selection.png",
+        "image/png",
+        OnePixelPng,
+        key
+      ),
+      upload(
+        app,
+        room.room_id,
+        room.owner_token,
+        "selection.png",
+        "image/png",
+        OnePixelPng,
+        key
+      ),
+    ]);
+
+    expect(first.statusCode).toBe(201);
+    expect(second.statusCode).toBe(201);
+    expect(second.json()).toEqual(first.json());
+    expect(await attachmentStore.storedFiles()).toHaveLength(1);
+  });
+
+  it("removes an idempotent upload when cancellation races its commit", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cacp-attachments-cancel-"));
+    roots.push(root);
+    const attachmentStore = new PausedCommitAttachmentStore(root);
+    const app = await buildServer({
+      dbPath: ":memory:",
+      config: localTestConfig(),
+      attachmentStore,
+    });
+    apps.push(app);
+    const room = await createRoom(app);
+    const key = "whiteboard-promotion-racing-png";
+
+    const pendingUpload = upload(
+      app,
+      room.room_id,
+      room.owner_token,
+      "selection.png",
+      "image/png",
+      OnePixelPng,
+      key
+    );
+    await attachmentStore.commitStarted;
+    const cancelled = await app.inject({
+      method: "DELETE",
+      url: `/rooms/${room.room_id}/attachment-uploads/${key}`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+    });
+    attachmentStore.resumeCommit();
+    const uploaded = await pendingUpload;
+
+    expect(cancelled.statusCode).toBe(204);
+    expect(uploaded.statusCode).toBe(409);
+    expect(uploaded.json()).toMatchObject({
+      error: "attachment_upload_cancelled",
+    });
+    expect(await attachmentStore.storedFiles()).toEqual([]);
+    const usage = await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/attachments`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+    });
+    expect(usage.json()).toMatchObject({ used_bytes: 0 });
+  });
+
+  it("removes an upload whose commit completes after the room ends", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cacp-attachments-room-end-"));
+    roots.push(root);
+    const attachmentStore = new PausedCommitAttachmentStore(root);
+    const app = await buildServer({
+      dbPath: ":memory:",
+      config: localTestConfig(),
+      attachmentStore,
+    });
+    apps.push(app);
+    const room = await createRoom(app);
+    const pendingUpload = upload(
+      app,
+      room.room_id,
+      room.owner_token,
+      "selection.png",
+      "image/png",
+      OnePixelPng,
+      "whiteboard-promotion-room-end"
+    );
+    await attachmentStore.commitStarted;
+
+    const left = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/leave`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: {},
+    });
+    expect(left.statusCode).toBe(201);
+    attachmentStore.resumeCommit();
+
+    const uploaded = await pendingUpload;
+    expect(uploaded.statusCode).toBe(410);
+    expect(uploaded.json()).toEqual({ error: "room_ended" });
+    expect(await attachmentStore.storedFiles()).toEqual([]);
   });
 
   it("does not discard an attachment after it is bound to a main input", async () => {

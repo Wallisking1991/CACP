@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -6,6 +9,7 @@ import {
 } from "@cacp/protocol";
 
 import { buildServer } from "../src/server.js";
+import { FileSystemAttachmentStore } from "../src/attachment-store.js";
 import { testConnectorCompatibility } from "./test-compatibility.js";
 import { localTestConfig } from "./test-config.js";
 
@@ -186,11 +190,15 @@ async function joinHuman(
 describe("collaborative whiteboard stream", () => {
   let app: FastifyInstance | undefined;
   const sockets: WebSocket[] = [];
+  const tempDirectories: string[] = [];
 
   afterEach(async () => {
     for (const socket of sockets.splice(0)) socket.close();
     await app?.close();
     app = undefined;
+    for (const directory of tempDirectories.splice(0)) {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("shares the first scene update between two human editors", async () => {
@@ -2282,9 +2290,13 @@ describe("collaborative whiteboard stream", () => {
   });
 
   it("ends whiteboard access and closes its socket with the live room", async () => {
+    const attachmentRoot = mkdtempSync(join(tmpdir(), "cacp-board-end-"));
+    tempDirectories.push(attachmentRoot);
+    const attachmentStore = new FileSystemAttachmentStore(attachmentRoot);
     app = await buildServer({
       dbPath: ":memory:",
       config: localTestConfig(),
+      attachmentStore,
     });
     await app.listen({ host: "127.0.0.1", port: 0 });
     const room = (
@@ -2306,6 +2318,58 @@ describe("collaborative whiteboard stream", () => {
     await waitForOpen(socket);
     await inbox.next("whiteboard.connected");
     await inbox.next("whiteboard.scene");
+    const imageAttachmentId = await uploadImage(
+      app,
+      room.room_id,
+      room.owner_token
+    );
+    socket.send(
+      JSON.stringify({
+        protocol: "cacp-whiteboard",
+        version: "1.0.0",
+        room_id: room.room_id,
+        type: "whiteboard.presence.update",
+        cursor: { x: 24, y: 48, button: "up" },
+        selected_element_ids: ["image-before-end"],
+        viewport: { scroll_x: 0, scroll_y: 0, zoom: 1 },
+      })
+    );
+    const sceneUpdate = {
+      protocol: "cacp-whiteboard",
+      version: "1.0.0",
+      room_id: room.room_id,
+      type: "whiteboard.elements.update",
+      update_id: "dedup-before-end",
+      base_revision: 0,
+      elements: [
+        {
+          id: "image-before-end",
+          type: "image",
+          version: 1,
+          versionNonce: 77,
+          fileId: imageAttachmentId,
+        },
+      ],
+      app_state: {},
+    };
+    socket.send(JSON.stringify(sceneUpdate));
+    await expect(inbox.next("whiteboard.ack")).resolves.toMatchObject({
+      update_id: "dedup-before-end",
+      revision: 1,
+    });
+    socket.send(JSON.stringify(sceneUpdate));
+    await expect(inbox.next("whiteboard.ack")).resolves.toMatchObject({
+      update_id: "dedup-before-end",
+      revision: 1,
+    });
+    const snapshots = await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/whiteboard/snapshots`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+    });
+    expect(snapshots.statusCode).toBe(200);
+    expect(snapshots.json().snapshots).toHaveLength(1);
+    expect(await attachmentStore.storedFiles()).toHaveLength(1);
     const closed = new Promise<void>((resolve) => {
       socket.addEventListener("close", () => resolve(), { once: true });
     });
@@ -2322,6 +2386,7 @@ describe("collaborative whiteboard stream", () => {
       recoverable: false,
     });
     await closed;
+    expect(await attachmentStore.storedFiles()).toEqual([]);
 
     const endedSocket = new WebSocket(
       `ws://${addressOf(app)}/rooms/${room.room_id}/whiteboard` +
@@ -2551,7 +2616,7 @@ describe("collaborative whiteboard stream", () => {
       config: localTestConfig({
         whiteboardSnapshotCadenceMs: 1,
         whiteboardSnapshotMaxCount: 10,
-        whiteboardSnapshotMaxBytes: 100,
+        whiteboardSnapshotMaxBytes: 380,
       }),
     });
     await app.listen({ host: "127.0.0.1", port: 0 });
@@ -2613,13 +2678,17 @@ describe("collaborative whiteboard stream", () => {
       snapshots: Array<{ compressed_bytes: number }>;
     };
     expect(listed.current_revision).toBe(3);
+    expect(listed.snapshots.length).toBeGreaterThan(0);
     expect(listed.snapshots.length).toBeLessThan(3);
+    expect(
+      listed.snapshots.every((snapshot) => snapshot.compressed_bytes <= 380)
+    ).toBe(true);
     expect(
       listed.snapshots.reduce(
         (total, snapshot) => total + snapshot.compressed_bytes,
         0
       )
-    ).toBeLessThanOrEqual(100);
+    ).toBeLessThanOrEqual(380);
 
     const clear = await app.inject({
       method: "POST",
@@ -2627,10 +2696,25 @@ describe("collaborative whiteboard stream", () => {
       headers: { authorization: `Bearer ${room.owner_token}` },
       payload: { expected_revision: 3 },
     });
-    expect(clear.statusCode).toBe(409);
+    expect(clear.statusCode).toBe(201);
     expect(clear.json()).toMatchObject({
-      error: "snapshot_unavailable",
-      current_revision: 3,
+      operation: "clear",
+      previous_revision: 3,
+      revision: 4,
     });
+    const afterClear = await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/whiteboard/snapshots`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+    });
+    expect(
+      (
+        afterClear.json() as {
+          snapshots: Array<{ revision: number; reason: string }>;
+        }
+      ).snapshots
+    ).toContainEqual(
+      expect.objectContaining({ revision: 3, reason: "pre_operation" })
+    );
   });
 });

@@ -13,8 +13,8 @@ vi.mock("@excalidraw/excalidraw", () => ({
   Excalidraw: () => null,
   MainMenu: Object.assign(() => null, { DefaultItems: {} }),
   convertToExcalidrawElements: vi.fn((elements) =>
-    elements.map((element: Record<string, unknown>) => ({
-      id: "inserted_image",
+    elements.map((element: Record<string, unknown>, index: number) => ({
+      id: `inserted_${index}`,
       version: 1,
       versionNonce: 1,
       ...element,
@@ -229,6 +229,25 @@ describe("Excalidraw public API bridge", () => {
     expect(updateScene).toHaveBeenCalledWith(
       expect.objectContaining({
         elements: [expect.objectContaining({ type: "image" })],
+        captureUpdate: "immediately",
+      })
+    );
+
+    updateScene.mockClear();
+    await port.insertTemplate("brainstorm");
+    expect(updateScene).toHaveBeenCalledWith(
+      expect.objectContaining({
+        elements: expect.arrayContaining([
+          expect.objectContaining({
+            type: "rectangle",
+            customData: {
+              cacpTemplate: { id: "brainstorm", version: 1 },
+            },
+          }),
+        ]),
+        appState: {
+          selectedElementIds: expect.objectContaining({ inserted_0: true }),
+        },
         captureUpdate: "immediately",
       })
     );

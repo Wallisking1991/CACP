@@ -1,7 +1,13 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { PassThrough, type Readable } from "node:stream";
+import Database from "better-sqlite3";
 import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { buildServer } from "../src/server.js";
+import { FileSystemAttachmentStore } from "../src/attachment-store.js";
 import { localTestConfig } from "./test-config.js";
 import {
   markTestAgentReady,
@@ -12,6 +18,39 @@ const OnePixelPng = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
   "base64"
 );
+
+class PausedReadAttachmentStore extends FileSystemAttachmentStore {
+  private pausedAttachmentId: string | undefined;
+  private releaseRead: (() => void) | undefined;
+  private markReadStarted: (() => void) | undefined;
+  private readStarted: Promise<void> = Promise.resolve();
+  private readReleased: Promise<void> = Promise.resolve();
+
+  pauseOpen(attachmentId: string): Promise<void> {
+    this.pausedAttachmentId = attachmentId;
+    this.readStarted = new Promise<void>((resolve) => {
+      this.markReadStarted = resolve;
+    });
+    this.readReleased = new Promise<void>((resolve) => {
+      this.releaseRead = resolve;
+    });
+    return this.readStarted;
+  }
+
+  resumeOpen(): void {
+    this.releaseRead?.();
+  }
+
+  override open(roomId: string, attachmentId: string): Readable {
+    const source = super.open(roomId, attachmentId);
+    if (attachmentId !== this.pausedAttachmentId) return source;
+    this.pausedAttachmentId = undefined;
+    const output = new PassThrough();
+    this.markReadStarted?.();
+    void this.readReleased.then(() => source.pipe(output));
+    return output;
+  }
+}
 
 function multipartFile(name: string, mediaType: string, bytes: Buffer) {
   const boundary = `cacp-whiteboard-promotion-${name.replace(/\W/gu, "-")}`;
@@ -165,15 +204,29 @@ async function upload(
 describe("POST /rooms/:roomId/whiteboard/promotions", () => {
   let app: FastifyInstance | undefined;
   const sockets: WebSocket[] = [];
+  const tempDirectories: string[] = [];
 
   afterEach(async () => {
     for (const socket of sockets.splice(0)) socket.close();
     await app?.close();
     app = undefined;
+    for (const directory of tempDirectories.splice(0)) {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("atomically promotes a live Frame once and grants only the target Agent", async () => {
-    app = await buildServer({ dbPath: ":memory:", config: localTestConfig() });
+    const directory = mkdtempSync(join(tmpdir(), "cacp-promotion-"));
+    tempDirectories.push(directory);
+    const dbPath = join(directory, "cacp.db");
+    const attachmentStore = new PausedReadAttachmentStore(
+      join(directory, "attachments")
+    );
+    app = await buildServer({
+      dbPath,
+      config: localTestConfig(),
+      attachmentStore,
+    });
     await app.listen({ host: "127.0.0.1", port: 0 });
     const room = await createRoom(app);
     const target = await registerAgent(
@@ -192,6 +245,19 @@ describe("POST /rooms/:roomId/whiteboard/promotions", () => {
       method: "POST",
       url: `/rooms/${room.room_id}/agents/select`,
       headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: { agent_id: other.agent_id },
+    });
+    await markTestAgentReady(
+      app,
+      room.room_id,
+      room.owner_token,
+      other.agent_id,
+      other.agent_token
+    );
+    await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agents/select`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
       payload: { agent_id: target.agent_id },
     });
     await markTestAgentReady(
@@ -202,6 +268,14 @@ describe("POST /rooms/:roomId/whiteboard/promotions", () => {
       target.agent_token
     );
     const member = await joinMember(app, room.room_id, room.owner_token);
+    const boardImageId = await upload(
+      app,
+      room.room_id,
+      room.owner_token,
+      "board-image.png",
+      "image/png",
+      OnePixelPng
+    );
 
     const board = new WebSocket(
       `ws://${addressOf(app)}/rooms/${room.room_id}/whiteboard` +
@@ -234,6 +308,26 @@ describe("POST /rooms/:roomId/whiteboard/promotions", () => {
       height: 30,
       frameId: "frame-1",
     };
+    const image = {
+      id: "image-1",
+      type: "image",
+      version: 1,
+      versionNonce: 103,
+      x: 260,
+      y: 80,
+      width: 80,
+      height: 80,
+      frameId: "frame-1",
+      fileId: boardImageId,
+      status: "saved",
+    };
+    const sourceFiles = {
+      [boardImageId]: {
+        id: boardImageId,
+        mimeType: "image/png",
+        dataURL: `data:image/png;base64,${OnePixelPng.toString("base64")}`,
+      },
+    };
     board.send(
       JSON.stringify({
         protocol: "cacp-whiteboard",
@@ -242,7 +336,7 @@ describe("POST /rooms/:roomId/whiteboard/promotions", () => {
         type: "whiteboard.elements.update",
         update_id: "frame-update",
         base_revision: 0,
-        elements: [frame, text],
+        elements: [frame, text, image],
         app_state: {},
       })
     );
@@ -268,12 +362,18 @@ describe("POST /rooms/:roomId/whiteboard/promotions", () => {
       "selection.excalidraw",
       "application/vnd.excalidraw+json",
       Buffer.from(
-        JSON.stringify({ type: "excalidraw", elements: [frame, text] })
+        JSON.stringify({
+          type: "excalidraw",
+          version: 2,
+          elements: [frame, text, image],
+          appState: {},
+          files: sourceFiles,
+        })
       )
     );
     const payload = {
       expected_revision: 1,
-      selected_element_ids: ["frame-1", "text-1"],
+      selected_element_ids: ["frame-1", "text-1", "image-1"],
       frame_id: "frame-1",
       png_attachment_id: pngId,
       source_attachment_id: sourceId,
@@ -281,6 +381,51 @@ describe("POST /rooms/:roomId/whiteboard/promotions", () => {
       instruction: "Turn this frame into an implementation plan.",
       idempotency_key: "promote-frame-once",
     };
+
+    const database = new Database(dbPath);
+    const registrationRow = database
+      .prepare(
+        "SELECT sequence, event_json FROM events WHERE room_id = ? AND type = 'agent.registered' ORDER BY sequence"
+      )
+      .all(room.room_id)
+      .map((row) => row as { sequence: number; event_json: string })
+      .find(
+        (row) =>
+          (JSON.parse(row.event_json) as { payload: { agent_id?: string } })
+            .payload.agent_id === target.agent_id
+      )!;
+    const registration = JSON.parse(registrationRow.event_json) as {
+      payload: {
+        adapter: {
+          input_capabilities: Record<string, string | number>;
+        };
+      };
+    };
+    const supportedCapabilities = {
+      ...registration.payload.adapter.input_capabilities,
+    };
+    registration.payload.adapter.input_capabilities.image = "unsupported";
+    database
+      .prepare("UPDATE events SET event_json = ? WHERE sequence = ?")
+      .run(JSON.stringify(registration), registrationRow.sequence);
+    database.close();
+
+    const unsupported = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/whiteboard/promotions`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: { ...payload, idempotency_key: "unsupported-target" },
+    });
+    expect(unsupported.statusCode).toBe(409);
+    expect(unsupported.json()).toMatchObject({
+      error: "agent_attachment_unsupported",
+    });
+    registration.payload.adapter.input_capabilities = supportedCapabilities;
+    const restoreDatabase = new Database(dbPath);
+    restoreDatabase
+      .prepare("UPDATE events SET event_json = ? WHERE sequence = ?")
+      .run(JSON.stringify(registration), registrationRow.sequence);
+    restoreDatabase.close();
 
     const first = await app.inject({
       method: "POST",
@@ -349,6 +494,214 @@ describe("POST /rooms/:roomId/whiteboard/promotions", () => {
       expect(otherRead.statusCode).toBe(403);
     }
 
+    const mismatchedPngId = await upload(
+      app,
+      room.room_id,
+      room.owner_token,
+      "mismatched.png",
+      "image/png",
+      OnePixelPng
+    );
+    const mismatchedSourceId = await upload(
+      app,
+      room.room_id,
+      room.owner_token,
+      "mismatched.excalidraw",
+      "application/vnd.excalidraw+json",
+      Buffer.from(
+        JSON.stringify({
+          type: "excalidraw",
+          version: 2,
+          elements: [{ ...frame, x: 999 }, text, image],
+          appState: {},
+          files: sourceFiles,
+        })
+      )
+    );
+    const mismatched = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/whiteboard/promotions`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: {
+        ...payload,
+        png_attachment_id: mismatchedPngId,
+        source_attachment_id: mismatchedSourceId,
+        idempotency_key: "mismatched-source",
+      },
+    });
+    expect(mismatched.statusCode).toBe(409);
+    expect(mismatched.json()).toMatchObject({
+      error: "promotion_source_mismatch",
+    });
+    const afterMismatch = await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/events`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+    });
+    expect(
+      (
+        afterMismatch.json() as {
+          events: Array<{ type: string; payload: Record<string, unknown> }>;
+        }
+      ).events.filter(
+        (event) =>
+          event.type === "main_input.accepted" &&
+          event.payload.source === "whiteboard_promote"
+      )
+    ).toHaveLength(1);
+
+    const missingFilePngId = await upload(
+      app,
+      room.room_id,
+      room.owner_token,
+      "missing-file.png",
+      "image/png",
+      OnePixelPng
+    );
+    const missingFileSourceId = await upload(
+      app,
+      room.room_id,
+      room.owner_token,
+      "missing-file.excalidraw",
+      "application/vnd.excalidraw+json",
+      Buffer.from(
+        JSON.stringify({
+          type: "excalidraw",
+          version: 2,
+          elements: [frame, text, image],
+          appState: {},
+          files: {},
+        })
+      )
+    );
+    const missingFile = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/whiteboard/promotions`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: {
+        ...payload,
+        png_attachment_id: missingFilePngId,
+        source_attachment_id: missingFileSourceId,
+        idempotency_key: "missing-source-file",
+      },
+    });
+    expect(missingFile.statusCode).toBe(409);
+    expect(missingFile.json()).toMatchObject({
+      error: "promotion_source_mismatch",
+    });
+
+    const queuedPngId = await upload(
+      app,
+      room.room_id,
+      room.owner_token,
+      "queued.png",
+      "image/png",
+      OnePixelPng
+    );
+    const queuedSourceId = await upload(
+      app,
+      room.room_id,
+      room.owner_token,
+      "queued.excalidraw",
+      "application/vnd.excalidraw+json",
+      Buffer.from(
+        JSON.stringify({
+          type: "excalidraw",
+          version: 2,
+          elements: [frame, text, image],
+          appState: {},
+          files: sourceFiles,
+        })
+      )
+    );
+    const queuedPayload = {
+      ...payload,
+      png_attachment_id: queuedPngId,
+      source_attachment_id: queuedSourceId,
+      idempotency_key: "queued-for-original-target",
+    };
+    const [queued, queuedReplay] = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: `/rooms/${room.room_id}/whiteboard/promotions`,
+        headers: { authorization: `Bearer ${room.owner_token}` },
+        payload: queuedPayload,
+      }),
+      app.inject({
+        method: "POST",
+        url: `/rooms/${room.room_id}/whiteboard/promotions`,
+        headers: { authorization: `Bearer ${room.owner_token}` },
+        payload: queuedPayload,
+      }),
+    ]);
+    expect(queued.statusCode).toBe(201);
+    expect(queued.json()).toMatchObject({ status: "queued" });
+    expect(queuedReplay.statusCode).toBe(201);
+    expect(queuedReplay.json()).toEqual(queued.json());
+    const queuedInputId = (queued.json() as { input_id: string }).input_id;
+    const firstTurnId = String(requested[0]?.payload.turn_id);
+    const started = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-turns/${firstTurnId}/start`,
+      headers: { authorization: `Bearer ${target.agent_token}` },
+      payload: {},
+    });
+    expect(started.statusCode).toBe(201);
+
+    const switched = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agents/select`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: { agent_id: other.agent_id },
+    });
+    expect(switched.statusCode).toBe(201);
+    const completed = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agent-turns/${firstTurnId}/complete`,
+      headers: { authorization: `Bearer ${target.agent_token}` },
+      payload: { final_text: "done", exit_code: 0 },
+    });
+    expect(completed.statusCode).toBe(201);
+    const afterSwitch = await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/events`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+    });
+    const requestedAfterSwitch = (
+      afterSwitch.json() as {
+        events: Array<{ type: string; payload: Record<string, unknown> }>;
+      }
+    ).events.filter(
+      (event) =>
+        event.type === "agent.turn.requested" &&
+        event.payload.source === "whiteboard_promote"
+    );
+    expect(requestedAfterSwitch).toHaveLength(1);
+    expect(requestedAfterSwitch[0]?.payload.agent_id).toBe(target.agent_id);
+    for (const attachmentId of [queuedPngId, queuedSourceId]) {
+      const noTransferredGrant = await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/attachments/${attachmentId}`,
+        headers: { authorization: `Bearer ${other.agent_token}` },
+      });
+      expect(noTransferredGrant.statusCode).toBe(403);
+    }
+    const cancelled = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/main-inputs/${queuedInputId}/cancel`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: {},
+    });
+    expect(cancelled.statusCode).toBe(201);
+    for (const attachmentId of [queuedPngId, queuedSourceId]) {
+      const removed = await app.inject({
+        method: "GET",
+        url: `/rooms/${room.room_id}/attachments/${attachmentId}`,
+        headers: { authorization: `Bearer ${room.owner_token}` },
+      });
+      expect(removed.statusCode).toBe(404);
+    }
+
     const forged = await app.inject({
       method: "POST",
       url: `/rooms/${room.room_id}/whiteboard/promotions`,
@@ -404,5 +757,134 @@ describe("POST /rooms/:roomId/whiteboard/promotions", () => {
       });
       expect(cleanup.statusCode).toBe(204);
     }
+
+    const racingPngId = await upload(
+      app,
+      room.room_id,
+      room.owner_token,
+      "racing.png",
+      "image/png",
+      OnePixelPng
+    );
+    const racingSourceId = await upload(
+      app,
+      room.room_id,
+      room.owner_token,
+      "racing.excalidraw",
+      "application/vnd.excalidraw+json",
+      Buffer.from(
+        JSON.stringify({
+          type: "excalidraw",
+          version: 2,
+          elements: [frame, text, image],
+          appState: {},
+          files: sourceFiles,
+        })
+      )
+    );
+    const readStarted = attachmentStore.pauseOpen(racingSourceId);
+    const racingPromotion = app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/whiteboard/promotions`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: {
+        ...payload,
+        png_attachment_id: racingPngId,
+        source_attachment_id: racingSourceId,
+        idempotency_key: "revision-race",
+      },
+    });
+    await readStarted;
+    const updatedText = { ...text, version: 2, x: 64 };
+    board.send(
+      JSON.stringify({
+        protocol: "cacp-whiteboard",
+        version: "1.0.0",
+        room_id: room.room_id,
+        type: "whiteboard.elements.update",
+        update_id: "racing-scene-update",
+        base_revision: 1,
+        elements: [frame, updatedText, image],
+        app_state: {},
+      })
+    );
+    await waitForMessage(
+      board,
+      (message) =>
+        message.type === "whiteboard.ack" &&
+        message.update_id === "racing-scene-update"
+    );
+    attachmentStore.resumeOpen();
+    const racingResult = await racingPromotion;
+    expect(racingResult.statusCode).toBe(409);
+    expect(racingResult.json()).toMatchObject({
+      error: "stale_revision",
+      current_revision: 2,
+    });
+
+    const promotedAdmin = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/participants/${member.participant_id}/role`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: { role: "admin" },
+    });
+    expect(promotedAdmin.statusCode).toBe(201);
+    const selectedTarget = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/agents/select`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: { agent_id: target.agent_id },
+    });
+    expect(selectedTarget.statusCode).toBe(201);
+    const roleRacePngId = await upload(
+      app,
+      room.room_id,
+      member.participant_token,
+      "role-race.png",
+      "image/png",
+      OnePixelPng
+    );
+    const roleRaceSourceId = await upload(
+      app,
+      room.room_id,
+      member.participant_token,
+      "role-race.excalidraw",
+      "application/vnd.excalidraw+json",
+      Buffer.from(
+        JSON.stringify({
+          type: "excalidraw",
+          version: 2,
+          elements: [frame, updatedText, image],
+          appState: {},
+          files: sourceFiles,
+        })
+      )
+    );
+    const roleReadStarted = attachmentStore.pauseOpen(roleRaceSourceId);
+    const roleRacePromotion = app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/whiteboard/promotions`,
+      headers: { authorization: `Bearer ${member.participant_token}` },
+      payload: {
+        ...payload,
+        expected_revision: 2,
+        png_attachment_id: roleRacePngId,
+        source_attachment_id: roleRaceSourceId,
+        idempotency_key: "role-race",
+      },
+    });
+    await roleReadStarted;
+    const downgraded = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/participants/${member.participant_id}/role`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: { role: "member" },
+    });
+    expect(downgraded.statusCode).toBe(201);
+    attachmentStore.resumeOpen();
+
+    const roleRaceResult = await roleRacePromotion;
+    expect(roleRaceResult.statusCode).toBe(403);
+    expect(roleRaceResult.json()).toMatchObject({ error: "forbidden" });
   });
 });

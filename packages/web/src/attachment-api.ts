@@ -13,6 +13,7 @@ export interface AttachmentUploadProgress {
 
 export interface AttachmentUploadOptions {
   signal?: AbortSignal;
+  idempotencyKey?: string;
   onProgress?: (progress: AttachmentUploadProgress) => void;
 }
 
@@ -46,6 +47,9 @@ function uploadAttachmentWithProgress(
 
     request.open("POST", attachmentCollectionUrl(session));
     request.setRequestHeader("authorization", `Bearer ${session.token}`);
+    if (options.idempotencyKey) {
+      request.setRequestHeader("idempotency-key", options.idempotencyKey);
+    }
     request.upload.onprogress = (event) => {
       const total =
         event.lengthComputable && event.total > 0 ? event.total : file.size;
@@ -110,7 +114,12 @@ export async function uploadAttachment(
   form.append("file", file, file.name);
   const response = await fetch(attachmentCollectionUrl(session), {
     method: "POST",
-    headers: { authorization: `Bearer ${session.token}` },
+    headers: {
+      authorization: `Bearer ${session.token}`,
+      ...(options.idempotencyKey
+        ? { "idempotency-key": options.idempotencyKey }
+        : {}),
+    },
     body: form,
     signal: options.signal,
   });
@@ -123,6 +132,21 @@ export async function uploadAttachment(
     percent: 100,
   });
   return attachment;
+}
+
+export async function cancelAttachmentUpload(
+  session: AttachmentSession,
+  idempotencyKey: string
+): Promise<void> {
+  const response = await fetch(
+    `/rooms/${encodeURIComponent(session.room_id)}/attachment-uploads/${encodeURIComponent(idempotencyKey)}`,
+    {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${session.token}` },
+      keepalive: true,
+    }
+  );
+  if (!response.ok) throw new Error(await response.text());
 }
 
 export async function fetchAttachmentUsage(

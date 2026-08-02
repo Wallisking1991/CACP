@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  cancelAttachmentUpload,
   deleteAttachment,
   fetchAttachmentUsage,
   uploadAttachment,
@@ -71,7 +72,10 @@ describe("attachment browser transport", () => {
     const onProgress = vi.fn();
     const file = new File(["hello"], "notes.txt", { type: "text/plain" });
 
-    const result = uploadAttachment(session, file, { onProgress });
+    const result = uploadAttachment(session, file, {
+      idempotencyKey: "whiteboard-promotion-1-png",
+      onProgress,
+    });
     const request = FakeXmlHttpRequest.latest!;
     request.upload.onprogress?.({
       lengthComputable: true,
@@ -96,6 +100,9 @@ describe("attachment browser transport", () => {
     expect(request.method).toBe("POST");
     expect(request.url).toBe("/rooms/room_1/attachments");
     expect(request.headers.get("authorization")).toBe("Bearer owner-token");
+    expect(request.headers.get("idempotency-key")).toBe(
+      "whiteboard-promotion-1-png"
+    );
   });
 
   it("aborts an in-flight room attachment upload", async () => {
@@ -163,13 +170,44 @@ describe("attachment browser transport", () => {
     const file = new File(["hello"], "notes.txt", { type: "text/plain" });
 
     await expect(
-      uploadAttachment(session, file, { onProgress })
+      uploadAttachment(session, file, {
+        idempotencyKey: "whiteboard-promotion-1-source",
+        onProgress,
+      })
     ).resolves.toEqual(attachment);
     expect(onProgress).toHaveBeenCalledWith({
       loaded_bytes: 5,
       total_bytes: 5,
       percent: 100,
     });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/rooms/room_1/attachments",
+      expect.objectContaining({
+        headers: {
+          authorization: "Bearer owner-token",
+          "idempotency-key": "whiteboard-promotion-1-source",
+        },
+      })
+    );
+  });
+
+  it("cancels an upload idempotency key through the authenticated room endpoint", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      cancelAttachmentUpload(session, "whiteboard-promotion-1-png")
+    ).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/rooms/room_1/attachment-uploads/whiteboard-promotion-1-png",
+      {
+        method: "DELETE",
+        headers: { authorization: "Bearer owner-token" },
+        keepalive: true,
+      }
+    );
   });
 
   it("reads usage and discards an unbound room attachment", async () => {

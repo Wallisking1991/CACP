@@ -1,3 +1,5 @@
+import type { WhiteboardTemplateId } from "./whiteboard-templates.js";
+
 export interface WhiteboardScene {
   elements: readonly unknown[];
   appState: Record<string, unknown>;
@@ -45,6 +47,8 @@ export interface WhiteboardPromotionArtifacts {
   source: Blob;
 }
 
+export type { WhiteboardTemplateId } from "./whiteboard-templates.js";
+
 export interface WhiteboardEditorDisplayOptions {
   ariaLabel: string;
   langCode: "en" | "zh";
@@ -62,6 +66,7 @@ export interface WhiteboardEditorController {
   setCollaborators(collaborators: readonly WhiteboardCollaborator[]): void;
   focusViewport(viewport: WhiteboardViewport): void;
   insertImage?(file: File): Promise<void>;
+  insertTemplate?(templateId: WhiteboardTemplateId): Promise<void>;
   createPromotionArtifacts?(): Promise<WhiteboardPromotionArtifacts>;
   setDisplayOptions(options: WhiteboardEditorDisplayOptions): void;
   setReadOnly(readOnly: boolean): void;

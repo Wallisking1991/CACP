@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent } from "react";
+import { useEffect, useRef, type KeyboardEvent } from "react";
 import { useT } from "../i18n/useT.js";
 
 export type WorkspaceMode = "conversation" | "whiteboard";
@@ -21,6 +21,15 @@ export function WorkspaceModeSwitch({
   const t = useT();
   const conversationRef = useRef<HTMLButtonElement>(null);
   const whiteboardRef = useRef<HTMLButtonElement>(null);
+  const previousModeRef = useRef(mode);
+
+  useEffect(() => {
+    if (previousModeRef.current === mode) return;
+    previousModeRef.current = mode;
+    const selectedTab =
+      mode === "conversation" ? conversationRef : whiteboardRef;
+    selectedTab.current?.focus();
+  }, [mode]);
 
   const activate = (nextMode: WorkspaceMode) => {
     onChange(nextMode);

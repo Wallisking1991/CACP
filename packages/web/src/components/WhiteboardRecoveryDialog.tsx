@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   WhiteboardSnapshot,
   WhiteboardSnapshotList,
@@ -11,6 +11,7 @@ import {
   type RoomSession,
 } from "../api.js";
 import { useT } from "../i18n/useT.js";
+import { useDialogKeyboard } from "./useDialogKeyboard.js";
 
 type PendingRecovery =
   { type: "clear" } | { type: "restore"; snapshot: WhiteboardSnapshot };
@@ -36,6 +37,18 @@ export function WhiteboardRecoveryDialog({
   const [error, setError] = useState<
     { kind: "load" | "mutation" } | { kind: "stale"; revision: number | "?" }
   >();
+  const dialogRef = useRef<HTMLElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  useDialogKeyboard(
+    dialogRef,
+    open,
+    () => {
+      if (mutating) return;
+      if (pending) setPending(undefined);
+      else onClose();
+    },
+    closeButtonRef
+  );
 
   const loadSnapshots = async (clearError = true) => {
     setLoading(true);
@@ -122,9 +135,11 @@ export function WhiteboardRecoveryDialog({
   return (
     <div className="whiteboard-recovery-backdrop">
       <section
+        ref={dialogRef}
         className="whiteboard-recovery-dialog"
         role="dialog"
         aria-modal="true"
+        tabIndex={-1}
         aria-labelledby="whiteboard-recovery-title"
       >
         <header>
@@ -141,7 +156,9 @@ export function WhiteboardRecoveryDialog({
             )}
           </div>
           <button
+            ref={closeButtonRef}
             type="button"
+            disabled={mutating}
             onClick={() => {
               setPending(undefined);
               onClose();

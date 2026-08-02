@@ -253,6 +253,34 @@ test("shares real Excalidraw content and collaborator presence between two brows
     )
     .toBe(true);
 
+  await ownerPage.getByRole("button", { name: "Templates" }).click();
+  const templateMenu = ownerPage.getByRole("dialog", {
+    name: "Built-in templates",
+  });
+  await templateMenu.getByRole("button", { name: /Brainstorm/u }).click();
+  await expect
+    .poll(() =>
+      memberMessages.some(
+        (message) =>
+          message.type === "whiteboard.elements.updated" &&
+          Array.isArray(message.elements) &&
+          message.elements.some((element) => {
+            if (typeof element !== "object" || element === null) return false;
+            const customData = (element as JsonResponse).customData;
+            if (typeof customData !== "object" || customData === null)
+              return false;
+            const marker = (customData as JsonResponse).cacpTemplate;
+            return (
+              typeof marker === "object" &&
+              marker !== null &&
+              (marker as JsonResponse).id === "brainstorm" &&
+              (marker as JsonResponse).version === 1
+            );
+          })
+      )
+    )
+    .toBe(true);
+
   await ownerPage.mouse.click(ownerBox!.x + 760, ownerBox!.y + 470);
   await ownerPage.keyboard.press("t");
   await expect(ownerPage.getByRole("radio", { name: "Text" })).toBeChecked();
@@ -535,10 +563,21 @@ test("promotes one real Excalidraw Frame into a single Main Input", async ({
   await dialog
     .getByLabel("Instruction for the Agent")
     .fill("Turn this frame into an implementation plan.");
+  const promotionResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.url().endsWith(`/rooms/${owner.room_id}/whiteboard/promotions`)
+  );
   await dialog.getByRole("button", { name: "Create Main Input" }).click();
+  const response = await promotionResponse;
+  expect(response.ok(), await response.text()).toBe(true);
   await expect(dialog).toHaveCount(0);
 
-  await page.getByRole("tab", { name: "Main conversation" }).click();
+  const conversationTab = page.getByRole("tab", {
+    name: "Main conversation",
+  });
+  await expect(conversationTab).toHaveAttribute("aria-selected", "true");
+  await expect(conversationTab).toBeFocused();
   await expect(
     page.getByText("Turn this frame into an implementation plan.", {
       exact: true,
@@ -552,4 +591,158 @@ test("promotes one real Excalidraw Frame into a single Main Input", async ({
   ).toHaveCount(1);
 
   await context.close();
+});
+
+test("supports a complete narrow touch whiteboard flow", async ({
+  browser,
+  request,
+}) => {
+  test.setTimeout(120_000);
+  const { owner, member } = await createRoomSessions(request);
+  const ownerContext = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+    acceptDownloads: true,
+  });
+  const memberContext = await browser.newContext({
+    viewport: { width: 768, height: 900 },
+  });
+  await seedSession(ownerContext, owner);
+  await seedSession(memberContext, member);
+  const ownerPage = await ownerContext.newPage();
+  const memberPage = await memberContext.newPage();
+  const memberMessages: JsonResponse[] = [];
+  memberPage.on("websocket", (socket) => {
+    if (!socket.url().includes("/whiteboard")) return;
+    socket.on("framereceived", ({ payload }) => {
+      if (typeof payload !== "string") return;
+      try {
+        memberMessages.push(JSON.parse(payload) as JsonResponse);
+      } catch {
+        // Ignore frames outside the CACP whiteboard protocol.
+      }
+    });
+  });
+
+  await Promise.all([
+    openWhiteboard(ownerPage, owner.room_id),
+    openWhiteboard(memberPage, member.room_id),
+  ]);
+  await expect(ownerPage.getByLabel("2 active editors")).toBeAttached();
+  await expect(
+    ownerPage.getByRole("button", { name: "More", exact: true })
+  ).toBeVisible();
+  await expect(
+    ownerPage.getByRole("button", { name: "Add image" })
+  ).toHaveCount(0);
+  const shellBox = await ownerPage.locator(".workspace-shell").boundingBox();
+  expect(shellBox?.width).toBe(390);
+  const editor = ownerPage.getByRole("application", {
+    name: "Collaborative Whiteboard",
+  });
+  const editorBox = await editor.boundingBox();
+  expect(editorBox).not.toBeNull();
+
+  await ownerPage.keyboard.press("r");
+  await expect(
+    ownerPage.getByRole("radio", { name: "Rectangle" })
+  ).toBeChecked();
+  await ownerPage.mouse.move(editorBox!.x + 90, editorBox!.y + 180);
+  await ownerPage.mouse.down();
+  await ownerPage.mouse.move(editorBox!.x + 230, editorBox!.y + 300, {
+    steps: 6,
+  });
+  await ownerPage.mouse.up();
+  await expect
+    .poll(() =>
+      memberMessages.some(
+        (message) =>
+          message.type === "whiteboard.elements.updated" &&
+          Array.isArray(message.elements) &&
+          message.elements.some(
+            (element) =>
+              typeof element === "object" &&
+              element !== null &&
+              (element as JsonResponse).type === "rectangle"
+          )
+      )
+    )
+    .toBe(true);
+
+  await ownerPage.getByRole("button", { name: "More", exact: true }).click();
+  const actions = ownerPage.getByRole("dialog", {
+    name: "More",
+    exact: true,
+  });
+  await expect(actions).toBeVisible();
+  const imageBase64 = await ownerPage.evaluate(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 64;
+    canvas.height = 64;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("canvas unavailable");
+    context.fillStyle = "#00a2ff";
+    context.fillRect(0, 0, 64, 64);
+    return canvas.toDataURL("image/png").split(",")[1]!;
+  });
+  const chooser = ownerPage.waitForEvent("filechooser");
+  await actions.getByRole("button", { name: "Add image" }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: "mobile.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(imageBase64, "base64"),
+  });
+  await expect
+    .poll(() =>
+      memberMessages.some(
+        (message) =>
+          message.type === "whiteboard.elements.updated" &&
+          Array.isArray(message.elements) &&
+          message.elements.some(
+            (element) =>
+              typeof element === "object" &&
+              element !== null &&
+              (element as JsonResponse).type === "image"
+          )
+      )
+    )
+    .toBe(true);
+
+  await actions.getByRole("button", { name: "Templates" }).click();
+  const templates = ownerPage.getByRole("dialog", {
+    name: "Built-in templates",
+  });
+  await templates.getByRole("button", { name: /Simple flow/u }).click();
+  await expect
+    .poll(() =>
+      memberMessages.some((message) =>
+        JSON.stringify(message).includes('"id":"flow","version":1')
+      )
+    )
+    .toBe(true);
+
+  await ownerPage.getByRole("button", { name: "More", exact: true }).click();
+  const downloadPromise = ownerPage.waitForEvent("download");
+  const reopenedActions = ownerPage.getByRole("dialog", {
+    name: "More",
+    exact: true,
+  });
+  await reopenedActions.getByRole("button", { name: "Export PNG" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename().toLowerCase()).toContain(".png");
+
+  await reopenedActions.getByRole("button", { name: "Close" }).click();
+  const conversationTab = ownerPage.getByRole("tab", {
+    name: "Main conversation",
+  });
+  await conversationTab.click();
+  await expect(conversationTab).toHaveAttribute("aria-selected", "true");
+  await expect(
+    ownerPage.getByRole("application", { name: "Collaborative Whiteboard" })
+  ).not.toBeVisible();
+
+  await Promise.all([ownerContext.close(), memberContext.close()]);
 });

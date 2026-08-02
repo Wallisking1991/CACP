@@ -910,7 +910,12 @@ export default function Workspace({
   ) : null;
 
   return (
-    <div className="workspace-shell" ref={shellRef}>
+    <div
+      className={`workspace-shell${
+        workspaceMode === "whiteboard" ? " workspace-shell--whiteboard" : ""
+      }`}
+      ref={shellRef}
+    >
       {workspaceMode === "conversation" && (
         <>
           <div
@@ -1223,6 +1228,7 @@ export default function Workspace({
             >
               {whiteboardOpened && (
                 <WhiteboardSurface
+                  key={`${session.room_id}:${session.participant_id}`}
                   active={workspaceMode === "whiteboard"}
                   identity={{
                     roomId: session.room_id,
@@ -1241,6 +1247,9 @@ export default function Workspace({
                   onActivity={handleWhiteboardActivity}
                   onSessionReady={handleWhiteboardSessionReady}
                   onAttachmentUsageChanged={refreshAttachmentUsage}
+                  onPromotionComplete={() =>
+                    handleWorkspaceModeChange("conversation")
+                  }
                 />
               )}
             </div>
