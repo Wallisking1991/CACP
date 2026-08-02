@@ -316,4 +316,45 @@ describe("whiteboard scene state", () => {
       scene: { elements: [], app_state: {} },
     });
   });
+
+  it("commits external scene references before advancing the revision", () => {
+    let rejection = "The referenced image is unavailable." as
+      string | undefined;
+    const committedScenes: unknown[] = [];
+    const state = createWhiteboardSceneState({
+      commitScene(scene) {
+        committedScenes.push(scene);
+        return rejection;
+      },
+    });
+    const imageUpdate = update({
+      elements: [
+        {
+          id: "image_1",
+          type: "image",
+          version: 1,
+          versionNonce: 1,
+          fileId: "att_image",
+        },
+      ],
+    });
+
+    expect(state.apply("owner_1", imageUpdate, 0)).toMatchObject({
+      kind: "rejected",
+      code: "invalid_message",
+      currentRevision: 0,
+      message: "The referenced image is unavailable.",
+    });
+    expect(state.snapshot()).toEqual({
+      revision: 0,
+      scene: { elements: [], app_state: {} },
+    });
+
+    rejection = undefined;
+    expect(state.apply("owner_1", imageUpdate, 1)).toMatchObject({
+      kind: "accepted",
+      revision: 1,
+    });
+    expect(committedScenes).toHaveLength(2);
+  });
 });

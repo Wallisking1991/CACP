@@ -20,6 +20,10 @@ export interface WhiteboardSceneStateOptions {
   updateLimit?: number;
   updateWindowMs?: number;
   deduplicationLimit?: number;
+  commitScene?: (
+    scene: WhiteboardScene,
+    participantId: string
+  ) => string | undefined;
 }
 
 export type WhiteboardSceneApplyResult =
@@ -126,15 +130,21 @@ function inspectStructuredValue(value: unknown): {
   return { embeddedData, invalidStructure: false };
 }
 
-function attachmentCount(elements: readonly WhiteboardElement[]) {
+export function whiteboardAttachmentIds(
+  elements: readonly WhiteboardElement[]
+): string[] {
   const attachmentIds = new Set<string>();
   for (const element of elements) {
     const fileId = element.fileId;
-    if (element.type === "image" && typeof fileId === "string") {
+    if (
+      element.type === "image" &&
+      element.isDeleted !== true &&
+      typeof fileId === "string"
+    ) {
       attachmentIds.add(fileId);
     }
   }
-  return attachmentIds.size;
+  return [...attachmentIds];
 }
 
 export function createWhiteboardSceneState(
@@ -263,7 +273,7 @@ export function createWhiteboardSceneState(
           "The whiteboard contains too many elements."
         );
       }
-      if (attachmentCount(elements) > maxAttachments) {
+      if (whiteboardAttachmentIds(elements).length > maxAttachments) {
         return reject(
           "invalid_message",
           "The whiteboard contains too many attachment references."
@@ -280,6 +290,17 @@ export function createWhiteboardSceneState(
         maxSceneBytes
       ) {
         return reject("invalid_message", "The whiteboard scene is too large.");
+      }
+      try {
+        const commitRejection = options.commitScene?.(nextScene, participantId);
+        if (commitRejection) {
+          return reject("invalid_message", commitRejection);
+        }
+      } catch {
+        return reject(
+          "invalid_message",
+          "The whiteboard scene references could not be committed."
+        );
       }
       revision += 1;
       scene = nextScene;

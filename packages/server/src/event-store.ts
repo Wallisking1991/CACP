@@ -35,7 +35,8 @@ export interface StoredAttachment extends AttachmentRef {
   message_id: string | null;
 }
 
-export type AttachmentReferenceType = "main_input" | "orbit_note";
+export type AttachmentReferenceType =
+  "main_input" | "orbit_note" | "whiteboard";
 
 export interface NewInvite {
   invite_id: string;
@@ -275,7 +276,7 @@ export class EventStore {
       CREATE TABLE IF NOT EXISTS attachment_references (
         room_id TEXT NOT NULL,
         attachment_id TEXT NOT NULL,
-        reference_type TEXT NOT NULL CHECK(reference_type IN ('main_input', 'orbit_note')),
+        reference_type TEXT NOT NULL CHECK(reference_type IN ('main_input', 'orbit_note', 'whiteboard')),
         reference_id TEXT NOT NULL,
         created_at TEXT NOT NULL,
         PRIMARY KEY (room_id, attachment_id, reference_type, reference_id)
@@ -338,6 +339,7 @@ export class EventStore {
       FROM attachments
       WHERE message_id IS NOT NULL;
     `);
+    this.migrateAttachmentReferenceTypes();
     this.migrateInviteHistoryAccess();
     this.migrateJoinRequestHistoryAccess();
     this.migrateParticipantHistoryAccess();
@@ -766,6 +768,100 @@ export class EventStore {
       if (!remaining) orphans.push({ ...attachment, message_id: null });
     }
     return orphans;
+  }
+
+  replaceWhiteboardAttachmentReferences(
+    roomId: string,
+    attachmentIds: string[],
+    actor: { participantId: string; isOwner: boolean }
+  ): { orphaned: StoredAttachment[] } {
+    const desiredIds = [...new Set(attachmentIds)];
+    return this.transaction(() => {
+      const desired = this.getAttachments(roomId, desiredIds);
+      if (desired.length !== desiredIds.length) {
+        throw new Error("whiteboard_attachment_not_found");
+      }
+      const desiredById = new Map(
+        desired.map((attachment) => [attachment.attachment_id, attachment])
+      );
+      for (const attachmentId of desiredIds) {
+        const attachment = desiredById.get(attachmentId)!;
+        if (attachment.kind !== "image") {
+          throw new Error("whiteboard_attachment_not_image");
+        }
+        if (
+          !actor.isOwner &&
+          attachment.created_by !== actor.participantId &&
+          attachment.message_id === null
+        ) {
+          throw new Error("whiteboard_attachment_forbidden");
+        }
+      }
+
+      const referenceId = "scene";
+      const current = this.getAttachmentsForReferences(roomId, "whiteboard", [
+        referenceId,
+      ]);
+      const desiredSet = new Set(desiredIds);
+      const currentSet = new Set(
+        current.map((attachment) => attachment.attachment_id)
+      );
+      const insertReference = this.db.prepare(`
+        INSERT OR IGNORE INTO attachment_references (
+          room_id, attachment_id, reference_type, reference_id, created_at
+        ) VALUES (?, ?, 'whiteboard', ?, ?)
+      `);
+      const markBound = this.db.prepare(`
+        UPDATE attachments
+        SET message_id = COALESCE(message_id, ?)
+        WHERE room_id = ? AND attachment_id = ?
+      `);
+      const createdAt = new Date().toISOString();
+      for (const attachmentId of desiredIds) {
+        if (!currentSet.has(attachmentId)) {
+          insertReference.run(roomId, attachmentId, referenceId, createdAt);
+        }
+        markBound.run(referenceId, roomId, attachmentId);
+      }
+
+      const deleteReference = this.db.prepare(`
+        DELETE FROM attachment_references
+        WHERE room_id = ? AND attachment_id = ?
+          AND reference_type = 'whiteboard' AND reference_id = ?
+      `);
+      const nextReference = this.db.prepare(`
+        SELECT reference_id
+        FROM attachment_references
+        WHERE room_id = ? AND attachment_id = ?
+        ORDER BY created_at ASC
+        LIMIT 1
+      `);
+      const updateMarker = this.db.prepare(`
+        UPDATE attachments
+        SET message_id = ?
+        WHERE room_id = ? AND attachment_id = ?
+      `);
+      const orphaned: StoredAttachment[] = [];
+      for (const attachment of current) {
+        if (desiredSet.has(attachment.attachment_id)) continue;
+        deleteReference.run(roomId, attachment.attachment_id, referenceId);
+        const remaining = nextReference.get(
+          roomId,
+          attachment.attachment_id
+        ) as { reference_id: string } | undefined;
+        if (remaining) {
+          updateMarker.run(
+            remaining.reference_id,
+            roomId,
+            attachment.attachment_id
+          );
+          continue;
+        }
+        orphaned.push({ ...attachment, message_id: null });
+        this.deleteAttachment(roomId, attachment.attachment_id);
+      }
+      return { orphaned };
+    });
   }
 
   grantAttachmentsToAgent(
@@ -1348,6 +1444,32 @@ export class EventStore {
       ALTER TABLE agent_pairings_next RENAME TO agent_pairings;
       CREATE INDEX IF NOT EXISTS idx_agent_pairings_room ON agent_pairings(room_id);
       CREATE INDEX IF NOT EXISTS idx_agent_pairings_token_hash ON agent_pairings(token_hash);
+    `);
+  }
+
+  private migrateAttachmentReferenceTypes(): void {
+    const table = this.db
+      .prepare(
+        `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'attachment_references'`
+      )
+      .get() as { sql: string } | undefined;
+    if (!table || table.sql.includes("'whiteboard'")) return;
+    this.db.exec(`
+      CREATE TABLE attachment_references_next (
+        room_id TEXT NOT NULL,
+        attachment_id TEXT NOT NULL,
+        reference_type TEXT NOT NULL CHECK(reference_type IN ('main_input', 'orbit_note', 'whiteboard')),
+        reference_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (room_id, attachment_id, reference_type, reference_id)
+      );
+      INSERT INTO attachment_references_next
+        SELECT room_id, attachment_id, reference_type, reference_id, created_at
+        FROM attachment_references;
+      DROP TABLE attachment_references;
+      ALTER TABLE attachment_references_next RENAME TO attachment_references;
+      CREATE INDEX IF NOT EXISTS idx_attachment_references_content
+        ON attachment_references(room_id, reference_type, reference_id);
     `);
   }
 

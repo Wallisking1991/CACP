@@ -9,6 +9,47 @@ import { buildServer } from "../src/server.js";
 import { testConnectorCompatibility } from "./test-compatibility.js";
 import { localTestConfig } from "./test-config.js";
 
+const OnePixelPng = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+  "base64"
+);
+
+function multipartImage(bytes = OnePixelPng) {
+  const boundary = "cacp-whiteboard-image-boundary";
+  return {
+    headers: {
+      "content-type": `multipart/form-data; boundary=${boundary}`,
+    },
+    payload: Buffer.concat([
+      Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="pixel.png"\r\nContent-Type: image/png\r\n\r\n`
+      ),
+      bytes,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]),
+  };
+}
+
+async function uploadImage(
+  app: FastifyInstance,
+  roomId: string,
+  token: string
+): Promise<string> {
+  const multipart = multipartImage();
+  const response = await app.inject({
+    method: "POST",
+    url: `/rooms/${roomId}/attachments`,
+    headers: {
+      ...multipart.headers,
+      authorization: `Bearer ${token}`,
+    },
+    payload: multipart.payload,
+  });
+  expect(response.statusCode).toBe(201);
+  return (response.json() as { attachment: { attachment_id: string } })
+    .attachment.attachment_id;
+}
+
 function addressOf(app: FastifyInstance): string {
   const address = app.server.address();
   if (!address || typeof address === "string") {
@@ -507,6 +548,167 @@ describe("collaborative whiteboard stream", () => {
         elements: [expect.objectContaining({ id: "shape-1" })],
       },
     });
+  });
+
+  it("binds same-room image attachments to the authoritative scene and cleans deleted images", async () => {
+    app = await buildServer({
+      dbPath: ":memory:",
+      config: localTestConfig(),
+    });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const room = (
+      await app.inject({
+        method: "POST",
+        url: "/rooms",
+        payload: { name: "Image board", display_name: "Owner" },
+      })
+    ).json() as { room_id: string; owner_token: string };
+    const member = await joinHuman(
+      app,
+      room.room_id,
+      room.owner_token,
+      "member",
+      "Alice"
+    );
+    const attachmentId = await uploadImage(app, room.room_id, room.owner_token);
+    const protectedBeforeBinding = await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/attachments/${attachmentId}`,
+      headers: { authorization: `Bearer ${member.participant_token}` },
+    });
+    expect(protectedBeforeBinding.statusCode).toBe(403);
+
+    const url = `ws://${addressOf(app)}/rooms/${room.room_id}/whiteboard`;
+    const ownerSocket = new WebSocket(
+      `${url}?token=${encodeURIComponent(room.owner_token)}`
+    );
+    const memberSocket = new WebSocket(
+      `${url}?token=${encodeURIComponent(member.participant_token)}`
+    );
+    sockets.push(ownerSocket, memberSocket);
+    const ownerInbox = createInbox(ownerSocket);
+    const memberInbox = createInbox(memberSocket);
+    await Promise.all([waitForOpen(ownerSocket), waitForOpen(memberSocket)]);
+    for (const inbox of [ownerInbox, memberInbox]) {
+      await inbox.next("whiteboard.connected");
+      await inbox.next("whiteboard.scene");
+      await inbox.next("whiteboard.presence.snapshot");
+    }
+
+    ownerSocket.send(
+      JSON.stringify({
+        protocol: "cacp-whiteboard",
+        version: "1.0.0",
+        room_id: room.room_id,
+        type: "whiteboard.elements.update",
+        update_id: "insert-image",
+        base_revision: 0,
+        elements: [
+          {
+            id: "image-1",
+            type: "image",
+            version: 1,
+            versionNonce: 920,
+            fileId: attachmentId,
+            status: "saved",
+          },
+        ],
+        app_state: {},
+      })
+    );
+    await expect(
+      ownerInbox.next("whiteboard.elements.updated")
+    ).resolves.toMatchObject({ revision: 1 });
+    await ownerInbox.next("whiteboard.ack");
+    await expect(
+      memberInbox.next("whiteboard.elements.updated")
+    ).resolves.toMatchObject({
+      revision: 1,
+      elements: [expect.objectContaining({ fileId: attachmentId })],
+    });
+
+    const protectedAfterBinding = await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/attachments/${attachmentId}`,
+      headers: { authorization: `Bearer ${member.participant_token}` },
+    });
+    expect(protectedAfterBinding.statusCode).toBe(200);
+    expect(protectedAfterBinding.rawPayload).toEqual(OnePixelPng);
+
+    ownerSocket.send(
+      JSON.stringify({
+        protocol: "cacp-whiteboard",
+        version: "1.0.0",
+        room_id: room.room_id,
+        type: "whiteboard.elements.update",
+        update_id: "delete-image",
+        base_revision: 1,
+        elements: [
+          {
+            id: "image-1",
+            type: "image",
+            version: 2,
+            versionNonce: 921,
+            fileId: attachmentId,
+            status: "saved",
+            isDeleted: true,
+          },
+        ],
+        app_state: {},
+      })
+    );
+    await expect(
+      ownerInbox.next("whiteboard.elements.updated")
+    ).resolves.toMatchObject({ revision: 2 });
+    await ownerInbox.next("whiteboard.ack");
+    await memberInbox.next("whiteboard.elements.updated");
+    const deletedDownload = await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/attachments/${attachmentId}`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+    });
+    expect(deletedDownload.statusCode).toBe(404);
+
+    const otherRoom = (
+      await app.inject({
+        method: "POST",
+        url: "/rooms",
+        payload: { name: "Other room", display_name: "Other Owner" },
+      })
+    ).json() as { room_id: string; owner_token: string };
+    const crossRoomAttachmentId = await uploadImage(
+      app,
+      otherRoom.room_id,
+      otherRoom.owner_token
+    );
+    ownerSocket.send(
+      JSON.stringify({
+        protocol: "cacp-whiteboard",
+        version: "1.0.0",
+        room_id: room.room_id,
+        type: "whiteboard.elements.update",
+        update_id: "cross-room-image",
+        base_revision: 2,
+        elements: [
+          {
+            id: "cross-room-image",
+            type: "image",
+            version: 1,
+            versionNonce: 922,
+            fileId: crossRoomAttachmentId,
+          },
+        ],
+        app_state: {},
+      })
+    );
+    await expect(ownerInbox.next("whiteboard.error")).resolves.toMatchObject({
+      code: "invalid_message",
+      update_id: "cross-room-image",
+      current_revision: 2,
+    });
+    await expect(memberInbox.none("whiteboard.elements.updated")).resolves.toBe(
+      true
+    );
   });
 
   it("isolates over-rate, future-revision, and oversized updates before resync", async () => {

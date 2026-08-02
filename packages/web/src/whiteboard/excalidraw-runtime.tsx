@@ -28,6 +28,7 @@ import type {
 } from "./excalidraw-editor-adapter.js";
 import type {
   WhiteboardExportFormat,
+  WhiteboardExportScope,
   WhiteboardCollaborator,
   WhiteboardScene,
   WhiteboardViewport,
@@ -45,19 +46,48 @@ function toExcalidrawFiles(scene: WhiteboardScene) {
   return scene.files as BinaryFiles;
 }
 
-function exportOptions(api: ExcalidrawImperativeAPI) {
+function exportOptions(
+  api: ExcalidrawImperativeAPI,
+  scope: WhiteboardExportScope
+) {
+  const appState = api.getAppState();
+  const allElements =
+    api.getSceneElements() as readonly NonDeletedExcalidrawElement[];
+  const elements =
+    scope === "selection"
+      ? allElements.filter(
+          (element) => appState.selectedElementIds[element.id] === true
+        )
+      : allElements;
+  if (scope === "selection" && elements.length === 0) {
+    throw new Error("whiteboard_export_empty_selection");
+  }
   return {
-    elements: api.getSceneElements() as readonly NonDeletedExcalidrawElement[],
-    appState: api.getAppState(),
+    elements,
+    appState,
     files: api.getFiles(),
   };
 }
 
+function assertExportImagesAvailable(
+  scene: ReturnType<typeof exportOptions>
+): void {
+  for (const element of scene.elements) {
+    if (element.type !== "image" || !element.fileId) continue;
+    const file = scene.files[element.fileId];
+    if (!file || typeof file.dataURL !== "string") {
+      throw new Error(`whiteboard_export_missing_image:${element.fileId}`);
+    }
+  }
+}
+
 async function exportScene(
   api: ExcalidrawImperativeAPI,
-  format: WhiteboardExportFormat
+  format: WhiteboardExportFormat,
+  scope: WhiteboardExportScope
 ): Promise<Blob> {
-  const scene = exportOptions(api);
+  const scene = exportOptions(api, scope);
+  assertExportImagesAvailable(scene);
 
   if (format === "png") {
     return exportToBlob({
@@ -142,8 +172,8 @@ export function createExcalidrawApiPort(
         captureUpdate: CaptureUpdateAction.NEVER,
       });
     },
-    exportScene(format) {
-      return exportScene(api, format);
+    exportScene(format, scope = "scene") {
+      return exportScene(api, format, scope);
     },
   };
 }

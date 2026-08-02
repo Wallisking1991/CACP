@@ -1143,4 +1143,173 @@ describe("WhiteboardSession", () => {
     expect(editor.resetHistory).toHaveBeenCalledTimes(1);
     session.destroy();
   });
+
+  it("uploads local image files before sending attachment-only scene data", async () => {
+    const socket = new FakeSocket();
+    const editor = createEditor();
+    const normalizeLocalScene = vi.fn(async (scene: WhiteboardScene) => ({
+      ...scene,
+      elements: scene.elements.map((element) => ({
+        ...(element as Record<string, unknown>),
+        fileId: "att_uploaded",
+      })),
+      files: {
+        att_uploaded: {
+          id: "att_uploaded",
+          mimeType: "image/png",
+          dataURL: "data:image/png;base64,cGl4ZWxz",
+          created: 1,
+        },
+      },
+    }));
+    const session = createWhiteboardSession({
+      identity: {
+        roomId: "room_images",
+        participantId: "owner_1",
+        token: "owner-token",
+        role: "owner",
+      },
+      editor: editor.editor,
+      imageAssets: {
+        normalizeLocalScene,
+        hydrateRemoteScene: (scene) => scene,
+      },
+      socketFactory: () => socket,
+      createUpdateId: () => "image-update",
+      origin: "http://localhost:5173",
+    });
+    socket.open();
+    socket.receive(
+      serverMessage("room_images", {
+        type: "whiteboard.connected",
+        participant_id: "owner_1",
+        role: "owner",
+        can_edit: true,
+      })
+    );
+    socket.receive(
+      serverMessage("room_images", {
+        type: "whiteboard.scene",
+        revision: 0,
+        scene: { elements: [], app_state: {} },
+      })
+    );
+
+    editor.change({
+      elements: [
+        {
+          id: "image_1",
+          type: "image",
+          version: 1,
+          versionNonce: 1,
+          fileId: "file_local",
+        },
+      ],
+      appState: {},
+      files: {
+        file_local: {
+          id: "file_local",
+          mimeType: "image/png",
+          dataURL: "data:image/png;base64,cGl4ZWxz",
+          created: 1,
+        },
+      },
+    });
+    expect(sentFrames(socket, "whiteboard.elements.update")).toHaveLength(0);
+    await vi.waitFor(() =>
+      expect(sentFrames(socket, "whiteboard.elements.update")).toHaveLength(1)
+    );
+    const sent = sentFrames(socket, "whiteboard.elements.update")[0]!;
+    expect(sent).toMatchObject({
+      update_id: "image-update",
+      elements: [expect.objectContaining({ fileId: "att_uploaded" })],
+    });
+    expect(JSON.stringify(sent)).not.toContain("data:image");
+    expect(editor.updateScene).toHaveBeenCalledWith(
+      expect.objectContaining({
+        files: { att_uploaded: expect.any(Object) },
+      })
+    );
+    session.destroy();
+  });
+
+  it("hydrates protected remote images before applying the scene", async () => {
+    const socket = new FakeSocket();
+    const editor = createEditor();
+    const hydrateRemoteScene = vi.fn((scene: WhiteboardScene) => {
+      if (scene.elements.length === 0) return scene;
+      return Promise.resolve({
+        ...scene,
+        files: {
+          att_shared: {
+            id: "att_shared",
+            mimeType: "image/png",
+            dataURL: "data:image/png;base64,cGl4ZWxz",
+            created: 1,
+          },
+        },
+      });
+    });
+    const statuses: string[] = [];
+    const session = createWhiteboardSession({
+      identity: {
+        roomId: "room_remote_images",
+        participantId: "member_1",
+        token: "member-token",
+        role: "member",
+      },
+      editor: editor.editor,
+      imageAssets: {
+        normalizeLocalScene: (scene) => scene,
+        hydrateRemoteScene,
+      },
+      socketFactory: () => socket,
+      origin: "http://localhost:5173",
+    });
+    session.subscribeStatus((status) => statuses.push(status));
+    socket.open();
+    socket.receive(
+      serverMessage("room_remote_images", {
+        type: "whiteboard.connected",
+        participant_id: "member_1",
+        role: "member",
+        can_edit: true,
+      })
+    );
+    socket.receive(
+      serverMessage("room_remote_images", {
+        type: "whiteboard.scene",
+        revision: 0,
+        scene: { elements: [], app_state: {} },
+      })
+    );
+    socket.receive(
+      serverMessage("room_remote_images", {
+        type: "whiteboard.elements.updated",
+        update_id: "remote-image",
+        participant_id: "owner_1",
+        revision: 1,
+        elements: [
+          {
+            id: "image_1",
+            type: "image",
+            version: 1,
+            versionNonce: 1,
+            fileId: "att_shared",
+          },
+        ],
+        app_state: {},
+      })
+    );
+
+    await vi.waitFor(() =>
+      expect(editor.updateScene).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          files: { att_shared: expect.any(Object) },
+        })
+      )
+    );
+    expect(statuses.at(-1)).toBe("connected");
+    session.destroy();
+  });
 });

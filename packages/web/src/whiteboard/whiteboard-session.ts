@@ -16,6 +16,10 @@ import type {
   WhiteboardPresence,
   WhiteboardScene,
 } from "./whiteboard-editor-adapter.js";
+import {
+  WhiteboardImageAssetError,
+  type WhiteboardImageAssetManager,
+} from "./whiteboard-image-assets.js";
 
 export type WhiteboardSessionStatus =
   | "connecting"
@@ -66,6 +70,9 @@ export interface WhiteboardSessionController {
   subscribeActivity(
     listener: (activity: WhiteboardSessionActivity) => void
   ): () => void;
+  subscribeError?(
+    listener: (error: WhiteboardSessionError | undefined) => void
+  ): () => void;
   focusCollaborator(participantId: string): void;
   loadSharedScene(): void;
   setRole(role: WhiteboardHumanRole): void;
@@ -78,6 +85,14 @@ export interface WhiteboardSessionActivity {
   participantId: string;
 }
 
+export interface WhiteboardSessionError {
+  code:
+    | "whiteboard_image_upload_failed"
+    | "whiteboard_image_download_failed"
+    | "whiteboard_image_data_missing";
+  attachmentId?: string;
+}
+
 export interface CreateWhiteboardSessionOptions {
   identity: WhiteboardSessionIdentity;
   editor: WhiteboardEditorController;
@@ -88,6 +103,7 @@ export interface CreateWhiteboardSessionOptions {
   presenceThrottleMs?: number;
   presenceEnabled?: boolean;
   observeOnly?: boolean;
+  imageAssets?: WhiteboardImageAssetManager;
 }
 
 export type WhiteboardSessionFactory = (
@@ -205,6 +221,7 @@ export function createWhiteboardSession({
   presenceThrottleMs = 50,
   presenceEnabled: initialPresenceEnabled = true,
   observeOnly = false,
+  imageAssets,
 }: CreateWhiteboardSessionOptions): WhiteboardSessionController {
   let role = identity.role;
   let status: WhiteboardSessionStatus = "connecting";
@@ -230,6 +247,12 @@ export function createWhiteboardSession({
   let presenceHeartbeatMs = 3_000;
   let presenceThrottleTimer: ReturnType<typeof setTimeout> | undefined;
   let presenceHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  let queuedAssetScene: WhiteboardScene | undefined;
+  let processingAssetScene = false;
+  let sessionError: WhiteboardSessionError | undefined;
+  let remoteApplicationChain = Promise.resolve();
+  let remoteApplicationSequence = 0;
+  let remoteApplicationPending = false;
   const collaborators = new Map<string, WhiteboardCollaborator>();
   const statusListeners = new Set<
     (nextStatus: WhiteboardSessionStatus) => void
@@ -239,6 +262,9 @@ export function createWhiteboardSession({
   >();
   const activityListeners = new Set<
     (activity: WhiteboardSessionActivity) => void
+  >();
+  const errorListeners = new Set<
+    (error: WhiteboardSessionError | undefined) => void
   >();
 
   function setStatus(nextStatus: WhiteboardSessionStatus) {
@@ -274,6 +300,28 @@ export function createWhiteboardSession({
   function notifyActivity(activity: WhiteboardSessionActivity) {
     if (activity.participantId === identity.participantId) return;
     for (const listener of activityListeners) listener(activity);
+  }
+
+  function setSessionError(error: WhiteboardSessionError | undefined) {
+    if (
+      sessionError?.code === error?.code &&
+      sessionError?.attachmentId === error?.attachmentId
+    ) {
+      return;
+    }
+    sessionError = error;
+    for (const listener of errorListeners) listener(sessionError);
+  }
+
+  function reportImageError(cause: unknown, fallback: WhiteboardSessionError) {
+    if (cause instanceof WhiteboardImageAssetError) {
+      setSessionError({
+        code: cause.code,
+        ...(cause.attachmentId ? { attachmentId: cause.attachmentId } : {}),
+      });
+      return;
+    }
+    setSessionError(fallback);
   }
 
   function clearPresenceTimers() {
@@ -357,17 +405,67 @@ export function createWhiteboardSession({
     if (parsed.success) socket.send(JSON.stringify(parsed.data));
   }
 
-  function applyRemoteScene(
+  function applyEditorScene(
     scene: SharedWhiteboardScene,
+    files: WhiteboardScene["files"],
     resetHistory = false
   ) {
     applyingRemote = true;
     try {
-      editor.updateScene(remoteScene(editor, scene));
+      editor.updateScene({ ...remoteScene(editor, scene), files });
       if (resetHistory) editor.resetHistory();
     } finally {
       applyingRemote = false;
     }
+  }
+
+  function finishRemoteApplication(sequence: number) {
+    if (destroyed || sequence !== remoteApplicationSequence) return;
+    remoteApplicationPending = false;
+    synchronized = connectedHandshake && socket?.readyState === SOCKET_OPEN;
+    setStatus(synchronized ? "connected" : "disconnected");
+    setEditorAccess();
+    if (!synchronized) scheduleReconnect();
+  }
+
+  function applyRemoteScene(
+    scene: SharedWhiteboardScene,
+    resetHistory = false
+  ): boolean {
+    const localScene = remoteScene(editor, scene);
+    if (!imageAssets) {
+      applyEditorScene(scene, localScene.files, resetHistory);
+      return false;
+    }
+    const hydrated = imageAssets.hydrateRemoteScene(localScene);
+    if (!(hydrated instanceof Promise)) {
+      setSessionError(undefined);
+      applyEditorScene(scene, hydrated.files, resetHistory);
+      return false;
+    }
+
+    const sequence = ++remoteApplicationSequence;
+    const applicationSocket = socket;
+    remoteApplicationPending = true;
+    synchronized = false;
+    setStatus("synchronizing");
+    setEditorAccess();
+    remoteApplicationChain = remoteApplicationChain.then(async () => {
+      let nextScene = localScene;
+      try {
+        nextScene = await hydrated;
+        setSessionError(undefined);
+      } catch (cause) {
+        reportImageError(cause, {
+          code: "whiteboard_image_download_failed",
+        });
+      }
+      if (!destroyed && socket === applicationSocket) {
+        applyEditorScene(scene, nextScene.files, resetHistory);
+      }
+    });
+    void remoteApplicationChain.then(() => finishRemoteApplication(sequence));
+    return true;
   }
 
   function sendScene(scene: WhiteboardScene) {
@@ -400,8 +498,46 @@ export function createWhiteboardSession({
     socket.send(JSON.stringify(parsed.data));
   }
 
+  async function drainAssetScenes() {
+    if (processingAssetScene || !imageAssets) return;
+    processingAssetScene = true;
+    try {
+      while (!destroyed && queuedAssetScene) {
+        const scene = queuedAssetScene;
+        queuedAssetScene = undefined;
+        try {
+          const normalized = await imageAssets.normalizeLocalScene(scene);
+          if (destroyed) return;
+          setSessionError(undefined);
+          if (normalized !== scene) {
+            applyingRemote = true;
+            try {
+              editor.updateScene(normalized);
+            } finally {
+              applyingRemote = false;
+            }
+          }
+          sendScene(normalized);
+        } catch (cause) {
+          reportImageError(cause, {
+            code: "whiteboard_image_upload_failed",
+          });
+        }
+      }
+    } finally {
+      processingAssetScene = false;
+      if (!destroyed && queuedAssetScene) void drainAssetScenes();
+    }
+  }
+
   const unsubscribeEditor = editor.subscribeSceneChanges((scene) => {
-    if (!applyingRemote) sendScene(scene);
+    if (applyingRemote) return;
+    if (!imageAssets) {
+      sendScene(scene);
+      return;
+    }
+    queuedAssetScene = scene;
+    void drainAssetScenes();
   });
   const unsubscribePresence = editor.subscribePresenceChanges(schedulePresence);
 
@@ -421,6 +557,9 @@ export function createWhiteboardSession({
     revision = undefined;
     inFlightUpdateId = undefined;
     queuedScene = undefined;
+    remoteApplicationSequence += 1;
+    remoteApplicationPending = false;
+    remoteApplicationChain = Promise.resolve();
     setStatus("connecting");
     setEditorAccess();
 
@@ -489,11 +628,16 @@ export function createWhiteboardSession({
           return;
         }
         revision = message.revision;
-        applyRemoteScene(message.scene, hasInstalledAuthoritativeScene);
+        const applyingImages = applyRemoteScene(
+          message.scene,
+          hasInstalledAuthoritativeScene
+        );
         hasInstalledAuthoritativeScene = true;
-        synchronized = true;
-        setStatus("connected");
-        setEditorAccess();
+        if (!applyingImages) {
+          synchronized = true;
+          setStatus("connected");
+          setEditorAccess();
+        }
         return;
       }
       if (message.type === "whiteboard.ack") {
@@ -561,13 +705,22 @@ export function createWhiteboardSession({
           });
           return;
         }
-        if (!synchronized || revision === undefined) return;
+        if (
+          (!synchronized && !remoteApplicationPending) ||
+          revision === undefined
+        )
+          return;
         if (message.revision <= revision) return;
         revision = message.revision;
-        applyRemoteScene({
+        const applyingImages = applyRemoteScene({
           elements: message.elements,
           app_state: message.app_state,
         });
+        if (!applyingImages) {
+          synchronized = true;
+          setStatus("connected");
+          setEditorAccess();
+        }
         notifyActivity({
           kind: "scene",
           participantId: message.participant_id,
@@ -677,6 +830,11 @@ export function createWhiteboardSession({
       activityListeners.add(listener);
       return () => activityListeners.delete(listener);
     },
+    subscribeError(listener) {
+      errorListeners.add(listener);
+      listener(sessionError);
+      return () => errorListeners.delete(listener);
+    },
     focusCollaborator(participantId) {
       const collaborator = collaborators.get(participantId);
       if (collaborator?.viewport) editor.focusViewport(collaborator.viewport);
@@ -685,15 +843,17 @@ export function createWhiteboardSession({
       if (!pendingRemote) return;
       const remote = pendingRemote;
       revision = remote.revision;
-      applyRemoteScene(remote.scene, true);
+      const applyingImages = applyRemoteScene(remote.scene, true);
       hasInstalledAuthoritativeScene = true;
       pendingRemote = undefined;
       rejectedUpdate = false;
       rejectedBaseRevision = undefined;
-      synchronized = connectedHandshake && socket?.readyState === SOCKET_OPEN;
-      setStatus(synchronized ? "connected" : "disconnected");
-      setEditorAccess();
-      if (!synchronized) scheduleReconnect();
+      if (!applyingImages) {
+        synchronized = connectedHandshake && socket?.readyState === SOCKET_OPEN;
+        setStatus(synchronized ? "connected" : "disconnected");
+        setEditorAccess();
+        if (!synchronized) scheduleReconnect();
+      }
     },
     setRole(nextRole) {
       role = nextRole;
@@ -718,6 +878,9 @@ export function createWhiteboardSession({
     destroy() {
       if (destroyed) return;
       destroyed = true;
+      remoteApplicationSequence += 1;
+      remoteApplicationPending = false;
+      queuedAssetScene = undefined;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       reconnectTimer = undefined;
       clearPresenceTimers();
@@ -735,6 +898,7 @@ export function createWhiteboardSession({
       statusListeners.clear();
       collaboratorListeners.clear();
       activityListeners.clear();
+      errorListeners.clear();
       collaborators.clear();
       editor.setCollaborators([]);
     },

@@ -5,6 +5,7 @@ import type {
   WhiteboardEditorDisplayOptions,
   WhiteboardEditorMountOptions,
   WhiteboardExportFormat,
+  WhiteboardExportScope,
   WhiteboardCollaborator,
   WhiteboardPresence,
   WhiteboardScene,
@@ -22,7 +23,10 @@ export interface ExcalidrawApiPort {
   resetHistory(): void;
   updateCollaborators(collaborators: readonly WhiteboardCollaborator[]): void;
   focusViewport(viewport: WhiteboardViewport): void;
-  exportScene(format: WhiteboardExportFormat): Promise<Blob>;
+  exportScene(
+    format: WhiteboardExportFormat,
+    scope?: WhiteboardExportScope
+  ): Promise<Blob>;
 }
 
 export interface ExcalidrawComponentProps {
@@ -312,13 +316,13 @@ export function createExcalidrawEditorAdapter(
           readOnly = nextReadOnly;
           renderEditor();
         },
-        exportScene(format = "excalidraw") {
+        exportScene(format = "excalidraw", scope = "scene") {
           if (!api || destroyed) {
             return Promise.reject(
               new Error("Whiteboard editor is unavailable.")
             );
           }
-          return api.exportScene(format);
+          return api.exportScene(format, scope);
         },
         destroy() {
           if (destroyed) return;

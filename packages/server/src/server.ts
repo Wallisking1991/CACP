@@ -145,6 +145,7 @@ import {
   createWhiteboardSessionHub,
   whiteboardErrorMessage,
 } from "./whiteboard-hub.js";
+import { whiteboardAttachmentIds } from "./whiteboard-scene-state.js";
 
 const connectorVersion = JSON.parse(
   readFileSync(
@@ -864,6 +865,49 @@ export async function buildServer(options: BuildServerOptions = {}) {
     maxAttachments: config.whiteboardMaxAttachments,
     maxSceneBytes: config.whiteboardMaxSceneBytes,
     deduplicationLimit: config.whiteboardDeduplicationLimit,
+    commitScene: ({ roomId, participantId, scene }) => {
+      const participant = store
+        .getParticipants(roomId)
+        .find((candidate) => candidate.id === participantId);
+      if (!participant) return "The whiteboard participant is unavailable.";
+      try {
+        const { orphaned } = store.replaceWhiteboardAttachmentReferences(
+          roomId,
+          whiteboardAttachmentIds(scene.elements),
+          {
+            participantId,
+            isOwner: participant.role === "owner",
+          }
+        );
+        for (const attachment of orphaned) {
+          void attachmentStore
+            .delete(roomId, attachment.attachment_id)
+            .catch((error) => {
+              app.log.error(
+                { error, roomId, attachmentId: attachment.attachment_id },
+                "whiteboard attachment file cleanup failed"
+              );
+            });
+        }
+        return undefined;
+      } catch (error) {
+        const code = error instanceof Error ? error.message : String(error);
+        if (code === "whiteboard_attachment_not_found") {
+          return "A referenced whiteboard image does not belong to this room.";
+        }
+        if (code === "whiteboard_attachment_forbidden") {
+          return "A referenced whiteboard image is not readable by this participant.";
+        }
+        if (code === "whiteboard_attachment_not_image") {
+          return "Only verified image attachments can be placed on the whiteboard.";
+        }
+        app.log.error(
+          { error, roomId, participantId },
+          "whiteboard attachment references could not be committed"
+        );
+        return "The whiteboard image references could not be committed.";
+      }
+    },
   });
   const participantSockets = new Map<
     string,

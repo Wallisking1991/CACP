@@ -91,6 +91,30 @@ async function seedSession(
   }, session);
 }
 
+async function uploadImageAttachment(
+  request: APIRequestContext,
+  session: RoomSession
+): Promise<string> {
+  const response = await request.post(`/rooms/${session.room_id}/attachments`, {
+    headers: { authorization: `Bearer ${session.token}` },
+    multipart: {
+      file: {
+        name: "pixel.png",
+        mimeType: "image/png",
+        buffer: Buffer.from(
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+          "base64"
+        ),
+      },
+    },
+  });
+  expect(response.ok(), await response.text()).toBe(true);
+  const body = (await response.json()) as {
+    attachment?: { attachment_id?: unknown };
+  };
+  return String(body.attachment?.attachment_id);
+}
+
 async function openWhiteboard(page: Page, roomId: string): Promise<void> {
   await page.goto(`/room/${roomId}`);
   await page.getByRole("tab", { name: "Whiteboard" }).click();
@@ -104,6 +128,7 @@ test("shares real Excalidraw content and collaborator presence between two brows
   browser,
   request,
 }) => {
+  test.setTimeout(120_000);
   const { owner, member } = await createRoomSessions(request);
   const ownerContext = await browser.newContext();
   const memberContext = await browser.newContext();
@@ -113,6 +138,18 @@ test("shares real Excalidraw content and collaborator presence between two brows
   const memberPage = await memberContext.newPage();
   const memberMessages: JsonResponse[] = [];
   const memberSentMessages: JsonResponse[] = [];
+  const ownerSentMessages: JsonResponse[] = [];
+  ownerPage.on("websocket", (socket) => {
+    if (!socket.url().includes("/whiteboard")) return;
+    socket.on("framesent", ({ payload }) => {
+      if (typeof payload !== "string") return;
+      try {
+        ownerSentMessages.push(JSON.parse(payload) as JsonResponse);
+      } catch {
+        // Non-JSON frames do not belong to the CACP whiteboard protocol.
+      }
+    });
+  });
   memberPage.on("websocket", (socket) => {
     if (!socket.url().includes("/whiteboard")) return;
     socket.on("framereceived", ({ payload }) => {
@@ -226,4 +263,124 @@ test("shares real Excalidraw content and collaborator presence between two brows
       return Buffer.compare(before, after);
     })
     .not.toBe(0);
+
+  const attachmentId = await uploadImageAttachment(request, owner);
+  const currentElements = memberMessages
+    .filter((message) => message.type === "whiteboard.elements.updated")
+    .at(-1)?.elements;
+  expect(Array.isArray(currentElements)).toBe(true);
+  await ownerPage.evaluate(
+    ({ roomId, token, elements, imageId }) =>
+      new Promise<void>((resolve, reject) => {
+        const url = new URL(`/rooms/${roomId}/whiteboard`, location.origin);
+        url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+        url.searchParams.set("token", token);
+        const socket = new WebSocket(url);
+        const timeout = window.setTimeout(() => {
+          socket.close();
+          reject(new Error("whiteboard_image_update_timeout"));
+        }, 5_000);
+        socket.onmessage = (event) => {
+          const message = JSON.parse(String(event.data)) as JsonResponse;
+          if (message.type === "whiteboard.scene") {
+            socket.send(
+              JSON.stringify({
+                protocol: "cacp-whiteboard",
+                version: "1.0.0",
+                room_id: roomId,
+                type: "whiteboard.elements.update",
+                update_id: "browser-image-update",
+                base_revision: message.revision,
+                elements: [
+                  ...elements,
+                  {
+                    id: "browser-image",
+                    type: "image",
+                    x: 610,
+                    y: 310,
+                    width: 120,
+                    height: 120,
+                    angle: 0,
+                    strokeColor: "transparent",
+                    backgroundColor: "transparent",
+                    fillStyle: "solid",
+                    strokeWidth: 1,
+                    strokeStyle: "solid",
+                    roughness: 0,
+                    opacity: 100,
+                    groupIds: [],
+                    frameId: null,
+                    index: "a2",
+                    roundness: null,
+                    seed: 42,
+                    version: 1,
+                    versionNonce: 42,
+                    isDeleted: false,
+                    boundElements: null,
+                    updated: Date.now(),
+                    link: null,
+                    locked: false,
+                    status: "saved",
+                    fileId: imageId,
+                    scale: [1, 1],
+                    crop: null,
+                  },
+                ],
+                app_state: { viewBackgroundColor: "#ffffff" },
+              })
+            );
+          } else if (
+            message.type === "whiteboard.ack" &&
+            message.update_id === "browser-image-update"
+          ) {
+            window.clearTimeout(timeout);
+            socket.close();
+            resolve();
+          } else if (message.type === "whiteboard.error") {
+            window.clearTimeout(timeout);
+            socket.close();
+            reject(new Error(String(message.message ?? message.code)));
+          }
+        };
+      }),
+    {
+      roomId: owner.room_id,
+      token: owner.token,
+      elements: currentElements as JsonResponse[],
+      imageId: attachmentId,
+    }
+  );
+
+  await expect
+    .poll(() =>
+      memberMessages.some(
+        (message) =>
+          message.type === "whiteboard.elements.updated" &&
+          Array.isArray(message.elements) &&
+          message.elements.some(
+            (element) =>
+              typeof element === "object" &&
+              element !== null &&
+              (element as JsonResponse).type === "image" &&
+              String((element as JsonResponse).fileId).startsWith("att_")
+          )
+      )
+    )
+    .toBe(true);
+  expect(
+    ownerSentMessages
+      .filter((message) => message.type === "whiteboard.elements.update")
+      .some((message) => JSON.stringify(message).includes("data:image"))
+  ).toBe(false);
+
+  for (const format of ["PNG", "SVG", "Excalidraw"] as const) {
+    const downloadPromise = ownerPage.waitForEvent("download");
+    await ownerPage
+      .getByRole("button", { name: `Export ${format}`, exact: true })
+      .click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename().toLowerCase()).toContain(
+      format === "Excalidraw" ? ".excalidraw" : `.${format.toLowerCase()}`
+    );
+  }
 });

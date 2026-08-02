@@ -8,6 +8,7 @@ import {
   type WhiteboardClientPresenceMessage,
   type WhiteboardErrorCode,
   type WhiteboardHumanRole,
+  type WhiteboardScene,
 } from "@cacp/protocol";
 import { createWhiteboardSceneState } from "./whiteboard-scene-state.js";
 
@@ -90,6 +91,11 @@ interface WhiteboardHubOptions {
   maxAttachments: number;
   maxSceneBytes: number;
   deduplicationLimit: number;
+  commitScene?: (input: {
+    roomId: string;
+    participantId: string;
+    scene: WhiteboardScene;
+  }) => string | undefined;
 }
 
 const collaboratorColors: readonly WhiteboardCollaborator["color"][] = [
@@ -275,6 +281,8 @@ export function createWhiteboardSessionHub(
         maxAttachments: options.maxAttachments,
         maxSceneBytes: options.maxSceneBytes,
         deduplicationLimit: options.deduplicationLimit,
+        commitScene: (scene, participantId) =>
+          options.commitScene?.({ roomId, participantId, scene }),
       }),
       connections: new Set(),
       handoffParticipants: new Set(),

@@ -83,4 +83,39 @@ describe("Excalidraw public API bridge", () => {
       "local"
     );
   });
+
+  it("exports only the current selection and rejects missing image bytes", async () => {
+    const { createExcalidrawApiPort } =
+      await import("../src/whiteboard/excalidraw-runtime.js");
+    const selected = { id: "shape_selected", type: "rectangle" };
+    const image = {
+      id: "image_missing",
+      type: "image",
+      fileId: "att_missing",
+    };
+    const api = {
+      getSceneElements: vi.fn(() => [selected, image]),
+      getAppState: vi.fn(() => ({
+        selectedElementIds: { shape_selected: true },
+      })),
+      getFiles: vi.fn(() => ({})),
+      updateScene: vi.fn(),
+      addFiles: vi.fn(),
+      history: { clear: vi.fn() },
+    };
+    const port = createExcalidrawApiPort(
+      api as unknown as Parameters<typeof createExcalidrawApiPort>[0]
+    );
+
+    await port.exportScene("png", "selection");
+    expect(exportToBlob).toHaveBeenLastCalledWith({
+      elements: [selected],
+      appState: { selectedElementIds: { shape_selected: true } },
+      files: {},
+      mimeType: "image/png",
+    });
+    await expect(port.exportScene("png", "scene")).rejects.toThrow(
+      "whiteboard_export_missing_image:att_missing"
+    );
+  });
 });

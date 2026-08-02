@@ -36,6 +36,7 @@ export interface WhiteboardCollaborator {
 }
 
 export type WhiteboardExportFormat = "png" | "svg" | "excalidraw";
+export type WhiteboardExportScope = "scene" | "selection";
 
 export interface WhiteboardEditorDisplayOptions {
   ariaLabel: string;
@@ -55,7 +56,10 @@ export interface WhiteboardEditorController {
   focusViewport(viewport: WhiteboardViewport): void;
   setDisplayOptions(options: WhiteboardEditorDisplayOptions): void;
   setReadOnly(readOnly: boolean): void;
-  exportScene(format?: WhiteboardExportFormat): Promise<Blob>;
+  exportScene(
+    format?: WhiteboardExportFormat,
+    scope?: WhiteboardExportScope
+  ): Promise<Blob>;
   destroy(): void;
 }
 

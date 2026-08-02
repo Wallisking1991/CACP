@@ -3,6 +3,8 @@ import type {
   WhiteboardCollaborator,
   WhiteboardEditorAdapterLoader,
   WhiteboardEditorController,
+  WhiteboardExportFormat,
+  WhiteboardExportScope,
 } from "../whiteboard/whiteboard-editor-adapter.js";
 import type {
   WhiteboardSessionController,
@@ -10,7 +12,9 @@ import type {
   WhiteboardSessionIdentity,
   WhiteboardSessionActivity,
   WhiteboardSessionStatus,
+  WhiteboardSessionError,
 } from "../whiteboard/whiteboard-session.js";
+import { createWhiteboardImageAssetManager } from "../whiteboard/whiteboard-image-assets.js";
 import { useT } from "../i18n/useT.js";
 
 export interface WhiteboardSurfaceProps {
@@ -49,6 +53,7 @@ export function WhiteboardSurface({
     undefined
   );
   const unsubscribeActivityRef = useRef<(() => void) | undefined>(undefined);
+  const unsubscribeErrorRef = useRef<(() => void) | undefined>(undefined);
   const onCollaboratorsChangeRef = useRef(onCollaboratorsChange);
   const onActivityRef = useRef(onActivity);
   const onSessionReadyRef = useRef(onSessionReady);
@@ -69,6 +74,12 @@ export function WhiteboardSurface({
   const [collaborators, setCollaborators] = useState<WhiteboardCollaborator[]>(
     []
   );
+  const [sessionError, setSessionError] = useState<
+    WhiteboardSessionError | undefined
+  >(undefined);
+  const [exportScope, setExportScope] =
+    useState<WhiteboardExportScope>("scene");
+  const [exportError, setExportError] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     onCollaboratorsChangeRef.current = onCollaboratorsChange;
@@ -128,6 +139,9 @@ export function WhiteboardSurface({
             token,
           },
           editor: controller,
+          imageAssets: createWhiteboardImageAssetManager({
+            session: { room_id: roomId, token },
+          }),
           presenceEnabled: latestActiveRef.current,
         });
         sessionRef.current = whiteboardSession;
@@ -147,6 +161,8 @@ export function WhiteboardSurface({
             onActivityRef.current?.(activity);
           }
         );
+        unsubscribeErrorRef.current =
+          whiteboardSession.subscribeError?.(setSessionError);
         setStatus("ready");
       } catch {
         unsubscribeStatusRef.current?.();
@@ -155,6 +171,8 @@ export function WhiteboardSurface({
         unsubscribeCollaboratorsRef.current = undefined;
         unsubscribeActivityRef.current?.();
         unsubscribeActivityRef.current = undefined;
+        unsubscribeErrorRef.current?.();
+        unsubscribeErrorRef.current = undefined;
         if (!disposed) {
           setCollaborators([]);
           onCollaboratorsChangeRef.current?.([]);
@@ -177,6 +195,9 @@ export function WhiteboardSurface({
       unsubscribeCollaboratorsRef.current = undefined;
       unsubscribeActivityRef.current?.();
       unsubscribeActivityRef.current = undefined;
+      unsubscribeErrorRef.current?.();
+      unsubscribeErrorRef.current = undefined;
+      setSessionError(undefined);
       setCollaborators([]);
       onCollaboratorsChangeRef.current?.([]);
       sessionRef.current?.destroy();
@@ -214,6 +235,40 @@ export function WhiteboardSurface({
             : connectionStatus === "ended"
               ? t("whiteboard.roomEnded")
               : t("whiteboard.syncing");
+  const imageErrorMessage = sessionError
+    ? t(
+        sessionError.code === "whiteboard_image_download_failed"
+          ? "whiteboard.imageDownloadError"
+          : sessionError.code === "whiteboard_image_data_missing"
+            ? "whiteboard.imageDataMissing"
+            : "whiteboard.imageUploadError"
+      )
+    : undefined;
+
+  const exportWhiteboard = async (format: WhiteboardExportFormat) => {
+    const controller = controllerRef.current;
+    if (!controller) return;
+    setExportError(undefined);
+    try {
+      const blob = await controller.exportScene(format, exportScope);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      const safeName = name.replace(/[^\p{L}\p{N}_.-]+/gu, "-");
+      anchor.href = url;
+      anchor.download = `${safeName || "whiteboard"}.${format}`;
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setExportError(
+        message.startsWith("whiteboard_export_missing_image:")
+          ? String(t("whiteboard.exportMissingImage"))
+          : message === "whiteboard_export_empty_selection"
+            ? String(t("whiteboard.exportEmptySelection"))
+            : String(t("whiteboard.exportError"))
+      );
+    }
+  };
 
   return (
     <section className="whiteboard-surface" aria-label={editorLabel}>
@@ -320,6 +375,53 @@ export function WhiteboardSurface({
               {t("whiteboard.loadShared")}
             </button>
           )}
+        </div>
+      )}
+      {status === "ready" && imageErrorMessage && (
+        <div className="whiteboard-surface__asset-error" role="alert">
+          {imageErrorMessage}
+        </div>
+      )}
+      {status === "ready" && (
+        <div
+          className="whiteboard-export-tools"
+          aria-label={t("whiteboard.exportTools")}
+        >
+          <label>
+            <span className="sr-only">{t("whiteboard.exportScope")}</span>
+            <select
+              aria-label={t("whiteboard.exportScope")}
+              value={exportScope}
+              onChange={(event) =>
+                setExportScope(
+                  event.currentTarget.value as WhiteboardExportScope
+                )
+              }
+            >
+              <option value="scene">{t("whiteboard.exportScene")}</option>
+              <option value="selection">
+                {t("whiteboard.exportSelection")}
+              </option>
+            </select>
+          </label>
+          {(["png", "svg", "excalidraw"] as const).map((format) => (
+            <button
+              key={format}
+              type="button"
+              onClick={() => void exportWhiteboard(format)}
+              aria-label={t("whiteboard.exportFormat", {
+                format:
+                  format === "excalidraw" ? "Excalidraw" : format.toUpperCase(),
+              })}
+            >
+              {format === "excalidraw" ? ".excalidraw" : format.toUpperCase()}
+            </button>
+          ))}
+        </div>
+      )}
+      {status === "ready" && exportError && (
+        <div className="whiteboard-surface__export-error" role="alert">
+          {exportError}
         </div>
       )}
       <div
