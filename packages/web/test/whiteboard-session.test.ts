@@ -73,12 +73,14 @@ function createEditor() {
   const setReadOnly = vi.fn();
   const setCollaborators = vi.fn();
   const focusViewport = vi.fn();
+  const resetHistory = vi.fn();
   const updateScene = vi.fn((nextScene: WhiteboardScene) => {
     scene = nextScene;
   });
   const editor: WhiteboardEditorController = {
     getScene: () => scene,
     updateScene,
+    resetHistory,
     subscribeSceneChanges(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -100,6 +102,7 @@ function createEditor() {
     updateScene,
     setCollaborators,
     focusViewport,
+    resetHistory,
     change(nextScene: WhiteboardScene) {
       scene = nextScene;
       for (const listener of listeners) listener(nextScene);
@@ -501,6 +504,17 @@ describe("WhiteboardSession", () => {
 
     socket.receive(
       serverMessage("room_1", {
+        type: "whiteboard.elements.updated",
+        update_id: "update_1",
+        participant_id: "user_1",
+        revision: 1,
+        elements: [rectangle],
+        app_state: { viewBackgroundColor: "#ffffff" },
+      })
+    );
+    expect(sentFrames(socket, "whiteboard.elements.update")).toHaveLength(1);
+    socket.receive(
+      serverMessage("room_1", {
         type: "whiteboard.ack",
         update_id: "update_1",
         revision: 1,
@@ -746,6 +760,153 @@ describe("WhiteboardSession", () => {
       files: {},
     });
     expect(editor.setReadOnly).toHaveBeenLastCalledWith(false);
+    expect(editor.resetHistory).toHaveBeenCalledTimes(1);
+    session.destroy();
+  });
+
+  it("recovers from a scene rate limit without leaving the update queue stuck", () => {
+    const socket = new FakeSocket();
+    const editor = createEditor();
+    const statuses: string[] = [];
+    const updateIds = ["limited-update", "retry-update"];
+    const session = createWhiteboardSession({
+      identity: {
+        roomId: "room_rate",
+        participantId: "member_1",
+        token: "member-token",
+        role: "member",
+      },
+      editor: editor.editor,
+      socketFactory: () => socket,
+      createUpdateId: () => updateIds.shift()!,
+      origin: "http://localhost:5173",
+    });
+    session.subscribeStatus((status) => statuses.push(status));
+    socket.open();
+    socket.receive(
+      serverMessage("room_rate", {
+        type: "whiteboard.connected",
+        participant_id: "member_1",
+        role: "member",
+        can_edit: true,
+      })
+    );
+    socket.receive(
+      serverMessage("room_rate", {
+        type: "whiteboard.scene",
+        revision: 0,
+        scene: { elements: [], app_state: {} },
+      })
+    );
+    editor.change({
+      elements: [
+        {
+          id: "first-shape",
+          type: "rectangle",
+          version: 1,
+          versionNonce: 71,
+        },
+      ],
+      appState: {},
+      files: {},
+    });
+    socket.receive(
+      serverMessage("room_rate", {
+        type: "whiteboard.error",
+        code: "rate_limited",
+        message: "Whiteboard scene updates are arriving too quickly.",
+        recoverable: true,
+        update_id: "limited-update",
+        current_revision: 0,
+      })
+    );
+    expect(statuses.at(-1)).toBe("rejected");
+    expect(editor.setReadOnly).toHaveBeenLastCalledWith(false);
+
+    editor.change({
+      elements: [
+        {
+          id: "retry-shape",
+          type: "ellipse",
+          version: 1,
+          versionNonce: 72,
+        },
+      ],
+      appState: {},
+      files: {},
+    });
+    expect(sentFrames(socket, "whiteboard.elements.update")).toHaveLength(2);
+    expect(sentFrames(socket, "whiteboard.elements.update")[1]).toMatchObject({
+      update_id: "retry-update",
+      base_revision: 0,
+    });
+    session.destroy();
+  });
+
+  it("keeps the final scene available read-only after the Live Room ends", async () => {
+    const sockets: FakeSocket[] = [];
+    const editor = createEditor();
+    const statuses: string[] = [];
+    const session = createWhiteboardSession({
+      identity: {
+        roomId: "room_ended",
+        participantId: "owner_1",
+        token: "owner-token",
+        role: "owner",
+      },
+      editor: editor.editor,
+      socketFactory: () => {
+        const socket = new FakeSocket();
+        sockets.push(socket);
+        return socket;
+      },
+      origin: "http://localhost:5173",
+      reconnectDelayMs: 0,
+    });
+    session.subscribeStatus((status) => statuses.push(status));
+    sockets[0]!.open();
+    sockets[0]!.receive(
+      serverMessage("room_ended", {
+        type: "whiteboard.connected",
+        participant_id: "owner_1",
+        role: "owner",
+        can_edit: true,
+      })
+    );
+    sockets[0]!.receive(
+      serverMessage("room_ended", {
+        type: "whiteboard.scene",
+        revision: 2,
+        scene: {
+          elements: [
+            {
+              id: "final-shape",
+              type: "diamond",
+              version: 1,
+              versionNonce: 73,
+            },
+          ],
+          app_state: {},
+        },
+      })
+    );
+    sockets[0]!.receive(
+      serverMessage("room_ended", {
+        type: "whiteboard.error",
+        code: "room_ended",
+        message: "This Live Room has ended.",
+        recoverable: false,
+      })
+    );
+
+    expect(statuses.at(-1)).toBe("ended");
+    expect(editor.setReadOnly).toHaveBeenLastCalledWith(true);
+    expect(editor.editor.getScene().elements).toEqual([
+      expect.objectContaining({ id: "final-shape" }),
+    ]);
+    await expect(editor.editor.exportScene()).resolves.toBeInstanceOf(Blob);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sockets).toHaveLength(1);
     session.destroy();
   });
 
@@ -979,6 +1140,7 @@ describe("WhiteboardSession", () => {
     });
     expect(statuses.at(-1)).toBe("connected");
     expect(editor.setReadOnly).toHaveBeenLastCalledWith(false);
+    expect(editor.resetHistory).toHaveBeenCalledTimes(1);
     session.destroy();
   });
 });

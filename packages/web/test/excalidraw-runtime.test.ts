@@ -32,12 +32,14 @@ describe("Excalidraw public API bridge", () => {
     };
     const updateScene = vi.fn();
     const addFiles = vi.fn();
+    const clearHistory = vi.fn();
     const api = {
       getSceneElements: vi.fn(() => elements),
       getAppState: vi.fn(() => appState),
       getFiles: vi.fn(() => files),
       updateScene,
       addFiles,
+      history: { clear: clearHistory },
     };
 
     const port = createExcalidrawApiPort(
@@ -53,6 +55,9 @@ describe("Excalidraw public API bridge", () => {
       captureUpdate: "never",
     });
     expect(addFiles).toHaveBeenCalledWith([files.file_1]);
+
+    port.resetHistory();
+    expect(clearHistory).toHaveBeenCalledTimes(1);
 
     const png = await port.exportScene("png");
     expect(await png.text()).toBe("png");

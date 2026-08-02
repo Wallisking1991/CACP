@@ -39,6 +39,7 @@ describe("Excalidraw whiteboard editor adapter", () => {
     const updateScene = vi.fn();
     const updateCollaborators = vi.fn();
     const focusViewport = vi.fn();
+    const resetHistory = vi.fn();
     const addFiles = vi.fn();
     let apiScene: WhiteboardScene = {
       elements: [{ id: "shape_1" }],
@@ -52,6 +53,7 @@ describe("Excalidraw whiteboard editor adapter", () => {
         updateScene(scene);
         addFiles(Object.values(scene.files));
       },
+      resetHistory,
       updateCollaborators,
       focusViewport,
       exportScene: async () => new Blob([], { type: "image/png" }),
@@ -160,6 +162,8 @@ describe("Excalidraw whiteboard editor adapter", () => {
     controller.updateScene(nextScene);
     expect(updateScene).toHaveBeenCalledWith(nextScene);
     expect(addFiles).toHaveBeenCalledWith([{ id: "file_2" }]);
+    controller.resetHistory?.();
+    expect(resetHistory).toHaveBeenCalledTimes(1);
     await act(async () => {
       emitSceneChange?.(nextScene);
     });

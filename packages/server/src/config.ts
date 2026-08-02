@@ -28,6 +28,10 @@ export interface ServerConfig {
   whiteboardPresenceSweepMs: number;
   whiteboardPresenceUpdateLimit: number;
   whiteboardPresenceWindowMs: number;
+  whiteboardSceneUpdateLimit: number;
+  whiteboardSceneWindowMs: number;
+  whiteboardMaxAttachments: number;
+  whiteboardDeduplicationLimit: number;
 }
 
 function boolValue(value: string | undefined, fallback: boolean): boolean {
@@ -126,6 +130,22 @@ export function loadServerConfig(
     whiteboardPresenceWindowMs: intValue(
       env.CACP_WHITEBOARD_PRESENCE_WINDOW_MS,
       1_000
+    ),
+    whiteboardSceneUpdateLimit: intValue(
+      env.CACP_WHITEBOARD_SCENE_UPDATE_LIMIT,
+      20
+    ),
+    whiteboardSceneWindowMs: intValue(
+      env.CACP_WHITEBOARD_SCENE_WINDOW_MS,
+      1_000
+    ),
+    whiteboardMaxAttachments: intValue(
+      env.CACP_WHITEBOARD_MAX_ATTACHMENTS,
+      100
+    ),
+    whiteboardDeduplicationLimit: intValue(
+      env.CACP_WHITEBOARD_DEDUPLICATION_LIMIT,
+      2_000
     ),
   };
   if (

@@ -19,6 +19,7 @@ export function createWhiteboardObserverEditor(): WhiteboardEditorController {
     updateScene(nextScene) {
       scene = nextScene;
     },
+    resetHistory() {},
     subscribeSceneChanges() {
       return () => {};
     },

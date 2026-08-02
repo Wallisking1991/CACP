@@ -19,6 +19,7 @@ interface ExcalidrawRoot {
 export interface ExcalidrawApiPort {
   getScene(): WhiteboardScene;
   updateScene(scene: WhiteboardScene): void;
+  resetHistory(): void;
   updateCollaborators(collaborators: readonly WhiteboardCollaborator[]): void;
   focusViewport(viewport: WhiteboardViewport): void;
   exportScene(format: WhiteboardExportFormat): Promise<Blob>;
@@ -275,6 +276,10 @@ export function createExcalidrawEditorAdapter(
           if (!api || destroyed) return;
           suppressedSceneFingerprint = sceneFingerprint(scene);
           api.updateScene(scene);
+        },
+        resetHistory() {
+          if (!api || destroyed) return;
+          api.resetHistory();
         },
         subscribeSceneChanges(listener) {
           if (destroyed) return () => {};

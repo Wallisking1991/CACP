@@ -24,7 +24,8 @@ export type WhiteboardSessionStatus =
   | "disconnected"
   | "rejected"
   | "conflicted"
-  | "forbidden";
+  | "forbidden"
+  | "ended";
 
 export interface WhiteboardSocketEvent {
   data?: unknown;
@@ -213,7 +214,8 @@ export function createWhiteboardSession({
   let connectedHandshake = false;
   let applyingRemote = false;
   let destroyed = false;
-  let terminal = false;
+  let terminalStatus: "forbidden" | "ended" | undefined;
+  let hasInstalledAuthoritativeScene = false;
   let rejectedUpdate = false;
   let rejectedBaseRevision: number | undefined;
   let pendingRemote:
@@ -355,10 +357,14 @@ export function createWhiteboardSession({
     if (parsed.success) socket.send(JSON.stringify(parsed.data));
   }
 
-  function applyRemoteScene(scene: SharedWhiteboardScene) {
+  function applyRemoteScene(
+    scene: SharedWhiteboardScene,
+    resetHistory = false
+  ) {
     applyingRemote = true;
     try {
       editor.updateScene(remoteScene(editor, scene));
+      if (resetHistory) editor.resetHistory?.();
     } finally {
       applyingRemote = false;
     }
@@ -400,7 +406,7 @@ export function createWhiteboardSession({
   const unsubscribePresence = editor.subscribePresenceChanges(schedulePresence);
 
   function scheduleReconnect() {
-    if (destroyed || terminal || reconnectTimer) return;
+    if (destroyed || terminalStatus || reconnectTimer) return;
     reconnectTimer = setTimeout(() => {
       reconnectTimer = undefined;
       connect();
@@ -408,7 +414,7 @@ export function createWhiteboardSession({
   }
 
   function connect() {
-    if (destroyed || terminal) return;
+    if (destroyed || terminalStatus) return;
     synchronized = false;
     connectedHandshake = false;
     clearPresenceTimers();
@@ -447,7 +453,7 @@ export function createWhiteboardSession({
 
       if (message.type === "whiteboard.connected") {
         if (message.participant_id !== identity.participantId) {
-          terminal = true;
+          terminalStatus = "forbidden";
           setStatus("forbidden");
           setEditorAccess();
           nextSocket.close();
@@ -483,7 +489,8 @@ export function createWhiteboardSession({
           return;
         }
         revision = message.revision;
-        applyRemoteScene(message.scene);
+        applyRemoteScene(message.scene, hasInstalledAuthoritativeScene);
+        hasInstalledAuthoritativeScene = true;
         synchronized = true;
         setStatus("connected");
         setEditorAccess();
@@ -575,20 +582,33 @@ export function createWhiteboardSession({
         return;
       }
       if (message.type === "whiteboard.error") {
+        if (message.code === "room_ended") {
+          terminalStatus = "ended";
+          synchronized = false;
+          setStatus("ended");
+          setEditorAccess();
+          nextSocket.close();
+          return;
+        }
         if (
           message.code === "forbidden" ||
           message.code === "invalid_token" ||
           message.code === "origin_not_allowed" ||
-          message.code === "room_ended" ||
           message.code === "room_full"
         ) {
-          terminal = true;
+          terminalStatus = "forbidden";
           synchronized = false;
           setStatus("forbidden");
           setEditorAccess();
+          nextSocket.close();
           return;
         }
-        if (message.code === "invalid_message" && inFlightUpdateId) {
+        if (
+          (message.code === "invalid_message" ||
+            message.code === "rate_limited") &&
+          inFlightUpdateId &&
+          (!message.update_id || message.update_id === inFlightUpdateId)
+        ) {
           inFlightUpdateId = undefined;
           queuedScene = undefined;
           rejectedUpdate = true;
@@ -623,8 +643,8 @@ export function createWhiteboardSession({
       collaborators.clear();
       notifyCollaborators();
       setStatus(
-        terminal
-          ? "forbidden"
+        terminalStatus
+          ? terminalStatus
           : pendingRemote
             ? "conflicted"
             : rejectedUpdate
@@ -665,7 +685,8 @@ export function createWhiteboardSession({
       if (!pendingRemote) return;
       const remote = pendingRemote;
       revision = remote.revision;
-      applyRemoteScene(remote.scene);
+      applyRemoteScene(remote.scene, true);
+      hasInstalledAuthoritativeScene = true;
       pendingRemote = undefined;
       rejectedUpdate = false;
       rejectedBaseRevision = undefined;

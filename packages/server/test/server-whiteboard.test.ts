@@ -79,7 +79,15 @@ function createInbox(socket: WebSocket) {
     }
   }
 
-  return { next };
+  async function none(
+    type: WhiteboardServerMessage["type"],
+    durationMs = 100
+  ): Promise<boolean> {
+    await new Promise((resolve) => setTimeout(resolve, durationMs));
+    return !messages.some((message) => message.type === type);
+  }
+
+  return { next, none };
 }
 
 async function joinHuman(
@@ -241,6 +249,409 @@ describe("collaborative whiteboard stream", () => {
       revision: 1,
       elements: [rectangle],
       app_state: { viewBackgroundColor: "#ffffff" },
+    });
+  });
+
+  it("merges independent concurrent edits and deterministically resolves one element", async () => {
+    app = await buildServer({
+      dbPath: ":memory:",
+      config: localTestConfig(),
+    });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const room = (
+      await app.inject({
+        method: "POST",
+        url: "/rooms",
+        payload: { name: "Convergent board", display_name: "Owner" },
+      })
+    ).json() as {
+      room_id: string;
+      owner_token: string;
+    };
+    const member = await joinHuman(
+      app,
+      room.room_id,
+      room.owner_token,
+      "member",
+      "Alice"
+    );
+    const url = `ws://${addressOf(app)}/rooms/${room.room_id}/whiteboard`;
+    const ownerSocket = new WebSocket(
+      `${url}?token=${encodeURIComponent(room.owner_token)}`
+    );
+    const memberSocket = new WebSocket(
+      `${url}?token=${encodeURIComponent(member.participant_token)}`
+    );
+    sockets.push(ownerSocket, memberSocket);
+    const ownerInbox = createInbox(ownerSocket);
+    const memberInbox = createInbox(memberSocket);
+    await Promise.all([waitForOpen(ownerSocket), waitForOpen(memberSocket)]);
+    for (const inbox of [ownerInbox, memberInbox]) {
+      await inbox.next("whiteboard.connected");
+      await inbox.next("whiteboard.scene");
+      await inbox.next("whiteboard.presence.snapshot");
+    }
+
+    const shapeA = {
+      id: "shape-a",
+      type: "rectangle",
+      version: 1,
+      versionNonce: 300,
+      x: 20,
+    };
+    const shapeB = {
+      id: "shape-b",
+      type: "ellipse",
+      version: 1,
+      versionNonce: 400,
+      y: 40,
+    };
+    ownerSocket.send(
+      JSON.stringify({
+        protocol: "cacp-whiteboard",
+        version: "1.0.0",
+        room_id: room.room_id,
+        type: "whiteboard.elements.update",
+        update_id: "owner-independent",
+        base_revision: 0,
+        elements: [shapeA],
+        app_state: { viewBackgroundColor: "#ffffff" },
+      })
+    );
+    await ownerInbox.next("whiteboard.elements.updated");
+    await ownerInbox.next("whiteboard.ack");
+    await memberInbox.next("whiteboard.elements.updated");
+
+    memberSocket.send(
+      JSON.stringify({
+        protocol: "cacp-whiteboard",
+        version: "1.0.0",
+        room_id: room.room_id,
+        type: "whiteboard.elements.update",
+        update_id: "member-independent",
+        base_revision: 0,
+        elements: [shapeB],
+        app_state: { viewBackgroundColor: "#000000" },
+      })
+    );
+    await expect(
+      memberInbox.next("whiteboard.elements.updated")
+    ).resolves.toMatchObject({
+      revision: 2,
+      elements: [shapeA, shapeB],
+      app_state: { viewBackgroundColor: "#ffffff" },
+    });
+    await expect(memberInbox.next("whiteboard.ack")).resolves.toMatchObject({
+      revision: 2,
+    });
+    await expect(
+      ownerInbox.next("whiteboard.elements.updated")
+    ).resolves.toMatchObject({ revision: 2, elements: [shapeA, shapeB] });
+
+    ownerSocket.send(
+      JSON.stringify({
+        protocol: "cacp-whiteboard",
+        version: "1.0.0",
+        room_id: room.room_id,
+        type: "whiteboard.elements.update",
+        update_id: "owner-conflict",
+        base_revision: 2,
+        elements: [{ ...shapeA, version: 2, versionNonce: 900, x: 90 }, shapeB],
+        app_state: { viewBackgroundColor: "#ffffff" },
+      })
+    );
+    await ownerInbox.next("whiteboard.elements.updated");
+    await ownerInbox.next("whiteboard.ack");
+    await memberInbox.next("whiteboard.elements.updated");
+
+    memberSocket.send(
+      JSON.stringify({
+        protocol: "cacp-whiteboard",
+        version: "1.0.0",
+        room_id: room.room_id,
+        type: "whiteboard.elements.update",
+        update_id: "member-conflict",
+        base_revision: 2,
+        elements: [
+          { ...shapeA, version: 2, versionNonce: 100, x: 100 },
+          shapeB,
+        ],
+        app_state: { viewBackgroundColor: "#000000" },
+      })
+    );
+    await expect(
+      memberInbox.next("whiteboard.elements.updated")
+    ).resolves.toMatchObject({
+      revision: 4,
+      elements: [
+        expect.objectContaining({
+          id: "shape-a",
+          version: 2,
+          versionNonce: 100,
+          x: 100,
+        }),
+        shapeB,
+      ],
+    });
+    await memberInbox.next("whiteboard.ack");
+    await expect(
+      ownerInbox.next("whiteboard.elements.updated")
+    ).resolves.toMatchObject({
+      revision: 4,
+      elements: [
+        expect.objectContaining({ id: "shape-a", versionNonce: 100, x: 100 }),
+        shapeB,
+      ],
+    });
+  });
+
+  it("deduplicates retried update identifiers without another revision or broadcast", async () => {
+    app = await buildServer({
+      dbPath: ":memory:",
+      config: localTestConfig(),
+    });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const room = (
+      await app.inject({
+        method: "POST",
+        url: "/rooms",
+        payload: { name: "Idempotent board", display_name: "Owner" },
+      })
+    ).json() as { room_id: string; owner_token: string };
+    const member = await joinHuman(
+      app,
+      room.room_id,
+      room.owner_token,
+      "member",
+      "Alice"
+    );
+    const url = `ws://${addressOf(app)}/rooms/${room.room_id}/whiteboard`;
+    const ownerSocket = new WebSocket(
+      `${url}?token=${encodeURIComponent(room.owner_token)}`
+    );
+    const memberSocket = new WebSocket(
+      `${url}?token=${encodeURIComponent(member.participant_token)}`
+    );
+    sockets.push(ownerSocket, memberSocket);
+    const ownerInbox = createInbox(ownerSocket);
+    const memberInbox = createInbox(memberSocket);
+    await Promise.all([waitForOpen(ownerSocket), waitForOpen(memberSocket)]);
+    for (const inbox of [ownerInbox, memberInbox]) {
+      await inbox.next("whiteboard.connected");
+      await inbox.next("whiteboard.scene");
+      await inbox.next("whiteboard.presence.snapshot");
+    }
+
+    const frame = {
+      protocol: "cacp-whiteboard",
+      version: "1.0.0",
+      room_id: room.room_id,
+      type: "whiteboard.elements.update",
+      update_id: "retry-me",
+      base_revision: 0,
+      elements: [
+        {
+          id: "shape-1",
+          type: "rectangle",
+          version: 1,
+          versionNonce: 701,
+        },
+      ],
+      app_state: {},
+    };
+    ownerSocket.send(JSON.stringify(frame));
+    await ownerInbox.next("whiteboard.elements.updated");
+    await expect(ownerInbox.next("whiteboard.ack")).resolves.toMatchObject({
+      revision: 1,
+    });
+    await memberInbox.next("whiteboard.elements.updated");
+
+    ownerSocket.send(JSON.stringify(frame));
+    await expect(ownerInbox.next("whiteboard.ack")).resolves.toMatchObject({
+      update_id: "retry-me",
+      revision: 1,
+    });
+    await expect(memberInbox.none("whiteboard.elements.updated")).resolves.toBe(
+      true
+    );
+
+    ownerSocket.send(
+      JSON.stringify({
+        ...frame,
+        elements: [
+          {
+            id: "shape-2",
+            type: "ellipse",
+            version: 1,
+            versionNonce: 702,
+          },
+        ],
+      })
+    );
+    await expect(ownerInbox.next("whiteboard.error")).resolves.toMatchObject({
+      code: "invalid_message",
+      update_id: "retry-me",
+      current_revision: 1,
+    });
+
+    const lateSocket = new WebSocket(
+      `${url}?token=${encodeURIComponent(member.participant_token)}`
+    );
+    sockets.push(lateSocket);
+    const lateInbox = createInbox(lateSocket);
+    await waitForOpen(lateSocket);
+    await lateInbox.next("whiteboard.connected");
+    await expect(lateInbox.next("whiteboard.scene")).resolves.toMatchObject({
+      revision: 1,
+      scene: {
+        elements: [expect.objectContaining({ id: "shape-1" })],
+      },
+    });
+  });
+
+  it("isolates over-rate, future-revision, and oversized updates before resync", async () => {
+    app = await buildServer({
+      dbPath: ":memory:",
+      config: localTestConfig({
+        bodyLimitBytes: 512,
+        whiteboardSceneUpdateLimit: 1,
+        whiteboardSceneWindowMs: 1_000,
+      }),
+    });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const room = (
+      await app.inject({
+        method: "POST",
+        url: "/rooms",
+        payload: { name: "Bounded board", display_name: "Owner" },
+      })
+    ).json() as { room_id: string; owner_token: string };
+    const member = await joinHuman(
+      app,
+      room.room_id,
+      room.owner_token,
+      "member",
+      "Alice"
+    );
+    const secondMember = await joinHuman(
+      app,
+      room.room_id,
+      room.owner_token,
+      "member",
+      "Bob"
+    );
+    const url = `ws://${addressOf(app)}/rooms/${room.room_id}/whiteboard`;
+    const ownerSocket = new WebSocket(
+      `${url}?token=${encodeURIComponent(room.owner_token)}`
+    );
+    const memberSocket = new WebSocket(
+      `${url}?token=${encodeURIComponent(member.participant_token)}`
+    );
+    const secondMemberSocket = new WebSocket(
+      `${url}?token=${encodeURIComponent(secondMember.participant_token)}`
+    );
+    sockets.push(ownerSocket, memberSocket, secondMemberSocket);
+    const ownerInbox = createInbox(ownerSocket);
+    const memberInbox = createInbox(memberSocket);
+    const secondMemberInbox = createInbox(secondMemberSocket);
+    await Promise.all([
+      waitForOpen(ownerSocket),
+      waitForOpen(memberSocket),
+      waitForOpen(secondMemberSocket),
+    ]);
+    for (const inbox of [ownerInbox, memberInbox, secondMemberInbox]) {
+      await inbox.next("whiteboard.connected");
+      await inbox.next("whiteboard.scene");
+      await inbox.next("whiteboard.presence.snapshot");
+    }
+
+    const firstUpdate = {
+      protocol: "cacp-whiteboard",
+      version: "1.0.0",
+      room_id: room.room_id,
+      type: "whiteboard.elements.update",
+      update_id: "accepted-update",
+      base_revision: 0,
+      elements: [
+        {
+          id: "accepted-shape",
+          type: "rectangle",
+          version: 1,
+          versionNonce: 801,
+        },
+      ],
+      app_state: {},
+    };
+    ownerSocket.send(JSON.stringify(firstUpdate));
+    await ownerInbox.next("whiteboard.elements.updated");
+    await ownerInbox.next("whiteboard.ack");
+    await memberInbox.next("whiteboard.elements.updated");
+    await secondMemberInbox.next("whiteboard.elements.updated");
+
+    ownerSocket.send(
+      JSON.stringify({
+        ...firstUpdate,
+        update_id: "too-fast",
+        base_revision: 1,
+      })
+    );
+    await expect(ownerInbox.next("whiteboard.error")).resolves.toMatchObject({
+      code: "rate_limited",
+      update_id: "too-fast",
+      current_revision: 1,
+      recoverable: true,
+    });
+
+    memberSocket.send(
+      JSON.stringify({
+        ...firstUpdate,
+        update_id: "future-update",
+        base_revision: 99,
+      })
+    );
+    await expect(memberInbox.next("whiteboard.error")).resolves.toMatchObject({
+      code: "not_synchronized",
+      update_id: "future-update",
+      current_revision: 1,
+      recoverable: true,
+    });
+
+    secondMemberSocket.send(
+      JSON.stringify({
+        ...firstUpdate,
+        update_id: "oversized-update",
+        base_revision: 1,
+        elements: [
+          {
+            id: "oversized-text",
+            type: "text",
+            version: 1,
+            versionNonce: 802,
+            text: "x".repeat(700),
+          },
+        ],
+      })
+    );
+    await expect(
+      secondMemberInbox.next("whiteboard.error")
+    ).resolves.toMatchObject({
+      code: "invalid_message",
+      recoverable: true,
+    });
+
+    await closeSocket(memberSocket);
+    const resynchronized = new WebSocket(
+      `${url}?token=${encodeURIComponent(member.participant_token)}`
+    );
+    sockets.push(resynchronized);
+    const resyncInbox = createInbox(resynchronized);
+    await waitForOpen(resynchronized);
+    await resyncInbox.next("whiteboard.connected");
+    await expect(resyncInbox.next("whiteboard.scene")).resolves.toMatchObject({
+      revision: 1,
+      scene: {
+        elements: [expect.objectContaining({ id: "accepted-shape" })],
+      },
     });
   });
 
@@ -1355,6 +1766,10 @@ describe("collaborative whiteboard stream", () => {
       payload: {},
     });
     expect(leaveResponse.statusCode).toBe(201);
+    await expect(inbox.next("whiteboard.error")).resolves.toMatchObject({
+      code: "room_ended",
+      recoverable: false,
+    });
     await closed;
 
     const endedSocket = new WebSocket(

@@ -856,6 +856,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
     presenceSweepMs: config.whiteboardPresenceSweepMs,
     presenceUpdateLimit: config.whiteboardPresenceUpdateLimit,
     presenceWindowMs: config.whiteboardPresenceWindowMs,
+    sceneUpdateLimit: config.whiteboardSceneUpdateLimit,
+    sceneWindowMs: config.whiteboardSceneWindowMs,
+    maxAttachments: config.whiteboardMaxAttachments,
+    deduplicationLimit: config.whiteboardDeduplicationLimit,
   });
   const participantSockets = new Map<
     string,

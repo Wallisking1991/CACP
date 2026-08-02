@@ -6,8 +6,8 @@ import {
   type WhiteboardClientPresenceMessage,
   type WhiteboardErrorCode,
   type WhiteboardHumanRole,
-  type WhiteboardScene,
 } from "@cacp/protocol";
+import { createWhiteboardSceneState } from "./whiteboard-scene-state.js";
 
 interface WhiteboardSocket {
   send(data: string): void;
@@ -34,12 +34,12 @@ interface WhiteboardConnection {
 }
 
 interface WhiteboardRoomState {
-  revision: number;
-  scene: WhiteboardScene;
+  sceneState: ReturnType<typeof createWhiteboardSceneState>;
   connections: Set<WhiteboardConnection>;
   handoffParticipants: Set<string>;
   presenceSequence: number;
   presenceRateWindows: Map<string, { startedAt: number; updates: number }>;
+  ended: boolean;
 }
 
 export interface WhiteboardConnectInput {
@@ -74,6 +74,10 @@ interface WhiteboardHubOptions {
   presenceSweepMs: number;
   presenceUpdateLimit: number;
   presenceWindowMs: number;
+  sceneUpdateLimit: number;
+  sceneWindowMs: number;
+  maxAttachments: number;
+  deduplicationLimit: number;
 }
 
 const collaboratorColors: readonly WhiteboardCollaborator["color"][] = [
@@ -86,11 +90,6 @@ const collaboratorColors: readonly WhiteboardCollaborator["color"][] = [
   { background: "#fee2e2", stroke: "#dc2626" },
   { background: "#e0e7ff", stroke: "#4f46e5" },
 ];
-
-const blankScene = (): WhiteboardScene => ({
-  elements: [],
-  app_state: {},
-});
 
 function messageText(data: unknown): string | undefined {
   if (typeof data === "string") return data;
@@ -241,12 +240,17 @@ export function createWhiteboardSessionHub(
     const existing = rooms.get(roomId);
     if (existing) return existing;
     const created: WhiteboardRoomState = {
-      revision: 0,
-      scene: blankScene(),
+      sceneState: createWhiteboardSceneState({
+        updateLimit: options.sceneUpdateLimit,
+        updateWindowMs: options.sceneWindowMs,
+        maxAttachments: options.maxAttachments,
+        deduplicationLimit: options.deduplicationLimit,
+      }),
       connections: new Set(),
       handoffParticipants: new Set(),
       presenceSequence: 0,
       presenceRateWindows: new Map(),
+      ended: false,
     };
     rooms.set(roomId, created);
     return created;
@@ -285,12 +289,13 @@ export function createWhiteboardSessionHub(
       })
     );
     if (!connection.observeOnly) {
+      const snapshot = state.sceneState.snapshot();
       input.socket.send(
         JSON.stringify({
           ...base,
           type: "whiteboard.scene",
-          revision: state.revision,
-          scene: state.scene,
+          revision: snapshot.revision,
+          scene: snapshot.scene,
         })
       );
     }
@@ -302,6 +307,19 @@ export function createWhiteboardSessionHub(
       })
     );
     input.socket.on("message", (data) => {
+      if (state.ended) {
+        input.socket.send(
+          JSON.stringify(
+            whiteboardErrorMessage(
+              input.roomId,
+              "room_ended",
+              "This Live Room has ended.",
+              false
+            )
+          )
+        );
+        return;
+      }
       const text = messageText(data);
       if (
         text === undefined ||
@@ -462,57 +480,62 @@ export function createWhiteboardSessionHub(
         );
         return;
       }
-      if (update.base_revision !== state.revision) {
+      const applied = state.sceneState.apply(input.participantId, update);
+      if (applied.kind === "rejected") {
         input.socket.send(
           JSON.stringify(
             whiteboardErrorMessage(
               input.roomId,
-              "stale_revision",
-              "The whiteboard scene changed before this update arrived.",
+              applied.code,
+              applied.message,
               true,
               {
                 updateId: update.update_id,
-                currentRevision: state.revision,
+                currentRevision: applied.currentRevision,
               }
             )
           )
         );
         return;
       }
+      if (applied.replayed) {
+        input.socket.send(
+          JSON.stringify({
+            ...base,
+            type: "whiteboard.ack",
+            update_id: update.update_id,
+            revision: applied.revision,
+          })
+        );
+        return;
+      }
 
-      state.revision += 1;
-      state.scene = {
-        elements: update.elements,
-        app_state: update.app_state,
-      };
-      input.socket.send(
-        JSON.stringify({
-          ...base,
-          type: "whiteboard.ack",
-          update_id: update.update_id,
-          revision: state.revision,
-        })
-      );
       const broadcast = JSON.stringify({
         ...base,
         type: "whiteboard.elements.updated",
         update_id: update.update_id,
         participant_id: input.participantId,
-        revision: state.revision,
-        elements: state.scene.elements,
-        app_state: state.scene.app_state,
+        revision: applied.revision,
+        elements: applied.scene.elements,
+        app_state: applied.scene.app_state,
       });
       const activity = JSON.stringify({
         ...base,
         type: "whiteboard.scene.activity",
         participant_id: input.participantId,
-        revision: state.revision,
+        revision: applied.revision,
       });
       for (const peer of state.connections) {
-        if (peer !== connection) {
-          peer.socket.send(peer.observeOnly ? activity : broadcast);
-        }
+        peer.socket.send(peer.observeOnly ? activity : broadcast);
       }
+      input.socket.send(
+        JSON.stringify({
+          ...base,
+          type: "whiteboard.ack",
+          update_id: update.update_id,
+          revision: applied.revision,
+        })
+      );
     });
 
     return () => {
@@ -576,6 +599,20 @@ export function createWhiteboardSessionHub(
       };
     },
     discardRoom(roomId) {
+      const state = rooms.get(roomId);
+      if (!state) return;
+      state.ended = true;
+      const message = JSON.stringify(
+        whiteboardErrorMessage(
+          roomId,
+          "room_ended",
+          "This Live Room has ended.",
+          false
+        )
+      );
+      for (const connection of state.connections) {
+        connection.socket.send(message);
+      }
       rooms.delete(roomId);
     },
     close() {

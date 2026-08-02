@@ -97,6 +97,9 @@ export function createExcalidrawApiPort(
       const files = Object.values(toExcalidrawFiles(scene));
       if (files.length > 0) api.addFiles(files as BinaryFileData[]);
     },
+    resetHistory() {
+      api.history.clear();
+    },
     updateCollaborators(collaborators: readonly WhiteboardCollaborator[]) {
       const vendorCollaborators = new Map<SocketId, Collaborator>();
       for (const collaborator of collaborators) {

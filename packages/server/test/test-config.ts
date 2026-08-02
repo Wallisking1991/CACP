@@ -30,6 +30,10 @@ export function localTestConfig(
     whiteboardPresenceSweepMs: 1_000,
     whiteboardPresenceUpdateLimit: 30,
     whiteboardPresenceWindowMs: 1_000,
+    whiteboardSceneUpdateLimit: 20,
+    whiteboardSceneWindowMs: 1_000,
+    whiteboardMaxAttachments: 100,
+    whiteboardDeduplicationLimit: 2_000,
     ...overrides,
   };
 }
@@ -65,6 +69,10 @@ export function cloudTestConfig(
     whiteboardPresenceSweepMs: 1_000,
     whiteboardPresenceUpdateLimit: 30,
     whiteboardPresenceWindowMs: 1_000,
+    whiteboardSceneUpdateLimit: 20,
+    whiteboardSceneWindowMs: 1_000,
+    whiteboardMaxAttachments: 100,
+    whiteboardDeduplicationLimit: 2_000,
     ...overrides,
   };
 }

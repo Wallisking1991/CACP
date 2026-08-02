@@ -1084,6 +1084,7 @@ export const AgentUpdatedPayloadSchema = z.object({
 export const WhiteboardProtocolName = "cacp-whiteboard" as const;
 export const WhiteboardProtocolVersion = "1.0.0" as const;
 export const WhiteboardMaxElements = 10_000;
+export const WhiteboardMaxAttachments = 100;
 export const WhiteboardMaxSelectedElements = 200;
 
 const WhiteboardWireBaseSchema = z.object({

@@ -19,6 +19,7 @@
   "whiteboard.syncConflict": "Another participant changed the shared board. Export your local copy, then load the shared board to continue.",
   "whiteboard.loadShared": "Load shared board",
   "whiteboard.accessUnavailable": "Whiteboard access is unavailable.",
+  "whiteboard.roomEnded": "This Live Room has ended. The whiteboard is read-only, but you can still export it.",
   "whiteboard.loadError": "The whiteboard could not be loaded.",
   "whiteboard.retry": "Retry",
   "whiteboard.collaborators": "Active whiteboard collaborators",

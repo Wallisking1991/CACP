@@ -211,7 +211,9 @@ export function WhiteboardSurface({
           ? t("whiteboard.syncConflict")
           : connectionStatus === "forbidden"
             ? t("whiteboard.accessUnavailable")
-            : t("whiteboard.syncing");
+            : connectionStatus === "ended"
+              ? t("whiteboard.roomEnded")
+              : t("whiteboard.syncing");
 
   return (
     <section className="whiteboard-surface" aria-label={editorLabel}>
@@ -297,7 +299,8 @@ export function WhiteboardSurface({
             connectionStatus === "forbidden"
               ? " whiteboard-surface__status--error"
               : connectionStatus === "rejected" ||
-                  connectionStatus === "conflicted"
+                  connectionStatus === "conflicted" ||
+                  connectionStatus === "ended"
                 ? " whiteboard-surface__status--warning"
                 : ""
           }`}
