@@ -30,7 +30,9 @@ export interface ServerConfig {
   whiteboardPresenceWindowMs: number;
   whiteboardSceneUpdateLimit: number;
   whiteboardSceneWindowMs: number;
+  whiteboardMaxElements: number;
   whiteboardMaxAttachments: number;
+  whiteboardMaxSceneBytes: number;
   whiteboardDeduplicationLimit: number;
 }
 
@@ -139,9 +141,14 @@ export function loadServerConfig(
       env.CACP_WHITEBOARD_SCENE_WINDOW_MS,
       1_000
     ),
+    whiteboardMaxElements: intValue(env.CACP_WHITEBOARD_MAX_ELEMENTS, 10_000),
     whiteboardMaxAttachments: intValue(
       env.CACP_WHITEBOARD_MAX_ATTACHMENTS,
       100
+    ),
+    whiteboardMaxSceneBytes: intValue(
+      env.CACP_WHITEBOARD_MAX_SCENE_BYTES,
+      4 * 1024 * 1024
     ),
     whiteboardDeduplicationLimit: intValue(
       env.CACP_WHITEBOARD_DEDUPLICATION_LIMIT,

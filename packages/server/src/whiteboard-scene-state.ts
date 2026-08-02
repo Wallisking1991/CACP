@@ -10,10 +10,13 @@ import {
 const DEFAULT_UPDATE_LIMIT = 20;
 const DEFAULT_UPDATE_WINDOW_MS = 1_000;
 const DEFAULT_DEDUPLICATION_LIMIT = 2_000;
+const DEFAULT_MAX_SCENE_BYTES = 4 * 1024 * 1024;
+const MAX_STRUCTURED_DEPTH = 32;
 
 export interface WhiteboardSceneStateOptions {
   maxElements?: number;
   maxAttachments?: number;
+  maxSceneBytes?: number;
   updateLimit?: number;
   updateWindowMs?: number;
   deduplicationLimit?: number;
@@ -96,15 +99,31 @@ function hasDuplicateElementIds(elements: readonly WhiteboardElement[]) {
   );
 }
 
-function containsEmbeddedData(value: unknown): boolean {
-  if (typeof value === "string") {
-    return /^data:/i.test(value.trim());
+function inspectStructuredValue(value: unknown): {
+  embeddedData: boolean;
+  invalidStructure: boolean;
+} {
+  const stack = [{ value, depth: 0 }];
+  const visited = new WeakSet<object>();
+  let embeddedData = false;
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    if (typeof current.value === "string") {
+      if (/^data:/i.test(current.value.trim())) embeddedData = true;
+      continue;
+    }
+    if (!current.value || typeof current.value !== "object") continue;
+    if (current.depth > MAX_STRUCTURED_DEPTH || visited.has(current.value)) {
+      return { embeddedData, invalidStructure: true };
+    }
+    visited.add(current.value);
+    for (const child of Array.isArray(current.value)
+      ? current.value
+      : Object.values(current.value as Record<string, unknown>)) {
+      stack.push({ value: child, depth: current.depth + 1 });
+    }
   }
-  if (!value || typeof value !== "object") return false;
-  if (Array.isArray(value)) return value.some(containsEmbeddedData);
-  return Object.values(value as Record<string, unknown>).some(
-    containsEmbeddedData
-  );
+  return { embeddedData, invalidStructure: false };
 }
 
 function attachmentCount(elements: readonly WhiteboardElement[]) {
@@ -123,6 +142,7 @@ export function createWhiteboardSceneState(
 ) {
   const maxElements = options.maxElements ?? WhiteboardMaxElements;
   const maxAttachments = options.maxAttachments ?? WhiteboardMaxAttachments;
+  const maxSceneBytes = options.maxSceneBytes ?? DEFAULT_MAX_SCENE_BYTES;
   const updateLimit = options.updateLimit ?? DEFAULT_UPDATE_LIMIT;
   const updateWindowMs = options.updateWindowMs ?? DEFAULT_UPDATE_WINDOW_MS;
   const deduplicationLimit =
@@ -142,34 +162,72 @@ export function createWhiteboardSceneState(
     return { kind: "rejected", code, message, currentRevision: revision };
   }
 
+  function consumeRateAttempt(
+    participantId: string,
+    now: number
+  ): WhiteboardSceneApplyResult | undefined {
+    const previousWindow = rateWindows.get(participantId);
+    const rateWindow =
+      !previousWindow || now - previousWindow.startedAt >= updateWindowMs
+        ? { startedAt: now, updates: 0 }
+        : previousWindow;
+    rateWindows.set(participantId, rateWindow);
+    if (rateWindow.updates >= updateLimit) {
+      return reject(
+        "rate_limited",
+        "Whiteboard scene updates are arriving too quickly."
+      );
+    }
+    rateWindow.updates += 1;
+    return undefined;
+  }
+
   return {
     snapshot() {
       return { revision, scene };
+    },
+    consumeInvalidAttempt(participantId: string, now = Date.now()) {
+      return consumeRateAttempt(participantId, now);
     },
     apply(
       participantId: string,
       update: WhiteboardClientUpdateMessage,
       now = Date.now()
     ): WhiteboardSceneApplyResult {
+      const structure = inspectStructuredValue(update);
+      if (structure.invalidStructure) {
+        return (
+          consumeRateAttempt(participantId, now) ??
+          reject(
+            "invalid_message",
+            "The whiteboard update is nested too deeply or contains a cycle."
+          )
+        );
+      }
+
       const deduplicationKey = stableSerialize([
         participantId,
         update.update_id,
       ]);
       const fingerprint = stableSerialize(update);
       const previous = deduplicationRecords.get(deduplicationKey);
-      if (previous) {
-        if (previous.fingerprint !== fingerprint) {
-          return reject(
-            "invalid_message",
-            "This whiteboard update identifier was already used for different content."
-          );
-        }
+      if (previous?.fingerprint === fingerprint) {
         return {
           kind: "accepted",
           replayed: true,
           revision: previous.revision,
           scene,
         };
+      }
+
+      const rateRejection = consumeRateAttempt(participantId, now);
+      if (rateRejection) return rateRejection;
+
+      if (previous) {
+        return reject(
+          "invalid_message",
+          "This whiteboard update identifier was already used for different content."
+        );
       }
 
       if (update.base_revision > revision) {
@@ -179,27 +237,13 @@ export function createWhiteboardSceneState(
         );
       }
 
-      const previousWindow = rateWindows.get(participantId);
-      const rateWindow =
-        !previousWindow || now - previousWindow.startedAt >= updateWindowMs
-          ? { startedAt: now, updates: 0 }
-          : previousWindow;
-      rateWindows.set(participantId, rateWindow);
-      if (rateWindow.updates >= updateLimit) {
-        return reject(
-          "rate_limited",
-          "Whiteboard scene updates are arriving too quickly."
-        );
-      }
-      rateWindow.updates += 1;
-
       if (hasDuplicateElementIds(update.elements)) {
         return reject(
           "invalid_message",
           "A whiteboard update cannot contain duplicate element identifiers."
         );
       }
-      if (containsEmbeddedData(update.elements)) {
+      if (structure.embeddedData) {
         return reject(
           "invalid_message",
           "Whiteboard updates cannot embed binary data URLs."
@@ -224,11 +268,18 @@ export function createWhiteboardSceneState(
       }
 
       const updatesCurrentRevision = update.base_revision === revision;
-      revision += 1;
-      scene = {
+      const nextScene: WhiteboardScene = {
         elements,
         app_state: updatesCurrentRevision ? update.app_state : scene.app_state,
       };
+      if (
+        new TextEncoder().encode(stableSerialize(nextScene)).byteLength >
+        maxSceneBytes
+      ) {
+        return reject("invalid_message", "The whiteboard scene is too large.");
+      }
+      revision += 1;
+      scene = nextScene;
       deduplicationRecords.set(deduplicationKey, { fingerprint, revision });
       if (deduplicationRecords.size > deduplicationLimit) {
         const oldestKey = deduplicationRecords.keys().next().value;

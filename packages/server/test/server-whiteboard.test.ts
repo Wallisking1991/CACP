@@ -513,9 +513,11 @@ describe("collaborative whiteboard stream", () => {
     app = await buildServer({
       dbPath: ":memory:",
       config: localTestConfig({
-        bodyLimitBytes: 512,
+        bodyLimitBytes: 2_048,
         whiteboardSceneUpdateLimit: 1,
         whiteboardSceneWindowMs: 1_000,
+        whiteboardMaxElements: 2,
+        whiteboardMaxSceneBytes: 300,
       }),
     });
     await app.listen({ host: "127.0.0.1", port: 0 });
@@ -540,6 +542,27 @@ describe("collaborative whiteboard stream", () => {
       "member",
       "Bob"
     );
+    const thirdMember = await joinHuman(
+      app,
+      room.room_id,
+      room.owner_token,
+      "member",
+      "Charlie"
+    );
+    const fourthMember = await joinHuman(
+      app,
+      room.room_id,
+      room.owner_token,
+      "member",
+      "Dana"
+    );
+    const fifthMember = await joinHuman(
+      app,
+      room.room_id,
+      room.owner_token,
+      "member",
+      "Erin"
+    );
     const url = `ws://${addressOf(app)}/rooms/${room.room_id}/whiteboard`;
     const ownerSocket = new WebSocket(
       `${url}?token=${encodeURIComponent(room.owner_token)}`
@@ -550,16 +573,45 @@ describe("collaborative whiteboard stream", () => {
     const secondMemberSocket = new WebSocket(
       `${url}?token=${encodeURIComponent(secondMember.participant_token)}`
     );
-    sockets.push(ownerSocket, memberSocket, secondMemberSocket);
+    const thirdMemberSocket = new WebSocket(
+      `${url}?token=${encodeURIComponent(thirdMember.participant_token)}`
+    );
+    const fourthMemberSocket = new WebSocket(
+      `${url}?token=${encodeURIComponent(fourthMember.participant_token)}`
+    );
+    const fifthMemberSocket = new WebSocket(
+      `${url}?token=${encodeURIComponent(fifthMember.participant_token)}`
+    );
+    sockets.push(
+      ownerSocket,
+      memberSocket,
+      secondMemberSocket,
+      thirdMemberSocket,
+      fourthMemberSocket,
+      fifthMemberSocket
+    );
     const ownerInbox = createInbox(ownerSocket);
     const memberInbox = createInbox(memberSocket);
     const secondMemberInbox = createInbox(secondMemberSocket);
+    const thirdMemberInbox = createInbox(thirdMemberSocket);
+    const fourthMemberInbox = createInbox(fourthMemberSocket);
+    const fifthMemberInbox = createInbox(fifthMemberSocket);
     await Promise.all([
       waitForOpen(ownerSocket),
       waitForOpen(memberSocket),
       waitForOpen(secondMemberSocket),
+      waitForOpen(thirdMemberSocket),
+      waitForOpen(fourthMemberSocket),
+      waitForOpen(fifthMemberSocket),
     ]);
-    for (const inbox of [ownerInbox, memberInbox, secondMemberInbox]) {
+    for (const inbox of [
+      ownerInbox,
+      memberInbox,
+      secondMemberInbox,
+      thirdMemberInbox,
+      fourthMemberInbox,
+      fifthMemberInbox,
+    ]) {
       await inbox.next("whiteboard.connected");
       await inbox.next("whiteboard.scene");
       await inbox.next("whiteboard.presence.snapshot");
@@ -587,6 +639,9 @@ describe("collaborative whiteboard stream", () => {
     await ownerInbox.next("whiteboard.ack");
     await memberInbox.next("whiteboard.elements.updated");
     await secondMemberInbox.next("whiteboard.elements.updated");
+    await thirdMemberInbox.next("whiteboard.elements.updated");
+    await fourthMemberInbox.next("whiteboard.elements.updated");
+    await fifthMemberInbox.next("whiteboard.elements.updated");
 
     ownerSocket.send(
       JSON.stringify({
@@ -615,6 +670,18 @@ describe("collaborative whiteboard stream", () => {
       current_revision: 1,
       recoverable: true,
     });
+    memberSocket.send(
+      JSON.stringify({
+        ...firstUpdate,
+        update_id: "future-update-again",
+        base_revision: 100,
+      })
+    );
+    await expect(memberInbox.next("whiteboard.error")).resolves.toMatchObject({
+      code: "rate_limited",
+      current_revision: 1,
+      recoverable: true,
+    });
 
     secondMemberSocket.send(
       JSON.stringify({
@@ -627,7 +694,7 @@ describe("collaborative whiteboard stream", () => {
             type: "text",
             version: 1,
             versionNonce: 802,
-            text: "x".repeat(700),
+            text: "x".repeat(3_000),
           },
         ],
       })
@@ -636,6 +703,94 @@ describe("collaborative whiteboard stream", () => {
       secondMemberInbox.next("whiteboard.error")
     ).resolves.toMatchObject({
       code: "invalid_message",
+      recoverable: true,
+    });
+    secondMemberSocket.send("{");
+    await expect(
+      secondMemberInbox.next("whiteboard.error")
+    ).resolves.toMatchObject({
+      code: "rate_limited",
+      current_revision: 1,
+      recoverable: true,
+    });
+
+    let nested: Record<string, unknown> = {};
+    for (let depth = 0; depth < 40; depth += 1) nested = { a: nested };
+    thirdMemberSocket.send(
+      JSON.stringify({
+        ...firstUpdate,
+        update_id: "deeply-nested-update",
+        base_revision: 1,
+        elements: [
+          {
+            id: "nested-shape",
+            type: "rectangle",
+            version: 1,
+            versionNonce: 803,
+            customData: nested,
+          },
+        ],
+      })
+    );
+    await expect(
+      thirdMemberInbox.next("whiteboard.error")
+    ).resolves.toMatchObject({
+      code: "invalid_message",
+      current_revision: 1,
+      recoverable: true,
+    });
+
+    fourthMemberSocket.send(
+      JSON.stringify({
+        ...firstUpdate,
+        update_id: "oversized-scene-update",
+        base_revision: 1,
+        elements: [
+          {
+            id: "large-scene-text",
+            type: "text",
+            version: 1,
+            versionNonce: 804,
+            text: "x".repeat(600),
+          },
+        ],
+      })
+    );
+    await expect(
+      fourthMemberInbox.next("whiteboard.error")
+    ).resolves.toMatchObject({
+      code: "invalid_message",
+      current_revision: 1,
+      recoverable: true,
+    });
+
+    fifthMemberSocket.send(
+      JSON.stringify({
+        ...firstUpdate,
+        update_id: "too-many-elements-update",
+        base_revision: 1,
+        elements: [
+          {
+            id: "second-shape",
+            type: "ellipse",
+            version: 1,
+            versionNonce: 805,
+          },
+          {
+            id: "third-shape",
+            type: "diamond",
+            version: 1,
+            versionNonce: 806,
+          },
+        ],
+      })
+    );
+    await expect(
+      fifthMemberInbox.next("whiteboard.error")
+    ).resolves.toMatchObject({
+      code: "invalid_message",
+      message: "The whiteboard contains too many elements.",
+      current_revision: 1,
       recoverable: true,
     });
 

@@ -162,7 +162,7 @@ describe("Excalidraw whiteboard editor adapter", () => {
     controller.updateScene(nextScene);
     expect(updateScene).toHaveBeenCalledWith(nextScene);
     expect(addFiles).toHaveBeenCalledWith([{ id: "file_2" }]);
-    controller.resetHistory?.();
+    controller.resetHistory();
     expect(resetHistory).toHaveBeenCalledTimes(1);
     await act(async () => {
       emitSceneChange?.(nextScene);

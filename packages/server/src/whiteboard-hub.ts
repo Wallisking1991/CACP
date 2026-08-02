@@ -76,7 +76,9 @@ interface WhiteboardHubOptions {
   presenceWindowMs: number;
   sceneUpdateLimit: number;
   sceneWindowMs: number;
+  maxElements: number;
   maxAttachments: number;
+  maxSceneBytes: number;
   deduplicationLimit: number;
 }
 
@@ -243,7 +245,9 @@ export function createWhiteboardSessionHub(
       sceneState: createWhiteboardSceneState({
         updateLimit: options.sceneUpdateLimit,
         updateWindowMs: options.sceneWindowMs,
+        maxElements: options.maxElements,
         maxAttachments: options.maxAttachments,
+        maxSceneBytes: options.maxSceneBytes,
         deduplicationLimit: options.deduplicationLimit,
       }),
       connections: new Set(),
@@ -306,6 +310,26 @@ export function createWhiteboardSessionHub(
         collaborators: activeCollaborators(state),
       })
     );
+    const sendInvalidAttempt = (message: string) => {
+      const rateResult = state.sceneState.consumeInvalidAttempt(
+        input.participantId
+      );
+      const rejection =
+        rateResult?.kind === "rejected" ? rateResult : undefined;
+      input.socket.send(
+        JSON.stringify(
+          whiteboardErrorMessage(
+            input.roomId,
+            rejection?.code ?? "invalid_message",
+            rejection?.message ?? message,
+            true,
+            rejection
+              ? { currentRevision: rejection.currentRevision }
+              : undefined
+          )
+        )
+      );
+    };
     input.socket.on("message", (data) => {
       if (state.ended) {
         input.socket.send(
@@ -325,16 +349,7 @@ export function createWhiteboardSessionHub(
         text === undefined ||
         new TextEncoder().encode(text).byteLength > options.maxMessageBytes
       ) {
-        input.socket.send(
-          JSON.stringify(
-            whiteboardErrorMessage(
-              input.roomId,
-              "invalid_message",
-              "The whiteboard message is invalid or too large.",
-              true
-            )
-          )
-        );
+        sendInvalidAttempt("The whiteboard message is invalid or too large.");
         return;
       }
 
@@ -342,29 +357,13 @@ export function createWhiteboardSessionHub(
       try {
         json = JSON.parse(text);
       } catch {
-        input.socket.send(
-          JSON.stringify(
-            whiteboardErrorMessage(
-              input.roomId,
-              "invalid_message",
-              "The whiteboard message is not valid JSON.",
-              true
-            )
-          )
-        );
+        sendInvalidAttempt("The whiteboard message is not valid JSON.");
         return;
       }
       const parsed = WhiteboardClientMessageSchema.safeParse(json);
       if (!parsed.success || parsed.data.room_id !== input.roomId) {
-        input.socket.send(
-          JSON.stringify(
-            whiteboardErrorMessage(
-              input.roomId,
-              "invalid_message",
-              "The whiteboard message does not match this session.",
-              true
-            )
-          )
+        sendInvalidAttempt(
+          "The whiteboard message does not match this session."
         );
         return;
       }

@@ -32,7 +32,9 @@ export function localTestConfig(
     whiteboardPresenceWindowMs: 1_000,
     whiteboardSceneUpdateLimit: 20,
     whiteboardSceneWindowMs: 1_000,
+    whiteboardMaxElements: 10_000,
     whiteboardMaxAttachments: 100,
+    whiteboardMaxSceneBytes: 4 * 1024 * 1024,
     whiteboardDeduplicationLimit: 2_000,
     ...overrides,
   };
@@ -71,7 +73,9 @@ export function cloudTestConfig(
     whiteboardPresenceWindowMs: 1_000,
     whiteboardSceneUpdateLimit: 20,
     whiteboardSceneWindowMs: 1_000,
+    whiteboardMaxElements: 10_000,
     whiteboardMaxAttachments: 100,
+    whiteboardMaxSceneBytes: 4 * 1024 * 1024,
     whiteboardDeduplicationLimit: 2_000,
     ...overrides,
   };

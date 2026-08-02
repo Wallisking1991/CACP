@@ -364,7 +364,7 @@ export function createWhiteboardSession({
     applyingRemote = true;
     try {
       editor.updateScene(remoteScene(editor, scene));
-      if (resetHistory) editor.resetHistory?.();
+      if (resetHistory) editor.resetHistory();
     } finally {
       applyingRemote = false;
     }

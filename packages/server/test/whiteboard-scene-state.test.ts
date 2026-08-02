@@ -115,7 +115,7 @@ describe("whiteboard scene state", () => {
   });
 
   it("deduplicates a retried update and rejects identifier reuse", () => {
-    const state = createWhiteboardSceneState();
+    const state = createWhiteboardSceneState({ updateLimit: 1 });
     const message = update({ elements: [rectangle] });
 
     expect(state.apply("owner_1", message, 0)).toMatchObject({
@@ -134,7 +134,7 @@ describe("whiteboard scene state", () => {
         update({
           elements: [{ ...rectangle, version: 2, versionNonce: 101 }],
         }),
-        2
+        1_001
       )
     ).toMatchObject({
       kind: "rejected",
@@ -156,12 +156,19 @@ describe("whiteboard scene state", () => {
     });
 
     expect(
-      state.apply("owner_1", update({ base_revision: 1 }), 0)
+      state.apply("future_member", update({ base_revision: 1 }), 0)
     ).toMatchObject({
       kind: "rejected",
       code: "not_synchronized",
       currentRevision: 0,
     });
+    expect(
+      state.apply(
+        "future_member",
+        update({ update_id: "future-again", base_revision: 1 }),
+        1
+      )
+    ).toMatchObject({ kind: "rejected", code: "rate_limited" });
 
     expect(
       state.apply(
@@ -262,6 +269,51 @@ describe("whiteboard scene state", () => {
     expect(state.snapshot()).toMatchObject({
       revision: 1,
       scene: { elements: [expect.objectContaining({ id: "image_1" })] },
+    });
+  });
+
+  it("rejects deeply nested and oversized canonical scenes without mutation", () => {
+    const state = createWhiteboardSceneState({
+      maxSceneBytes: 300,
+      updateLimit: 10,
+    });
+    let nested: Record<string, unknown> = {};
+    for (let depth = 0; depth < 40; depth += 1) {
+      nested = { child: nested };
+    }
+
+    let deeplyNestedResult: ReturnType<typeof state.apply> | undefined;
+    expect(() => {
+      deeplyNestedResult = state.apply(
+        "owner_1",
+        update({ elements: [{ ...rectangle, customData: nested }] }),
+        0
+      );
+    }).not.toThrow();
+    expect(deeplyNestedResult).toMatchObject({
+      kind: "rejected",
+      code: "invalid_message",
+    });
+    expect(
+      state.apply(
+        "owner_1",
+        update({
+          update_id: "too-large-scene",
+          elements: [
+            {
+              ...rectangle,
+              id: "large-text",
+              type: "text",
+              text: "x".repeat(500),
+            },
+          ],
+        }),
+        1
+      )
+    ).toMatchObject({ kind: "rejected", code: "invalid_message" });
+    expect(state.snapshot()).toEqual({
+      revision: 0,
+      scene: { elements: [], app_state: {} },
     });
   });
 });

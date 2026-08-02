@@ -178,6 +178,7 @@ describe("Workspace Orbit bubbles", () => {
         return {
           getScene: () => ({ elements: [], appState: {}, files: {} }),
           updateScene: () => {},
+          resetHistory: () => {},
           subscribeSceneChanges: () => () => {},
           subscribePresenceChanges: () => () => {},
           setCollaborators: () => {},

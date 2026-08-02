@@ -858,7 +858,9 @@ export async function buildServer(options: BuildServerOptions = {}) {
     presenceWindowMs: config.whiteboardPresenceWindowMs,
     sceneUpdateLimit: config.whiteboardSceneUpdateLimit,
     sceneWindowMs: config.whiteboardSceneWindowMs,
+    maxElements: config.whiteboardMaxElements,
     maxAttachments: config.whiteboardMaxAttachments,
+    maxSceneBytes: config.whiteboardMaxSceneBytes,
     deduplicationLimit: config.whiteboardDeduplicationLimit,
   });
   const participantSockets = new Map<

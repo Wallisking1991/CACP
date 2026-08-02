@@ -46,7 +46,7 @@ export interface WhiteboardEditorDisplayOptions {
 export interface WhiteboardEditorController {
   getScene(): WhiteboardScene;
   updateScene(scene: WhiteboardScene): void;
-  resetHistory?(): void;
+  resetHistory(): void;
   subscribeSceneChanges(listener: (scene: WhiteboardScene) => void): () => void;
   subscribePresenceChanges(
     listener: (presence: WhiteboardPresence) => void

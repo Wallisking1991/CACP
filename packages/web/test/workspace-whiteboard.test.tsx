@@ -96,6 +96,7 @@ describe("Collaborative Whiteboard workspace", () => {
     const editor = {
       getScene: () => ({ elements: [], appState: {}, files: {} }),
       updateScene: vi.fn(),
+      resetHistory: vi.fn(),
       subscribeSceneChanges: () => () => {},
       subscribePresenceChanges: () => () => {},
       setCollaborators: () => {},
@@ -206,6 +207,7 @@ describe("Collaborative Whiteboard workspace", () => {
         return {
           getScene: () => ({ elements: [], appState: {}, files: {} }),
           updateScene: () => {},
+          resetHistory: () => {},
           subscribeSceneChanges: () => () => {},
           subscribePresenceChanges: () => () => {},
           setCollaborators: () => {},
@@ -324,6 +326,7 @@ describe("Collaborative Whiteboard workspace", () => {
         return {
           getScene: () => ({ elements: [], appState: {}, files: {} }),
           updateScene: () => {},
+          resetHistory: () => {},
           subscribeSceneChanges: () => () => {},
           subscribePresenceChanges: () => () => {},
           setCollaborators: () => {},
@@ -371,6 +374,7 @@ describe("Collaborative Whiteboard workspace", () => {
     const mount = vi.fn(() => ({
       getScene: () => ({ elements: [], appState: {}, files: {} }),
       updateScene: () => {},
+      resetHistory: () => {},
       subscribeSceneChanges: () => () => {},
       subscribePresenceChanges: () => () => {},
       setCollaborators: () => {},
@@ -413,6 +417,7 @@ describe("Collaborative Whiteboard workspace", () => {
     const mount = vi.fn(() => ({
       getScene: () => ({ elements: [], appState: {}, files: {} }),
       updateScene: () => {},
+      resetHistory: () => {},
       subscribeSceneChanges: () => () => {},
       subscribePresenceChanges: () => () => {},
       setCollaborators: () => {},
@@ -497,6 +502,7 @@ describe("Collaborative Whiteboard workspace", () => {
           return {
             getScene: () => ({ elements: [], appState: {}, files: {} }),
             updateScene: () => {},
+            resetHistory: () => {},
             subscribeSceneChanges: () => () => {},
             subscribePresenceChanges: () => () => {},
             setCollaborators: () => {},
@@ -558,6 +564,7 @@ describe("Collaborative Whiteboard workspace", () => {
         return {
           getScene: () => ({ elements: [], appState: {}, files: {} }),
           updateScene: () => {},
+          resetHistory: () => {},
           subscribeSceneChanges: () => () => {},
           subscribePresenceChanges: () => () => {},
           setCollaborators: () => {},
@@ -671,6 +678,7 @@ describe("Collaborative Whiteboard workspace", () => {
         return {
           getScene: () => ({ elements: [], appState: {}, files: {} }),
           updateScene: () => {},
+          resetHistory: () => {},
           subscribeSceneChanges: () => () => {},
           subscribePresenceChanges: () => () => {},
           setCollaborators: () => {},
@@ -806,6 +814,7 @@ describe("Collaborative Whiteboard workspace", () => {
         return {
           getScene: () => ({ elements: [], appState: {}, files: {} }),
           updateScene: () => {},
+          resetHistory: () => {},
           subscribeSceneChanges: () => () => {},
           subscribePresenceChanges: () => () => {},
           setCollaborators: () => {},
