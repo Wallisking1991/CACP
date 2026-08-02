@@ -81,6 +81,7 @@ export interface WhiteboardSessionHub {
     currentRevision: number;
     snapshots: WhiteboardSnapshot[];
   };
+  snapshot(roomId: string): { revision: number; scene: WhiteboardScene };
   clear(
     roomId: string,
     participantId: string,
@@ -337,7 +338,8 @@ export function createWhiteboardSessionHub(
     roomId: string,
     state: WhiteboardRoomState,
     participantId: string,
-    result: Extract<WhiteboardSceneMutationResult, { kind: "accepted" }>
+    result: Extract<WhiteboardSceneMutationResult, { kind: "accepted" }>,
+    replacementReason: "clear" | "restore"
   ) {
     const base = {
       protocol: WhiteboardProtocolName,
@@ -349,6 +351,7 @@ export function createWhiteboardSessionHub(
       type: "whiteboard.scene",
       revision: result.revision,
       scene: result.scene,
+      replacement_reason: replacementReason,
     });
     const activityMessage = JSON.stringify({
       ...base,
@@ -809,12 +812,21 @@ export function createWhiteboardSessionHub(
         snapshots: state.sceneState.listSnapshots(),
       };
     },
+    snapshot(roomId) {
+      return roomState(roomId).sceneState.snapshot();
+    },
     clear(roomId, participantId, expectedRevision) {
       const state = roomState(roomId);
       const result = state.sceneState.clear(participantId, expectedRevision);
       if (result.kind === "accepted") {
         state.acceptedFrameAcks.clear();
-        broadcastAuthoritativeScene(roomId, state, participantId, result);
+        broadcastAuthoritativeScene(
+          roomId,
+          state,
+          participantId,
+          result,
+          "clear"
+        );
       }
       return result;
     },
@@ -827,7 +839,13 @@ export function createWhiteboardSessionHub(
       );
       if (result.kind === "accepted") {
         state.acceptedFrameAcks.clear();
-        broadcastAuthoritativeScene(roomId, state, participantId, result);
+        broadcastAuthoritativeScene(
+          roomId,
+          state,
+          participantId,
+          result,
+          "restore"
+        );
       }
       return result;
     },

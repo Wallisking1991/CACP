@@ -8,6 +8,7 @@ import type {
   WhiteboardExportScope,
   WhiteboardCollaborator,
   WhiteboardPresence,
+  WhiteboardPromotionArtifacts,
   WhiteboardScene,
   WhiteboardViewport,
 } from "./whiteboard-editor-adapter.js";
@@ -24,6 +25,7 @@ export interface ExcalidrawApiPort {
   updateCollaborators(collaborators: readonly WhiteboardCollaborator[]): void;
   focusViewport(viewport: WhiteboardViewport): void;
   insertImage(file: File): Promise<void>;
+  createPromotionArtifacts(): Promise<WhiteboardPromotionArtifacts>;
   exportScene(
     format: WhiteboardExportFormat,
     scope?: WhiteboardExportScope
@@ -314,6 +316,14 @@ export function createExcalidrawEditorAdapter(
             );
           }
           return api.insertImage(file);
+        },
+        createPromotionArtifacts() {
+          if (!api || destroyed) {
+            return Promise.reject(
+              new Error("Whiteboard editor is unavailable.")
+            );
+          }
+          return api.createPromotionArtifacts();
         },
         setDisplayOptions(nextDisplayOptions) {
           if (destroyed) return;

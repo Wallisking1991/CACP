@@ -57,6 +57,13 @@ describe("Excalidraw whiteboard editor adapter", () => {
       updateCollaborators,
       focusViewport,
       insertImage: vi.fn(async () => {}),
+      createPromotionArtifacts: vi.fn(async () => ({
+        selectedElementIds: ["shape_1"],
+        png: new Blob(["png"], { type: "image/png" }),
+        source: new Blob(["source"], {
+          type: "application/vnd.excalidraw+json",
+        }),
+      })),
       exportScene: async () => new Blob([], { type: "image/png" }),
     };
     let emitSceneChange:

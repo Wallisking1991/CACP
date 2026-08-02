@@ -5,6 +5,7 @@ import {
   type BrowserContext,
   type Page,
 } from "@playwright/test";
+import { RequiredAgentAdapterCompatibility } from "@cacp/protocol";
 import { readFile } from "node:fs/promises";
 
 interface RoomSession {
@@ -90,6 +91,55 @@ async function seedSession(
       JSON.stringify({ [storedSession.room_id]: storedSession })
     );
   }, session);
+}
+
+async function registerReadyAgent(
+  request: APIRequestContext,
+  owner: RoomSession
+): Promise<{ agent_id: string }> {
+  const registered = await postJson(
+    request,
+    `/rooms/${owner.room_id}/agents/register`,
+    {
+      compatibility: {
+        protocol_version: "0.3.0",
+        connector_version: "0.5.0-browser-test",
+        adapters: RequiredAgentAdapterCompatibility.map((adapter) => ({
+          ...adapter,
+          input_capabilities: { ...adapter.input_capabilities },
+        })),
+      },
+      name: "Frame reviewer",
+      capabilities: ["kimi-cli"],
+    },
+    owner.token
+  );
+  const agentId = String(registered.agent_id);
+  const agentToken = String(registered.agent_token);
+  await postJson(
+    request,
+    `/rooms/${owner.room_id}/agents/select`,
+    { agent_id: agentId },
+    owner.token
+  );
+  await postJson(
+    request,
+    `/rooms/${owner.room_id}/agent-sessions/selection`,
+    { agent_id: agentId, provider: "kimi-cli", mode: "fresh" },
+    owner.token
+  );
+  await postJson(
+    request,
+    `/rooms/${owner.room_id}/agent-sessions/ready`,
+    {
+      agent_id: agentId,
+      provider: "kimi-cli",
+      mode: "fresh",
+      ready_at: new Date().toISOString(),
+    },
+    agentToken
+  );
+  return { agent_id: agentId };
 }
 
 async function openWhiteboard(page: Page, roomId: string): Promise<void> {
@@ -416,4 +466,90 @@ test("shares real Excalidraw content and collaborator presence between two brows
       )
     )
     .toBe(true);
+});
+
+test("promotes one real Excalidraw Frame into a single Main Input", async ({
+  browser,
+  request,
+}) => {
+  test.setTimeout(120_000);
+  const { owner } = await createRoomSessions(request);
+  await registerReadyAgent(request, owner);
+  const context = await browser.newContext();
+  await seedSession(context, owner);
+  const page = await context.newPage();
+  const sentMessages: JsonResponse[] = [];
+  page.on("websocket", (socket) => {
+    if (!socket.url().includes("/whiteboard")) return;
+    socket.on("framesent", ({ payload }) => {
+      if (typeof payload !== "string") return;
+      try {
+        sentMessages.push(JSON.parse(payload) as JsonResponse);
+      } catch {
+        // Non-JSON frames do not belong to the CACP whiteboard protocol.
+      }
+    });
+  });
+
+  await openWhiteboard(page, owner.room_id);
+  const editor = page.getByRole("application", {
+    name: "Collaborative Whiteboard",
+  });
+  const box = await editor.boundingBox();
+  expect(box).not.toBeNull();
+
+  await page.mouse.click(box!.x + 320, box!.y + 220);
+  await page.keyboard.press("f");
+  await page.mouse.move(box!.x + 360, box!.y + 250);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + 700, box!.y + 500, { steps: 8 });
+  await page.mouse.up();
+  await expect
+    .poll(() =>
+      sentMessages.some(
+        (message) =>
+          message.type === "whiteboard.elements.update" &&
+          Array.isArray(message.elements) &&
+          message.elements.some(
+            (element) =>
+              typeof element === "object" &&
+              element !== null &&
+              (element as JsonResponse).type === "frame"
+          )
+      )
+    )
+    .toBe(true);
+
+  await page.getByRole("button", { name: "Send selection" }).click();
+  const dialog = page.getByRole("dialog", {
+    name: "Send whiteboard selection",
+  });
+  await expect(dialog).toBeVisible();
+  await expect(
+    dialog.getByAltText("PNG preview of the selected whiteboard content")
+  ).toBeVisible();
+  await expect(dialog.getByText(".excalidraw", { exact: true })).toBeVisible();
+  await expect(
+    dialog.getByText("Frame reviewer", { exact: true })
+  ).toBeVisible();
+  await dialog
+    .getByLabel("Instruction for the Agent")
+    .fill("Turn this frame into an implementation plan.");
+  await dialog.getByRole("button", { name: "Create Main Input" }).click();
+  await expect(dialog).toHaveCount(0);
+
+  await page.getByRole("tab", { name: "Main conversation" }).click();
+  await expect(
+    page.getByText("Turn this frame into an implementation plan.", {
+      exact: true,
+    })
+  ).toBeVisible();
+  await expect(
+    page.getByText(/whiteboard-selection-r\d+\.png/, { exact: true })
+  ).toHaveCount(1);
+  await expect(
+    page.getByText(/whiteboard-selection-r\d+\.excalidraw/, { exact: true })
+  ).toHaveCount(1);
+
+  await context.close();
 });

@@ -166,6 +166,20 @@ describe("Excalidraw public API bridge", () => {
       },
       mimeType: "image/png",
     });
+    const promotion = await port.createPromotionArtifacts();
+    expect(promotion.selectedElementIds).toEqual([
+      "shape_selected",
+      "label",
+      "image_in_frame",
+      "frame_selected",
+    ]);
+    expect(promotion.frameId).toBe("frame_selected");
+    expect(await promotion.png.text()).toBe("png");
+    expect(promotion.source.type).toBe("application/vnd.excalidraw+json");
+    expect(await promotion.source.text()).toBe('{"type":"excalidraw"}');
+    expect(api.updateScene).not.toHaveBeenCalled();
+    expect(api.addFiles).not.toHaveBeenCalled();
+    expect(api.history.clear).not.toHaveBeenCalled();
     await expect(port.exportScene("png", "scene")).rejects.toThrow(
       "whiteboard_export_missing_image:att_missing"
     );

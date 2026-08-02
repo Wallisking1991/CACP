@@ -31,6 +31,7 @@ import type {
   WhiteboardExportFormat,
   WhiteboardExportScope,
   WhiteboardCollaborator,
+  WhiteboardPromotionArtifacts,
   WhiteboardScene,
   WhiteboardViewport,
 } from "./whiteboard-editor-adapter.js";
@@ -180,6 +181,33 @@ async function exportScene(
   );
 }
 
+async function createPromotionArtifacts(
+  api: ExcalidrawImperativeAPI
+): Promise<WhiteboardPromotionArtifacts> {
+  const scene = exportOptions(api, "selection");
+  assertExportImagesAvailable(scene);
+  const selectedIds = Object.entries(api.getAppState().selectedElementIds)
+    .filter(([, selected]) => selected)
+    .map(([id]) => id);
+  const selectedFrame = scene.elements.find(
+    (element) => element.type === "frame" && selectedIds.includes(element.id)
+  );
+  const source = new Blob(
+    [serializeAsJSON(scene.elements, scene.appState, scene.files, "local")],
+    { type: "application/vnd.excalidraw+json" }
+  );
+  const png = await exportToBlob({
+    ...scene,
+    mimeType: "image/png",
+  });
+  return {
+    selectedElementIds: scene.elements.map((element) => element.id),
+    ...(selectedFrame ? { frameId: selectedFrame.id } : {}),
+    png,
+    source,
+  };
+}
+
 export function createExcalidrawApiPort(
   api: ExcalidrawImperativeAPI
 ): ExcalidrawApiPort {
@@ -293,6 +321,9 @@ export function createExcalidrawApiPort(
     },
     exportScene(format, scope = "scene") {
       return exportScene(api, format, scope);
+    },
+    createPromotionArtifacts() {
+      return createPromotionArtifacts(api);
     },
   };
 }

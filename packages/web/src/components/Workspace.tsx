@@ -193,6 +193,31 @@ export default function Workspace({
     for (const a of room.agents) kinds.set(a.agent_id, "agent");
     return kinds;
   }, [room.participants, room.agents]);
+  const whiteboardOperationNotice = useMemo(() => {
+    const operation = [...events]
+      .reverse()
+      .find(
+        (nextEvent) =>
+          nextEvent.type === "whiteboard.cleared" ||
+          nextEvent.type === "whiteboard.restored"
+      );
+    if (!operation) return undefined;
+    const revision =
+      typeof operation.payload.revision === "number"
+        ? operation.payload.revision
+        : "?";
+    return String(
+      t(
+        operation.type === "whiteboard.cleared"
+          ? "whiteboard.clearedNotice"
+          : "whiteboard.restoredNotice",
+        {
+          name: actorNames.get(operation.actor_id) ?? operation.actor_id,
+          revision,
+        }
+      )
+    );
+  }, [actorNames, events, t]);
 
   const soundControllerRef = useRef(createRoomSoundController());
   const [soundEnabled, setSoundEnabled] = useState(
@@ -989,6 +1014,16 @@ export default function Workspace({
             hasConversationActivity={hasConversationActivity}
           />
 
+          {whiteboardOperationNotice && (
+            <div
+              className="whiteboard-operation-notice"
+              role="status"
+              aria-live="polite"
+            >
+              {whiteboardOperationNotice}
+            </div>
+          )}
+
           <div
             id="conversation-workspace-panel"
             className="conversation-workspace"
@@ -1198,12 +1233,14 @@ export default function Workspace({
                   loadEditorAdapter={loadWhiteboardEditorAdapter}
                   loadSession={loadWhiteboardSessionFactory}
                   langCode={lang}
+                  activeAgent={activeAgent}
                   name={`${room.roomName ?? session.room_id} — ${String(
                     t("workspace.whiteboard")
                   )}`}
                   onCollaboratorsChange={handleSurfaceWhiteboardCollaborators}
                   onActivity={handleWhiteboardActivity}
                   onSessionReady={handleWhiteboardSessionReady}
+                  onAttachmentUsageChanged={refreshAttachmentUsage}
                 />
               )}
             </div>

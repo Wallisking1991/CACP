@@ -38,6 +38,13 @@ export interface WhiteboardCollaborator {
 export type WhiteboardExportFormat = "png" | "svg" | "excalidraw";
 export type WhiteboardExportScope = "scene" | "selection";
 
+export interface WhiteboardPromotionArtifacts {
+  selectedElementIds: readonly string[];
+  frameId?: string;
+  png: Blob;
+  source: Blob;
+}
+
 export interface WhiteboardEditorDisplayOptions {
   ariaLabel: string;
   langCode: "en" | "zh";
@@ -55,6 +62,7 @@ export interface WhiteboardEditorController {
   setCollaborators(collaborators: readonly WhiteboardCollaborator[]): void;
   focusViewport(viewport: WhiteboardViewport): void;
   insertImage?(file: File): Promise<void>;
+  createPromotionArtifacts?(): Promise<WhiteboardPromotionArtifacts>;
   setDisplayOptions(options: WhiteboardEditorDisplayOptions): void;
   setReadOnly(readOnly: boolean): void;
   exportScene(

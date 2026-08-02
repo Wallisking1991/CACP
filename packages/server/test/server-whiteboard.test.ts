@@ -2465,8 +2465,30 @@ describe("collaborative whiteboard stream", () => {
       await expect(inbox.next("whiteboard.scene")).resolves.toMatchObject({
         revision: 2,
         scene: { elements: [] },
+        replacement_reason: "clear",
       });
     }
+
+    ownerSocket.send(
+      JSON.stringify({
+        protocol: "cacp-whiteboard",
+        version: "1.0.0",
+        room_id: room.room_id,
+        type: "whiteboard.elements.update",
+        update_id: "in-flight-before-clear",
+        base_revision: 1,
+        elements: [shape],
+        app_state: {},
+      })
+    );
+    await expect(ownerInbox.next("whiteboard.error")).resolves.toMatchObject({
+      code: "not_synchronized",
+      update_id: "in-flight-before-clear",
+      current_revision: 2,
+    });
+    await expect(memberInbox.none("whiteboard.elements.updated")).resolves.toBe(
+      true
+    );
 
     const promote = await app.inject({
       method: "POST",
@@ -2496,6 +2518,7 @@ describe("collaborative whiteboard stream", () => {
       await expect(inbox.next("whiteboard.scene")).resolves.toMatchObject({
         revision: 3,
         scene: { elements: [shape] },
+        replacement_reason: "restore",
       });
     }
     const restoredImage = await app.inject({
@@ -2520,5 +2543,94 @@ describe("collaborative whiteboard stream", () => {
     expect(
       eventTypes.filter((type) => type === "whiteboard.restored")
     ).toHaveLength(1);
+  });
+
+  it("enforces snapshot byte eviction and pre-operation retention through the API", async () => {
+    app = await buildServer({
+      dbPath: ":memory:",
+      config: localTestConfig({
+        whiteboardSnapshotCadenceMs: 1,
+        whiteboardSnapshotMaxCount: 10,
+        whiteboardSnapshotMaxBytes: 100,
+      }),
+    });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const room = (
+      await app.inject({
+        method: "POST",
+        url: "/rooms",
+        payload: { name: "Recovery budget", display_name: "Owner" },
+      })
+    ).json() as { room_id: string; owner_token: string };
+    const socket = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/whiteboard` +
+        `?token=${encodeURIComponent(room.owner_token)}`
+    );
+    sockets.push(socket);
+    const inbox = createInbox(socket);
+    await waitForOpen(socket);
+    await inbox.next("whiteboard.connected");
+    await inbox.next("whiteboard.scene");
+    await inbox.next("whiteboard.presence.snapshot");
+
+    const elements: Array<Record<string, unknown>> = [];
+    for (let index = 1; index <= 3; index += 1) {
+      elements.push({
+        id: `noisy-${index}`,
+        type: "rectangle",
+        version: 1,
+        versionNonce: 700 + index,
+        customData: {
+          noise:
+            `item-${index}-` +
+            "q7m#P1v!x9K@r4T$z8N%a2C^d6F&h0J*s3L(y5B)u1W_e7R+i9O=p4G",
+        },
+      });
+      socket.send(
+        JSON.stringify({
+          protocol: "cacp-whiteboard",
+          version: "1.0.0",
+          room_id: room.room_id,
+          type: "whiteboard.elements.update",
+          update_id: `budget-${index}`,
+          base_revision: index - 1,
+          elements,
+          app_state: {},
+        })
+      );
+      await inbox.next("whiteboard.elements.updated");
+      await inbox.next("whiteboard.ack");
+      await new Promise((resolve) => setTimeout(resolve, 2));
+    }
+
+    const listedResponse = await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/whiteboard/snapshots`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+    });
+    const listed = listedResponse.json() as {
+      current_revision: number;
+      snapshots: Array<{ compressed_bytes: number }>;
+    };
+    expect(listed.current_revision).toBe(3);
+    expect(listed.snapshots.length).toBeLessThan(3);
+    expect(
+      listed.snapshots.reduce(
+        (total, snapshot) => total + snapshot.compressed_bytes,
+        0
+      )
+    ).toBeLessThanOrEqual(100);
+
+    const clear = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/whiteboard/clear`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: { expected_revision: 3 },
+    });
+    expect(clear.statusCode).toBe(409);
+    expect(clear.json()).toMatchObject({
+      error: "snapshot_unavailable",
+      current_revision: 3,
+    });
   });
 });

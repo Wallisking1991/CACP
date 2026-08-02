@@ -90,7 +90,7 @@ export const AgentTurnRequestedPayloadSchema = z.object({
   turn_id: z.string().min(1),
   agent_id: z.string().min(1),
   reason: z.enum(["human_message", "queued_followup"]),
-  source: z.enum(["composer", "orbit_promote"]),
+  source: z.enum(["composer", "orbit_promote", "whiteboard_promote"]),
   speaker_name: z.string().min(1).max(100),
   speaker_role: ParticipantRoleSchema,
   room_name: z.string().min(1).max(200),
@@ -913,7 +913,11 @@ export type ParticipantTypingStoppedPayload = z.infer<
   typeof ParticipantTypingStoppedPayloadSchema
 >;
 
-export const MainInputSourceSchema = z.enum(["composer", "orbit_promote"]);
+export const MainInputSourceSchema = z.enum([
+  "composer",
+  "orbit_promote",
+  "whiteboard_promote",
+]);
 export const MainInputStatusSchema = z.enum([
   "accepted",
   "queued",
@@ -996,7 +1000,13 @@ export const ConnectorLedgerEntrySchema = z.object({
   actor_name: z.string().min(1).max(120),
   actor_role: ParticipantRoleSchema,
   text: z.string().min(1).max(8000),
-  source: z.enum(["composer", "orbit_promote", "session_import", "system"]),
+  source: z.enum([
+    "composer",
+    "orbit_promote",
+    "whiteboard_promote",
+    "session_import",
+    "system",
+  ]),
   created_at: z.string().datetime(),
   turn_id: z.string().min(1).optional(),
   input_id: z.string().min(1).optional(),
@@ -1157,6 +1167,37 @@ export const WhiteboardSnapshotMutationResultSchema = z
   })
   .strict();
 
+export const WhiteboardPromotionRequestSchema = z
+  .object({
+    expected_revision: z.number().int().nonnegative(),
+    selected_element_ids: z
+      .array(z.string().min(1).max(200))
+      .min(1)
+      .max(WhiteboardMaxSelectedElements)
+      .refine((ids) => new Set(ids).size === ids.length),
+    frame_id: z.string().min(1).max(200).optional(),
+    png_attachment_id: z.string().min(1).max(200),
+    source_attachment_id: z.string().min(1).max(200),
+    agent_id: z.string().min(1).max(200),
+    instruction: z.string().trim().min(1).max(4000),
+    idempotency_key: z.string().min(1).max(200),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.frame_id === undefined ||
+      value.selected_element_ids.includes(value.frame_id),
+    { message: "frame_id must belong to selected_element_ids" }
+  );
+
+export const WhiteboardPromotionResultSchema = z
+  .object({
+    input_id: z.string().min(1),
+    status: z.enum(["queued", "triggered"]),
+    attachment_count: z.literal(2),
+  })
+  .strict();
+
 export const WhiteboardConnectedMessageSchema = WhiteboardWireBaseSchema.extend(
   {
     type: z.literal("whiteboard.connected"),
@@ -1172,6 +1213,7 @@ export const WhiteboardSceneMessageSchema = WhiteboardWireBaseSchema.extend({
   type: z.literal("whiteboard.scene"),
   revision: z.number().int().nonnegative(),
   scene: WhiteboardSceneSchema,
+  replacement_reason: z.enum(["clear", "restore"]).optional(),
 }).strict();
 
 export const WhiteboardClientUpdateMessageSchema =
@@ -1379,6 +1421,12 @@ export type WhiteboardSnapshotMutationRequest = z.infer<
 >;
 export type WhiteboardSnapshotMutationResult = z.infer<
   typeof WhiteboardSnapshotMutationResultSchema
+>;
+export type WhiteboardPromotionRequest = z.infer<
+  typeof WhiteboardPromotionRequestSchema
+>;
+export type WhiteboardPromotionResult = z.infer<
+  typeof WhiteboardPromotionResultSchema
 >;
 export type WhiteboardConnectedMessage = z.infer<
   typeof WhiteboardConnectedMessageSchema

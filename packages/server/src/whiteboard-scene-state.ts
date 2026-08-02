@@ -212,6 +212,7 @@ export function createWhiteboardSceneState(
   let scene: WhiteboardScene = { elements: [], app_state: {} };
   let snapshotSequence = 0;
   let lastAutomaticSnapshotAt: number | undefined;
+  let minimumAcceptedBaseRevision = 0;
   let snapshots: StoredWhiteboardSnapshot[] = [];
   const deduplicationRecords = new Map<string, DeduplicationRecord>();
   const rateWindows = new Map<string, { startedAt: number; updates: number }>();
@@ -258,9 +259,11 @@ export function createWhiteboardSceneState(
     reason: WhiteboardSnapshot["reason"],
     participantId: string,
     now: number,
-    protectedAttachmentIds: readonly string[] = []
+    protectedAttachmentIds: readonly string[] = [],
+    serializedScene = stableSerialize(scene)
   ): boolean {
-    const compressedScene = gzipSync(Buffer.from(stableSerialize(scene)));
+    if (reason === "automatic") lastAutomaticSnapshotAt = now;
+    const compressedScene = gzipSync(Buffer.from(serializedScene));
     if (compressedScene.byteLength > maxSnapshotBytes) return false;
     const previousSnapshots = snapshots;
     const next: StoredWhiteboardSnapshot = {
@@ -309,7 +312,6 @@ export function createWhiteboardSceneState(
       }
       return false;
     }
-    if (reason === "automatic") lastAutomaticSnapshotAt = now;
     return true;
   }
 
@@ -361,6 +363,7 @@ export function createWhiteboardSceneState(
     const previousRevision = revision;
     revision += 1;
     scene = nextScene;
+    minimumAcceptedBaseRevision = revision;
     try {
       options.commitSnapshotAttachments?.(
         snapshotAttachmentIds(),
@@ -475,10 +478,13 @@ export function createWhiteboardSceneState(
         );
       }
 
-      if (update.base_revision > revision) {
+      if (
+        update.base_revision > revision ||
+        update.base_revision < minimumAcceptedBaseRevision
+      ) {
         return reject(
           "not_synchronized",
-          "The whiteboard update is based on an unknown future revision."
+          "The whiteboard update is outside the current synchronization epoch."
         );
       }
 
@@ -495,7 +501,12 @@ export function createWhiteboardSceneState(
         );
       }
 
-      const previousSceneFingerprint = stableSerialize(scene);
+      const shouldAttemptAutomaticSnapshot =
+        lastAutomaticSnapshotAt === undefined ||
+        now - lastAutomaticSnapshotAt >= snapshotCadenceMs;
+      const previousSceneFingerprint = shouldAttemptAutomaticSnapshot
+        ? stableSerialize(scene)
+        : undefined;
       const elements = reconcileWhiteboardElements(
         scene.elements,
         update.elements
@@ -518,9 +529,9 @@ export function createWhiteboardSceneState(
         elements,
         app_state: updatesCurrentRevision ? update.app_state : scene.app_state,
       };
+      const serializedNextScene = stableSerialize(nextScene);
       if (
-        new TextEncoder().encode(stableSerialize(nextScene)).byteLength >
-        maxSceneBytes
+        new TextEncoder().encode(serializedNextScene).byteLength > maxSceneBytes
       ) {
         return reject("invalid_message", "The whiteboard scene is too large.");
       }
@@ -544,11 +555,16 @@ export function createWhiteboardSceneState(
       }
 
       if (
-        stableSerialize(scene) !== previousSceneFingerprint &&
-        (lastAutomaticSnapshotAt === undefined ||
-          now - lastAutomaticSnapshotAt >= snapshotCadenceMs)
+        shouldAttemptAutomaticSnapshot &&
+        serializedNextScene !== previousSceneFingerprint
       ) {
-        captureSnapshot("automatic", participantId, now);
+        captureSnapshot(
+          "automatic",
+          participantId,
+          now,
+          [],
+          serializedNextScene
+        );
       }
 
       return { kind: "accepted", replayed: false, revision, scene };

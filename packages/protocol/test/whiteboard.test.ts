@@ -5,6 +5,7 @@ import {
   WhiteboardProtocolVersion,
   WhiteboardSnapshotListSchema,
   WhiteboardSnapshotMutationRequestSchema,
+  WhiteboardPromotionRequestSchema,
   WhiteboardServerMessageSchema,
 } from "../src/index.js";
 
@@ -45,6 +46,18 @@ describe("Collaborative Whiteboard wire protocol", () => {
       },
     });
     expect(scene.type).toBe("whiteboard.scene");
+
+    expect(
+      WhiteboardServerMessageSchema.parse({
+        protocol: "cacp-whiteboard",
+        version: WhiteboardProtocolVersion,
+        type: "whiteboard.scene",
+        room_id: "room_1",
+        revision: 3,
+        scene: { elements: [], app_state: {} },
+        replacement_reason: "clear",
+      })
+    ).toMatchObject({ replacement_reason: "clear" });
 
     const update = WhiteboardClientMessageSchema.parse({
       protocol: "cacp-whiteboard",
@@ -200,6 +213,34 @@ describe("Collaborative Whiteboard wire protocol", () => {
     expect(
       WhiteboardSnapshotMutationRequestSchema.safeParse({
         expected_revision: -1,
+      }).success
+    ).toBe(false);
+  });
+
+  it("requires a revision-bound non-empty whiteboard promotion selection", () => {
+    const promotion = {
+      expected_revision: 7,
+      selected_element_ids: ["frame_1", "shape_1"],
+      frame_id: "frame_1",
+      png_attachment_id: "att_png",
+      source_attachment_id: "att_source",
+      agent_id: "agent_1",
+      instruction: "Review this architecture.",
+      idempotency_key: "promote_1",
+    };
+    expect(WhiteboardPromotionRequestSchema.parse(promotion)).toEqual(
+      promotion
+    );
+    expect(
+      WhiteboardPromotionRequestSchema.safeParse({
+        ...promotion,
+        selected_element_ids: [],
+      }).success
+    ).toBe(false);
+    expect(
+      WhiteboardPromotionRequestSchema.safeParse({
+        ...promotion,
+        selected_element_ids: ["shape_1", "shape_1"],
       }).success
     ).toBe(false);
   });

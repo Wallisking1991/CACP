@@ -2,10 +2,13 @@ import {
   CacpEventSchema,
   WhiteboardSnapshotListSchema,
   WhiteboardSnapshotMutationResultSchema,
+  WhiteboardPromotionResultSchema,
   type AttachmentRef,
   type CacpEvent,
   type WhiteboardSnapshotList,
   type WhiteboardSnapshotMutationResult,
+  type WhiteboardPromotionRequest,
+  type WhiteboardPromotionResult,
 } from "@cacp/protocol";
 export {
   deleteAttachment,
@@ -272,6 +275,26 @@ export function restoreWhiteboardSnapshot(
     session,
     `/whiteboard/snapshots/${encodeURIComponent(snapshotId)}/restore`,
     expectedRevision
+  );
+}
+
+export async function promoteWhiteboardSelection(
+  session: RoomSession,
+  request: WhiteboardPromotionRequest
+): Promise<WhiteboardPromotionResult> {
+  const response = await fetch(
+    `/rooms/${session.room_id}/whiteboard/promotions`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${session.token}`,
+      },
+      body: JSON.stringify(request),
+    }
+  );
+  return whiteboardJson(response, (value) =>
+    WhiteboardPromotionResultSchema.parse(value)
   );
 }
 

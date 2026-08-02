@@ -39,6 +39,7 @@ export function WhiteboardRecoveryDialog({
 
   const loadSnapshots = async (clearError = true) => {
     setLoading(true);
+    setSnapshotList(undefined);
     if (clearError) setError(undefined);
     try {
       setSnapshotList(await fetchWhiteboardSnapshots(session));
@@ -171,7 +172,7 @@ export function WhiteboardRecoveryDialog({
               <button
                 type="button"
                 className="danger"
-                disabled={mutating}
+                disabled={loading || mutating}
                 onClick={() => setPending({ type: "clear" })}
               >
                 {t("whiteboard.clearBoard")}
@@ -209,7 +210,7 @@ export function WhiteboardRecoveryDialog({
                     </div>
                     <button
                       type="button"
-                      disabled={mutating}
+                      disabled={loading || mutating}
                       onClick={() => setPending({ type: "restore", snapshot })}
                       aria-label={t("whiteboard.restoreRevision", {
                         revision: snapshot.revision,
@@ -261,7 +262,7 @@ export function WhiteboardRecoveryDialog({
             <div>
               <button
                 type="button"
-                disabled={mutating}
+                disabled={loading || mutating}
                 onClick={() => setPending(undefined)}
               >
                 {t("common.cancel")}
@@ -269,7 +270,7 @@ export function WhiteboardRecoveryDialog({
               <button
                 type="button"
                 className="danger"
-                disabled={mutating}
+                disabled={loading || mutating}
                 onClick={() => void confirm()}
               >
                 {t(

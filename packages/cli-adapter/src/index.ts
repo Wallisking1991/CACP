@@ -396,7 +396,7 @@ async function main() {
   function appendAgentFinal(
     turnId: string,
     text: string,
-    source: "composer" | "orbit_promote"
+    source: "composer" | "orbit_promote" | "whiteboard_promote"
   ): void {
     ledger.append({
       entry_type: "agent_final",
@@ -1056,7 +1056,10 @@ async function main() {
         runningTasks.add(payload.turn_id);
         const turnId = payload.turn_id;
         const ledgerSource =
-          payload.source === "orbit_promote" ? "orbit_promote" : "composer";
+          payload.source === "orbit_promote" ||
+          payload.source === "whiteboard_promote"
+            ? payload.source
+            : "composer";
         ledger.append({
           entry_type: "human_input",
           actor_id: parsed.data.actor_id,

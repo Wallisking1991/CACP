@@ -1145,6 +1145,87 @@ describe("WhiteboardSession", () => {
     session.destroy();
   });
 
+  it("force-applies a clear replacement across rejected and in-flight work", () => {
+    const socket = new FakeSocket();
+    const editor = createEditor();
+    const statuses: string[] = [];
+    const session = createWhiteboardSession({
+      identity: {
+        roomId: "room_reset",
+        participantId: "member_1",
+        token: "member-token",
+        role: "member",
+      },
+      editor: editor.editor,
+      socketFactory: () => socket,
+      createUpdateId: () => "old-update",
+      origin: "http://localhost:5173",
+    });
+    session.subscribeStatus((status) => statuses.push(status));
+    socket.open();
+    socket.receive(
+      serverMessage("room_reset", {
+        type: "whiteboard.connected",
+        participant_id: "member_1",
+        role: "member",
+        can_edit: true,
+      })
+    );
+    socket.receive(
+      serverMessage("room_reset", {
+        type: "whiteboard.scene",
+        revision: 1,
+        scene: {
+          elements: [
+            { id: "shared", type: "rectangle", version: 1, versionNonce: 1 },
+          ],
+          app_state: {},
+        },
+      })
+    );
+    editor.change({
+      elements: [{ id: "local", type: "ellipse", version: 1, versionNonce: 2 }],
+      appState: {},
+      files: {},
+    });
+    socket.receive(
+      serverMessage("room_reset", {
+        type: "whiteboard.error",
+        code: "invalid_message",
+        message: "Rejected.",
+        recoverable: true,
+        update_id: "old-update",
+      })
+    );
+    expect(statuses.at(-1)).toBe("rejected");
+
+    socket.receive(
+      serverMessage("room_reset", {
+        type: "whiteboard.scene",
+        revision: 2,
+        scene: { elements: [], app_state: {} },
+        replacement_reason: "clear",
+      })
+    );
+    socket.receive(
+      serverMessage("room_reset", {
+        type: "whiteboard.error",
+        code: "not_synchronized",
+        message: "Old frame.",
+        recoverable: true,
+        update_id: "old-update",
+        current_revision: 2,
+      })
+    );
+
+    expect(editor.editor.getScene().elements).toEqual([]);
+    expect(editor.resetHistory).toHaveBeenCalledTimes(1);
+    expect(editor.setReadOnly).toHaveBeenLastCalledWith(false);
+    expect(statuses.at(-1)).toBe("connected");
+    expect(socket.close).not.toHaveBeenCalled();
+    session.destroy();
+  });
+
   it("uploads local image files before sending attachment-only scene data", async () => {
     const socket = new FakeSocket();
     const editor = createEditor();

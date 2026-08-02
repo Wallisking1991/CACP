@@ -61,6 +61,7 @@ export interface WhiteboardSessionIdentity {
 }
 
 export interface WhiteboardSessionController {
+  currentRevision?(): number | undefined;
   subscribeStatus(
     listener: (status: WhiteboardSessionStatus) => void
   ): () => void;
@@ -611,6 +612,22 @@ export function createWhiteboardSession({
       }
       if (message.type === "whiteboard.scene") {
         if (!connectedHandshake) return;
+        if (message.replacement_reason) {
+          revision = message.revision;
+          inFlightUpdateId = undefined;
+          queuedScene = undefined;
+          rejectedUpdate = false;
+          rejectedBaseRevision = undefined;
+          pendingRemote = undefined;
+          const applyingImages = applyRemoteScene(message.scene, true);
+          hasInstalledAuthoritativeScene = true;
+          if (!applyingImages) {
+            synchronized = true;
+            setStatus("connected");
+            setEditorAccess();
+          }
+          return;
+        }
         if (rejectedUpdate) {
           revision = message.revision;
           if (pendingRemote || message.revision !== rejectedBaseRevision) {
@@ -743,6 +760,7 @@ export function createWhiteboardSession({
           nextSocket.close();
           return;
         }
+        if (message.update_id && message.update_id !== inFlightUpdateId) return;
         if (
           message.code === "forbidden" ||
           message.code === "invalid_token" ||
@@ -816,6 +834,9 @@ export function createWhiteboardSession({
   connect();
 
   return {
+    currentRevision() {
+      return revision;
+    },
     subscribeStatus(listener) {
       statusListeners.add(listener);
       listener(status);

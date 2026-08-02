@@ -176,6 +176,9 @@ describe("WhiteboardSurface exports", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "Recovery" }));
+    expect(screen.getByRole("button", { name: "Close" })).toHaveTextContent(
+      "×"
+    );
     fireEvent.click(
       await screen.findByRole("button", { name: "Restore revision 1" })
     );
@@ -196,5 +199,235 @@ describe("WhiteboardSurface exports", () => {
         body: JSON.stringify({ expected_revision: 2 }),
       }),
     ]);
+  });
+
+  it("closes recovery immediately when the manager role is removed", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ current_revision: 1, snapshots: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+    const controller: WhiteboardEditorController = {
+      getScene: () => ({ elements: [], appState: {}, files: {} }),
+      updateScene: () => {},
+      resetHistory: () => {},
+      subscribeSceneChanges: () => () => {},
+      subscribePresenceChanges: () => () => {},
+      setCollaborators: () => {},
+      focusViewport: () => {},
+      setDisplayOptions: () => {},
+      setReadOnly: () => {},
+      exportScene: async () => new Blob(),
+      destroy: () => {},
+    };
+    const view = render(
+      <WhiteboardSurface
+        active
+        identity={{
+          roomId: "room_1",
+          participantId: "admin_1",
+          token: "secret",
+          role: "admin",
+        }}
+        loadEditorAdapter={async () => ({ mount: async () => controller })}
+        loadSession={async () => () => sessionController()}
+        langCode="en"
+        name="Recovery room"
+      />
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Recovery" }));
+    expect(await screen.findByRole("dialog")).toBeVisible();
+
+    view.rerender(
+      <WhiteboardSurface
+        active
+        identity={{
+          roomId: "room_1",
+          participantId: "admin_1",
+          token: "secret",
+          role: "member",
+        }}
+        loadEditorAdapter={async () => ({ mount: async () => controller })}
+        loadSession={async () => () => sessionController()}
+        langCode="en"
+        name="Recovery room"
+      />
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    );
+    expect(
+      screen.queryByRole("button", { name: "Recovery" })
+    ).not.toBeInTheDocument();
+  });
+
+  it("previews a Frame and safely retries one promotion without reuploading", async () => {
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:promotion-preview"),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    const attachment = (
+      attachmentId: string,
+      name: string,
+      mediaType: string,
+      kind: "image" | "text"
+    ) => ({
+      attachment: {
+        attachment_id: attachmentId,
+        name,
+        media_type: mediaType,
+        size_bytes: 12,
+        sha256: "a".repeat(64),
+        kind,
+        disposition: "inline",
+      },
+    });
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify(
+            attachment("att_png", "selection.png", "image/png", "image")
+          ),
+          { status: 201, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify(
+            attachment(
+              "att_source",
+              "selection.excalidraw",
+              "application/vnd.excalidraw+json",
+              "text"
+            )
+          ),
+          { status: 201, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "temporary_failure" }), {
+          status: 503,
+          headers: { "content-type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            input_id: "input_1",
+            status: "triggered",
+            attachment_count: 2,
+          }),
+          { status: 201, headers: { "content-type": "application/json" } }
+        )
+      );
+    const createPromotionArtifacts = vi.fn(async () => ({
+      selectedElementIds: ["frame_1", "shape_1"],
+      frameId: "frame_1",
+      png: new Blob(["png"], { type: "image/png" }),
+      source: new Blob(['{"type":"excalidraw"}'], {
+        type: "application/vnd.excalidraw+json",
+      }),
+    }));
+    const controller: WhiteboardEditorController = {
+      getScene: () => ({ elements: [], appState: {}, files: {} }),
+      updateScene: () => {},
+      resetHistory: () => {},
+      subscribeSceneChanges: () => () => {},
+      subscribePresenceChanges: () => () => {},
+      setCollaborators: () => {},
+      focusViewport: () => {},
+      createPromotionArtifacts,
+      setDisplayOptions: () => {},
+      setReadOnly: () => {},
+      exportScene: async () => new Blob(),
+      destroy: () => {},
+    };
+    const promoted = vi.fn();
+    render(
+      <WhiteboardSurface
+        active
+        identity={{
+          roomId: "room_1",
+          participantId: "owner_1",
+          token: "secret",
+          role: "owner",
+        }}
+        activeAgent={{
+          agent_id: "agent_1",
+          name: "Codex",
+          capabilities: ["codex-cli"],
+          status: "online",
+          input_capabilities: {
+            image: "native",
+            pdf: "file_path",
+            text: "file_path",
+            office: "file_path",
+            file: "file_path",
+            max_attachments: 5,
+          },
+        }}
+        loadEditorAdapter={async () => ({ mount: async () => controller })}
+        loadSession={async () => () => ({
+          ...sessionController(),
+          currentRevision: () => 7,
+        })}
+        langCode="en"
+        name="Promotion room"
+        onAttachmentUsageChanged={promoted}
+      />
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Send selection to main conversation",
+      })
+    );
+    expect(
+      await screen.findByAltText(
+        "PNG preview of the selected whiteboard content"
+      )
+    ).toHaveAttribute("src", "blob:promotion-preview");
+    expect(screen.getAllByText(".excalidraw")).toHaveLength(2);
+    expect(screen.getByText("Codex")).toBeVisible();
+    expect(screen.getByText("7")).toBeVisible();
+    const submit = screen.getByRole("button", { name: "Create Main Input" });
+    expect(submit).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Instruction for the Agent"), {
+      target: { value: "Implement this architecture." },
+    });
+    fireEvent.click(submit);
+    expect(
+      await screen.findByText(/uploaded snapshot is retained for a safe retry/u)
+    ).toHaveAttribute("role", "alert");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    fireEvent.click(screen.getByRole("button", { name: "Create Main Input" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    );
+    expect(promoted).toHaveBeenCalledTimes(1);
+    const firstRequest = JSON.parse(
+      String((fetchMock.mock.calls[2]?.[1] as RequestInit).body)
+    ) as Record<string, unknown>;
+    const retryRequest = JSON.parse(
+      String((fetchMock.mock.calls[3]?.[1] as RequestInit).body)
+    ) as Record<string, unknown>;
+    expect(retryRequest).toEqual(firstRequest);
+    expect(firstRequest).toMatchObject({
+      expected_revision: 7,
+      selected_element_ids: ["frame_1", "shape_1"],
+      frame_id: "frame_1",
+      png_attachment_id: "att_png",
+      source_attachment_id: "att_source",
+      agent_id: "agent_1",
+      instruction: "Implement this architecture.",
+    });
   });
 });

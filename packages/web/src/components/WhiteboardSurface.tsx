@@ -5,7 +5,9 @@ import type {
   WhiteboardEditorController,
   WhiteboardExportFormat,
   WhiteboardExportScope,
+  WhiteboardPromotionArtifacts,
 } from "../whiteboard/whiteboard-editor-adapter.js";
+import type { AgentView } from "../room-state.js";
 import type {
   WhiteboardSessionController,
   WhiteboardSessionFactoryLoader,
@@ -17,6 +19,7 @@ import type {
 import { createWhiteboardImageAssetManager } from "../whiteboard/whiteboard-image-assets.js";
 import { useT } from "../i18n/useT.js";
 import { WhiteboardRecoveryDialog } from "./WhiteboardRecoveryDialog.js";
+import { WhiteboardPromotionDialog } from "./WhiteboardPromotionDialog.js";
 
 export interface WhiteboardSurfaceProps {
   active: boolean;
@@ -25,9 +28,11 @@ export interface WhiteboardSurfaceProps {
   loadSession: WhiteboardSessionFactoryLoader;
   langCode: "en" | "zh";
   name: string;
+  activeAgent?: AgentView;
   onCollaboratorsChange?: (collaborators: WhiteboardCollaborator[]) => void;
   onActivity?: (activity: WhiteboardSessionActivity) => void;
   onSessionReady?: () => void;
+  onAttachmentUsageChanged?: () => void;
 }
 
 export function WhiteboardSurface({
@@ -37,9 +42,11 @@ export function WhiteboardSurface({
   loadSession,
   langCode,
   name,
+  activeAgent,
   onCollaboratorsChange,
   onActivity,
   onSessionReady,
+  onAttachmentUsageChanged,
 }: WhiteboardSurfaceProps) {
   const t = useT();
   const { participantId, role, roomId, token } = identity;
@@ -85,6 +92,25 @@ export function WhiteboardSurface({
   const [insertingImage, setInsertingImage] = useState(false);
   const [imageInsertError, setImageInsertError] = useState(false);
   const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [promotionArtifacts, setPromotionArtifacts] =
+    useState<WhiteboardPromotionArtifacts>();
+  const [promotionRevision, setPromotionRevision] = useState<number>();
+  const [promotionError, setPromotionError] = useState<string>();
+  const [preparingPromotion, setPreparingPromotion] = useState(false);
+  const canManageRecovery =
+    status === "ready" &&
+    connectionStatus === "connected" &&
+    (role === "owner" || role === "admin");
+
+  useEffect(() => {
+    if (!canManageRecovery) {
+      queueMicrotask(() => {
+        setRecoveryOpen(false);
+        setPromotionArtifacts(undefined);
+        setPromotionRevision(undefined);
+      });
+    }
+  }, [canManageRecovery]);
 
   useEffect(() => {
     onCollaboratorsChangeRef.current = onCollaboratorsChange;
@@ -292,6 +318,31 @@ export function WhiteboardSurface({
     }
   };
 
+  const preparePromotion = async () => {
+    const controller = controllerRef.current;
+    const revision = sessionRef.current?.currentRevision?.();
+    setPromotionError(undefined);
+    if (!controller?.createPromotionArtifacts || revision === undefined) {
+      setPromotionError(String(t("whiteboard.promotionUnavailable")));
+      return;
+    }
+    setPreparingPromotion(true);
+    try {
+      const artifacts = await controller.createPromotionArtifacts();
+      setPromotionRevision(revision);
+      setPromotionArtifacts(artifacts);
+    } catch (cause) {
+      setPromotionError(
+        cause instanceof Error &&
+          cause.message === "whiteboard_export_empty_selection"
+          ? String(t("whiteboard.promotionEmptySelection"))
+          : String(t("whiteboard.promotionUnavailable"))
+      );
+    } finally {
+      setPreparingPromotion(false);
+    }
+  };
+
   return (
     <section className="whiteboard-surface" aria-label={editorLabel}>
       {status === "ready" && collaborators.length > 0 && (
@@ -441,10 +492,23 @@ export function WhiteboardSurface({
               </button>
             </>
           )}
-          {(role === "owner" || role === "admin") && (
-            <button type="button" onClick={() => setRecoveryOpen(true)}>
-              {t("whiteboard.manageRecovery")}
-            </button>
+          {canManageRecovery && (
+            <>
+              <button
+                type="button"
+                disabled={preparingPromotion}
+                onClick={() => void preparePromotion()}
+              >
+                {t(
+                  preparingPromotion
+                    ? "whiteboard.promotionPreparing"
+                    : "whiteboard.promoteSelection"
+                )}
+              </button>
+              <button type="button" onClick={() => setRecoveryOpen(true)}>
+                {t("whiteboard.manageRecovery")}
+              </button>
+            </>
           )}
           <label>
             <span className="sr-only">{t("whiteboard.exportScope")}</span>
@@ -483,22 +547,48 @@ export function WhiteboardSurface({
           {exportError}
         </div>
       )}
+      {status === "ready" && promotionError && (
+        <div className="whiteboard-surface__export-error" role="alert">
+          {promotionError}
+        </div>
+      )}
       <div
         ref={hostRef}
         className="whiteboard-surface__editor"
         aria-hidden={status !== "ready"}
       />
-      <WhiteboardRecoveryDialog
-        langCode={langCode}
-        open={recoveryOpen}
-        session={{
-          room_id: roomId,
-          participant_id: participantId,
-          token,
-          role,
-        }}
-        onClose={() => setRecoveryOpen(false)}
-      />
+      {recoveryOpen && canManageRecovery && (
+        <WhiteboardRecoveryDialog
+          langCode={langCode}
+          open
+          session={{
+            room_id: roomId,
+            participant_id: participantId,
+            token,
+            role,
+          }}
+          onClose={() => setRecoveryOpen(false)}
+        />
+      )}
+      {promotionArtifacts && canManageRecovery && (
+        <WhiteboardPromotionDialog
+          open
+          session={{
+            room_id: roomId,
+            participant_id: participantId,
+            token,
+            role,
+          }}
+          artifacts={promotionArtifacts}
+          expectedRevision={promotionRevision}
+          agent={activeAgent}
+          onClose={() => {
+            setPromotionArtifacts(undefined);
+            setPromotionRevision(undefined);
+          }}
+          onPromoted={onAttachmentUsageChanged}
+        />
+      )}
     </section>
   );
 }

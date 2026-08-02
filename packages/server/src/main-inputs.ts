@@ -9,7 +9,7 @@ export interface MainInputQueueItem {
   author_id: string;
   text: string;
   attachments: AttachmentRef[];
-  source: "composer" | "orbit_promote";
+  source: "composer" | "orbit_promote" | "whiteboard_promote";
   queued_after_turn_id: string;
   created_at: string;
 }
@@ -42,8 +42,9 @@ export function deriveMainInputQueue(
           ? content.attachments
           : [],
         source:
-          event.payload.source === "orbit_promote"
-            ? "orbit_promote"
+          event.payload.source === "orbit_promote" ||
+          event.payload.source === "whiteboard_promote"
+            ? event.payload.source
             : "composer",
         created_at: String(event.payload.created_at || event.created_at),
       });

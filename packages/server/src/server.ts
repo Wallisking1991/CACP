@@ -40,6 +40,8 @@ import {
   type VoteRecord,
   type LocalAgentProvider,
   type WhiteboardHumanRole,
+  type WhiteboardPromotionResult,
+  WhiteboardPromotionRequestSchema,
   WhiteboardSnapshotMutationRequestSchema,
 } from "@cacp/protocol";
 import {
@@ -696,7 +698,7 @@ interface QueuedMainInput {
   author_name: string;
   author_role: ParticipantRole;
   content: StructuredMessageContent;
-  source: "composer" | "orbit_promote";
+  source: "composer" | "orbit_promote" | "whiteboard_promote";
   created_at: string;
 }
 
@@ -768,6 +770,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
   }
 
   const queuedMainInputs = new Map<string, QueuedMainInput[]>();
+  const whiteboardPromotions = new Map<
+    string,
+    Map<string, { fingerprint: string; result: WhiteboardPromotionResult }>
+  >();
   const MAX_QUEUED_PER_ROOM = 50;
   function getQueuedMainInputs(roomId: string): QueuedMainInput[] {
     let arr = queuedMainInputs.get(roomId);
@@ -951,6 +957,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
     whiteboards.discardRoom(roomId);
     orbitStates.delete(roomId);
     queuedMainInputs.delete(roomId);
+    whiteboardPromotions.delete(roomId);
     socketCounts.delete(roomId);
     pendingAttachmentBytes.delete(roomId);
     for (const [key, timer] of [...pendingOffline.entries()]) {
@@ -1931,7 +1938,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
       authorName: string;
       authorRole: ParticipantRole;
       content: StructuredMessageContent;
-      source: "composer" | "orbit_promote";
+      source: "composer" | "orbit_promote" | "whiteboard_promote";
     }
   ): CacpEvent[] {
     const events = store.listEvents(roomId);
@@ -3251,6 +3258,229 @@ export async function buildServer(options: BuildServerOptions = {}) {
         target_revision: result.targetRevision,
         revision: result.revision,
       });
+    }
+  );
+
+  app.post<{ Params: { roomId: string } }>(
+    "/rooms/:roomId/whiteboard/promotions",
+    async (request, reply) => {
+      if (!messageLimiter.allow(request.ip)) return tooMany(reply);
+      const participant = requireParticipant(
+        store,
+        request.params.roomId,
+        request
+      );
+      if (!participant) return deny(reply, "invalid_token");
+      if (!hasHumanRole(participant, ["owner", "admin"])) {
+        return deny(reply, "forbidden", 403);
+      }
+      const body = WhiteboardPromotionRequestSchema.parse(request.body);
+      const roomId = request.params.roomId;
+      const fingerprint = JSON.stringify(body);
+      const roomPromotions = whiteboardPromotions.get(roomId);
+      const existing = roomPromotions?.get(body.idempotency_key);
+      if (existing) {
+        if (existing.fingerprint !== fingerprint) {
+          return deny(reply, "idempotency_conflict", 409);
+        }
+        return reply.code(201).send(existing.result);
+      }
+
+      const authoritative = whiteboards.snapshot(roomId);
+      if (body.expected_revision !== authoritative.revision) {
+        return reply.code(409).send({
+          error: "stale_revision",
+          current_revision: authoritative.revision,
+        });
+      }
+      const liveElements = new Map(
+        authoritative.scene.elements
+          .filter((element) => element.isDeleted !== true)
+          .map((element) => [element.id, element] as const)
+      );
+      if (
+        body.selected_element_ids.some(
+          (elementId) => !liveElements.has(elementId)
+        )
+      ) {
+        return deny(reply, "selection_not_found", 409);
+      }
+      if (body.frame_id && liveElements.get(body.frame_id)?.type !== "frame") {
+        return deny(reply, "invalid_frame", 409);
+      }
+
+      const attachmentIds = [body.png_attachment_id, body.source_attachment_id];
+      if (new Set(attachmentIds).size !== 2) {
+        return deny(reply, "duplicate_attachment", 400);
+      }
+      const storedAttachments = store.getAttachments(roomId, attachmentIds);
+      if (
+        storedAttachments.length !== 2 ||
+        storedAttachments.some(
+          (attachment) =>
+            attachment.created_by !== participant.id ||
+            attachment.message_id !== null
+        )
+      ) {
+        return deny(reply, "attachment_not_attachable", 409);
+      }
+      const byId = new Map(
+        storedAttachments.map(
+          (attachment) => [attachment.attachment_id, attachment] as const
+        )
+      );
+      const png = byId.get(body.png_attachment_id)!;
+      const source = byId.get(body.source_attachment_id)!;
+      if (png.kind !== "image" || png.media_type !== "image/png") {
+        return deny(reply, "promotion_png_required", 409);
+      }
+      if (
+        source.kind !== "text" ||
+        source.media_type !== "application/vnd.excalidraw+json" ||
+        !source.name.toLowerCase().endsWith(".excalidraw")
+      ) {
+        return deny(reply, "promotion_source_required", 409);
+      }
+      const content = {
+        text: body.instruction,
+        attachments: [attachmentRef(png), attachmentRef(source)],
+      } satisfies StructuredMessageContent;
+
+      const events = store.listEvents(roomId);
+      const activeAgentId = findActiveAgentId(events);
+      if (!activeAgentId || body.agent_id !== activeAgentId) {
+        return deny(reply, "target_agent_not_active", 409);
+      }
+      const targetAgent = findParticipant(roomId, body.agent_id);
+      if (
+        !targetAgent ||
+        targetAgent.type !== "agent" ||
+        targetAgent.role !== "agent" ||
+        !isAgentOnline(events, body.agent_id)
+      ) {
+        return deny(reply, "active_agent_unavailable", 409);
+      }
+      const attachmentInputError = validateAgentAttachmentInput(
+        events,
+        body.agent_id,
+        content.attachments
+      );
+      if (attachmentInputError) {
+        return deny(reply, attachmentInputError, 409);
+      }
+      const capabilities = findAgentCapabilities(events, body.agent_id);
+      const localProvider = providerForCapabilities(capabilities);
+      if (localProvider) {
+        const ready =
+          localProvider === "claude-code"
+            ? hasClaudeSessionReady(events, body.agent_id) ||
+              hasLocalAgentSessionReady(events, body.agent_id, localProvider)
+            : hasLocalAgentSessionReady(events, body.agent_id, localProvider);
+        if (!ready) return deny(reply, "agent_session_not_ready", 409);
+      }
+
+      const openTurn = findAnyOpenTurn(events);
+      const queue = getQueuedMainInputs(roomId);
+      if (openTurn && queue.length >= MAX_QUEUED_PER_ROOM) {
+        return deny(reply, "queue_full", 409);
+      }
+      const inputId = prefixedId("input");
+      const now = new Date().toISOString();
+      const accepted = event(roomId, "main_input.accepted", participant.id, {
+        input_id: inputId,
+        author_id: participant.id,
+        content,
+        source: "whiteboard_promote",
+        created_at: now,
+        message_id: inputId,
+      });
+      const queued = event(roomId, "main_input.queued", participant.id, {
+        input_id: inputId,
+        queued_after_turn_id: openTurn
+          ? openTurn.turn_id
+          : (findLastTurnId(events) ?? "none"),
+        message_id: inputId,
+      });
+      let turnRequestEvents: CacpEvent[] = [];
+      let triggered: CacpEvent | undefined;
+      let messageCreated: CacpEvent | undefined;
+      if (!openTurn) {
+        turnRequestEvents = createMainInputTurnRequestEvents(roomId, {
+          actorId: participant.id,
+          authorName: participant.display_name,
+          authorRole: participant.role,
+          content,
+          source: "whiteboard_promote",
+        });
+        const turnRequest = turnRequestEvents.find(
+          (nextEvent) => nextEvent.type === "agent.turn.requested"
+        );
+        if (!turnRequest || typeof turnRequest.payload.turn_id !== "string") {
+          return deny(reply, "active_agent_unavailable", 409);
+        }
+        triggered = event(roomId, "main_input.triggered", participant.id, {
+          input_id: inputId,
+          trigger_turn_id: turnRequest.payload.turn_id,
+          message_id: inputId,
+        });
+        messageCreated = event(roomId, "message.created", participant.id, {
+          message_id: inputId,
+          content,
+          kind: "human",
+          created_at: now,
+        });
+      }
+
+      const stored = store.transaction(() => {
+        store.attachAttachments(roomId, attachmentIds, inputId);
+        store.grantAttachmentsToAgent(
+          roomId,
+          attachmentIds,
+          body.agent_id,
+          inputId
+        );
+        return {
+          turnRequests: turnRequestEvents.map((nextEvent) =>
+            store.appendEvent(nextEvent)
+          ),
+          message: messageCreated
+            ? store.appendEvent(messageCreated)
+            : undefined,
+          accepted: store.appendEvent(accepted),
+          queued: store.appendEvent(queued),
+          triggered: triggered ? store.appendEvent(triggered) : undefined,
+        };
+      });
+      if (openTurn) {
+        queue.push({
+          input_id: inputId,
+          author_id: participant.id,
+          author_name: participant.display_name,
+          author_role: participant.role,
+          content,
+          source: "whiteboard_promote",
+          created_at: now,
+        });
+      }
+      const result: WhiteboardPromotionResult = {
+        input_id: inputId,
+        status: openTurn ? "queued" : "triggered",
+        attachment_count: 2,
+      };
+      const promotions = roomPromotions ?? new Map();
+      promotions.set(body.idempotency_key, { fingerprint, result });
+      if (!roomPromotions) whiteboardPromotions.set(roomId, promotions);
+
+      if (stored.message) {
+        bus.publish({ event: stored.message, delivery: roomDelivery() });
+      }
+      bus.publish({ event: stored.accepted, delivery: roomDelivery() });
+      bus.publish({ event: stored.queued, delivery: roomDelivery() });
+      if (stored.triggered) {
+        bus.publish({ event: stored.triggered, delivery: roomDelivery() });
+      }
+      publishEvents(stored.turnRequests);
+      return reply.code(201).send(result);
     }
   );
 

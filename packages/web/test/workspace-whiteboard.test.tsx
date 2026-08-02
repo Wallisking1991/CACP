@@ -84,6 +84,59 @@ const workspaceProps = {
 };
 
 describe("Collaborative Whiteboard workspace", () => {
+  it("shows silent localized clear and restore notices with the actor", () => {
+    const view = render(
+      <LangProvider>
+        <Workspace {...workspaceProps} />
+      </LangProvider>
+    );
+    expect(
+      screen.queryByText(/cleared the shared whiteboard/u)
+    ).not.toBeInTheDocument();
+
+    view.rerender(
+      <LangProvider>
+        <Workspace
+          {...workspaceProps}
+          events={[
+            ...workspaceProps.events,
+            event(
+              "whiteboard.cleared",
+              { previous_revision: 4, revision: 5 },
+              5
+            ),
+          ]}
+        />
+      </LangProvider>
+    );
+    expect(
+      screen.getByText(
+        "Wei cleared the shared whiteboard. Everyone is now on revision 5; local undo history was reset."
+      )
+    ).toHaveAttribute("role", "status");
+
+    view.rerender(
+      <LangProvider>
+        <Workspace
+          {...workspaceProps}
+          events={[
+            ...workspaceProps.events,
+            event(
+              "whiteboard.restored",
+              { previous_revision: 5, target_revision: 2, revision: 6 },
+              6
+            ),
+          ]}
+        />
+      </LangProvider>
+    );
+    expect(
+      screen.getByText(
+        "Wei restored the shared whiteboard. Everyone is now on revision 6; local undo history was reset."
+      )
+    ).toBeVisible();
+  });
+
   it("observes board activity before lazily mounting an active editor", async () => {
     let emitActiveStatus:
       ((status: WhiteboardSessionStatus) => void) | undefined;

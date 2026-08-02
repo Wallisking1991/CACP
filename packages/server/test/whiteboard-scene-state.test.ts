@@ -127,6 +127,77 @@ describe("whiteboard scene state", () => {
     expect(committed).toHaveLength(3);
   });
 
+  it("rejects pre-operation in-flight and replayed frames after a reset", () => {
+    const state = createWhiteboardSceneState();
+    const first = update({ elements: [rectangle] });
+    expect(state.apply("owner_1", first, 0)).toMatchObject({ revision: 1 });
+    expect(state.clear("owner_1", 1, 1)).toMatchObject({
+      kind: "accepted",
+      revision: 2,
+    });
+
+    expect(
+      state.apply(
+        "owner_1",
+        update({
+          update_id: "in-flight-before-clear",
+          base_revision: 1,
+          elements: [rectangle],
+        }),
+        2
+      )
+    ).toMatchObject({
+      kind: "rejected",
+      code: "not_synchronized",
+      currentRevision: 2,
+    });
+    expect(state.apply("owner_1", first, 3)).toMatchObject({
+      kind: "rejected",
+      code: "not_synchronized",
+      currentRevision: 2,
+    });
+    expect(state.snapshot()).toMatchObject({
+      revision: 2,
+      scene: { elements: [] },
+    });
+  });
+
+  it("enforces compressed snapshot bytes and throttles failed captures", () => {
+    const state = createWhiteboardSceneState({
+      snapshotCadenceMs: 1_000,
+      maxSnapshotCount: 20,
+      maxSnapshotBytes: 100,
+    });
+    const noisy = {
+      ...rectangle,
+      customData: {
+        noise: "q7m#P1v!x9K@r4T$z8N%a2C^d6F&h0J*s3L(y5B)u1W_e7R+i9O=p4G",
+      },
+    };
+
+    expect(
+      state.apply("owner_1", update({ elements: [noisy] }), 0)
+    ).toMatchObject({ kind: "accepted", revision: 1 });
+    expect(state.listSnapshots()).toHaveLength(0);
+    expect(
+      state.apply(
+        "owner_1",
+        update({
+          update_id: "within-cadence",
+          base_revision: 1,
+          elements: [{ ...noisy, version: 2, versionNonce: 102 }],
+        }),
+        10
+      )
+    ).toMatchObject({ kind: "accepted", revision: 2 });
+    expect(state.listSnapshots()).toHaveLength(0);
+    expect(state.clear("owner_1", 2, 20)).toMatchObject({
+      kind: "rejected",
+      code: "snapshot_unavailable",
+      currentRevision: 2,
+    });
+  });
+
   it("pins restored image attachments while the target snapshot is evicted", () => {
     const snapshotAttachmentCommits: string[][] = [];
     const state = createWhiteboardSceneState({

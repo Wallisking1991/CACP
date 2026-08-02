@@ -97,6 +97,25 @@ describe("attachment policy", () => {
     }
   });
 
+  it("accepts editable Excalidraw source as JSON text", async () => {
+    const path = fixture(
+      "selection.excalidraw",
+      JSON.stringify({ type: "excalidraw", version: 2, elements: [] })
+    );
+    await expect(
+      validateAttachment({
+        path,
+        filename: "selection.excalidraw",
+        claimedMediaType: "application/vnd.excalidraw+json",
+      })
+    ).resolves.toEqual({
+      name: "selection.excalidraw",
+      mediaType: "application/vnd.excalidraw+json",
+      kind: "text",
+      disposition: "inline",
+    });
+  });
+
   it("keeps SVG download-only and rejects active-content claim mismatches", async () => {
     const path = fixture(
       "diagram.svg",

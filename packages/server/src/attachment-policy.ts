@@ -76,6 +76,7 @@ const TextExtensions = new Set([
   ".zsh",
   ".ps1",
   ".sql",
+  ".excalidraw",
 ]);
 const GenericMediaTypes = new Set([
   "",
@@ -182,17 +183,20 @@ export async function validateAttachment(input: {
     await assertTextFile(input.path);
     const isHtml = extension === ".html" || extension === ".htm";
     const mediaType =
-      extension === ".json" || extension === ".jsonc"
-        ? "application/json"
-        : extension === ".csv"
-          ? "text/csv"
-          : isHtml
-            ? "text/html"
-            : "text/plain";
+      extension === ".excalidraw"
+        ? "application/vnd.excalidraw+json"
+        : extension === ".json" || extension === ".jsonc"
+          ? "application/json"
+          : extension === ".csv"
+            ? "text/csv"
+            : isHtml
+              ? "text/html"
+              : "text/plain";
     if (
       !GenericMediaTypes.has(claimed) &&
       !claimed.startsWith("text/") &&
-      claimed !== "application/json"
+      claimed !== "application/json" &&
+      claimed !== "application/vnd.excalidraw+json"
     )
       throw new Error("attachment_type_mismatch");
     return {

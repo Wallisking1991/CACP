@@ -147,6 +147,24 @@ describe("deriveMainInputQueue", () => {
     const queue = deriveMainInputQueue(events);
     expect(queue[0].source).toBe("orbit_promote");
   });
+
+  it("returns whiteboard_promote source correctly", () => {
+    const events = [
+      makeEvent("main_input.accepted", {
+        input_id: "i1",
+        author_id: "u1",
+        content: { text: "Review this frame", attachments: [] },
+        source: "whiteboard_promote",
+        created_at: "2026-05-01T00:00:00.000Z",
+      }),
+      makeEvent("main_input.queued", {
+        input_id: "i1",
+        queued_after_turn_id: "t1",
+      }),
+    ];
+    const queue = deriveMainInputQueue(events);
+    expect(queue[0].source).toBe("whiteboard_promote");
+  });
 });
 
 describe("nextQueuedMainInput", () => {
