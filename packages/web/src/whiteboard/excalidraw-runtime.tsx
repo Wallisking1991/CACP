@@ -246,7 +246,11 @@ export function createExcalidrawApiPort(
       });
     },
     async insertImage(file) {
-      if (!file.type.startsWith("image/")) {
+      if (
+        !["image/png", "image/jpeg", "image/gif", "image/webp"].includes(
+          file.type
+        )
+      ) {
         throw new Error("whiteboard_image_type_invalid");
       }
       const [dataURL, size] = await Promise.all([

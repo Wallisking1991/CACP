@@ -418,7 +418,7 @@ export function WhiteboardSurface({
                 ref={imageInputRef}
                 className="whiteboard-export-tools__file"
                 type="file"
-                accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
+                accept="image/png,image/jpeg,image/gif,image/webp"
                 onChange={(event) => {
                   const input = event.currentTarget;
                   const file = input.files?.[0];

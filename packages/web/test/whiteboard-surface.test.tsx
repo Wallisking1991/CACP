@@ -82,8 +82,12 @@ describe("WhiteboardSurface exports", () => {
     );
 
     const scope = await screen.findByLabelText("Export scope");
+    const imageInput = document.querySelector(
+      'input[type="file"]'
+    ) as HTMLInputElement;
+    expect(imageInput.accept).not.toContain("image/svg+xml");
     const image = new File(["image"], "diagram.png", { type: "image/png" });
-    fireEvent.change(document.querySelector('input[type="file"]')!, {
+    fireEvent.change(imageInput, {
       target: { files: [image] },
     });
     await waitFor(() => expect(insertImage).toHaveBeenCalledWith(image));

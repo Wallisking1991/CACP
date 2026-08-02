@@ -171,9 +171,11 @@ describe("whiteboard image assets", () => {
         kind: "image" as const,
         disposition: "inline" as const,
       }));
-    const fetchBlob = vi.fn(async () => {
-      throw new Error("attachment_not_found");
-    });
+    const fetchBlob = vi.fn(async () =>
+      Promise.resolve(
+        new Blob(["still temporarily readable"], { type: "image/png" })
+      )
+    );
     const manager = createWhiteboardImageAssetManager({
       session: { room_id: "room_1", token: "secret" },
       upload,
@@ -192,10 +194,7 @@ describe("whiteboard image assets", () => {
       localImageScene("att_first")
     );
 
-    expect(fetchBlob).toHaveBeenCalledWith(
-      { room_id: "room_1", token: "secret" },
-      "att_first"
-    );
+    expect(fetchBlob).not.toHaveBeenCalled();
     expect(upload).toHaveBeenCalledTimes(2);
     expect((restored.elements[0] as { fileId: string }).fileId).toBe(
       "att_restored"

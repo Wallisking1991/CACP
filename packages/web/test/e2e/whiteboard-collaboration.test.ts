@@ -242,6 +242,16 @@ test("shares real Excalidraw content and collaborator presence between two brows
     .not.toBe(0);
 
   const beforeImage = await memberPage.screenshot({ clip: capture });
+  const imageBase64 = await ownerPage.evaluate(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 96;
+    canvas.height = 96;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("canvas unavailable");
+    context.fillStyle = "#ff00cc";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/png").split(",")[1]!;
+  });
   const imageChooser = ownerPage.waitForEvent("filechooser");
   await ownerPage.getByRole("button", { name: "Add image" }).click();
   await (
@@ -249,10 +259,7 @@ test("shares real Excalidraw content and collaborator presence between two brows
   ).setFiles({
     name: "pixel.png",
     mimeType: "image/png",
-    buffer: Buffer.from(
-      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
-      "base64"
-    ),
+    buffer: Buffer.from(imageBase64, "base64"),
   });
 
   await expect
@@ -303,6 +310,40 @@ test("shares real Excalidraw content and collaborator presence between two brows
       expect([...bytes.subarray(0, 8)]).toEqual([
         137, 80, 78, 71, 13, 10, 26, 10,
       ]);
+      const magentaPixels = await ownerPage.evaluate(async (base64) => {
+        const binary = atob(base64);
+        const bytes = Uint8Array.from(binary, (character) =>
+          character.charCodeAt(0)
+        );
+        const image = await createImageBitmap(
+          new Blob([bytes], { type: "image/png" })
+        );
+        const canvas = document.createElement("canvas");
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("canvas unavailable");
+        context.drawImage(image, 0, 0);
+        const pixels = context.getImageData(
+          0,
+          0,
+          canvas.width,
+          canvas.height
+        ).data;
+        let matches = 0;
+        for (let index = 0; index < pixels.length; index += 4) {
+          if (
+            pixels[index]! > 240 &&
+            pixels[index + 1]! < 20 &&
+            pixels[index + 2]! > 180 &&
+            pixels[index + 3]! > 240
+          ) {
+            matches += 1;
+          }
+        }
+        return matches;
+      }, bytes.toString("base64"));
+      expect(magentaPixels).toBeGreaterThan(1_000);
     } else if (format === "SVG") {
       const svg = bytes.toString("utf8");
       expect(svg).toContain("<image");

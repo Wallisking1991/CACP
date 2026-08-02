@@ -195,6 +195,12 @@ describe("Excalidraw public API bridge", () => {
       api as unknown as Parameters<typeof createExcalidrawApiPort>[0]
     );
 
+    await expect(
+      port.insertImage(
+        new File(["<svg/>"], "unsafe.svg", { type: "image/svg+xml" })
+      )
+    ).rejects.toThrow("whiteboard_image_type_invalid");
+
     await port.insertImage(
       new File(["image"], "diagram.png", { type: "image/png" })
     );
