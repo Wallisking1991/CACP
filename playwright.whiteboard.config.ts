@@ -1,6 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const localBrowser = process.env.CI ? {} : { channel: "chrome" as const };
+const serverPort = process.env.CACP_WHITEBOARD_E2E_SERVER_PORT ?? "3737";
+const webPort = process.env.CACP_WHITEBOARD_E2E_WEB_PORT ?? "5174";
+const serverOrigin = `http://127.0.0.1:${serverPort}`;
+const webOrigin = `http://127.0.0.1:${webPort}`;
 
 export default defineConfig({
   testDir: "./packages/web/test/e2e",
@@ -14,7 +18,7 @@ export default defineConfig({
     timeout: 15_000,
   },
   use: {
-    baseURL: "http://127.0.0.1:5174",
+    baseURL: webOrigin,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     viewport: { width: 1440, height: 900 },
@@ -31,9 +35,9 @@ export default defineConfig({
       env: {
         CACP_DB: ":memory:",
         HOST: "127.0.0.1",
-        PORT: "3737",
+        PORT: serverPort,
       },
-      url: "http://127.0.0.1:3737/health",
+      url: `${serverOrigin}/health`,
       reuseExistingServer: false,
       timeout: 120_000,
     },
@@ -41,8 +45,11 @@ export default defineConfig({
       command:
         "corepack pnpm --filter @cacp/protocol build && " +
         "corepack pnpm --filter @cacp/web exec vite " +
-        "--host 127.0.0.1 --port 5174",
-      url: "http://127.0.0.1:5174/health",
+        `--host 127.0.0.1 --port ${webPort}`,
+      env: {
+        CACP_DEV_SERVER_ORIGIN: serverOrigin,
+      },
+      url: `${webOrigin}/health`,
       reuseExistingServer: false,
       timeout: 120_000,
     },

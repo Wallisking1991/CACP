@@ -3,7 +3,8 @@ import react from "@vitejs/plugin-react";
 import { connectorVersion } from "./build-config.js";
 import { excalidrawAssetsPlugin } from "./excalidraw-assets-plugin.js";
 
-const cacpServer = "http://127.0.0.1:3737";
+const cacpServer =
+  process.env.CACP_DEV_SERVER_ORIGIN ?? "http://127.0.0.1:3737";
 
 export default defineConfig({
   plugins: [react(), excalidrawAssetsPlugin()],
