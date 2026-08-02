@@ -39,6 +39,7 @@ describe("WhiteboardSurface exports", () => {
       .mockRejectedValueOnce(
         new Error("whiteboard_export_missing_image:att_missing")
       );
+    const insertImage = vi.fn(async () => {});
     const controller: WhiteboardEditorController = {
       getScene: () => ({ elements: [], appState: {}, files: {} }),
       updateScene: () => {},
@@ -47,6 +48,7 @@ describe("WhiteboardSurface exports", () => {
       subscribePresenceChanges: () => () => {},
       setCollaborators: () => {},
       focusViewport: () => {},
+      insertImage,
       setDisplayOptions: () => {},
       setReadOnly: () => {},
       exportScene,
@@ -80,6 +82,12 @@ describe("WhiteboardSurface exports", () => {
     );
 
     const scope = await screen.findByLabelText("Export scope");
+    const image = new File(["image"], "diagram.png", { type: "image/png" });
+    fireEvent.change(document.querySelector('input[type="file"]')!, {
+      target: { files: [image] },
+    });
+    await waitFor(() => expect(insertImage).toHaveBeenCalledWith(image));
+
     fireEvent.change(scope, { target: { value: "selection" } });
     fireEvent.click(screen.getByRole("button", { name: "Export SVG" }));
     await waitFor(() =>

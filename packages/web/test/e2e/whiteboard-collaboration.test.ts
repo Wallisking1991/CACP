@@ -5,6 +5,7 @@ import {
   type BrowserContext,
   type Page,
 } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 
 interface RoomSession {
   room_id: string;
@@ -89,30 +90,6 @@ async function seedSession(
       JSON.stringify({ [storedSession.room_id]: storedSession })
     );
   }, session);
-}
-
-async function uploadImageAttachment(
-  request: APIRequestContext,
-  session: RoomSession
-): Promise<string> {
-  const response = await request.post(`/rooms/${session.room_id}/attachments`, {
-    headers: { authorization: `Bearer ${session.token}` },
-    multipart: {
-      file: {
-        name: "pixel.png",
-        mimeType: "image/png",
-        buffer: Buffer.from(
-          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
-          "base64"
-        ),
-      },
-    },
-  });
-  expect(response.ok(), await response.text()).toBe(true);
-  const body = (await response.json()) as {
-    attachment?: { attachment_id?: unknown };
-  };
-  return String(body.attachment?.attachment_id);
 }
 
 async function openWhiteboard(page: Page, roomId: string): Promise<void> {
@@ -264,92 +241,19 @@ test("shares real Excalidraw content and collaborator presence between two brows
     })
     .not.toBe(0);
 
-  const attachmentId = await uploadImageAttachment(request, owner);
-  const currentElements = memberMessages
-    .filter((message) => message.type === "whiteboard.elements.updated")
-    .at(-1)?.elements;
-  expect(Array.isArray(currentElements)).toBe(true);
-  await ownerPage.evaluate(
-    ({ roomId, token, elements, imageId }) =>
-      new Promise<void>((resolve, reject) => {
-        const url = new URL(`/rooms/${roomId}/whiteboard`, location.origin);
-        url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-        url.searchParams.set("token", token);
-        const socket = new WebSocket(url);
-        const timeout = window.setTimeout(() => {
-          socket.close();
-          reject(new Error("whiteboard_image_update_timeout"));
-        }, 5_000);
-        socket.onmessage = (event) => {
-          const message = JSON.parse(String(event.data)) as JsonResponse;
-          if (message.type === "whiteboard.scene") {
-            socket.send(
-              JSON.stringify({
-                protocol: "cacp-whiteboard",
-                version: "1.0.0",
-                room_id: roomId,
-                type: "whiteboard.elements.update",
-                update_id: "browser-image-update",
-                base_revision: message.revision,
-                elements: [
-                  ...elements,
-                  {
-                    id: "browser-image",
-                    type: "image",
-                    x: 610,
-                    y: 310,
-                    width: 120,
-                    height: 120,
-                    angle: 0,
-                    strokeColor: "transparent",
-                    backgroundColor: "transparent",
-                    fillStyle: "solid",
-                    strokeWidth: 1,
-                    strokeStyle: "solid",
-                    roughness: 0,
-                    opacity: 100,
-                    groupIds: [],
-                    frameId: null,
-                    index: "a2",
-                    roundness: null,
-                    seed: 42,
-                    version: 1,
-                    versionNonce: 42,
-                    isDeleted: false,
-                    boundElements: null,
-                    updated: Date.now(),
-                    link: null,
-                    locked: false,
-                    status: "saved",
-                    fileId: imageId,
-                    scale: [1, 1],
-                    crop: null,
-                  },
-                ],
-                app_state: { viewBackgroundColor: "#ffffff" },
-              })
-            );
-          } else if (
-            message.type === "whiteboard.ack" &&
-            message.update_id === "browser-image-update"
-          ) {
-            window.clearTimeout(timeout);
-            socket.close();
-            resolve();
-          } else if (message.type === "whiteboard.error") {
-            window.clearTimeout(timeout);
-            socket.close();
-            reject(new Error(String(message.message ?? message.code)));
-          }
-        };
-      }),
-    {
-      roomId: owner.room_id,
-      token: owner.token,
-      elements: currentElements as JsonResponse[],
-      imageId: attachmentId,
-    }
-  );
+  const beforeImage = await memberPage.screenshot({ clip: capture });
+  const imageChooser = ownerPage.waitForEvent("filechooser");
+  await ownerPage.getByRole("button", { name: "Add image" }).click();
+  await (
+    await imageChooser
+  ).setFiles({
+    name: "pixel.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      "base64"
+    ),
+  });
 
   await expect
     .poll(() =>
@@ -367,6 +271,15 @@ test("shares real Excalidraw content and collaborator presence between two brows
       )
     )
     .toBe(true);
+  await expect(
+    memberPage.locator(".whiteboard-surface__asset-error")
+  ).toHaveCount(0);
+  await expect
+    .poll(async () => {
+      const afterImage = await memberPage.screenshot({ clip: capture });
+      return Buffer.compare(beforeImage, afterImage);
+    })
+    .not.toBe(0);
   expect(
     ownerSentMessages
       .filter((message) => message.type === "whiteboard.elements.update")
@@ -382,5 +295,28 @@ test("shares real Excalidraw content and collaborator presence between two brows
     expect(download.suggestedFilename().toLowerCase()).toContain(
       format === "Excalidraw" ? ".excalidraw" : `.${format.toLowerCase()}`
     );
+    const path = await download.path();
+    expect(path).not.toBeNull();
+    const bytes = await readFile(path!);
+    if (format === "PNG") {
+      expect(bytes.byteLength).toBeGreaterThan(1_000);
+      expect([...bytes.subarray(0, 8)]).toEqual([
+        137, 80, 78, 71, 13, 10, 26, 10,
+      ]);
+    } else if (format === "SVG") {
+      const svg = bytes.toString("utf8");
+      expect(svg).toContain("<image");
+      expect(svg).toContain("data:image/png");
+    } else {
+      const source = JSON.parse(bytes.toString("utf8")) as JsonResponse;
+      expect(
+        Object.values((source.files as JsonResponse | undefined) ?? {}).some(
+          (file) =>
+            typeof file === "object" &&
+            file !== null &&
+            String((file as JsonResponse).dataURL).startsWith("data:image/png")
+        )
+      ).toBe(true);
+    }
   }
 });

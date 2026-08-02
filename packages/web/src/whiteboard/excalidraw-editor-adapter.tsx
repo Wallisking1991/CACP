@@ -23,6 +23,7 @@ export interface ExcalidrawApiPort {
   resetHistory(): void;
   updateCollaborators(collaborators: readonly WhiteboardCollaborator[]): void;
   focusViewport(viewport: WhiteboardViewport): void;
+  insertImage(file: File): Promise<void>;
   exportScene(
     format: WhiteboardExportFormat,
     scope?: WhiteboardExportScope
@@ -305,6 +306,14 @@ export function createExcalidrawEditorAdapter(
         focusViewport(viewport) {
           if (!api || destroyed) return;
           api.focusViewport(viewport);
+        },
+        insertImage(file) {
+          if (!api || destroyed) {
+            return Promise.reject(
+              new Error("Whiteboard editor is unavailable.")
+            );
+          }
+          return api.insertImage(file);
         },
         setDisplayOptions(nextDisplayOptions) {
           if (destroyed) return;

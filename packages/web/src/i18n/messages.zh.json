@@ -23,6 +23,8 @@
   "whiteboard.imageUploadError": "图片上传失败，因此尚未共享。",
   "whiteboard.imageDownloadError": "无法加载共享图片。恢复图片前不能导出。",
   "whiteboard.imageDataMissing": "图片数据缺失，请重新添加后再共享或导出。",
+  "whiteboard.addImage": "添加图片",
+  "whiteboard.addingImage": "正在添加图片â€¦",
   "whiteboard.exportTools": "白板导出工具",
   "whiteboard.exportScope": "导出范围",
   "whiteboard.exportScene": "整个白板",

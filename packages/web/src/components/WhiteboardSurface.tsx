@@ -44,6 +44,7 @@ export function WhiteboardSurface({
   const { participantId, role, roomId, token } = identity;
   const editorLabel = String(t("whiteboard.editorLabel"));
   const hostRef = useRef<HTMLDivElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const controllerRef = useRef<WhiteboardEditorController | undefined>(
     undefined
   );
@@ -80,6 +81,8 @@ export function WhiteboardSurface({
   const [exportScope, setExportScope] =
     useState<WhiteboardExportScope>("scene");
   const [exportError, setExportError] = useState<string | undefined>(undefined);
+  const [insertingImage, setInsertingImage] = useState(false);
+  const [imageInsertError, setImageInsertError] = useState(false);
 
   useEffect(() => {
     onCollaboratorsChangeRef.current = onCollaboratorsChange;
@@ -270,6 +273,23 @@ export function WhiteboardSurface({
     }
   };
 
+  const insertImage = async (file: File) => {
+    const controller = controllerRef.current;
+    if (!controller?.insertImage) {
+      setImageInsertError(true);
+      return;
+    }
+    setInsertingImage(true);
+    setImageInsertError(false);
+    try {
+      await controller.insertImage(file);
+    } catch {
+      setImageInsertError(true);
+    } finally {
+      setInsertingImage(false);
+    }
+  };
+
   return (
     <section className="whiteboard-surface" aria-label={editorLabel}>
       {status === "ready" && collaborators.length > 0 && (
@@ -382,11 +402,43 @@ export function WhiteboardSurface({
           {imageErrorMessage}
         </div>
       )}
+      {status === "ready" && imageInsertError && (
+        <div className="whiteboard-surface__asset-error" role="alert">
+          {t("whiteboard.imageUploadError")}
+        </div>
+      )}
       {status === "ready" && (
         <div
           className="whiteboard-export-tools"
           aria-label={t("whiteboard.exportTools")}
         >
+          {role !== "observer" && (
+            <>
+              <input
+                ref={imageInputRef}
+                className="whiteboard-export-tools__file"
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
+                onChange={(event) => {
+                  const input = event.currentTarget;
+                  const file = input.files?.[0];
+                  if (file) void insertImage(file);
+                  input.value = "";
+                }}
+              />
+              <button
+                type="button"
+                disabled={insertingImage || connectionStatus !== "connected"}
+                onClick={() => imageInputRef.current?.click()}
+              >
+                {t(
+                  insertingImage
+                    ? "whiteboard.addingImage"
+                    : "whiteboard.addImage"
+                )}
+              </button>
+            </>
+          )}
           <label>
             <span className="sr-only">{t("whiteboard.exportScope")}</span>
             <select

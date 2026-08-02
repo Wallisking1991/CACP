@@ -9,9 +9,17 @@ const exportToSvg = vi.fn(async () => {
 const serializeAsJSON = vi.fn(() => '{"type":"excalidraw"}');
 
 vi.mock("@excalidraw/excalidraw", () => ({
-  CaptureUpdateAction: { NEVER: "never" },
+  CaptureUpdateAction: { IMMEDIATELY: "immediately", NEVER: "never" },
   Excalidraw: () => null,
   MainMenu: Object.assign(() => null, { DefaultItems: {} }),
+  convertToExcalidrawElements: vi.fn((elements) =>
+    elements.map((element: Record<string, unknown>) => ({
+      id: "inserted_image",
+      version: 1,
+      versionNonce: 1,
+      ...element,
+    }))
+  ),
   exportToBlob,
   exportToSvg,
   serializeAsJSON,
@@ -25,7 +33,7 @@ describe("Excalidraw public API bridge", () => {
   it("maps scenes, files, update capture, and all local export formats", async () => {
     const { createExcalidrawApiPort } =
       await import("../src/whiteboard/excalidraw-runtime.js");
-    const elements = [{ id: "shape_1", type: "rectangle" }];
+    const elements = [{ id: "image_1", type: "image", fileId: "file_1" }];
     const appState = { viewBackgroundColor: "#ffffff" };
     const files = {
       file_1: { id: "file_1", dataURL: "data:image/png;base64,AA==" },
@@ -87,18 +95,52 @@ describe("Excalidraw public API bridge", () => {
   it("exports only the current selection and rejects missing image bytes", async () => {
     const { createExcalidrawApiPort } =
       await import("../src/whiteboard/excalidraw-runtime.js");
-    const selected = { id: "shape_selected", type: "rectangle" };
-    const image = {
+    const selected = {
+      id: "shape_selected",
+      type: "rectangle",
+      boundElements: [{ id: "label", type: "text" }],
+    };
+    const label = {
+      id: "label",
+      type: "text",
+      containerId: "shape_selected",
+    };
+    const frameImage = {
+      id: "image_in_frame",
+      type: "image",
+      frameId: "frame_selected",
+      fileId: "att_selected",
+    };
+    const frame = { id: "frame_selected", type: "frame", frameId: null };
+    const missingImage = {
       id: "image_missing",
       type: "image",
       fileId: "att_missing",
     };
     const api = {
-      getSceneElements: vi.fn(() => [selected, image]),
+      getSceneElements: vi.fn(() => [
+        selected,
+        label,
+        frameImage,
+        frame,
+        missingImage,
+      ]),
       getAppState: vi.fn(() => ({
-        selectedElementIds: { shape_selected: true },
+        selectedElementIds: {
+          shape_selected: true,
+          frame_selected: true,
+        },
       })),
-      getFiles: vi.fn(() => ({})),
+      getFiles: vi.fn(() => ({
+        att_selected: {
+          id: "att_selected",
+          dataURL: "data:image/png;base64,AA==",
+        },
+        att_private: {
+          id: "att_private",
+          dataURL: "data:image/png;base64,PRIVATE",
+        },
+      })),
       updateScene: vi.fn(),
       addFiles: vi.fn(),
       history: { clear: vi.fn() },
@@ -109,13 +151,66 @@ describe("Excalidraw public API bridge", () => {
 
     await port.exportScene("png", "selection");
     expect(exportToBlob).toHaveBeenLastCalledWith({
-      elements: [selected],
-      appState: { selectedElementIds: { shape_selected: true } },
-      files: {},
+      elements: [selected, label, frameImage, frame],
+      appState: {
+        selectedElementIds: {
+          shape_selected: true,
+          frame_selected: true,
+        },
+      },
+      files: {
+        att_selected: {
+          id: "att_selected",
+          dataURL: "data:image/png;base64,AA==",
+        },
+      },
       mimeType: "image/png",
     });
     await expect(port.exportScene("png", "scene")).rejects.toThrow(
       "whiteboard_export_missing_image:att_missing"
+    );
+  });
+
+  it("inserts an image through the public scene and file APIs", async () => {
+    const { createExcalidrawApiPort } =
+      await import("../src/whiteboard/excalidraw-runtime.js");
+    const updateScene = vi.fn();
+    const addFiles = vi.fn();
+    const api = {
+      getSceneElements: vi.fn(() => []),
+      getAppState: vi.fn(() => ({
+        width: 800,
+        height: 600,
+        scrollX: 0,
+        scrollY: 0,
+        zoom: { value: 1 },
+        selectedElementIds: {},
+      })),
+      getFiles: vi.fn(() => ({})),
+      updateScene,
+      addFiles,
+      history: { clear: vi.fn() },
+    };
+    const port = createExcalidrawApiPort(
+      api as unknown as Parameters<typeof createExcalidrawApiPort>[0]
+    );
+
+    await port.insertImage(
+      new File(["image"], "diagram.png", { type: "image/png" })
+    );
+
+    expect(addFiles).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: expect.stringMatching(/^whiteboard_/u),
+        dataURL: expect.stringMatching(/^data:image\/png/u),
+        mimeType: "image/png",
+      }),
+    ]);
+    expect(updateScene).toHaveBeenCalledWith(
+      expect.objectContaining({
+        elements: [expect.objectContaining({ type: "image" })],
+        captureUpdate: "immediately",
+      })
     );
   });
 });

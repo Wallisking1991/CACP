@@ -54,6 +54,7 @@ export interface WhiteboardEditorController {
   ): () => void;
   setCollaborators(collaborators: readonly WhiteboardCollaborator[]): void;
   focusViewport(viewport: WhiteboardViewport): void;
+  insertImage?(file: File): Promise<void>;
   setDisplayOptions(options: WhiteboardEditorDisplayOptions): void;
   setReadOnly(readOnly: boolean): void;
   exportScene(

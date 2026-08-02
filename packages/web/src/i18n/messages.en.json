@@ -23,6 +23,8 @@
   "whiteboard.imageUploadError": "The image could not be uploaded, so it was not shared.",
   "whiteboard.imageDownloadError": "A shared image could not be loaded. Export is unavailable until the image is restored.",
   "whiteboard.imageDataMissing": "The image data is missing. Add the image again before sharing or exporting.",
+  "whiteboard.addImage": "Add image",
+  "whiteboard.addingImage": "Adding imageâ€¦",
   "whiteboard.exportTools": "Whiteboard export tools",
   "whiteboard.exportScope": "Export scope",
   "whiteboard.exportScene": "Entire board",

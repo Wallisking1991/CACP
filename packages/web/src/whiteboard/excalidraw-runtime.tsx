@@ -2,6 +2,7 @@ import {
   CaptureUpdateAction,
   Excalidraw,
   MainMenu,
+  convertToExcalidrawElements,
   exportToBlob,
   exportToSvg,
   serializeAsJSON,
@@ -55,9 +56,7 @@ function exportOptions(
     api.getSceneElements() as readonly NonDeletedExcalidrawElement[];
   const elements =
     scope === "selection"
-      ? allElements.filter(
-          (element) => appState.selectedElementIds[element.id] === true
-        )
+      ? selectedExportElements(allElements, appState.selectedElementIds)
       : allElements;
   if (scope === "selection" && elements.length === 0) {
     throw new Error("whiteboard_export_empty_selection");
@@ -65,8 +64,82 @@ function exportOptions(
   return {
     elements,
     appState,
-    files: api.getFiles(),
+    files: referencedFiles(elements, api.getFiles()),
   };
+}
+
+function selectedExportElements(
+  elements: readonly NonDeletedExcalidrawElement[],
+  selectedElementIds: Readonly<Record<string, boolean>>
+): NonDeletedExcalidrawElement[] {
+  const included = new Set(
+    Object.entries(selectedElementIds)
+      .filter(([, selected]) => selected)
+      .map(([id]) => id)
+  );
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const element of elements) {
+      const containerId = "containerId" in element ? element.containerId : null;
+      if (
+        !included.has(element.id) &&
+        ((element.frameId && included.has(element.frameId)) ||
+          (containerId && included.has(containerId)))
+      ) {
+        included.add(element.id);
+        changed = true;
+      }
+    }
+  }
+  return elements.filter((element) => included.has(element.id));
+}
+
+function referencedFiles(
+  elements: readonly NonDeletedExcalidrawElement[],
+  files: BinaryFiles
+): BinaryFiles {
+  const referenced = new Set<string>(
+    elements.flatMap((element) =>
+      element.type === "image" && element.fileId ? [element.fileId] : []
+    )
+  );
+  return Object.fromEntries(
+    Object.entries(files).filter(([fileId]) => referenced.has(fileId))
+  ) as BinaryFiles;
+}
+
+function fileDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () =>
+      reject(reader.error ?? new Error("whiteboard_image_read_failed"));
+    reader.onload = () =>
+      typeof reader.result === "string"
+        ? resolve(reader.result)
+        : reject(new Error("whiteboard_image_read_failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function imageSize(
+  file: File
+): Promise<{ width: number; height: number }> {
+  if (typeof createImageBitmap !== "function") {
+    return { width: 240, height: 180 };
+  }
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 320 / Math.max(bitmap.width, bitmap.height));
+    const size = {
+      width: Math.max(1, bitmap.width * scale),
+      height: Math.max(1, bitmap.height * scale),
+    };
+    bitmap.close();
+    return size;
+  } catch {
+    return { width: 240, height: 180 };
+  }
 }
 
 function assertExportImagesAvailable(
@@ -170,6 +243,48 @@ export function createExcalidrawApiPort(
           zoom: { value: viewport.zoom },
         } as AppState,
         captureUpdate: CaptureUpdateAction.NEVER,
+      });
+    },
+    async insertImage(file) {
+      if (!file.type.startsWith("image/")) {
+        throw new Error("whiteboard_image_type_invalid");
+      }
+      const [dataURL, size] = await Promise.all([
+        fileDataUrl(file),
+        imageSize(file),
+      ]);
+      const fileId = `whiteboard_${crypto.randomUUID()}`;
+      const appState = api.getAppState();
+      const zoom = appState.zoom.value || 1;
+      const x =
+        -appState.scrollX + appState.width / (2 * zoom) - size.width / 2;
+      const y =
+        -appState.scrollY + appState.height / (2 * zoom) - size.height / 2;
+      const [image] = convertToExcalidrawElements([
+        {
+          type: "image",
+          x,
+          y,
+          width: size.width,
+          height: size.height,
+          fileId: fileId as BinaryFileData["id"],
+        },
+      ]);
+      if (!image) throw new Error("whiteboard_image_insert_failed");
+      const binaryFile = {
+        id: fileId,
+        dataURL,
+        mimeType: file.type,
+        created: Date.now(),
+        lastRetrieved: Date.now(),
+      } as BinaryFileData;
+      api.addFiles([binaryFile]);
+      api.updateScene({
+        elements: [...api.getSceneElements(), image],
+        appState: {
+          selectedElementIds: { [image.id]: true },
+        },
+        captureUpdate: CaptureUpdateAction.IMMEDIATELY,
       });
     },
     exportScene(format, scope = "scene") {

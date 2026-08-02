@@ -91,6 +91,7 @@ function createEditor() {
     },
     setCollaborators,
     focusViewport,
+    insertImage: async () => {},
     setDisplayOptions: () => {},
     setReadOnly,
     exportScene: async () => new Blob(),

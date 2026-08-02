@@ -149,4 +149,85 @@ describe("whiteboard image assets", () => {
       }),
     });
   });
+
+  it("reuploads a deleted attachment when local undo restores its image", async () => {
+    const upload = vi
+      .fn()
+      .mockImplementationOnce(async (_session, file: File) => ({
+        attachment_id: "att_first",
+        name: file.name,
+        media_type: file.type,
+        size_bytes: file.size,
+        sha256: "a".repeat(64),
+        kind: "image" as const,
+        disposition: "inline" as const,
+      }))
+      .mockImplementationOnce(async (_session, file: File) => ({
+        attachment_id: "att_restored",
+        name: file.name,
+        media_type: file.type,
+        size_bytes: file.size,
+        sha256: "b".repeat(64),
+        kind: "image" as const,
+        disposition: "inline" as const,
+      }));
+    const fetchBlob = vi.fn(async () => {
+      throw new Error("attachment_not_found");
+    });
+    const manager = createWhiteboardImageAssetManager({
+      session: { room_id: "room_1", token: "secret" },
+      upload,
+      remove: vi.fn(),
+      fetchBlob,
+    });
+
+    const first = await manager.normalizeLocalScene(localImageScene());
+    expect((first.elements[0] as { fileId: string }).fileId).toBe("att_first");
+    await manager.normalizeLocalScene({
+      elements: [],
+      appState: {},
+      files: first.files,
+    });
+    const restored = await manager.normalizeLocalScene(
+      localImageScene("att_first")
+    );
+
+    expect(fetchBlob).toHaveBeenCalledWith(
+      { room_id: "room_1", token: "secret" },
+      "att_first"
+    );
+    expect(upload).toHaveBeenCalledTimes(2);
+    expect((restored.elements[0] as { fileId: string }).fileId).toBe(
+      "att_restored"
+    );
+  });
+
+  it("remaps an imported self-contained attachment id to this room", async () => {
+    const upload = vi.fn(async (_session, file: File) => ({
+      attachment_id: "att_imported_copy",
+      name: file.name,
+      media_type: file.type,
+      size_bytes: file.size,
+      sha256: "c".repeat(64),
+      kind: "image" as const,
+      disposition: "inline" as const,
+    }));
+    const manager = createWhiteboardImageAssetManager({
+      session: { room_id: "room_1", token: "secret" },
+      upload,
+      remove: vi.fn(),
+      fetchBlob: vi.fn(async () => {
+        throw new Error("attachment_not_found");
+      }),
+    });
+
+    const imported = await manager.normalizeLocalScene(
+      localImageScene("att_from_another_room")
+    );
+
+    expect(upload).toHaveBeenCalledOnce();
+    expect((imported.elements[0] as { fileId: string }).fileId).toBe(
+      "att_imported_copy"
+    );
+  });
 });

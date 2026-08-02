@@ -1453,6 +1453,10 @@ textarea.input {
   backdrop-filter: blur(10px);
 }
 
+.whiteboard-export-tools__file {
+  display: none;
+}
+
 .whiteboard-export-tools select,
 .whiteboard-export-tools button {
   min-height: 44px;

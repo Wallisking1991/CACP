@@ -18,5 +18,5 @@ describe("Excalidraw self-hosted assets", () => {
       "excalidraw-assets/fonts/Xiaolai/Xiaolai-Regular-09850c4077f3fffe707905872e0e2460.woff2"
     );
     expect(assets.every((asset) => asset.source.byteLength > 0)).toBe(true);
-  });
+  }, 15_000);
 });

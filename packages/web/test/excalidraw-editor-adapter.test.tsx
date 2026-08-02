@@ -56,6 +56,7 @@ describe("Excalidraw whiteboard editor adapter", () => {
       resetHistory,
       updateCollaborators,
       focusViewport,
+      insertImage: vi.fn(async () => {}),
       exportScene: async () => new Blob([], { type: "image/png" }),
     };
     let emitSceneChange:

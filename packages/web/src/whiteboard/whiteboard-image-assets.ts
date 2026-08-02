@@ -147,18 +147,31 @@ export function createWhiteboardImageAssetManager({
   fetchBlob = fetchAttachmentBlob,
 }: CreateWhiteboardImageAssetManagerOptions): WhiteboardImageAssetManager {
   const localAttachmentIds = new Map<string, string>();
+  const confirmedAttachmentIds = new Set<string>();
   return {
     normalizeLocalScene(scene) {
-      const localIds = liveImageFileIds(scene).filter(
-        (fileId) => !fileId.startsWith("att_")
+      const liveIds = liveImageFileIds(scene);
+      const liveIdSet = new Set(liveIds);
+      for (const attachmentId of confirmedAttachmentIds) {
+        if (!liveIdSet.has(attachmentId)) {
+          confirmedAttachmentIds.delete(attachmentId);
+        }
+      }
+      for (const localId of localAttachmentIds.keys()) {
+        if (!liveIdSet.has(localId)) localAttachmentIds.delete(localId);
+      }
+      const localIds = liveIds.filter(
+        (fileId) => !confirmedAttachmentIds.has(fileId)
       );
       if (localIds.length === 0) return scene;
       const replacements = new Map<string, string>();
       const pendingIds: string[] = [];
       for (const localId of localIds) {
         const attachmentId = localAttachmentIds.get(localId);
-        if (attachmentId) replacements.set(localId, attachmentId);
-        else pendingIds.push(localId);
+        if (attachmentId) {
+          replacements.set(localId, attachmentId);
+          confirmedAttachmentIds.add(attachmentId);
+        } else pendingIds.push(localId);
       }
       if (pendingIds.length === 0) return remapSceneFiles(scene, replacements);
       return (async () => {
@@ -174,6 +187,15 @@ export function createWhiteboardImageAssetManager({
               );
             }
             const dataURL = local.dataURL;
+            if (localId.startsWith("att_")) {
+              try {
+                await fetchBlob(session, localId);
+                confirmedAttachmentIds.add(localId);
+                continue;
+              } catch {
+                // A deleted or imported attachment id must be uploaded again.
+              }
+            }
             const blob = dataUrlBlob(dataURL);
             const mediaType =
               typeof local.mimeType === "string" && local.mimeType
@@ -193,6 +215,7 @@ export function createWhiteboardImageAssetManager({
           }
           for (const [localId, attachmentId] of completed) {
             localAttachmentIds.set(localId, attachmentId);
+            confirmedAttachmentIds.add(attachmentId);
           }
           return remapSceneFiles(scene, replacements);
         } catch (cause) {
@@ -210,11 +233,23 @@ export function createWhiteboardImageAssetManager({
     },
 
     hydrateRemoteScene(scene) {
-      const missingIds = liveImageFileIds(scene).filter((fileId) => {
+      const liveIds = liveImageFileIds(scene);
+      const liveIdSet = new Set(liveIds);
+      for (const attachmentId of confirmedAttachmentIds) {
+        if (!liveIdSet.has(attachmentId)) {
+          confirmedAttachmentIds.delete(attachmentId);
+        }
+      }
+      const missingIds = liveIds.filter((fileId) => {
         const file = binaryFile(scene, fileId);
         return typeof file?.dataURL !== "string";
       });
-      if (missingIds.length === 0) return scene;
+      if (missingIds.length === 0) {
+        for (const attachmentId of liveIds) {
+          confirmedAttachmentIds.add(attachmentId);
+        }
+        return scene;
+      }
       return (async () => {
         const files = { ...scene.files };
         for (const attachmentId of missingIds) {
@@ -227,6 +262,7 @@ export function createWhiteboardImageAssetManager({
               created: Date.now(),
               lastRetrieved: Date.now(),
             };
+            confirmedAttachmentIds.add(attachmentId);
           } catch (cause) {
             throw new WhiteboardImageAssetError(
               "whiteboard_image_download_failed",
