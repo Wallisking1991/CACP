@@ -189,8 +189,10 @@ export default function App() {
       (code, reason) => {
         if (
           code === 4001 ||
+          reason === "invalid_token" ||
           reason === "participant_removed" ||
-          reason === "owner_left_room"
+          reason === "owner_left_room" ||
+          reason === "room_ended"
         ) {
           const next = { ...allSessions };
           delete next[currentSession.room_id];
@@ -203,7 +205,7 @@ export default function App() {
           setConnectorModalPairing(undefined);
           setWaitingRoom(undefined);
           setError(
-            reason === "owner_left_room"
+            reason === "owner_left_room" || reason === "room_ended"
               ? "The room owner closed the room."
               : "You have been removed from the room."
           );

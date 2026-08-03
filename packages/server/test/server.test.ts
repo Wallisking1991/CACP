@@ -402,7 +402,7 @@ describe("CACP server", () => {
     await app.close();
   });
 
-  it("closes room and deletes all data when owner disconnects websocket", async () => {
+  it("keeps the room usable when the owner stream disconnects transiently", async () => {
     const app = await buildServer({
       dbPath: ":memory:",
       config: localTestConfig(),
@@ -423,17 +423,29 @@ describe("CACP server", () => {
     await waitForOpen(ws);
     ws.close();
 
-    // Wait for grace period to expire
+    // A transport outage is not an explicit request to dissolve the room.
     await new Promise((resolve) => setTimeout(resolve, 200));
 
-    // Room should be ended
     const me = await app.inject({
       method: "GET",
       url: `/rooms/${room.room_id}/me`,
       headers: { authorization: `Bearer ${room.owner_token}` },
     });
-    expect(me.statusCode).toBe(410);
-    expect(me.json()).toMatchObject({ error: "room_ended" });
+    expect(me.statusCode).toBe(200);
+    expect(me.json()).toMatchObject({ role: "owner" });
+
+    const reconnected = new WebSocket(
+      `ws://${addressOf(app)}/rooms/${room.room_id}/stream?token=${room.owner_token}`
+    );
+    await waitForOpen(reconnected);
+    const message = await app.inject({
+      method: "POST",
+      url: `/rooms/${room.room_id}/messages`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+      payload: { text: "after reconnect" },
+    });
+    expect(message.statusCode).toBe(201);
+    reconnected.close();
 
     await app.close();
   });

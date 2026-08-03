@@ -803,7 +803,17 @@ export function parseCacpEventMessage(data: string): CacpEvent | undefined {
   }
 }
 
-export function clearEventSocket(socket: WebSocket): void {
+export interface EventStreamConnection {
+  close(): void;
+}
+
+export function clearEventSocket(
+  socket: WebSocket | EventStreamConnection
+): void {
+  if (!("readyState" in socket)) {
+    socket.close();
+    return;
+  }
   if (socket.readyState === 0) {
     socket.addEventListener("open", () => socket.close(), { once: true });
     return;
@@ -815,20 +825,83 @@ export function connectEvents(
   session: RoomSession,
   onEvent: (event: CacpEvent) => void,
   onClose?: (code: number, reason: string) => void
-): WebSocket {
+): EventStreamConnection {
   const url = new URL(
     `/rooms/${session.room_id}/stream`,
     window.location.origin
   );
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.searchParams.set("token", session.token);
-  const socket = new WebSocket(url);
-  socket.addEventListener("message", (message) => {
-    const parsed = parseCacpEventMessage(message.data);
-    if (parsed) onEvent(parsed);
-  });
-  if (onClose) {
-    socket.addEventListener("close", (ev) => onClose(ev.code, ev.reason));
-  }
-  return socket;
+
+  const reconnectDelaysMs = [500, 1_000, 2_000, 5_000, 10_000];
+  const terminalReasons = new Set([
+    "invalid_token",
+    "owner_left_room",
+    "participant_removed",
+    "room_ended",
+  ]);
+  let activeSocket: WebSocket | undefined;
+  let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  let reconnectAttempt = 0;
+  let stopped = false;
+
+  const stop = (): void => {
+    if (stopped) return;
+    stopped = true;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = undefined;
+    if (activeSocket) clearEventSocket(activeSocket);
+    activeSocket = undefined;
+  };
+
+  const open = (): void => {
+    if (stopped) return;
+    const socket = new WebSocket(url);
+    activeSocket = socket;
+    socket.addEventListener("open", () => {
+      if (activeSocket === socket) reconnectAttempt = 0;
+    });
+    socket.addEventListener("message", (message) => {
+      if (typeof message.data !== "string") return;
+      const parsed = parseCacpEventMessage(message.data);
+      if (parsed) {
+        onEvent(parsed);
+        return;
+      }
+      try {
+        const envelope = JSON.parse(message.data) as { error?: unknown };
+        if (
+          typeof envelope.error === "string" &&
+          terminalReasons.has(envelope.error)
+        ) {
+          stopped = true;
+          onClose?.(4001, envelope.error);
+          clearEventSocket(socket);
+        }
+      } catch {
+        // Ignore non-protocol frames and keep the stream alive.
+      }
+    });
+    socket.addEventListener("close", (event) => {
+      if (activeSocket === socket) activeSocket = undefined;
+      if (stopped) return;
+      onClose?.(event.code, event.reason);
+      if (event.code === 4001 || terminalReasons.has(event.reason)) {
+        stopped = true;
+        return;
+      }
+      const delay =
+        reconnectDelaysMs[
+          Math.min(reconnectAttempt, reconnectDelaysMs.length - 1)
+        ]!;
+      reconnectAttempt += 1;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = undefined;
+        open();
+      }, delay);
+    });
+  };
+
+  open();
+  return { close: stop };
 }

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CacpEvent } from "@cacp/protocol";
 import {
   clearEventSocket,
+  connectEvents,
   clearOrbit,
   createJoinRequest,
   createLocalAgentLaunch,
@@ -105,6 +106,76 @@ describe("API event parsing", () => {
 
     expect(socket.close).toHaveBeenCalledTimes(1);
     expect(socket.addEventListener).not.toHaveBeenCalled();
+  });
+
+  it("reconnects the room event stream after a transient socket close", async () => {
+    vi.useFakeTimers();
+    const sockets: Array<{
+      readyState: number;
+      close: ReturnType<typeof vi.fn>;
+      emitClose: (code: number, reason: string) => void;
+    }> = [];
+
+    class FakeWebSocket {
+      readyState = 1;
+      readonly close = vi.fn(() => {
+        this.readyState = 3;
+      });
+      private readonly listeners = new Map<
+        string,
+        Array<(event: { code: number; reason: string; data?: string }) => void>
+      >();
+
+      constructor(readonly url: string) {
+        sockets.push(this);
+      }
+
+      addEventListener(
+        type: string,
+        listener: (event: {
+          code: number;
+          reason: string;
+          data?: string;
+        }) => void
+      ): void {
+        const current = this.listeners.get(type) ?? [];
+        current.push(listener);
+        this.listeners.set(type, current);
+      }
+
+      emitClose(code: number, reason: string): void {
+        this.readyState = 3;
+        for (const listener of this.listeners.get("close") ?? []) {
+          listener({ code, reason });
+        }
+      }
+    }
+
+    vi.stubGlobal("WebSocket", FakeWebSocket as unknown as typeof WebSocket);
+    try {
+      const connection = connectEvents(
+        {
+          room_id: "room_1",
+          participant_id: "owner_1",
+          token: "owner-token",
+          role: "owner",
+        },
+        vi.fn()
+      );
+      expect(sockets).toHaveLength(1);
+
+      sockets[0]!.emitClose(1006, "");
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(sockets).toHaveLength(2);
+      clearEventSocket(connection);
+      sockets[1]!.emitClose(1000, "client_close");
+      await vi.runAllTimersAsync();
+      expect(sockets).toHaveLength(2);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
   });
 });
 

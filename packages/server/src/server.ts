@@ -1128,62 +1128,17 @@ export async function buildServer(options: BuildServerOptions = {}) {
     }
   }
 
-  async function autoRemoveParticipant(
+  async function autoRemoveDisconnectedAgent(
     roomId: string,
     participant: StoredParticipant
   ): Promise<void> {
+    if (participant.type !== "agent") return;
     const key = socketKey(roomId, participant.id);
     const stillConnected =
       participantSockets.has(key) && participantSockets.get(key)!.size > 0;
     if (stillConnected) return;
 
     const removedAt = new Date().toISOString();
-
-    if (participant.role === "owner") {
-      const allParticipants = store.getParticipants(roomId);
-      const storedEvents = store.transaction(() => {
-        const events: CacpEvent[] = [];
-        for (const target of allParticipants) {
-          store.revokeParticipant(
-            roomId,
-            target.id,
-            participant.id,
-            removedAt,
-            "owner_disconnected"
-          );
-          events.push(
-            store.appendEvent(
-              event(roomId, "participant.removed", participant.id, {
-                participant_id: target.id,
-                removed_by: participant.id,
-                removed_at: removedAt,
-                reason: "owner_disconnected",
-              })
-            )
-          );
-          if (target.role === "agent") {
-            events.push(
-              store.appendEvent(
-                event(roomId, "agent.status_changed", target.id, {
-                  agent_id: target.id,
-                  status: "offline",
-                })
-              )
-            );
-            store.deleteAgentPairingByParticipantId(roomId, target.id);
-          }
-        }
-        return events;
-      });
-      publishEvents(storedEvents);
-      closePendingInteractionsForRoom(roomId, "run_closed");
-      discardRoomRuntimeState(roomId);
-      closeRoomSockets(roomId, 4001, "owner_disconnected");
-      forgetRoomSocketRegistry(roomId);
-      await attachmentStore.deleteRoom(roomId);
-      store.deleteRoom(roomId);
-      return;
-    }
 
     const storedEvents = store.transaction(() => {
       store.revokeParticipant(
@@ -1203,22 +1158,41 @@ export async function buildServer(options: BuildServerOptions = {}) {
           })
         ),
       ];
-      if (participant.role === "agent") {
-        store.deleteAgentPairingByParticipantId(roomId, participant.id);
-        if (findActiveAgentId(store.listEvents(roomId)) === participant.id) {
-          events.push(
-            store.appendEvent(
-              event(roomId, "room.agent_selected", participant.id, {
-                agent_id: "",
-              })
-            )
-          );
-        }
+      store.deleteAgentPairingByParticipantId(roomId, participant.id);
+      if (findActiveAgentId(store.listEvents(roomId)) === participant.id) {
+        events.push(
+          store.appendEvent(
+            event(roomId, "room.agent_selected", participant.id, {
+              agent_id: "",
+            })
+          )
+        );
       }
       return events;
     });
     publishEvents(storedEvents);
     closeParticipantSockets(roomId, participant.id);
+  }
+
+  function scheduleDisconnectedAgentRemoval(
+    roomId: string,
+    participant: StoredParticipant
+  ): void {
+    if (participant.type !== "agent") return;
+    const key = socketKey(roomId, participant.id);
+    if (pendingOffline.has(key)) clearTimeout(pendingOffline.get(key));
+    pendingOffline.set(
+      key,
+      setTimeout(() => {
+        pendingOffline.delete(key);
+        void autoRemoveDisconnectedAgent(roomId, participant).catch((error) => {
+          app.log.error(
+            { error, roomId, participantId: participant.id },
+            "automatic disconnected agent cleanup failed"
+          );
+        });
+      }, REMOVAL_GRACE_MS)
+    );
   }
 
   async function cleanupAbandonedAttachments(): Promise<void> {
@@ -4263,20 +4237,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
         roomId,
         Math.max(0, (socketCounts.get(roomId) ?? 1) - 1)
       );
-      const key = socketKey(roomId, participant.id);
-      if (pendingOffline.has(key)) clearTimeout(pendingOffline.get(key));
-      pendingOffline.set(
-        key,
-        setTimeout(() => {
-          pendingOffline.delete(key);
-          void autoRemoveParticipant(roomId, participant).catch((error) => {
-            app.log.error(
-              { error, roomId, participantId: participant.id },
-              "automatic participant cleanup failed"
-            );
-          });
-        }, REMOVAL_GRACE_MS)
-      );
+      scheduleDisconnectedAgentRemoval(roomId, participant);
     });
   });
 
@@ -4376,20 +4337,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
         socketCounts.set(roomId, (socketCounts.get(roomId) ?? 1) - 1);
         const key = socketKey(roomId, participant.id);
 
-        // Start / reset the auto-removal timer for this participant
-        if (pendingOffline.has(key)) clearTimeout(pendingOffline.get(key));
-        pendingOffline.set(
-          key,
-          setTimeout(() => {
-            pendingOffline.delete(key);
-            void autoRemoveParticipant(roomId, participant).catch((error) => {
-              app.log.error(
-                { error, roomId, participantId: participant.id },
-                "automatic participant cleanup failed"
-              );
-            });
-          }, REMOVAL_GRACE_MS)
-        );
+        scheduleDisconnectedAgentRemoval(roomId, participant);
 
         // If this was the last socket for an agent, mark it offline immediately
         const stillConnected =

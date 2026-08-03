@@ -301,6 +301,104 @@ describe("collaborative whiteboard stream", () => {
     });
   });
 
+  it("resumes owner-to-member sharing after the owner's transport reconnects", async () => {
+    app = await buildServer({
+      dbPath: ":memory:",
+      config: localTestConfig(),
+      removalGraceMs: 25,
+    });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const room = (
+      await app.inject({
+        method: "POST",
+        url: "/rooms",
+        payload: { name: "Reconnect board", display_name: "Owner" },
+      })
+    ).json() as {
+      room_id: string;
+      owner_id: string;
+      owner_token: string;
+    };
+    const member = await joinHuman(
+      app,
+      room.room_id,
+      room.owner_token,
+      "member",
+      "Alice"
+    );
+    const url = `ws://${addressOf(app)}/rooms/${room.room_id}/whiteboard`;
+    const firstOwnerSocket = new WebSocket(
+      `${url}?token=${encodeURIComponent(room.owner_token)}`
+    );
+    const memberSocket = new WebSocket(
+      `${url}?token=${encodeURIComponent(member.participant_token)}`
+    );
+    sockets.push(firstOwnerSocket, memberSocket);
+    const firstOwnerInbox = createInbox(firstOwnerSocket);
+    const memberInbox = createInbox(memberSocket);
+    await Promise.all([
+      waitForOpen(firstOwnerSocket),
+      waitForOpen(memberSocket),
+    ]);
+    for (const inbox of [firstOwnerInbox, memberInbox]) {
+      await inbox.next("whiteboard.connected");
+      await inbox.next("whiteboard.scene");
+      await inbox.next("whiteboard.presence.snapshot");
+    }
+
+    await closeSocket(firstOwnerSocket);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const ownerMe = await app.inject({
+      method: "GET",
+      url: `/rooms/${room.room_id}/me`,
+      headers: { authorization: `Bearer ${room.owner_token}` },
+    });
+    expect(ownerMe.statusCode).toBe(200);
+
+    const reconnectedOwnerSocket = new WebSocket(
+      `${url}?token=${encodeURIComponent(room.owner_token)}`
+    );
+    sockets.push(reconnectedOwnerSocket);
+    const reconnectedOwnerInbox = createInbox(reconnectedOwnerSocket);
+    await waitForOpen(reconnectedOwnerSocket);
+    await reconnectedOwnerInbox.next("whiteboard.connected");
+    await reconnectedOwnerInbox.next("whiteboard.scene");
+    await reconnectedOwnerInbox.next("whiteboard.presence.snapshot");
+
+    reconnectedOwnerSocket.send(
+      JSON.stringify({
+        protocol: "cacp-whiteboard",
+        version: "1.0.0",
+        room_id: room.room_id,
+        type: "whiteboard.elements.update",
+        update_id: "after-reconnect",
+        base_revision: 0,
+        elements: [
+          {
+            id: "reconnected-shape",
+            type: "rectangle",
+            version: 1,
+            versionNonce: 204,
+            x: 120,
+            y: 160,
+            width: 200,
+            height: 120,
+          },
+        ],
+        app_state: {},
+      })
+    );
+    await reconnectedOwnerInbox.next("whiteboard.ack");
+    await expect(
+      memberInbox.next("whiteboard.elements.updated")
+    ).resolves.toMatchObject({
+      update_id: "after-reconnect",
+      participant_id: room.owner_id,
+      elements: [expect.objectContaining({ id: "reconnected-shape" })],
+    });
+  });
+
   it("merges independent concurrent edits and deterministically resolves one element", async () => {
     app = await buildServer({
       dbPath: ":memory:",
