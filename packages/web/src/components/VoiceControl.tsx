@@ -9,6 +9,7 @@ import type {
   VoiceSessionSnapshot,
 } from "../voice/voice-session.js";
 import { Popover } from "./Popover.js";
+import { MicrophoneCheckPanel } from "./MicrophoneCheckPanel.js";
 import {
   HeadphonesIcon,
   MicrophoneIcon,
@@ -16,6 +17,7 @@ import {
   PhoneOffIcon,
   RefreshIcon,
   SoundIcon,
+  WaveformIcon,
 } from "./RoomIcons.js";
 
 type VoiceUiState =
@@ -28,12 +30,56 @@ const EMPTY_SNAPSHOT: VoiceSessionSnapshot = {
   playbackBlocked: false,
 };
 
+const MICROPHONE_DEVICE_STORAGE_KEY = "cacp.voice.microphone-device";
+const MICROPHONE_OPERATION_TIMEOUT_MS = 10_000;
+
+async function microphoneOperation<T>(operation: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("microphone_operation_timeout")),
+          MICROPHONE_OPERATION_TIMEOUT_MS
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function storedMicrophoneDevice(): string {
+  if (typeof localStorage === "undefined") return "";
+  try {
+    return localStorage.getItem(MICROPHONE_DEVICE_STORAGE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function storeMicrophoneDevice(deviceId: string): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(MICROPHONE_DEVICE_STORAGE_KEY, deviceId);
+  } catch {
+    // Device selection still applies for this session when storage is blocked.
+  }
+}
+
 function errorKey(
   cause: unknown
 ):
-  "voice.errorUnavailable" | "voice.errorMicrophone" | "voice.errorConnection" {
+  | "voice.errorUnavailable"
+  | "voice.errorMicrophone"
+  | "voice.errorMicrophoneTimeout"
+  | "voice.errorConnection" {
   const message = cause instanceof Error ? cause.message : String(cause);
   if (message.includes("voice_unavailable")) return "voice.errorUnavailable";
+  if (message.includes("microphone_operation_timeout")) {
+    return "voice.errorMicrophoneTimeout";
+  }
   if (
     message.includes("NotAllowedError") ||
     message.includes("Permission denied") ||
@@ -59,6 +105,7 @@ export function VoiceControl({
 }: VoiceControlProps) {
   const t = useT();
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const microphoneCheckTriggerRef = useRef<HTMLButtonElement>(null);
   const audioContainerRef = useRef<HTMLDivElement>(null);
   const voiceSessionRef = useRef<VoiceSession | undefined>(undefined);
   const operationRef = useRef(0);
@@ -68,8 +115,15 @@ export function VoiceControl({
   const [canPublish, setCanPublish] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [controlBusy, setControlBusy] = useState(false);
+  const [microphoneCheckOpen, setMicrophoneCheckOpen] = useState(false);
+  const [microphoneDeviceId, setMicrophoneDeviceId] = useState(
+    storedMicrophoneDevice
+  );
   const [error, setError] = useState<
-    "voice.errorUnavailable" | "voice.errorMicrophone" | "voice.errorConnection"
+    | "voice.errorUnavailable"
+    | "voice.errorMicrophone"
+    | "voice.errorMicrophoneTimeout"
+    | "voice.errorConnection"
   >();
 
   const handleSnapshot = useCallback(
@@ -145,7 +199,12 @@ export function VoiceControl({
       setState("connected");
       if (credentials.can_publish) {
         try {
-          await nextSession.setMicrophoneEnabled(true);
+          await microphoneOperation(
+            nextSession.setMicrophoneEnabled(
+              true,
+              microphoneDeviceId || undefined
+            )
+          );
         } catch (cause) {
           setError(errorKey(cause));
         }
@@ -160,7 +219,7 @@ export function VoiceControl({
       setError(errorKey(cause));
       setPanelOpen(true);
     }
-  }, [handleSnapshot, loadSession, session, state]);
+  }, [handleSnapshot, loadSession, microphoneDeviceId, session, state]);
 
   const toggleMicrophone = useCallback(async () => {
     const current = voiceSessionRef.current;
@@ -168,13 +227,38 @@ export function VoiceControl({
     setControlBusy(true);
     setError(undefined);
     try {
-      await current.setMicrophoneEnabled(!snapshot.microphoneEnabled);
+      await microphoneOperation(
+        current.setMicrophoneEnabled(
+          !snapshot.microphoneEnabled,
+          microphoneDeviceId || undefined
+        )
+      );
     } catch (cause) {
       setError(errorKey(cause));
     } finally {
       setControlBusy(false);
     }
-  }, [canPublish, controlBusy, snapshot.microphoneEnabled]);
+  }, [canPublish, controlBusy, microphoneDeviceId, snapshot.microphoneEnabled]);
+
+  const changeMicrophoneDevice = useCallback(
+    async (deviceId: string) => {
+      setMicrophoneDeviceId(deviceId);
+      storeMicrophoneDevice(deviceId);
+      const current = voiceSessionRef.current;
+      if (!current || state !== "connected" || !snapshot.microphoneEnabled)
+        return;
+      setControlBusy(true);
+      setError(undefined);
+      try {
+        await microphoneOperation(current.setMicrophoneDevice(deviceId));
+      } catch (cause) {
+        setError(errorKey(cause));
+      } finally {
+        setControlBusy(false);
+      }
+    },
+    [snapshot.microphoneEnabled, state]
+  );
 
   const enablePlayback = useCallback(async () => {
     const current = voiceSessionRef.current;
@@ -211,6 +295,7 @@ export function VoiceControl({
         title={triggerLabel}
         disabled={state === "connecting"}
         onClick={() => {
+          setMicrophoneCheckOpen(false);
           if (connected) setPanelOpen((current) => !current);
           else void join();
         }}
@@ -230,6 +315,36 @@ export function VoiceControl({
           <span className="voice-control__connecting-ring" aria-hidden="true" />
         )}
       </button>
+
+      <button
+        ref={microphoneCheckTriggerRef}
+        type="button"
+        className={`voice-control__trigger voice-control__check${
+          microphoneCheckOpen ? " is-active" : ""
+        }`}
+        aria-label={t("voice.check.open")}
+        aria-expanded={microphoneCheckOpen}
+        title={t("voice.check.open")}
+        onClick={() => {
+          setPanelOpen(false);
+          setMicrophoneCheckOpen((current) => !current);
+        }}
+      >
+        <WaveformIcon />
+      </button>
+
+      <Popover
+        triggerRef={microphoneCheckTriggerRef}
+        open={microphoneCheckOpen}
+        onClose={() => setMicrophoneCheckOpen(false)}
+      >
+        <MicrophoneCheckPanel
+          connection={snapshot.connection}
+          preferredDeviceId={microphoneDeviceId}
+          onDeviceChange={changeMicrophoneDevice}
+          onClose={() => setMicrophoneCheckOpen(false)}
+        />
+      </Popover>
 
       <Popover
         triggerRef={triggerRef}

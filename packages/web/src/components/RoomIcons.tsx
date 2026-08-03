@@ -117,6 +117,31 @@ export function MicrophoneOffIcon(props: IconProps) {
   );
 }
 
+export function WaveformIcon(props: IconProps) {
+  return (
+    <IconFrame {...props}>
+      <path d="M4 12h2l1.5-5 3 10 3-12 3 9 1.5-2H20" />
+    </IconFrame>
+  );
+}
+
+export function RecordIcon(props: IconProps) {
+  return (
+    <IconFrame {...props}>
+      <circle cx="12" cy="12" r="7" />
+      <circle cx="12" cy="12" r="3.5" fill="currentColor" stroke="none" />
+    </IconFrame>
+  );
+}
+
+export function StopIcon(props: IconProps) {
+  return (
+    <IconFrame {...props}>
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+    </IconFrame>
+  );
+}
+
 export function PhoneOffIcon(props: IconProps) {
   return (
     <IconFrame {...props}>

@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import React from "react";
 import type { RoomSession } from "../src/api.js";
 import { VoiceControl } from "../src/components/VoiceControl.js";
@@ -28,6 +34,7 @@ class FakeVoiceSession implements VoiceSession {
     this.microphoneEnabled = enabled;
     this.emit("connected");
   });
+  setMicrophoneDevice = vi.fn(async () => {});
   startAudio = vi.fn(async () => {
     this.emit("connected", false);
   });
@@ -69,6 +76,8 @@ function credentialResponse(canPublish: boolean) {
 describe("VoiceControl", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
+    localStorage.clear();
   });
 
   it("joins voice, enables the microphone, toggles mute, and leaves", async () => {
@@ -88,7 +97,10 @@ describe("VoiceControl", () => {
 
     expect(await screen.findByText("Wei")).toBeInTheDocument();
     await waitFor(() =>
-      expect(voiceSession.setMicrophoneEnabled).toHaveBeenCalledWith(true)
+      expect(voiceSession.setMicrophoneEnabled).toHaveBeenCalledWith(
+        true,
+        undefined
+      )
     );
     expect(fetchMock).toHaveBeenCalledWith(
       "/rooms/room_1/voice/token",
@@ -104,7 +116,10 @@ describe("VoiceControl", () => {
       await screen.findByRole("button", { name: "Mute microphone" })
     );
     await waitFor(() =>
-      expect(voiceSession.setMicrophoneEnabled).toHaveBeenLastCalledWith(false)
+      expect(voiceSession.setMicrophoneEnabled).toHaveBeenLastCalledWith(
+        false,
+        undefined
+      )
     );
     expect(
       await screen.findByRole("button", { name: "Unmute microphone" })
@@ -141,6 +156,59 @@ describe("VoiceControl", () => {
     expect(
       screen.queryByRole("button", { name: "Mute microphone" })
     ).not.toBeInTheDocument();
+  });
+
+  it("opens the local microphone check without joining room voice", () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <LangProvider>
+        <VoiceControl session={roomSession} />
+      </LangProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Test microphone" }));
+
+    expect(screen.getByText("Microphone check")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Start microphone check" })
+    ).toBeEnabled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("unlocks the microphone control when a device operation stalls", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => credentialResponse(true))
+    );
+    const voiceSession = new FakeVoiceSession();
+    render(
+      <LangProvider>
+        <VoiceControl
+          session={roomSession}
+          loadSession={async () => voiceSession}
+        />
+      </LangProvider>
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Join voice" }));
+    const muteButton = await screen.findByRole("button", {
+      name: "Mute microphone",
+    });
+    voiceSession.setMicrophoneEnabled.mockImplementationOnce(
+      async () => await new Promise<void>(() => {})
+    );
+    vi.useFakeTimers();
+
+    fireEvent.click(muteButton);
+    expect(muteButton).toBeDisabled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+
+    expect(muteButton).toBeEnabled();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "The microphone did not respond"
+    );
   });
 
   it("announces a configuration error and offers an icon retry action", async () => {

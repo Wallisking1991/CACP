@@ -25,7 +25,8 @@ export interface VoiceSessionConnectOptions {
 
 export interface VoiceSession {
   connect(options: VoiceSessionConnectOptions): Promise<void>;
-  setMicrophoneEnabled(enabled: boolean): Promise<void>;
+  setMicrophoneEnabled(enabled: boolean, deviceId?: string): Promise<void>;
+  setMicrophoneDevice(deviceId: string): Promise<void>;
   startAudio(): Promise<void>;
   disconnect(): Promise<void>;
 }

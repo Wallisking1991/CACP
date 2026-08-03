@@ -80,12 +80,21 @@ export class LiveKitVoiceSession implements VoiceSession {
     this.emit();
   }
 
-  async setMicrophoneEnabled(enabled: boolean): Promise<void> {
+  async setMicrophoneEnabled(
+    enabled: boolean,
+    deviceId?: string
+  ): Promise<void> {
     await this.room.localParticipant.setMicrophoneEnabled(enabled, {
+      deviceId,
       echoCancellation: true,
       noiseSuppression: true,
       autoGainControl: true,
     });
+    this.emit();
+  }
+
+  async setMicrophoneDevice(deviceId: string): Promise<void> {
+    await this.room.switchActiveDevice("audioinput", deviceId, true);
     this.emit();
   }
 
