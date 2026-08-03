@@ -18,30 +18,43 @@ export function Popover({ triggerRef, open, onClose, children }: PopoverProps) {
   useEffect(() => {
     if (!open || !triggerRef.current) return;
 
-    const rect = triggerRef.current.getBoundingClientRect();
-    const padding = 8;
-    const panelWidth = 320;
+    const updatePosition = () => {
+      if (!triggerRef.current) return;
+      const rect = triggerRef.current.getBoundingClientRect();
+      const padding = 8;
+      const viewportWidth =
+        document.documentElement.clientWidth || window.innerWidth;
+      const viewportHeight =
+        document.documentElement.clientHeight || window.innerHeight;
+      const panelWidth = Math.min(320, viewportWidth - padding * 2);
 
-    let left = rect.left;
-    let top = rect.bottom + padding;
+      let left = rect.left;
+      let top = rect.bottom + padding;
 
-    // Boundary detection: right edge
-    if (left + panelWidth > window.innerWidth - padding) {
-      left = Math.max(padding, window.innerWidth - panelWidth - padding);
-    }
+      if (left + panelWidth > viewportWidth - padding) {
+        left = Math.max(padding, viewportWidth - panelWidth - padding);
+      }
 
-    // Boundary detection: bottom edge
-    const panelHeight = panelRef.current?.offsetHeight ?? 400;
-    if (top + panelHeight > window.innerHeight - padding) {
-      top = Math.max(padding, rect.top - panelHeight - padding);
-    }
+      const panelHeight = panelRef.current?.offsetHeight ?? 400;
+      if (top + panelHeight > viewportHeight - padding) {
+        top = Math.max(padding, rect.top - panelHeight - padding);
+      }
 
-    setStyle({
-      position: "fixed",
-      top,
-      left,
-      zIndex: 50,
-    });
+      setStyle({
+        position: "fixed",
+        top,
+        left,
+        zIndex: 50,
+      });
+    };
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
   }, [open, triggerRef]);
 
   useEffect(() => {

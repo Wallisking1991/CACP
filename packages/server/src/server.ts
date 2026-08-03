@@ -153,6 +153,7 @@ import {
   whiteboardErrorMessage,
 } from "./whiteboard-hub.js";
 import { whiteboardAttachmentIds } from "./whiteboard-scene-state.js";
+import { createVoiceService, type VoiceService } from "./voice-service.js";
 
 const connectorVersion = JSON.parse(
   readFileSync(
@@ -327,6 +328,7 @@ export interface BuildServerOptions {
   removalGraceMs?: number;
   approvalTimeoutMs?: number;
   elicitationTimeoutMs?: number;
+  voiceService?: VoiceService;
 }
 type ProposalTerminalStatus = "approved" | "rejected" | "expired";
 type ProposalState = {
@@ -893,6 +895,7 @@ export async function buildServer(options: BuildServerOptions = {}) {
   }
   const localAgentLauncher =
     options.localAgentLauncher ?? defaultLocalAgentLauncher;
+  const voiceService = options.voiceService ?? createVoiceService(config);
   const localRepoRoot = options.repoRoot ?? repoRoot;
   const roomLimiter = new FixedWindowRateLimiter({
     windowMs: config.rateLimitWindowMs,
@@ -4029,6 +4032,29 @@ export async function buildServer(options: BuildServerOptions = {}) {
   );
 
   app.post<{ Params: { roomId: string } }>(
+    "/rooms/:roomId/voice/token",
+    async (request, reply) => {
+      const participant = requireParticipant(
+        store,
+        request.params.roomId,
+        request
+      );
+      if (!participant) return deny(reply, "invalid_token");
+      if (participant.type !== "human") return deny(reply, "forbidden", 403);
+      if (!voiceService) return deny(reply, "voice_unavailable", 503);
+      if (!presenceLimiter.allow(`voice:${participant.id}`)) {
+        return tooMany(reply);
+      }
+      reply.header("cache-control", "private, no-store");
+      const credentials = await voiceService.createJoinCredentials(
+        request.params.roomId,
+        participant
+      );
+      return reply.code(201).send(credentials);
+    }
+  );
+
+  app.post<{ Params: { roomId: string } }>(
     "/rooms/:roomId/activity/presence",
     async (request, reply) => {
       const participant = requireParticipant(
@@ -4842,6 +4868,14 @@ export async function buildServer(options: BuildServerOptions = {}) {
       // sees the room as gone (next /me would 410), and any leaked socket
       // is bounded by process lifetime.
       discardRoomRuntimeState(request.params.roomId);
+      if (voiceService) {
+        void voiceService.deleteRoom(request.params.roomId).catch((err) => {
+          request.log.warn(
+            { err, roomId: request.params.roomId },
+            "failed to delete LiveKit voice room"
+          );
+        });
+      }
       closePendingInteractionsForRoom(request.params.roomId, "run_closed");
       try {
         closeRoomSockets(request.params.roomId, 4001, "owner_left_room");
@@ -4923,6 +4957,16 @@ export async function buildServer(options: BuildServerOptions = {}) {
       });
       publishEvents(storedEvents);
       closeParticipantSockets(request.params.roomId, target.id);
+      if (voiceService) {
+        void voiceService
+          .removeParticipant(request.params.roomId, target.id)
+          .catch((err) => {
+            request.log.warn(
+              { err, roomId: request.params.roomId, participantId: target.id },
+              "failed to remove participant from LiveKit voice room"
+            );
+          });
+      }
       return reply.code(201).send({ ok: true });
     }
   );
@@ -4963,6 +5007,16 @@ export async function buildServer(options: BuildServerOptions = {}) {
         ];
       });
       publishEvents(storedEvents);
+      if (voiceService) {
+        void voiceService
+          .removeParticipant(request.params.roomId, target.id)
+          .catch((err) => {
+            request.log.warn(
+              { err, roomId: request.params.roomId, participantId: target.id },
+              "failed to refresh participant voice permissions"
+            );
+          });
+      }
       return reply.code(201).send({
         ok: true,
         participant: publicParticipant({ ...target, role: body.role }),

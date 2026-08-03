@@ -1,4 +1,10 @@
-import { useCallback, useContext, useRef, useState } from "react";
+import {
+  useCallback,
+  useContext,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useT } from "../i18n/useT.js";
 import { LangContext, type Lang } from "../i18n/LangProvider.js";
 import type {
@@ -65,6 +71,7 @@ export interface HeaderProps {
   whiteboardActiveEditorCount?: number;
   hasWhiteboardActivity?: boolean;
   hasConversationActivity?: boolean;
+  voiceControl?: ReactNode;
 }
 
 export default function Header({
@@ -102,6 +109,7 @@ export default function Header({
   whiteboardActiveEditorCount = 0,
   hasWhiteboardActivity = false,
   hasConversationActivity = false,
+  voiceControl,
 }: HeaderProps) {
   const t = useT();
   const langCtx = useContext(LangContext);
@@ -158,6 +166,7 @@ export default function Header({
       />
 
       <div className="header-actions">
+        {voiceControl}
         <button
           ref={notificationTriggerRef}
           type="button"

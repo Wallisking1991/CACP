@@ -360,6 +360,23 @@ export async function leaveRoom(session: RoomSession): Promise<void> {
 
 export type ParticipantPresence = "online" | "idle" | "offline";
 
+export interface VoiceJoinCredentials {
+  server_url: string;
+  participant_token: string;
+  can_publish: boolean;
+  expires_in: number;
+}
+
+export async function createVoiceJoinCredentials(
+  session: RoomSession
+): Promise<VoiceJoinCredentials> {
+  return await postJson(
+    `/rooms/${session.room_id}/voice/token`,
+    session.token,
+    {}
+  );
+}
+
 export async function updatePresence(
   session: RoomSession,
   presence: ParticipantPresence

@@ -89,6 +89,8 @@ import type {
   WhiteboardSessionFactoryLoader,
 } from "../whiteboard/whiteboard-session.js";
 import { LangContext } from "../i18n/LangProvider.js";
+import type { VoiceSessionLoader } from "../voice/voice-session.js";
+import { VoiceControl } from "./VoiceControl.js";
 
 export interface WorkspaceProps {
   session: RoomSession;
@@ -122,6 +124,7 @@ export interface WorkspaceProps {
   loadWhiteboardEditorAdapter?: WhiteboardEditorAdapterLoader;
   loadWhiteboardSession?: WhiteboardSessionFactoryLoader;
   eventReplayReady?: boolean;
+  loadVoiceSession?: VoiceSessionLoader;
 }
 
 export default function Workspace({
@@ -143,6 +146,7 @@ export default function Workspace({
   loadWhiteboardEditorAdapter = loadExcalidrawEditorAdapter,
   loadWhiteboardSession: loadWhiteboardSessionFactory = loadWhiteboardSession,
   eventReplayReady = true,
+  loadVoiceSession,
 }: WorkspaceProps) {
   const t = useT();
   const lang = useContext(LangContext)?.lang ?? "en";
@@ -1017,6 +1021,15 @@ export default function Workspace({
             whiteboardActiveEditorCount={whiteboardActiveEditorCount}
             hasWhiteboardActivity={hasWhiteboardActivity}
             hasConversationActivity={hasConversationActivity}
+            voiceControl={
+              session.role !== "agent" ? (
+                <VoiceControl
+                  key={`${session.room_id}:${session.participant_id}`}
+                  session={session}
+                  loadSession={loadVoiceSession}
+                />
+              ) : undefined
+            }
           />
 
           {whiteboardOperationNotice && (

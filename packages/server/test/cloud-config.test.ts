@@ -8,6 +8,37 @@ describe("server cloud config", () => {
     expect(config.enableLocalLaunch).toBe(true);
     expect(config.publicOrigin).toBeUndefined();
     expect(config.maxMessageLength).toBe(4000);
+    expect(config.livekitUrl).toBeUndefined();
+    expect(config.livekitTokenTtlSeconds).toBe(300);
+  });
+
+  it("loads a complete LiveKit configuration", () => {
+    const config = loadServerConfig({
+      LIVEKIT_URL: "wss://rtc.example.com/path?ignored=true",
+      LIVEKIT_API_KEY: "api-key",
+      LIVEKIT_API_SECRET: "api-secret",
+      CACP_LIVEKIT_TOKEN_TTL_SECONDS: "600",
+    });
+    expect(config.livekitUrl).toBe("wss://rtc.example.com");
+    expect(config.livekitApiKey).toBe("api-key");
+    expect(config.livekitApiSecret).toBe("api-secret");
+    expect(config.livekitTokenTtlSeconds).toBe(600);
+  });
+
+  it("rejects partial or unsafe LiveKit configuration", () => {
+    expect(() =>
+      loadServerConfig({
+        LIVEKIT_URL: "wss://rtc.example.com",
+        LIVEKIT_API_KEY: "api-key",
+      })
+    ).toThrow("must be configured together");
+    expect(() =>
+      loadServerConfig({
+        LIVEKIT_URL: "https://rtc.example.com",
+        LIVEKIT_API_KEY: "api-key",
+        LIVEKIT_API_SECRET: "api-secret",
+      })
+    ).toThrow("must use ws or wss");
   });
 
   it("rejects invalid deployment mode", () => {

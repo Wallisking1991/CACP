@@ -7,6 +7,10 @@ export interface ServerConfig {
   enableLocalLaunch: boolean;
   publicOrigin?: string;
   tokenSecret: string;
+  livekitUrl?: string;
+  livekitApiKey?: string;
+  livekitApiSecret?: string;
+  livekitTokenTtlSeconds: number;
   bodyLimitBytes: number;
   maxMessageLength: number;
   maxAttachmentBytes: number;
@@ -63,6 +67,18 @@ function cleanOrigin(value: string | undefined): string | undefined {
   return url.toString().replace(/\/$/, "");
 }
 
+function cleanLivekitUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const url = new URL(value);
+  if (url.protocol !== "ws:" && url.protocol !== "wss:") {
+    throw new Error("LIVEKIT_URL must use ws or wss");
+  }
+  url.pathname = "";
+  url.search = "";
+  url.hash = "";
+  return url.toString().replace(/\/$/, "");
+}
+
 export function loadServerConfig(
   env: NodeJS.ProcessEnv = process.env
 ): ServerConfig {
@@ -77,6 +93,9 @@ export function loadServerConfig(
     deploymentModeValue === "cloud" ? "cloud" : "local";
   const publicOrigin = cleanOrigin(env.CACP_PUBLIC_ORIGIN);
   const tokenSecret = env.CACP_TOKEN_SECRET?.trim() || "local-dev-token-secret";
+  const livekitUrl = cleanLivekitUrl(env.LIVEKIT_URL?.trim());
+  const livekitApiKey = env.LIVEKIT_API_KEY?.trim();
+  const livekitApiSecret = env.LIVEKIT_API_SECRET?.trim();
   if (deploymentMode === "cloud" && !publicOrigin)
     throw new Error("CACP_PUBLIC_ORIGIN is required in cloud mode");
   if (deploymentMode === "cloud" && tokenSecret === "local-dev-token-secret")
@@ -85,6 +104,14 @@ export function loadServerConfig(
     throw new Error(
       "CACP_TOKEN_SECRET must be at least 32 characters in cloud mode"
     );
+  if (
+    [livekitUrl, livekitApiKey, livekitApiSecret].some(Boolean) &&
+    ![livekitUrl, livekitApiKey, livekitApiSecret].every(Boolean)
+  ) {
+    throw new Error(
+      "LIVEKIT_URL, LIVEKIT_API_KEY, and LIVEKIT_API_SECRET must be configured together"
+    );
+  }
   const config: ServerConfig = {
     deploymentMode,
     enableLocalLaunch:
@@ -93,6 +120,10 @@ export function loadServerConfig(
         : boolValue(env.CACP_ENABLE_LOCAL_LAUNCH, true),
     publicOrigin,
     tokenSecret,
+    livekitUrl,
+    livekitApiKey,
+    livekitApiSecret,
+    livekitTokenTtlSeconds: intValue(env.CACP_LIVEKIT_TOKEN_TTL_SECONDS, 300),
     bodyLimitBytes: intValue(env.CACP_BODY_LIMIT_BYTES, 1024 * 1024),
     maxMessageLength: intValue(env.CACP_MAX_MESSAGE_LENGTH, 4000),
     maxAttachmentBytes: intValue(

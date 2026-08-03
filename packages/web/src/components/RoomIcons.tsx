@@ -82,6 +82,62 @@ export function SoundIcon(props: IconProps) {
   );
 }
 
+export function HeadphonesIcon(props: IconProps) {
+  return (
+    <IconFrame {...props}>
+      <path d="M4 14v-2a8 8 0 0 1 16 0v2" />
+      <path d="M4 14a2 2 0 0 1 2-2h2v8H6a2 2 0 0 1-2-2v-4Z" />
+      <path d="M20 14a2 2 0 0 0-2-2h-2v8h2a2 2 0 0 0 2-2v-4Z" />
+    </IconFrame>
+  );
+}
+
+export function MicrophoneIcon(props: IconProps) {
+  return (
+    <IconFrame {...props}>
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M5 11a7 7 0 0 0 14 0" />
+      <path d="M12 18v3" />
+      <path d="M9 21h6" />
+    </IconFrame>
+  );
+}
+
+export function MicrophoneOffIcon(props: IconProps) {
+  return (
+    <IconFrame {...props}>
+      <path d="M9 9V6a3 3 0 0 1 5.7-1.3" />
+      <path d="M15 9v2a3 3 0 0 1-.2 1" />
+      <path d="M5 11a7 7 0 0 0 11.4 5.4" />
+      <path d="M19 11a7 7 0 0 1-.5 2.6" />
+      <path d="M12 18v3" />
+      <path d="M9 21h6" />
+      <path d="M3 3l18 18" />
+    </IconFrame>
+  );
+}
+
+export function PhoneOffIcon(props: IconProps) {
+  return (
+    <IconFrame {...props}>
+      <path d="M5 15a14 14 0 0 1 14 0" />
+      <path d="m5 15-2 3 3 2 2-3" />
+      <path d="m19 15 2 3-3 2-2-3" />
+    </IconFrame>
+  );
+}
+
+export function RefreshIcon(props: IconProps) {
+  return (
+    <IconFrame {...props}>
+      <path d="M20 7v5h-5" />
+      <path d="M4 17v-5h5" />
+      <path d="M6.1 8a7 7 0 0 1 11.7-2L20 8" />
+      <path d="m4 16 2.2 2a7 7 0 0 0 11.7-2" />
+    </IconFrame>
+  );
+}
+
 export function LinkIcon(props: IconProps) {
   return (
     <IconFrame {...props}>

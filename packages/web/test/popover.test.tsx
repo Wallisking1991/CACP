@@ -99,6 +99,62 @@ describe("Popover", () => {
     expect(content.style.position).toBe("fixed");
   });
 
+  it("repositions an open popover when the viewport changes", async () => {
+    const originalInnerWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 1_000,
+    });
+    function TestComponent() {
+      const triggerRef = useRef<HTMLButtonElement>(null);
+      return (
+        <>
+          <button
+            ref={(element) => {
+              triggerRef.current = element;
+              if (element) {
+                element.getBoundingClientRect = () =>
+                  ({
+                    bottom: 132,
+                    height: 32,
+                    left: 900,
+                    right: 932,
+                    top: 100,
+                    width: 32,
+                    x: 900,
+                    y: 100,
+                    toJSON: () => ({}),
+                  }) as DOMRect;
+              }
+            }}
+          >
+            Trigger
+          </button>
+          <Popover triggerRef={triggerRef} open={true} onClose={vi.fn()}>
+            <div data-testid="popover-content">Content</div>
+          </Popover>
+        </>
+      );
+    }
+    render(<TestComponent />);
+    const panel = screen
+      .getByTestId("popover-content")
+      .closest("[data-popover='true']") as HTMLElement;
+    await waitFor(() => expect(panel.style.left).toBe("672px"));
+
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 375,
+    });
+    fireEvent(window, new Event("resize"));
+    await waitFor(() => expect(panel.style.left).toBe("47px"));
+
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: originalInnerWidth,
+    });
+  });
+
   it("calls onClose after mouse leaves the popover panel for 2 seconds", () => {
     vi.useFakeTimers();
     const onClose = vi.fn();
