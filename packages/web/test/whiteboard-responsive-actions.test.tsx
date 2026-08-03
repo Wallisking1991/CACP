@@ -127,10 +127,17 @@ describe("responsive whiteboard actions", () => {
       viewport(width);
       render(surface("owner"));
 
-      expect(
-        await screen.findByRole("button", { name: "Add image" })
-      ).toBeVisible();
-      expect(screen.getByRole("button", { name: "Templates" })).toBeVisible();
+      const addImage = await screen.findByRole("button", {
+        name: "Add image",
+      });
+      expect(addImage).toBeVisible();
+      expect(addImage.textContent).toBe("");
+      expect(addImage).toHaveAttribute("data-tooltip", "Add image");
+      expect(addImage.querySelector("svg")).not.toBeNull();
+      const templates = screen.getByRole("button", { name: "Templates" });
+      expect(templates).toBeVisible();
+      expect(templates.textContent).toBe("");
+      expect(templates).toHaveAttribute("data-tooltip", "Templates");
       expect(screen.getByRole("button", { name: "Recovery" })).toBeVisible();
       expect(
         screen.queryByRole("button", { name: "More" })
@@ -143,6 +150,8 @@ describe("responsive whiteboard actions", () => {
     render(surface("owner"));
 
     const more = await screen.findByRole("button", { name: "More" });
+    expect(more.textContent).toBe("");
+    expect(more.querySelector("svg")).not.toBeNull();
     expect(
       screen.queryByRole("button", { name: "Templates" })
     ).not.toBeInTheDocument();

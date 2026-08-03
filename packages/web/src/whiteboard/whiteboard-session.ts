@@ -729,6 +729,12 @@ export function createWhiteboardSession({
           return;
         if (message.revision <= revision) return;
         revision = message.revision;
+        if (
+          message.participant_id === identity.participantId &&
+          message.update_id === inFlightUpdateId
+        ) {
+          return;
+        }
         const applyingImages = applyRemoteScene({
           elements: message.elements,
           app_state: message.app_state,

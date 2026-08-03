@@ -677,6 +677,95 @@ describe("WhiteboardSession", () => {
     session.destroy();
   });
 
+  it("does not let an authoritative self echo interrupt an active gesture", () => {
+    const socket = new FakeSocket();
+    const editor = createEditor();
+    const updateIds = ["update_1", "update_2"];
+    const session = createWhiteboardSession({
+      identity: {
+        roomId: "room_active_gesture",
+        participantId: "member_1",
+        token: "member-token",
+        role: "member",
+      },
+      editor: editor.editor,
+      socketFactory: () => socket,
+      createUpdateId: () => updateIds.shift()!,
+      origin: "http://localhost:5173",
+    });
+    socket.open();
+    socket.receive(
+      serverMessage("room_active_gesture", {
+        type: "whiteboard.connected",
+        participant_id: "member_1",
+        role: "member",
+        can_edit: true,
+      })
+    );
+    socket.receive(
+      serverMessage("room_active_gesture", {
+        type: "whiteboard.scene",
+        revision: 0,
+        scene: { elements: [], app_state: {} },
+      })
+    );
+
+    const initialRectangle = {
+      id: "shape_1",
+      type: "rectangle",
+      version: 1,
+      versionNonce: 31,
+      width: 0,
+      height: 0,
+    };
+    const finishedRectangle = {
+      ...initialRectangle,
+      version: 2,
+      versionNonce: 32,
+      width: 180,
+      height: 120,
+    };
+    editor.change({
+      elements: [initialRectangle],
+      appState: {},
+      files: {},
+    });
+    editor.change({
+      elements: [finishedRectangle],
+      appState: {},
+      files: {},
+    });
+    const sceneApplicationsBeforeEcho = editor.updateScene.mock.calls.length;
+
+    socket.receive(
+      serverMessage("room_active_gesture", {
+        type: "whiteboard.elements.updated",
+        update_id: "update_1",
+        participant_id: "member_1",
+        revision: 1,
+        elements: [initialRectangle],
+        app_state: {},
+      })
+    );
+
+    expect(editor.updateScene).toHaveBeenCalledTimes(
+      sceneApplicationsBeforeEcho
+    );
+    socket.receive(
+      serverMessage("room_active_gesture", {
+        type: "whiteboard.ack",
+        update_id: "update_1",
+        revision: 1,
+      })
+    );
+    expect(sentFrames(socket, "whiteboard.elements.update")[1]).toMatchObject({
+      update_id: "update_2",
+      base_revision: 1,
+      elements: [{ id: "shape_1", width: 180, height: 120 }],
+    });
+    session.destroy();
+  });
+
   it("locks the editor on disconnect and resynchronizes a replacement socket", async () => {
     const sockets: FakeSocket[] = [];
     const editor = createEditor();

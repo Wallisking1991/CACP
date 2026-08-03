@@ -1,10 +1,56 @@
-import type { Ref } from "react";
+import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
 
 import { useT } from "../i18n/useT.js";
 import type {
   WhiteboardExportFormat,
   WhiteboardExportScope,
 } from "../whiteboard/whiteboard-editor-adapter.js";
+import {
+  ClockIcon,
+  EditableFileIcon,
+  GlobeIcon,
+  ImageFileIcon,
+  ImagePlusIcon,
+  LayoutTemplateIcon,
+  SendIcon,
+  VectorFileIcon,
+} from "./RoomIcons.js";
+
+interface WhiteboardActionButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  buttonRef?: Ref<HTMLButtonElement>;
+  icon: ReactNode;
+  label: string;
+  mobile: boolean;
+}
+
+function WhiteboardActionButton({
+  buttonRef,
+  className,
+  icon,
+  label,
+  mobile,
+  ...props
+}: WhiteboardActionButtonProps) {
+  return (
+    <button
+      ref={buttonRef}
+      type="button"
+      className={`whiteboard-action-button whiteboard-action-button--${
+        mobile ? "labeled" : "icon"
+      }${className ? ` ${className}` : ""}`}
+      aria-label={label}
+      data-tooltip={mobile ? undefined : label}
+      {...props}
+    >
+      <span className="whiteboard-action-button__icon" aria-hidden="true">
+        {icon}
+      </span>
+      {mobile && (
+        <span className="whiteboard-action-button__label">{label}</span>
+      )}
+    </button>
+  );
+}
 
 interface WhiteboardActionState {
   exportScope: WhiteboardExportScope;
@@ -46,59 +92,74 @@ export function WhiteboardActionMenu({
   templateTriggerRef,
 }: WhiteboardActionMenuProps) {
   const t = useT();
+  const addImageLabel = String(
+    t(state.insertingImage ? "whiteboard.addingImage" : "whiteboard.addImage")
+  );
+  const templateLabel = String(t("whiteboard.templates"));
+  const promotionLabel = String(
+    t(
+      state.preparingPromotion
+        ? "whiteboard.promotionPreparing"
+        : "whiteboard.promoteSelection"
+    )
+  );
+  const recoveryLabel = String(t("whiteboard.manageRecovery"));
   return (
     <>
       {canEdit && (
         <>
-          <button
-            type="button"
+          <WhiteboardActionButton
+            mobile={mobile}
+            label={addImageLabel}
+            icon={<ImagePlusIcon />}
             disabled={state.insertingImage || editDisabled}
             onClick={actions.addImage}
-          >
-            {t(
-              state.insertingImage
-                ? "whiteboard.addingImage"
-                : "whiteboard.addImage"
-            )}
-          </button>
-          <button
-            ref={templateTriggerRef}
-            type="button"
+          />
+          <WhiteboardActionButton
+            buttonRef={templateTriggerRef}
+            mobile={mobile}
+            label={templateLabel}
+            icon={<LayoutTemplateIcon />}
             disabled={editDisabled}
             aria-expanded={state.templateOpen}
             onClick={actions.toggleTemplates}
-          >
-            {t("whiteboard.templates")}
-          </button>
+          />
         </>
       )}
       {canManage && (
         <>
-          <button
-            ref={promotionTriggerRef}
-            type="button"
+          <WhiteboardActionButton
+            buttonRef={promotionTriggerRef}
+            mobile={mobile}
+            label={promotionLabel}
+            icon={<SendIcon />}
             disabled={state.preparingPromotion}
             onClick={actions.preparePromotion}
-          >
-            {t(
-              state.preparingPromotion
-                ? "whiteboard.promotionPreparing"
-                : "whiteboard.promoteSelection"
-            )}
-          </button>
-          <button
-            ref={recoveryTriggerRef}
-            type="button"
+          />
+          <WhiteboardActionButton
+            buttonRef={recoveryTriggerRef}
+            mobile={mobile}
+            label={recoveryLabel}
+            icon={<ClockIcon />}
             onClick={actions.openRecovery}
-          >
-            {t("whiteboard.manageRecovery")}
-          </button>
+          />
         </>
       )}
       <label
-        className={mobile ? "whiteboard-mobile-actions__scope" : undefined}
+        className={`whiteboard-action-scope${
+          mobile ? " whiteboard-mobile-actions__scope" : ""
+        }`}
       >
-        <span className={mobile ? undefined : "sr-only"}>
+        {!mobile && (
+          <span className="whiteboard-action-scope__icon" aria-hidden="true">
+            <GlobeIcon />
+          </span>
+        )}
+        <span
+          className={
+            mobile ? undefined : "whiteboard-action-scope__label--hidden"
+          }
+        >
           {t("whiteboard.exportScope")}
         </span>
         <select
@@ -114,19 +175,32 @@ export function WhiteboardActionMenu({
           <option value="selection">{t("whiteboard.exportSelection")}</option>
         </select>
       </label>
-      {(["png", "svg", "excalidraw"] as const).map((format) => (
-        <button
-          key={format}
-          type="button"
-          onClick={() => actions.export(format)}
-          aria-label={t("whiteboard.exportFormat", {
-            format:
-              format === "excalidraw" ? "Excalidraw" : format.toUpperCase(),
-          })}
-        >
-          {format === "excalidraw" ? ".excalidraw" : format.toUpperCase()}
-        </button>
-      ))}
+      {(["png", "svg", "excalidraw"] as const).map((format) => {
+        const formatName =
+          format === "excalidraw" ? "Excalidraw" : format.toUpperCase();
+        const label = String(
+          t("whiteboard.exportFormat", {
+            format: formatName,
+          })
+        );
+        const icon =
+          format === "png" ? (
+            <ImageFileIcon />
+          ) : format === "svg" ? (
+            <VectorFileIcon />
+          ) : (
+            <EditableFileIcon />
+          );
+        return (
+          <WhiteboardActionButton
+            key={format}
+            mobile={mobile}
+            label={label}
+            icon={icon}
+            onClick={() => actions.export(format)}
+          />
+        );
+      })}
     </>
   );
 }

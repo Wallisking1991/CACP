@@ -23,6 +23,7 @@ import { WhiteboardRecoveryDialog } from "./WhiteboardRecoveryDialog.js";
 import { WhiteboardPromotionDialog } from "./WhiteboardPromotionDialog.js";
 import { WhiteboardTemplateMenu } from "./WhiteboardTemplateMenu.js";
 import { WhiteboardActionMenu } from "./WhiteboardActionMenu.js";
+import { MenuIcon, XIcon } from "./RoomIcons.js";
 import { useDialogKeyboard } from "./useDialogKeyboard.js";
 import {
   usePhoneWhiteboard,
@@ -637,11 +638,13 @@ export function WhiteboardSurface({
                 <button
                   ref={mobileActionsButtonRef}
                   type="button"
+                  className="whiteboard-mobile-toolbar__action"
+                  aria-label={t("whiteboard.advancedActions")}
                   aria-expanded={mobileActionsOpen}
                   aria-controls="whiteboard-mobile-actions"
                   onClick={() => setMobileActionsOpen(true)}
                 >
-                  {t("whiteboard.advancedActions")}
+                  <MenuIcon />
                 </button>
               </div>
               {mobileActionsOpen && (
@@ -673,7 +676,7 @@ export function WhiteboardSurface({
                         onClick={closeMobileActions}
                         aria-label={t("common.close")}
                       >
-                        ×
+                        <XIcon />
                       </button>
                     </header>
                     <div className="whiteboard-mobile-actions__grid">
@@ -718,7 +721,7 @@ export function WhiteboardSurface({
             aria-label={t("whiteboard.dismissOnboarding")}
             onClick={() => dismissOnboardingRef.current()}
           >
-            ×
+            <XIcon />
           </button>
           <strong id="whiteboard-onboarding-title">
             {t("whiteboard.onboardingTitle")}

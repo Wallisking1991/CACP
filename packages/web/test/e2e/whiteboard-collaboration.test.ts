@@ -151,6 +151,69 @@ async function openWhiteboard(page: Page, roomId: string): Promise<void> {
   await expect(page.locator(".whiteboard-surface__status")).toHaveCount(0);
 }
 
+test("preserves the first rectangle dimensions after collaboration sync", async ({
+  browser,
+  request,
+}) => {
+  const { owner, member } = await createRoomSessions(request);
+  const ownerContext = await browser.newContext();
+  const memberContext = await browser.newContext();
+  await seedSession(ownerContext, owner);
+  await seedSession(memberContext, member);
+  const ownerPage = await ownerContext.newPage();
+  const memberPage = await memberContext.newPage();
+  const memberMessages: JsonResponse[] = [];
+  memberPage.on("websocket", (socket) => {
+    if (!socket.url().includes("/whiteboard")) return;
+    socket.on("framereceived", ({ payload }) => {
+      if (typeof payload !== "string") return;
+      try {
+        memberMessages.push(JSON.parse(payload) as JsonResponse);
+      } catch {
+        // Non-JSON frames do not belong to the CACP whiteboard protocol.
+      }
+    });
+  });
+
+  await Promise.all([
+    openWhiteboard(ownerPage, owner.room_id),
+    openWhiteboard(memberPage, member.room_id),
+  ]);
+  const editor = ownerPage.getByRole("application", {
+    name: "Collaborative Whiteboard",
+  });
+  const box = await editor.boundingBox();
+  expect(box).not.toBeNull();
+
+  await ownerPage.keyboard.press("r");
+  await ownerPage.mouse.move(box!.x + 320, box!.y + 230);
+  await ownerPage.mouse.down();
+  await ownerPage.mouse.move(box!.x + 500, box!.y + 350, { steps: 8 });
+  await ownerPage.mouse.up();
+
+  await expect
+    .poll(
+      () =>
+        memberMessages.some(
+          (message) =>
+            message.type === "whiteboard.elements.updated" &&
+            Array.isArray(message.elements) &&
+            message.elements.some(
+              (element) =>
+                typeof element === "object" &&
+                element !== null &&
+                (element as JsonResponse).type === "rectangle" &&
+                Number((element as JsonResponse).width) >= 100 &&
+                Number((element as JsonResponse).height) >= 100
+            )
+        ),
+      { timeout: 5_000 }
+    )
+    .toBe(true);
+
+  await Promise.all([ownerContext.close(), memberContext.close()]);
+});
+
 test("shares real Excalidraw content and collaborator presence between two browsers", async ({
   browser,
   request,
@@ -247,7 +310,9 @@ test("shares real Excalidraw content and collaborator presence between two brows
             (element) =>
               typeof element === "object" &&
               element !== null &&
-              (element as JsonResponse).type === "rectangle"
+              (element as JsonResponse).type === "rectangle" &&
+              Number((element as JsonResponse).width) >= 100 &&
+              Number((element as JsonResponse).height) >= 100
           )
       )
     )
@@ -472,7 +537,9 @@ test("shares real Excalidraw content and collaborator presence between two brows
     )
     .toBe(true);
 
-  await ownerPage.getByRole("button", { name: "Restore revision 1" }).click();
+  await ownerPage
+    .getByRole("button", { name: "Restore revision 1", exact: true })
+    .click();
   await expect(
     ownerPage.getByText(
       "The whole shared whiteboard will be replaced for every participant and local undo history will reset."

@@ -4,6 +4,7 @@ import {
   BuiltInWhiteboardTemplates,
   type WhiteboardTemplateId,
 } from "../whiteboard/whiteboard-templates.js";
+import { XIcon } from "./RoomIcons.js";
 import { useDialogKeyboard } from "./useDialogKeyboard.js";
 
 export interface WhiteboardTemplateMenuProps {
@@ -51,7 +52,7 @@ export function WhiteboardTemplateMenu({
           onClick={onClose}
           aria-label={t("common.close")}
         >
-          ×
+          <XIcon />
         </button>
       </header>
       <div className="whiteboard-template-menu__list">

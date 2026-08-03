@@ -393,7 +393,10 @@ describe("WhiteboardSurface exports", () => {
         "PNG preview of the selected whiteboard content"
       )
     ).toHaveAttribute("src", "blob:promotion-preview");
-    expect(screen.getAllByText(".excalidraw")).toHaveLength(2);
+    expect(
+      screen.getByRole("button", { name: "Export Excalidraw" })
+    ).toBeInTheDocument();
+    expect(screen.getByText(".excalidraw")).toBeVisible();
     expect(screen.getByText("Codex")).toBeVisible();
     expect(screen.getByText("7")).toBeVisible();
     const submit = screen.getByRole("button", { name: "Create Main Input" });

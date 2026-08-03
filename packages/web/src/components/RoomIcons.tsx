@@ -165,3 +165,63 @@ export function MenuIcon(props: IconProps) {
     </IconFrame>
   );
 }
+
+export function ImagePlusIcon(props: IconProps) {
+  return (
+    <IconFrame {...props}>
+      <rect x="3" y="5" width="14" height="14" rx="2" />
+      <circle cx="8" cy="10" r="1.5" />
+      <path d="m4 17 4-4 3 3 2-2 4 4" />
+      <path d="M20 8v6" />
+      <path d="M17 11h6" />
+    </IconFrame>
+  );
+}
+
+export function LayoutTemplateIcon(props: IconProps) {
+  return (
+    <IconFrame {...props}>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 9h18" />
+      <path d="M9 9v11" />
+      <path d="M13 13h4" />
+      <path d="M13 17h3" />
+    </IconFrame>
+  );
+}
+
+export function ImageFileIcon(props: IconProps) {
+  return (
+    <IconFrame {...props}>
+      <path d="M6 3h8l4 4v14H6V3Z" />
+      <path d="M14 3v5h4" />
+      <circle cx="10" cy="12" r="1" />
+      <path d="m8 18 3-3 2 2 2-2 2 2" />
+    </IconFrame>
+  );
+}
+
+export function VectorFileIcon(props: IconProps) {
+  return (
+    <IconFrame {...props}>
+      <path d="M6 3h8l4 4v14H6V3Z" />
+      <path d="M14 3v5h4" />
+      <circle cx="9" cy="14" r="1.25" />
+      <circle cx="15" cy="11" r="1.25" />
+      <circle cx="15" cy="17" r="1.25" />
+      <path d="m10 13 4-2" />
+      <path d="m10 15 4 2" />
+    </IconFrame>
+  );
+}
+
+export function EditableFileIcon(props: IconProps) {
+  return (
+    <IconFrame {...props}>
+      <path d="M6 3h8l4 4v5" />
+      <path d="M14 3v5h4" />
+      <path d="M11 21H6V3" />
+      <path d="m13 18 6-6 2 2-6 6-3 1 1-3Z" />
+    </IconFrame>
+  );
+}

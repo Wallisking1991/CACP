@@ -1455,50 +1455,156 @@ textarea.input {
 .whiteboard-export-tools {
   position: absolute;
   z-index: 4;
-  right: 12px;
-  bottom: 12px;
+  right: 72px;
+  bottom: 16px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px;
-  border: 1px solid rgba(28, 24, 19, 0.14);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 6px 20px rgba(28, 24, 19, 0.12);
-  backdrop-filter: blur(10px);
+  gap: 3px;
+  padding: 5px;
+  border: 1px solid rgba(28, 24, 19, 0.12);
+  border-radius: 15px;
+  background: rgba(255, 253, 249, 0.94);
+  box-shadow: 0 10px 32px rgba(28, 24, 19, 0.13);
+  backdrop-filter: blur(14px);
 }
 
 .whiteboard-export-tools__file {
   display: none;
 }
 
-.whiteboard-export-tools select,
-.whiteboard-export-tools button {
+.whiteboard-action-button,
+.whiteboard-action-scope select {
   min-height: 44px;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: var(--surface);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
   color: var(--ink-1);
   font: inherit;
   font-size: 12px;
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease;
 }
 
-.whiteboard-export-tools select {
-  max-width: 132px;
-  padding: 0 28px 0 10px;
-}
-
-.whiteboard-export-tools button {
-  padding: 0 10px;
+.whiteboard-action-button {
   cursor: pointer;
 }
 
-.whiteboard-export-tools button:hover {
-  background: var(--surface-raised);
+.whiteboard-action-button--icon {
+  position: relative;
+  display: grid;
+  width: 44px;
+  padding: 0;
+  place-items: center;
 }
 
-.whiteboard-export-tools select:focus-visible,
-.whiteboard-export-tools button:focus-visible {
+.whiteboard-action-button__icon {
+  display: grid;
+  place-items: center;
+}
+
+.whiteboard-action-button__icon svg,
+.whiteboard-action-scope__icon svg,
+.whiteboard-mobile-toolbar__action svg {
+  width: 20px;
+  height: 20px;
+}
+
+.whiteboard-action-button:hover:not(:disabled),
+.whiteboard-action-button[aria-expanded="true"] {
+  border-color: rgba(133, 94, 39, 0.14);
+  background: rgba(133, 94, 39, 0.09);
+  color: var(--accent);
+}
+
+.whiteboard-action-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.whiteboard-action-button--icon::after {
+  position: absolute;
+  z-index: 20;
+  right: 50%;
+  bottom: calc(100% + 9px);
+  max-width: 240px;
+  padding: 6px 9px;
+  transform: translate(50%, 4px);
+  border-radius: 7px;
+  background: #28231e;
+  box-shadow: 0 5px 16px rgba(28, 24, 19, 0.18);
+  color: #fffdf9;
+  content: attr(data-tooltip);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
+  white-space: nowrap;
+}
+
+.whiteboard-action-button--icon:hover::after,
+.whiteboard-action-button--icon:focus-visible::after {
+  transform: translate(50%, 0);
+  opacity: 1;
+}
+
+.whiteboard-export-tools > .whiteboard-action-button--icon:last-child::after {
+  right: 0;
+  transform: translateY(4px);
+}
+
+.whiteboard-export-tools
+  > .whiteboard-action-button--icon:last-child:hover::after,
+.whiteboard-export-tools
+  > .whiteboard-action-button--icon:last-child:focus-visible::after {
+  transform: translateY(0);
+}
+
+.whiteboard-action-scope {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.whiteboard-action-scope__icon {
+  position: absolute;
+  z-index: 1;
+  left: 10px;
+  display: grid;
+  color: var(--ink-2);
+  pointer-events: none;
+}
+
+.whiteboard-action-scope__label--hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.whiteboard-action-scope select {
+  width: 132px;
+  padding: 0 28px 0 34px;
+  border-color: transparent;
+  cursor: pointer;
+}
+
+.whiteboard-action-scope select:hover {
+  border-color: rgba(133, 94, 39, 0.14);
+  background: rgba(133, 94, 39, 0.07);
+}
+
+.whiteboard-action-scope select:focus-visible,
+.whiteboard-action-button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -1568,6 +1674,8 @@ textarea.input {
   background: transparent;
   color: var(--ink-2);
   cursor: pointer;
+  display: grid;
+  place-items: center;
 }
 
 .whiteboard-onboarding button:focus-visible {
@@ -1621,6 +1729,8 @@ textarea.input {
   background: transparent;
   color: var(--ink-2);
   cursor: pointer;
+  display: grid;
+  place-items: center;
 }
 
 .whiteboard-template-menu__list {
@@ -1900,9 +2010,13 @@ textarea.input {
   }
 
   .whiteboard-mobile-toolbar button {
-    padding-inline: 16px;
+    display: grid;
+    width: 48px;
+    height: 48px;
+    padding: 0;
+    place-items: center;
+    border-radius: 14px;
     box-shadow: 0 6px 20px rgba(28, 24, 19, 0.16);
-    font-weight: 650;
   }
 
   .whiteboard-mobile-actions-backdrop {
@@ -1958,6 +2072,8 @@ textarea.input {
 
   .whiteboard-mobile-actions > header > button {
     flex: 0 0 44px;
+    display: grid;
+    place-items: center;
   }
 
   .whiteboard-mobile-actions__grid {
@@ -1968,7 +2084,17 @@ textarea.input {
   }
 
   .whiteboard-mobile-actions__grid > button {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 10px;
     padding: 8px 10px;
+    text-align: left;
+  }
+
+  .whiteboard-action-button__label {
+    min-width: 0;
+    line-height: 1.3;
   }
 
   .whiteboard-mobile-actions__scope {
