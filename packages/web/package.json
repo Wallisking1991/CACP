@@ -17,7 +17,7 @@
     "livekit-client": "2.21.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-router-dom": "6.30.4",
+    "react-router-dom": "7.18.2",
     "vite": "6.4.3"
   },
   "devDependencies": {
