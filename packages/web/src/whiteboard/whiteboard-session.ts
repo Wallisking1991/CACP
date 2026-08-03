@@ -101,6 +101,8 @@ export interface CreateWhiteboardSessionOptions {
   createUpdateId?: () => string;
   origin?: string;
   reconnectDelayMs?: number;
+  rateLimitRetryMs?: number;
+  sceneThrottleMs?: number;
   presenceThrottleMs?: number;
   presenceEnabled?: boolean;
   observeOnly?: boolean;
@@ -116,6 +118,10 @@ export type WhiteboardSessionFactoryLoader =
 
 const SOCKET_CONNECTING = 0;
 const SOCKET_OPEN = 1;
+// Coalesce gesture frames below the server's default 20 updates/second budget.
+const DEFAULT_SCENE_THROTTLE_MS = 75;
+// Retry beyond the server's default one-second rolling rate window.
+const DEFAULT_RATE_LIMIT_RETRY_MS = 1_050;
 
 function defaultSocketFactory(url: string): WhiteboardSocketPort {
   return new WebSocket(url) as unknown as WhiteboardSocketPort;
@@ -219,6 +225,8 @@ export function createWhiteboardSession({
   createUpdateId = defaultUpdateId,
   origin = window.location.origin,
   reconnectDelayMs = 1_000,
+  rateLimitRetryMs = DEFAULT_RATE_LIMIT_RETRY_MS,
+  sceneThrottleMs = DEFAULT_SCENE_THROTTLE_MS,
   presenceThrottleMs = 50,
   presenceEnabled: initialPresenceEnabled = true,
   observeOnly = false,
@@ -240,7 +248,11 @@ export function createWhiteboardSession({
     { revision: number; scene: SharedWhiteboardScene } | undefined;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let inFlightUpdateId: string | undefined;
+  let inFlightScene: WhiteboardScene | undefined;
   let queuedScene: WhiteboardScene | undefined;
+  let sceneThrottleTimer: ReturnType<typeof setTimeout> | undefined;
+  let rateLimitRetryTimer: ReturnType<typeof setTimeout> | undefined;
+  let lastSceneSentAt = Number.NEGATIVE_INFINITY;
   let presence = initialPresence(editor);
   let presenceEnabled = initialPresenceEnabled;
   let presenceDirty = initialPresenceEnabled;
@@ -434,12 +446,10 @@ export function createWhiteboardSession({
     resetHistory = false
   ): boolean {
     const localScene = remoteScene(editor, scene);
-    if (!imageAssets) {
-      applyEditorScene(scene, localScene.files, resetHistory);
-      return false;
-    }
-    const hydrated = imageAssets.hydrateRemoteScene(localScene);
-    if (!(hydrated instanceof Promise)) {
+    const hydrated = imageAssets
+      ? imageAssets.hydrateRemoteScene(localScene)
+      : localScene;
+    if (!(hydrated instanceof Promise) && !remoteApplicationPending) {
       setSessionError(undefined);
       applyEditorScene(scene, hydrated.files, resetHistory);
       return false;
@@ -454,7 +464,7 @@ export function createWhiteboardSession({
     remoteApplicationChain = remoteApplicationChain.then(async () => {
       let nextScene = localScene;
       try {
-        nextScene = await hydrated;
+        nextScene = hydrated instanceof Promise ? await hydrated : hydrated;
         setSessionError(undefined);
       } catch (cause) {
         reportImageError(cause, {
@@ -467,6 +477,23 @@ export function createWhiteboardSession({
     });
     void remoteApplicationChain.then(() => finishRemoteApplication(sequence));
     return true;
+  }
+
+  function flushQueuedScene() {
+    if (
+      destroyed ||
+      !synchronized ||
+      role === "observer" ||
+      revision === undefined ||
+      socket?.readyState !== SOCKET_OPEN ||
+      inFlightUpdateId ||
+      rateLimitRetryTimer
+    ) {
+      return;
+    }
+    const nextScene = queuedScene;
+    queuedScene = undefined;
+    if (nextScene) sendScene(nextScene);
   }
 
   function sendScene(scene: WhiteboardScene) {
@@ -483,6 +510,21 @@ export function createWhiteboardSession({
       queuedScene = scene;
       return;
     }
+    if (rateLimitRetryTimer) {
+      queuedScene = scene;
+      return;
+    }
+    const throttleRemaining = sceneThrottleMs - (Date.now() - lastSceneSentAt);
+    if (throttleRemaining > 0) {
+      queuedScene = scene;
+      if (!sceneThrottleTimer) {
+        sceneThrottleTimer = setTimeout(() => {
+          sceneThrottleTimer = undefined;
+          flushQueuedScene();
+        }, throttleRemaining);
+      }
+      return;
+    }
     const updateId = createUpdateId();
     const parsed = WhiteboardClientUpdateMessageSchema.safeParse({
       protocol: WhiteboardProtocolName,
@@ -496,6 +538,8 @@ export function createWhiteboardSession({
     });
     if (!parsed.success) return;
     inFlightUpdateId = updateId;
+    inFlightScene = scene;
+    lastSceneSentAt = Date.now();
     socket.send(JSON.stringify(parsed.data));
   }
 
@@ -555,9 +599,15 @@ export function createWhiteboardSession({
     synchronized = false;
     connectedHandshake = false;
     clearPresenceTimers();
+    if (sceneThrottleTimer) clearTimeout(sceneThrottleTimer);
+    if (rateLimitRetryTimer) clearTimeout(rateLimitRetryTimer);
+    sceneThrottleTimer = undefined;
+    rateLimitRetryTimer = undefined;
     revision = undefined;
     inFlightUpdateId = undefined;
+    inFlightScene = undefined;
     queuedScene = undefined;
+    lastSceneSentAt = Number.NEGATIVE_INFINITY;
     remoteApplicationSequence += 1;
     remoteApplicationPending = false;
     remoteApplicationChain = Promise.resolve();
@@ -615,7 +665,12 @@ export function createWhiteboardSession({
         if (message.replacement_reason) {
           revision = message.revision;
           inFlightUpdateId = undefined;
+          inFlightScene = undefined;
           queuedScene = undefined;
+          if (sceneThrottleTimer) clearTimeout(sceneThrottleTimer);
+          if (rateLimitRetryTimer) clearTimeout(rateLimitRetryTimer);
+          sceneThrottleTimer = undefined;
+          rateLimitRetryTimer = undefined;
           rejectedUpdate = false;
           rejectedBaseRevision = undefined;
           pendingRemote = undefined;
@@ -661,6 +716,7 @@ export function createWhiteboardSession({
         if (message.update_id !== inFlightUpdateId) return;
         revision = message.revision;
         inFlightUpdateId = undefined;
+        inFlightScene = undefined;
         rejectedUpdate = false;
         rejectedBaseRevision = undefined;
         pendingRemote = undefined;
@@ -703,6 +759,15 @@ export function createWhiteboardSession({
         return;
       }
       if (message.type === "whiteboard.elements.updated") {
+        if (
+          message.participant_id === identity.participantId &&
+          message.update_id === inFlightUpdateId
+        ) {
+          if (revision === undefined || message.revision > revision) {
+            revision = message.revision;
+          }
+          return;
+        }
         if (rejectedUpdate) {
           if (!pendingRemote || message.revision > pendingRemote.revision) {
             pendingRemote = {
@@ -729,12 +794,6 @@ export function createWhiteboardSession({
           return;
         if (message.revision <= revision) return;
         revision = message.revision;
-        if (
-          message.participant_id === identity.participantId &&
-          message.update_id === inFlightUpdateId
-        ) {
-          return;
-        }
         const applyingImages = applyRemoteScene({
           elements: message.elements,
           app_state: message.app_state,
@@ -781,12 +840,35 @@ export function createWhiteboardSession({
           return;
         }
         if (
-          (message.code === "invalid_message" ||
-            message.code === "rate_limited") &&
+          message.code === "rate_limited" &&
           inFlightUpdateId &&
-          (!message.update_id || message.update_id === inFlightUpdateId)
+          message.update_id === inFlightUpdateId
+        ) {
+          const retryScene = queuedScene ?? inFlightScene ?? editor.getScene();
+          inFlightUpdateId = undefined;
+          inFlightScene = undefined;
+          queuedScene = retryScene;
+          rejectedUpdate = true;
+          rejectedBaseRevision = revision;
+          pendingRemote = undefined;
+          setStatus("rejected");
+          setEditorAccess();
+          if (sceneThrottleTimer) clearTimeout(sceneThrottleTimer);
+          sceneThrottleTimer = undefined;
+          if (rateLimitRetryTimer) clearTimeout(rateLimitRetryTimer);
+          rateLimitRetryTimer = setTimeout(() => {
+            rateLimitRetryTimer = undefined;
+            flushQueuedScene();
+          }, rateLimitRetryMs);
+          return;
+        }
+        if (
+          message.code === "invalid_message" &&
+          inFlightUpdateId &&
+          message.update_id === inFlightUpdateId
         ) {
           inFlightUpdateId = undefined;
+          inFlightScene = undefined;
           queuedScene = undefined;
           rejectedUpdate = true;
           rejectedBaseRevision = revision;
@@ -802,6 +884,7 @@ export function createWhiteboardSession({
         ) {
           synchronized = false;
           inFlightUpdateId = undefined;
+          inFlightScene = undefined;
           queuedScene = undefined;
           setStatus("disconnected");
           setEditorAccess();
@@ -817,6 +900,10 @@ export function createWhiteboardSession({
       socket = undefined;
       synchronized = false;
       clearPresenceTimers();
+      if (sceneThrottleTimer) clearTimeout(sceneThrottleTimer);
+      if (rateLimitRetryTimer) clearTimeout(rateLimitRetryTimer);
+      sceneThrottleTimer = undefined;
+      rateLimitRetryTimer = undefined;
       collaborators.clear();
       notifyCollaborators();
       setStatus(
@@ -869,6 +956,13 @@ export function createWhiteboardSession({
     loadSharedScene() {
       if (!pendingRemote) return;
       const remote = pendingRemote;
+      if (sceneThrottleTimer) clearTimeout(sceneThrottleTimer);
+      if (rateLimitRetryTimer) clearTimeout(rateLimitRetryTimer);
+      sceneThrottleTimer = undefined;
+      rateLimitRetryTimer = undefined;
+      inFlightUpdateId = undefined;
+      inFlightScene = undefined;
+      queuedScene = undefined;
       revision = remote.revision;
       const applyingImages = applyRemoteScene(remote.scene, true);
       hasInstalledAuthoritativeScene = true;
@@ -910,6 +1004,10 @@ export function createWhiteboardSession({
       queuedAssetScene = undefined;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       reconnectTimer = undefined;
+      if (sceneThrottleTimer) clearTimeout(sceneThrottleTimer);
+      if (rateLimitRetryTimer) clearTimeout(rateLimitRetryTimer);
+      sceneThrottleTimer = undefined;
+      rateLimitRetryTimer = undefined;
       clearPresenceTimers();
       unsubscribeEditor();
       unsubscribePresence();

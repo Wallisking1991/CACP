@@ -132,6 +132,99 @@ describe("VoiceControl", () => {
     ).toBeInTheDocument();
   });
 
+  it("clears a transient connection error after voice reconnects", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => credentialResponse(true))
+    );
+    const voiceSession = new FakeVoiceSession();
+    render(
+      <LangProvider>
+        <VoiceControl
+          session={roomSession}
+          loadSession={async () => voiceSession}
+        />
+      </LangProvider>
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Join voice" }));
+    await screen.findByText("Wei");
+
+    act(() => voiceSession.emit("disconnected"));
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "The voice connection was interrupted"
+    );
+
+    act(() => voiceSession.emit("connected"));
+    expect(screen.getByText("Voice connected")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("reports an unknown capture failure as a microphone problem", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => credentialResponse(true))
+    );
+    const voiceSession = new FakeVoiceSession();
+    voiceSession.setMicrophoneEnabled.mockRejectedValueOnce(
+      new Error("capture initialization failed")
+    );
+    render(
+      <LangProvider>
+        <VoiceControl
+          session={roomSession}
+          loadSession={async () => voiceSession}
+        />
+      </LangProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Join voice" }));
+
+    expect(await screen.findByText("Voice connected")).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Microphone access failed"
+    );
+    expect(screen.getByRole("alert")).not.toHaveTextContent(
+      "voice connection was interrupted"
+    );
+  });
+
+  it("falls back to the default input when the saved microphone is gone", async () => {
+    localStorage.setItem("cacp.voice.microphone-device", "missing-device");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => credentialResponse(true))
+    );
+    const voiceSession = new FakeVoiceSession();
+    voiceSession.setMicrophoneEnabled
+      .mockRejectedValueOnce(
+        new DOMException("Saved microphone is gone", "NotFoundError")
+      )
+      .mockImplementationOnce(async (enabled: boolean) => {
+        voiceSession.microphoneEnabled = enabled;
+        voiceSession.emit("connected");
+      });
+    render(
+      <LangProvider>
+        <VoiceControl
+          session={roomSession}
+          loadSession={async () => voiceSession}
+        />
+      </LangProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Join voice" }));
+
+    await waitFor(() =>
+      expect(voiceSession.setMicrophoneEnabled).toHaveBeenNthCalledWith(
+        2,
+        true,
+        undefined
+      )
+    );
+    expect(localStorage.getItem("cacp.voice.microphone-device")).toBeNull();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("keeps observer sessions listen-only without requesting a microphone", async () => {
     vi.stubGlobal(
       "fetch",

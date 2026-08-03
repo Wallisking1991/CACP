@@ -617,6 +617,7 @@ describe("WhiteboardSession", () => {
       socketFactory: () => socket,
       createUpdateId: () => updateIds.shift()!,
       origin: "http://localhost:5173",
+      sceneThrottleMs: 0,
     });
     socket.open();
     socket.receive(
@@ -677,6 +678,87 @@ describe("WhiteboardSession", () => {
     session.destroy();
   });
 
+  it("coalesces ack-speed gesture frames below the server rate limit", async () => {
+    vi.useFakeTimers();
+    try {
+      const socket = new FakeSocket();
+      const editor = createEditor();
+      const updateIds = ["gesture-1", "gesture-final"];
+      const session = createWhiteboardSession({
+        identity: {
+          roomId: "room_throttle",
+          participantId: "member_1",
+          token: "member-token",
+          role: "member",
+        },
+        editor: editor.editor,
+        socketFactory: () => socket,
+        createUpdateId: () => updateIds.shift()!,
+        origin: "http://localhost:5173",
+      });
+      socket.open();
+      socket.receive(
+        serverMessage("room_throttle", {
+          type: "whiteboard.connected",
+          participant_id: "member_1",
+          role: "member",
+          can_edit: true,
+        })
+      );
+      socket.receive(
+        serverMessage("room_throttle", {
+          type: "whiteboard.scene",
+          revision: 0,
+          scene: { elements: [], app_state: {} },
+        })
+      );
+      editor.change({
+        elements: [
+          { id: "shape", type: "rectangle", version: 1, versionNonce: 1 },
+        ],
+        appState: {},
+        files: {},
+      });
+      editor.change({
+        elements: [
+          { id: "shape", type: "rectangle", version: 2, versionNonce: 2 },
+        ],
+        appState: {},
+        files: {},
+      });
+      socket.receive(
+        serverMessage("room_throttle", {
+          type: "whiteboard.ack",
+          update_id: "gesture-1",
+          revision: 1,
+        })
+      );
+      expect(sentFrames(socket, "whiteboard.elements.update")).toHaveLength(1);
+
+      await vi.advanceTimersByTimeAsync(50);
+      editor.change({
+        elements: [
+          { id: "shape", type: "rectangle", version: 3, versionNonce: 3 },
+        ],
+        appState: {},
+        files: {},
+      });
+      await vi.advanceTimersByTimeAsync(25);
+
+      expect(sentFrames(socket, "whiteboard.elements.update")).toHaveLength(2);
+      expect(sentFrames(socket, "whiteboard.elements.update")[1]).toMatchObject(
+        {
+          update_id: "gesture-final",
+          base_revision: 1,
+          elements: [{ id: "shape", version: 3 }],
+        }
+      );
+      session.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not let an authoritative self echo interrupt an active gesture", () => {
     const socket = new FakeSocket();
     const editor = createEditor();
@@ -692,6 +774,7 @@ describe("WhiteboardSession", () => {
       socketFactory: () => socket,
       createUpdateId: () => updateIds.shift()!,
       origin: "http://localhost:5173",
+      sceneThrottleMs: 0,
     });
     socket.open();
     socket.receive(
@@ -854,7 +937,7 @@ describe("WhiteboardSession", () => {
     session.destroy();
   });
 
-  it("recovers from a scene rate limit without leaving the update queue stuck", () => {
+  it("recovers from a scene rate limit without leaving the update queue stuck", async () => {
     const socket = new FakeSocket();
     const editor = createEditor();
     const statuses: string[] = [];
@@ -870,6 +953,8 @@ describe("WhiteboardSession", () => {
       socketFactory: () => socket,
       createUpdateId: () => updateIds.shift()!,
       origin: "http://localhost:5173",
+      rateLimitRetryMs: 0,
+      sceneThrottleMs: 0,
     });
     session.subscribeStatus((status) => statuses.push(status));
     socket.open();
@@ -925,11 +1010,187 @@ describe("WhiteboardSession", () => {
       appState: {},
       files: {},
     });
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(sentFrames(socket, "whiteboard.elements.update")).toHaveLength(2);
     expect(sentFrames(socket, "whiteboard.elements.update")[1]).toMatchObject({
       update_id: "retry-update",
       base_revision: 0,
     });
+    session.destroy();
+  });
+
+  it("retries the final scene after rate limiting without another edit", async () => {
+    vi.useFakeTimers();
+    try {
+      const socket = new FakeSocket();
+      const editor = createEditor();
+      const updateIds = ["limited-final", "automatic-retry"];
+      const statuses: string[] = [];
+      const session = createWhiteboardSession({
+        identity: {
+          roomId: "room_rate_final",
+          participantId: "member_1",
+          token: "member-token",
+          role: "member",
+        },
+        editor: editor.editor,
+        socketFactory: () => socket,
+        createUpdateId: () => updateIds.shift()!,
+        origin: "http://localhost:5173",
+      });
+      session.subscribeStatus((status) => statuses.push(status));
+      socket.open();
+      socket.receive(
+        serverMessage("room_rate_final", {
+          type: "whiteboard.connected",
+          participant_id: "member_1",
+          role: "member",
+          can_edit: true,
+        })
+      );
+      socket.receive(
+        serverMessage("room_rate_final", {
+          type: "whiteboard.scene",
+          revision: 4,
+          scene: { elements: [], app_state: {} },
+        })
+      );
+      editor.change({
+        elements: [
+          {
+            id: "final-shape",
+            type: "rectangle",
+            version: 24,
+            versionNonce: 73,
+            width: 360,
+            height: 240,
+          },
+        ],
+        appState: {},
+        files: {},
+      });
+      socket.receive(
+        serverMessage("room_rate_final", {
+          type: "whiteboard.error",
+          code: "rate_limited",
+          message: "Whiteboard scene updates are arriving too quickly.",
+          recoverable: true,
+          update_id: "limited-final",
+          current_revision: 4,
+        })
+      );
+
+      await vi.advanceTimersByTimeAsync(1_100);
+
+      expect(sentFrames(socket, "whiteboard.elements.update")).toHaveLength(2);
+      expect(sentFrames(socket, "whiteboard.elements.update")[1]).toMatchObject(
+        {
+          update_id: "automatic-retry",
+          base_revision: 4,
+          elements: [
+            {
+              id: "final-shape",
+              width: 360,
+              height: 240,
+            },
+          ],
+        }
+      );
+      socket.receive(
+        serverMessage("room_rate_final", {
+          type: "whiteboard.elements.updated",
+          update_id: "automatic-retry",
+          participant_id: "member_1",
+          revision: 5,
+          elements: [
+            {
+              id: "final-shape",
+              type: "rectangle",
+              version: 24,
+              versionNonce: 73,
+              width: 360,
+              height: 240,
+            },
+          ],
+          app_state: {},
+        })
+      );
+      socket.receive(
+        serverMessage("room_rate_final", {
+          type: "whiteboard.ack",
+          update_id: "automatic-retry",
+          revision: 5,
+        })
+      );
+      expect(statuses.at(-1)).toBe("connected");
+      expect(session.currentRevision?.()).toBe(5);
+      session.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not confuse a presence rate limit with a scene rejection", () => {
+    const socket = new FakeSocket();
+    const editor = createEditor();
+    const statuses: string[] = [];
+    const session = createWhiteboardSession({
+      identity: {
+        roomId: "room_presence_limit",
+        participantId: "member_1",
+        token: "member-token",
+        role: "member",
+      },
+      editor: editor.editor,
+      socketFactory: () => socket,
+      createUpdateId: () => "scene-update",
+      origin: "http://localhost:5173",
+      sceneThrottleMs: 0,
+    });
+    session.subscribeStatus((status) => statuses.push(status));
+    socket.open();
+    socket.receive(
+      serverMessage("room_presence_limit", {
+        type: "whiteboard.connected",
+        participant_id: "member_1",
+        role: "member",
+        can_edit: true,
+      })
+    );
+    socket.receive(
+      serverMessage("room_presence_limit", {
+        type: "whiteboard.scene",
+        revision: 0,
+        scene: { elements: [], app_state: {} },
+      })
+    );
+    editor.change({
+      elements: [
+        { id: "shape", type: "rectangle", version: 1, versionNonce: 1 },
+      ],
+      appState: {},
+      files: {},
+    });
+
+    socket.receive(
+      serverMessage("room_presence_limit", {
+        type: "whiteboard.error",
+        code: "rate_limited",
+        message: "Whiteboard presence is updating too quickly.",
+        recoverable: true,
+      })
+    );
+    expect(statuses.at(-1)).toBe("connected");
+    expect(socket.close).not.toHaveBeenCalled();
+
+    socket.receive(
+      serverMessage("room_presence_limit", {
+        type: "whiteboard.ack",
+        update_id: "scene-update",
+        revision: 1,
+      })
+    );
+    expect(session.currentRevision?.()).toBe(1);
     session.destroy();
   });
 
@@ -1175,6 +1436,7 @@ describe("WhiteboardSession", () => {
         code: "invalid_message",
         message: "The update is too large.",
         recoverable: true,
+        update_id: "oversized-update",
       })
     );
     const remoteApplications = editor.updateScene.mock.calls.length;
@@ -1481,6 +1743,116 @@ describe("WhiteboardSession", () => {
       )
     );
     expect(statuses.at(-1)).toBe("connected");
+    session.destroy();
+  });
+
+  it("does not let delayed hydration overwrite a newer remote revision", async () => {
+    const socket = new FakeSocket();
+    const editor = createEditor();
+    let resolveDelayed: ((scene: WhiteboardScene) => void) | undefined;
+    const delayed = new Promise<WhiteboardScene>((resolve) => {
+      resolveDelayed = resolve;
+    });
+    const hydrateRemoteScene = vi.fn((scene: WhiteboardScene) => {
+      const version = Number(
+        (scene.elements[0] as Record<string, unknown> | undefined)?.version
+      );
+      return version === 1 ? delayed : scene;
+    });
+    const session = createWhiteboardSession({
+      identity: {
+        roomId: "room_hydration_order",
+        participantId: "member_1",
+        token: "member-token",
+        role: "member",
+      },
+      editor: editor.editor,
+      imageAssets: {
+        normalizeLocalScene: (scene) => scene,
+        hydrateRemoteScene,
+      },
+      socketFactory: () => socket,
+      origin: "http://localhost:5173",
+    });
+    socket.open();
+    socket.receive(
+      serverMessage("room_hydration_order", {
+        type: "whiteboard.connected",
+        participant_id: "member_1",
+        role: "member",
+        can_edit: true,
+      })
+    );
+    socket.receive(
+      serverMessage("room_hydration_order", {
+        type: "whiteboard.scene",
+        revision: 0,
+        scene: { elements: [], app_state: {} },
+      })
+    );
+    socket.receive(
+      serverMessage("room_hydration_order", {
+        type: "whiteboard.elements.updated",
+        update_id: "remote-image-v1",
+        participant_id: "owner_1",
+        revision: 1,
+        elements: [
+          {
+            id: "shared-image",
+            type: "image",
+            version: 1,
+            versionNonce: 81,
+            fileId: "att_shared",
+          },
+        ],
+        app_state: { viewBackgroundColor: "#fff7ed" },
+      })
+    );
+    socket.receive(
+      serverMessage("room_hydration_order", {
+        type: "whiteboard.elements.updated",
+        update_id: "remote-image-v2",
+        participant_id: "owner_1",
+        revision: 2,
+        elements: [
+          {
+            id: "shared-image",
+            type: "image",
+            version: 2,
+            versionNonce: 82,
+            fileId: "att_shared",
+          },
+        ],
+        app_state: { viewBackgroundColor: "#eff6ff" },
+      })
+    );
+    resolveDelayed?.({
+      elements: [
+        {
+          id: "shared-image",
+          type: "image",
+          version: 1,
+          versionNonce: 81,
+          fileId: "att_shared",
+        },
+      ],
+      appState: { viewBackgroundColor: "#fff7ed" },
+      files: {
+        att_shared: {
+          id: "att_shared",
+          dataURL: "data:image/png;base64,cGl4ZWxz",
+        },
+      },
+    });
+    await vi.waitFor(() =>
+      expect(
+        (editor.editor.getScene().elements[0] as Record<string, unknown>)
+          .version
+      ).toBe(2)
+    );
+    expect(editor.editor.getScene().appState.viewBackgroundColor).toBe(
+      "#eff6ff"
+    );
     session.destroy();
   });
 });

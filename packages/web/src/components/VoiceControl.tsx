@@ -62,32 +62,48 @@ function storedMicrophoneDevice(): string {
 function storeMicrophoneDevice(deviceId: string): void {
   if (typeof localStorage === "undefined") return;
   try {
-    localStorage.setItem(MICROPHONE_DEVICE_STORAGE_KEY, deviceId);
+    if (deviceId) localStorage.setItem(MICROPHONE_DEVICE_STORAGE_KEY, deviceId);
+    else localStorage.removeItem(MICROPHONE_DEVICE_STORAGE_KEY);
   } catch {
     // Device selection still applies for this session when storage is blocked.
   }
 }
 
-function errorKey(
-  cause: unknown
-):
+type VoiceErrorKey =
   | "voice.errorUnavailable"
   | "voice.errorMicrophone"
   | "voice.errorMicrophoneTimeout"
-  | "voice.errorConnection" {
+  | "voice.errorPlayback"
+  | "voice.errorConnection";
+
+function connectionErrorKey(
+  cause: unknown
+): "voice.errorUnavailable" | "voice.errorConnection" {
   const message = cause instanceof Error ? cause.message : String(cause);
   if (message.includes("voice_unavailable")) return "voice.errorUnavailable";
+  return "voice.errorConnection";
+}
+
+function microphoneErrorKey(
+  cause: unknown
+): "voice.errorMicrophone" | "voice.errorMicrophoneTimeout" {
+  const message = cause instanceof Error ? cause.message : String(cause);
   if (message.includes("microphone_operation_timeout")) {
     return "voice.errorMicrophoneTimeout";
   }
-  if (
-    message.includes("NotAllowedError") ||
-    message.includes("Permission denied") ||
-    message.includes("Requested device not found")
-  ) {
-    return "voice.errorMicrophone";
-  }
-  return "voice.errorConnection";
+  return "voice.errorMicrophone";
+}
+
+function isMissingMicrophone(cause: unknown): boolean {
+  const name = cause instanceof DOMException ? cause.name : "";
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return (
+    name === "NotFoundError" ||
+    name === "OverconstrainedError" ||
+    /requested device not found|microphone.*not found|device.*gone/iu.test(
+      message
+    )
+  );
 }
 
 function initials(name: string): string {
@@ -119,21 +135,26 @@ export function VoiceControl({
   const [microphoneDeviceId, setMicrophoneDeviceId] = useState(
     storedMicrophoneDevice
   );
-  const [error, setError] = useState<
-    | "voice.errorUnavailable"
-    | "voice.errorMicrophone"
-    | "voice.errorMicrophoneTimeout"
-    | "voice.errorConnection"
-  >();
+  const [error, setError] = useState<VoiceErrorKey>();
 
   const handleSnapshot = useCallback(
     (voiceSession: VoiceSession, next: VoiceSessionSnapshot) => {
       if (voiceSessionRef.current !== voiceSession) return;
       setSnapshot(next);
-      if (next.connection === "connected") setState("connected");
+      if (next.connection === "connected") {
+        setState("connected");
+        setError((current) =>
+          current === "voice.errorConnection" ||
+          (next.microphoneEnabled &&
+            (current === "voice.errorMicrophone" ||
+              current === "voice.errorMicrophoneTimeout"))
+            ? undefined
+            : current
+        );
+      }
       if (next.connection === "reconnecting") setState("reconnecting");
       if (next.connection === "disconnected") {
-        voiceSessionRef.current = undefined;
+        setControlBusy(false);
         setState("error");
         setError("voice.errorConnection");
         setPanelOpen(true);
@@ -174,6 +195,9 @@ export function VoiceControl({
     setSnapshot(EMPTY_SNAPSHOT);
     let nextSession: VoiceSession | undefined;
     try {
+      const previousSession = voiceSessionRef.current;
+      voiceSessionRef.current = undefined;
+      if (previousSession) await previousSession.disconnect().catch(() => {});
       const credentials = await createVoiceJoinCredentials(session);
       if (operationRef.current !== operation) return;
       nextSession = await loadSession();
@@ -206,7 +230,20 @@ export function VoiceControl({
             )
           );
         } catch (cause) {
-          setError(errorKey(cause));
+          if (microphoneDeviceId && isMissingMicrophone(cause)) {
+            setMicrophoneDeviceId("");
+            storeMicrophoneDevice("");
+            try {
+              await microphoneOperation(
+                nextSession.setMicrophoneEnabled(true, undefined)
+              );
+              setError(undefined);
+            } catch (fallbackCause) {
+              setError(microphoneErrorKey(fallbackCause));
+            }
+          } else {
+            setError(microphoneErrorKey(cause));
+          }
         }
       }
     } catch (cause) {
@@ -216,7 +253,7 @@ export function VoiceControl({
       if (nextSession) await nextSession.disconnect().catch(() => {});
       if (operationRef.current !== operation) return;
       setState("error");
-      setError(errorKey(cause));
+      setError(connectionErrorKey(cause));
       setPanelOpen(true);
     }
   }, [handleSnapshot, loadSession, microphoneDeviceId, session, state]);
@@ -234,7 +271,7 @@ export function VoiceControl({
         )
       );
     } catch (cause) {
-      setError(errorKey(cause));
+      setError(microphoneErrorKey(cause));
     } finally {
       setControlBusy(false);
     }
@@ -244,6 +281,12 @@ export function VoiceControl({
     async (deviceId: string) => {
       setMicrophoneDeviceId(deviceId);
       storeMicrophoneDevice(deviceId);
+      setError((current) =>
+        current === "voice.errorMicrophone" ||
+        current === "voice.errorMicrophoneTimeout"
+          ? undefined
+          : current
+      );
       const current = voiceSessionRef.current;
       if (!current || state !== "connected" || !snapshot.microphoneEnabled)
         return;
@@ -252,7 +295,7 @@ export function VoiceControl({
       try {
         await microphoneOperation(current.setMicrophoneDevice(deviceId));
       } catch (cause) {
-        setError(errorKey(cause));
+        setError(microphoneErrorKey(cause));
       } finally {
         setControlBusy(false);
       }
@@ -266,8 +309,8 @@ export function VoiceControl({
     setControlBusy(true);
     try {
       await current.startAudio();
-    } catch (cause) {
-      setError(errorKey(cause));
+    } catch {
+      setError("voice.errorPlayback");
     } finally {
       setControlBusy(false);
     }

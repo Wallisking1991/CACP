@@ -214,6 +214,104 @@ test("preserves the first rectangle dimensions after collaboration sync", async 
   await Promise.all([ownerContext.close(), memberContext.close()]);
 });
 
+test("coalesces a long gesture and renders its final scene for peers", async ({
+  browser,
+  request,
+}) => {
+  const { owner, member } = await createRoomSessions(request);
+  const ownerContext = await browser.newContext();
+  const memberContext = await browser.newContext();
+  await seedSession(ownerContext, owner);
+  await seedSession(memberContext, member);
+  const ownerPage = await ownerContext.newPage();
+  const memberPage = await memberContext.newPage();
+  const ownerMessages: JsonResponse[] = [];
+  const memberMessages: JsonResponse[] = [];
+  ownerPage.on("websocket", (socket) => {
+    if (!socket.url().includes("/whiteboard")) return;
+    socket.on("framereceived", ({ payload }) => {
+      if (typeof payload !== "string") return;
+      try {
+        ownerMessages.push(JSON.parse(payload) as JsonResponse);
+      } catch {
+        // Non-JSON frames do not belong to the CACP whiteboard protocol.
+      }
+    });
+  });
+  memberPage.on("websocket", (socket) => {
+    if (!socket.url().includes("/whiteboard")) return;
+    socket.on("framereceived", ({ payload }) => {
+      if (typeof payload !== "string") return;
+      try {
+        memberMessages.push(JSON.parse(payload) as JsonResponse);
+      } catch {
+        // Non-JSON frames do not belong to the CACP whiteboard protocol.
+      }
+    });
+  });
+
+  await Promise.all([
+    openWhiteboard(ownerPage, owner.room_id),
+    openWhiteboard(memberPage, member.room_id),
+  ]);
+  const editor = ownerPage.getByRole("application", {
+    name: "Collaborative Whiteboard",
+  });
+  const box = await editor.boundingBox();
+  expect(box).not.toBeNull();
+
+  await ownerPage.keyboard.press("r");
+  await ownerPage.mouse.move(box!.x + 260, box!.y + 200);
+  await ownerPage.mouse.down();
+  await ownerPage.mouse.move(box!.x + 620, box!.y + 440, { steps: 120 });
+  await ownerPage.mouse.up();
+
+  await expect
+    .poll(
+      () =>
+        memberMessages.some(
+          (message) =>
+            message.type === "whiteboard.elements.updated" &&
+            Array.isArray(message.elements) &&
+            message.elements.some(
+              (element) =>
+                typeof element === "object" &&
+                element !== null &&
+                (element as JsonResponse).type === "rectangle" &&
+                Number((element as JsonResponse).width) >= 350 &&
+                Number((element as JsonResponse).height) >= 230
+            )
+        ),
+      { timeout: 10_000 }
+    )
+    .toBe(true);
+  expect(
+    ownerMessages.filter(
+      (message) =>
+        message.type === "whiteboard.error" && message.code === "rate_limited"
+    )
+  ).toHaveLength(0);
+
+  const downloadPromise = memberPage.waitForEvent("download");
+  await memberPage
+    .getByRole("button", { name: "Export Excalidraw", exact: true })
+    .click();
+  const download = await downloadPromise;
+  const path = await download.path();
+  expect(path).not.toBeNull();
+  const exported = JSON.parse(await readFile(path!, "utf8")) as JsonResponse;
+  expect(
+    ((exported.elements as JsonResponse[] | undefined) ?? []).some(
+      (element) =>
+        element.type === "rectangle" &&
+        Number(element.width) >= 350 &&
+        Number(element.height) >= 230
+    )
+  ).toBe(true);
+
+  await Promise.all([ownerContext.close(), memberContext.close()]);
+});
+
 test("shares real Excalidraw content and collaborator presence between two browsers", async ({
   browser,
   request,
