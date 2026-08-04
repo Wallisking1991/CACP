@@ -34,6 +34,17 @@ const FakeMainMenu = Object.assign(
   }
 );
 
+const FakeDefaultSidebar = Object.assign(
+  function FakeDefaultSidebarRoot({ className }: { className?: string }) {
+    return <aside data-testid="host-default-sidebar" className={className} />;
+  },
+  {
+    Trigger: ({ style }: { style?: React.CSSProperties }) => (
+      <span data-testid="host-default-sidebar-trigger" style={style} />
+    ),
+  }
+);
+
 describe("Excalidraw whiteboard editor adapter", () => {
   it("controls scene, read-only state, local export menu, and cleanup through the public API", async () => {
     const updateScene = vi.fn();
@@ -111,6 +122,7 @@ describe("Excalidraw whiteboard editor adapter", () => {
     }
 
     const adapter = createExcalidrawEditorAdapter({
+      DefaultSidebar: FakeDefaultSidebar,
       Excalidraw: FakeExcalidraw,
       MainMenu: FakeMainMenu,
       createRoot,
@@ -138,6 +150,12 @@ describe("Excalidraw whiteboard editor adapter", () => {
     expect(container.textContent).toContain("Export image");
     expect(container.textContent).toContain("Export scene");
     expect(container.textContent).not.toContain("Social");
+    expect(
+      container.querySelector("[data-testid='host-default-sidebar']")
+    ).toHaveClass("whiteboard-excalidraw__disabled-sidebar");
+    expect(
+      container.querySelector("[data-testid='host-default-sidebar-trigger']")
+    ).toHaveStyle({ display: "none" });
     expect(controller.getScene()).toEqual({
       elements: [{ id: "shape_1" }],
       appState: { viewBackgroundColor: "#ffffff" },

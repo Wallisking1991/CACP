@@ -1,5 +1,6 @@
 import {
   CaptureUpdateAction,
+  DefaultSidebar,
   Excalidraw,
   MainMenu,
   convertToExcalidrawElements,
@@ -397,6 +398,8 @@ function renderExcalidraw({
 }
 
 export const excalidrawRuntime: ExcalidrawRuntime = {
+  DefaultSidebar:
+    DefaultSidebar as unknown as ExcalidrawRuntime["DefaultSidebar"],
   Excalidraw: renderExcalidraw,
   MainMenu: MainMenu as unknown as ExcalidrawRuntime["MainMenu"],
   createRoot,

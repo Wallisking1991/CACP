@@ -10,6 +10,7 @@ const serializeAsJSON = vi.fn(() => '{"type":"excalidraw"}');
 
 vi.mock("@excalidraw/excalidraw", () => ({
   CaptureUpdateAction: { IMMEDIATELY: "immediately", NEVER: "never" },
+  DefaultSidebar: Object.assign(() => null, { Trigger: () => null }),
   Excalidraw: () => null,
   MainMenu: Object.assign(() => null, { DefaultItems: {} }),
   convertToExcalidrawElements: vi.fn((elements) =>

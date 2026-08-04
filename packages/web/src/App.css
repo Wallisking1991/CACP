@@ -1504,6 +1504,12 @@ textarea.input {
   touch-action: none;
 }
 
+.whiteboard-excalidraw .default-sidebar-trigger,
+.whiteboard-excalidraw .whiteboard-excalidraw__disabled-sidebar,
+.whiteboard-excalidraw [data-testid="addToLibrary"] {
+  display: none !important;
+}
+
 .whiteboard-surface {
   position: relative;
 }
@@ -1528,8 +1534,7 @@ textarea.input {
   display: none;
 }
 
-.whiteboard-action-button,
-.whiteboard-action-scope select {
+.whiteboard-action-button {
   min-height: 44px;
   border: 1px solid transparent;
   border-radius: 10px;
@@ -1561,7 +1566,7 @@ textarea.input {
 }
 
 .whiteboard-action-button__icon svg,
-.whiteboard-action-scope__icon svg,
+.whiteboard-action-scope__button svg,
 .whiteboard-mobile-toolbar__action svg {
   width: 20px;
   height: 20px;
@@ -1579,7 +1584,8 @@ textarea.input {
   opacity: 0.42;
 }
 
-.whiteboard-action-button--icon::after {
+.whiteboard-action-button--icon::after,
+.whiteboard-action-scope__button::after {
   position: absolute;
   z-index: 20;
   right: 50%;
@@ -1604,7 +1610,9 @@ textarea.input {
 }
 
 .whiteboard-action-button--icon:hover::after,
-.whiteboard-action-button--icon:focus-visible::after {
+.whiteboard-action-button--icon:focus-visible::after,
+.whiteboard-action-scope__button:hover::after,
+.whiteboard-action-scope__button:focus-visible::after {
   transform: translate(50%, 0);
   opacity: 1;
 }
@@ -1623,43 +1631,53 @@ textarea.input {
 
 .whiteboard-action-scope {
   position: relative;
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid rgba(28, 24, 19, 0.1);
+  border-radius: 13px;
+  background: rgba(133, 94, 39, 0.04);
 }
 
-.whiteboard-action-scope__icon {
-  position: absolute;
-  z-index: 1;
-  left: 10px;
+.whiteboard-action-scope__button {
+  position: relative;
   display: grid;
-  color: var(--ink-2);
-  pointer-events: none;
-}
-
-.whiteboard-action-scope__label--hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
+  width: 44px;
+  height: 44px;
   padding: 0;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-
-.whiteboard-action-scope select {
-  width: 132px;
-  padding: 0 28px 0 34px;
-  border-color: transparent;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink-2);
   cursor: pointer;
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    color 180ms ease;
 }
 
-.whiteboard-action-scope select:hover {
-  border-color: rgba(133, 94, 39, 0.14);
-  background: rgba(133, 94, 39, 0.07);
+.whiteboard-action-scope__button > span {
+  display: grid;
+  place-items: center;
 }
 
-.whiteboard-action-scope select:focus-visible,
+.whiteboard-action-scope__button:hover {
+  border-color: rgba(133, 94, 39, 0.16);
+  background: rgba(133, 94, 39, 0.09);
+  color: var(--accent);
+}
+
+.whiteboard-action-scope__button[aria-pressed="true"] {
+  border-color: rgba(28, 24, 19, 0.92);
+  background: var(--ink-1);
+  box-shadow: 0 3px 9px rgba(28, 24, 19, 0.18);
+  color: var(--surface);
+}
+
+.whiteboard-action-scope__button:focus-visible,
 .whiteboard-action-button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -2155,20 +2173,11 @@ textarea.input {
 
   .whiteboard-mobile-actions__scope {
     grid-column: 1 / -1;
-    display: grid;
-    gap: 6px;
-    color: var(--ink-2);
-    font-size: 13px;
-    font-weight: 650;
-  }
-
-  .whiteboard-mobile-actions__scope select {
-    width: 100%;
-    padding-inline: 10px;
+    display: inline-flex;
+    justify-self: start;
   }
 
   .whiteboard-mobile-actions button:focus-visible,
-  .whiteboard-mobile-actions select:focus-visible,
   .whiteboard-mobile-toolbar button:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;

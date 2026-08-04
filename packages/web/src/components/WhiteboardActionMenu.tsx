@@ -8,12 +8,13 @@ import type {
 import {
   ClockIcon,
   EditableFileIcon,
-  GlobeIcon,
   ImageFileIcon,
   ImagePlusIcon,
   LayoutTemplateIcon,
+  SelectionIcon,
   SendIcon,
   VectorFileIcon,
+  WhiteboardIcon,
 } from "./RoomIcons.js";
 
 interface WhiteboardActionButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -104,6 +105,19 @@ export function WhiteboardActionMenu({
     )
   );
   const recoveryLabel = String(t("whiteboard.manageRecovery"));
+  const exportScopeLabel = String(t("whiteboard.exportScope"));
+  const exportScopes = [
+    {
+      scope: "scene" as const,
+      label: String(t("whiteboard.exportScene")),
+      icon: <WhiteboardIcon />,
+    },
+    {
+      scope: "selection" as const,
+      label: String(t("whiteboard.exportSelection")),
+      icon: <SelectionIcon />,
+    },
+  ];
   return (
     <>
       {canEdit && (
@@ -145,36 +159,27 @@ export function WhiteboardActionMenu({
           />
         </>
       )}
-      <label
+      <div
         className={`whiteboard-action-scope${
           mobile ? " whiteboard-mobile-actions__scope" : ""
         }`}
+        role="group"
+        aria-label={exportScopeLabel}
       >
-        {!mobile && (
-          <span className="whiteboard-action-scope__icon" aria-hidden="true">
-            <GlobeIcon />
-          </span>
-        )}
-        <span
-          className={
-            mobile ? undefined : "whiteboard-action-scope__label--hidden"
-          }
-        >
-          {t("whiteboard.exportScope")}
-        </span>
-        <select
-          aria-label={t("whiteboard.exportScope")}
-          value={state.exportScope}
-          onChange={(event) =>
-            actions.setExportScope(
-              event.currentTarget.value as WhiteboardExportScope
-            )
-          }
-        >
-          <option value="scene">{t("whiteboard.exportScene")}</option>
-          <option value="selection">{t("whiteboard.exportSelection")}</option>
-        </select>
-      </label>
+        {exportScopes.map(({ scope, label, icon }) => (
+          <button
+            key={scope}
+            type="button"
+            className="whiteboard-action-scope__button"
+            aria-label={label}
+            aria-pressed={state.exportScope === scope}
+            data-tooltip={label}
+            onClick={() => actions.setExportScope(scope)}
+          >
+            <span aria-hidden="true">{icon}</span>
+          </button>
+        ))}
+      </div>
       {(["png", "svg", "excalidraw"] as const).map((format) => {
         const formatName =
           format === "excalidraw" ? "Excalidraw" : format.toUpperCase();

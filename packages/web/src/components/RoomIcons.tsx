@@ -223,6 +223,18 @@ export function WhiteboardIcon(props: IconProps) {
   );
 }
 
+export function SelectionIcon(props: IconProps) {
+  return (
+    <IconFrame {...props}>
+      <path d="M8 4H5a1 1 0 0 0-1 1v3" />
+      <path d="M16 4h3a1 1 0 0 1 1 1v3" />
+      <path d="M20 16v3a1 1 0 0 1-1 1h-3" />
+      <path d="M8 20H5a1 1 0 0 1-1-1v-3" />
+      <rect x="8" y="8" width="8" height="8" rx="1.5" />
+    </IconFrame>
+  );
+}
+
 export function ClockIcon(props: IconProps) {
   return (
     <IconFrame {...props}>

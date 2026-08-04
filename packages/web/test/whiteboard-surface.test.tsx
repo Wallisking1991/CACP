@@ -81,7 +81,21 @@ describe("WhiteboardSurface exports", () => {
       />
     );
 
-    const scope = await screen.findByLabelText("Export scope");
+    const scope = await screen.findByRole("group", { name: "Export scope" });
+    const entireBoard = screen.getByRole("button", { name: "Entire board" });
+    const currentSelection = screen.getByRole("button", {
+      name: "Current selection",
+    });
+    expect(scope).toContainElement(entireBoard);
+    expect(scope).toContainElement(currentSelection);
+    expect(entireBoard).toHaveAttribute("aria-pressed", "true");
+    expect(currentSelection).toHaveAttribute("aria-pressed", "false");
+    expect(entireBoard.textContent).toBe("");
+    expect(currentSelection.textContent).toBe("");
+    expect(currentSelection).toHaveAttribute(
+      "data-tooltip",
+      "Current selection"
+    );
     const imageInput = document.querySelector(
       'input[type="file"]'
     ) as HTMLInputElement;
@@ -92,7 +106,8 @@ describe("WhiteboardSurface exports", () => {
     });
     await waitFor(() => expect(insertImage).toHaveBeenCalledWith(image));
 
-    fireEvent.change(scope, { target: { value: "selection" } });
+    fireEvent.click(currentSelection);
+    expect(currentSelection).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(screen.getByRole("button", { name: "Export SVG" }));
     await waitFor(() =>
       expect(exportScene).toHaveBeenCalledWith("svg", "selection")

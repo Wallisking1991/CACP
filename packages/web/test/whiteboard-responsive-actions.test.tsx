@@ -138,6 +138,16 @@ describe("responsive whiteboard actions", () => {
       expect(templates).toBeVisible();
       expect(templates.textContent).toBe("");
       expect(templates).toHaveAttribute("data-tooltip", "Templates");
+      const scope = screen.getByRole("group", { name: "Export scope" });
+      const entireBoard = within(scope).getByRole("button", {
+        name: "Entire board",
+      });
+      const currentSelection = within(scope).getByRole("button", {
+        name: "Current selection",
+      });
+      expect(entireBoard.textContent).toBe("");
+      expect(currentSelection.textContent).toBe("");
+      expect(entireBoard).toHaveAttribute("data-tooltip", "Entire board");
       expect(screen.getByRole("button", { name: "Recovery" })).toBeVisible();
       expect(
         screen.queryByRole("button", { name: "More" })
@@ -166,7 +176,15 @@ describe("responsive whiteboard actions", () => {
     expect(
       within(dialog).getByRole("button", { name: "Recovery" })
     ).toBeVisible();
-    expect(within(dialog).getByLabelText("Export scope")).toBeVisible();
+    const scope = within(dialog).getByRole("group", { name: "Export scope" });
+    expect(scope).toBeVisible();
+    expect(
+      within(scope).getByRole("button", { name: "Entire board" }).textContent
+    ).toBe("");
+    expect(
+      within(scope).getByRole("button", { name: "Current selection" })
+        .textContent
+    ).toBe("");
     await waitFor(() =>
       expect(
         within(dialog).getByRole("button", { name: "Close" })

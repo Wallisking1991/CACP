@@ -1,4 +1,4 @@
-import type { ComponentType, ReactNode } from "react";
+import type { ComponentType, CSSProperties, ReactNode } from "react";
 import type {
   WhiteboardEditorAdapter,
   WhiteboardEditorController,
@@ -67,7 +67,22 @@ type ExcalidrawMenuComponent = ComponentType<{
   };
 };
 
+type ExcalidrawDefaultSidebarComponent = ComponentType<{
+  children?: ReactNode;
+  className?: string;
+  docked?: boolean;
+  onDock?: false;
+}> & {
+  Trigger: ComponentType<{
+    children?: ReactNode;
+    style?: CSSProperties;
+    tab?: string;
+    title?: string;
+  }>;
+};
+
 export interface ExcalidrawRuntime {
+  DefaultSidebar: ExcalidrawDefaultSidebarComponent;
   Excalidraw: ComponentType<ExcalidrawComponentProps>;
   MainMenu: ExcalidrawMenuComponent;
   createRoot(container: Element | DocumentFragment): ExcalidrawRoot;
@@ -256,6 +271,15 @@ export function createExcalidrawEditorAdapter(
                 <DefaultItems.ClearCanvas />
                 <DefaultItems.Help />
               </runtime.MainMenu>
+              <runtime.DefaultSidebar
+                className="whiteboard-excalidraw__disabled-sidebar"
+                docked={false}
+                onDock={false}
+              />
+              <runtime.DefaultSidebar.Trigger
+                style={{ display: "none" }}
+                tab="library"
+              />
             </runtime.Excalidraw>
           </div>
         );
