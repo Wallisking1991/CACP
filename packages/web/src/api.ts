@@ -5,6 +5,7 @@ import {
   WhiteboardPromotionResultSchema,
   type AttachmentRef,
   type CacpEvent,
+  type CollaborationDiagnosticBatch,
   type WhiteboardSnapshotList,
   type WhiteboardSnapshotMutationResult,
   type WhiteboardPromotionRequest,
@@ -352,6 +353,22 @@ export async function fetchRoomEvents(
   if (!response.ok) throw new Error(await response.text());
   const body = (await response.json()) as { events: CacpEvent[] };
   return body.events;
+}
+
+export async function sendCollaborationDiagnostics(
+  session: RoomSession,
+  batch: CollaborationDiagnosticBatch
+): Promise<void> {
+  const response = await fetch(`/rooms/${session.room_id}/diagnostics`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${session.token}`,
+    },
+    body: JSON.stringify(batch),
+    keepalive: true,
+  });
+  if (!response.ok) throw new Error(`diagnostics_${response.status}`);
 }
 
 export async function leaveRoom(session: RoomSession): Promise<void> {
@@ -824,7 +841,8 @@ export function clearEventSocket(
 export function connectEvents(
   session: RoomSession,
   onEvent: (event: CacpEvent) => void,
-  onClose?: (code: number, reason: string) => void
+  onClose?: (code: number, reason: string) => void,
+  diagnostics?: import("./collaboration-diagnostics.js").CollaborationDiagnostics
 ): EventStreamConnection {
   const url = new URL(
     `/rooms/${session.room_id}/stream`,
@@ -843,6 +861,7 @@ export function connectEvents(
   let activeSocket: WebSocket | undefined;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let reconnectAttempt = 0;
+  let connectionGeneration = 0;
   let stopped = false;
 
   const stop = (): void => {
@@ -856,15 +875,43 @@ export function connectEvents(
 
   const open = (): void => {
     if (stopped) return;
+    connectionGeneration += 1;
+    diagnostics?.record({
+      area: "room_stream",
+      action: "stream_connecting",
+      connection_generation: connectionGeneration,
+      reconnect_attempt: reconnectAttempt,
+    });
     const socket = new WebSocket(url);
     activeSocket = socket;
     socket.addEventListener("open", () => {
-      if (activeSocket === socket) reconnectAttempt = 0;
+      if (activeSocket === socket) {
+        diagnostics?.record({
+          area: "room_stream",
+          action: "stream_opened",
+          connection_generation: connectionGeneration,
+          reconnect_attempt: reconnectAttempt,
+        });
+        reconnectAttempt = 0;
+      }
     });
     socket.addEventListener("message", (message) => {
       if (typeof message.data !== "string") return;
       const parsed = parseCacpEventMessage(message.data);
       if (parsed) {
+        if (!parsed.type.endsWith(".delta")) {
+          const createdAt = Date.parse(parsed.created_at);
+          diagnostics?.record({
+            area: parsed.type.startsWith("orbit.") ? "orbit" : "room_stream",
+            action: "event_received",
+            connection_generation: connectionGeneration,
+            event_type: parsed.type,
+            event_id: parsed.event_id,
+            ...(Number.isFinite(createdAt)
+              ? { source_age_ms: Math.max(0, Date.now() - createdAt) }
+              : {}),
+          });
+        }
         onEvent(parsed);
         return;
       }
@@ -885,6 +932,15 @@ export function connectEvents(
     socket.addEventListener("close", (event) => {
       if (activeSocket === socket) activeSocket = undefined;
       if (stopped) return;
+      diagnostics?.record({
+        area: "room_stream",
+        action: "stream_closed",
+        connection_generation: connectionGeneration,
+        close_code: event.code,
+        ...(/^[A-Za-z0-9._:-]{1,80}$/u.test(event.reason)
+          ? { reason: event.reason }
+          : {}),
+      });
       onClose?.(event.code, event.reason);
       if (event.code === 4001 || terminalReasons.has(event.reason)) {
         stopped = true;
@@ -895,6 +951,13 @@ export function connectEvents(
           Math.min(reconnectAttempt, reconnectDelaysMs.length - 1)
         ]!;
       reconnectAttempt += 1;
+      diagnostics?.record({
+        area: "room_stream",
+        action: "stream_reconnect_scheduled",
+        connection_generation: connectionGeneration,
+        reconnect_attempt: reconnectAttempt,
+        retry_delay_ms: delay,
+      });
       reconnectTimer = setTimeout(() => {
         reconnectTimer = undefined;
         open();

@@ -21,12 +21,14 @@ import {
   removeParticipant,
   selectAgent,
   sendMessage,
+  sendCollaborationDiagnostics,
   updateAgentThinking,
   updateParticipantRole,
   type LocalAgentLaunch,
   type RoomSession,
 } from "./api.js";
-import { mergeEvent } from "./event-log.js";
+import { mergeEvent, reconcileAuthoritativeEvents } from "./event-log.js";
+import { createCollaborationDiagnostics } from "./collaboration-diagnostics.js";
 import {
   clearStoredSession,
   loadAllSessions,
@@ -116,6 +118,22 @@ export default function App() {
     sessionValidation && sessionValidation.key === currentSessionValidationKey
       ? sessionValidation.valid
       : undefined;
+  const diagnostics = useMemo(
+    () =>
+      currentSession
+        ? createCollaborationDiagnostics({
+            send: (batch) =>
+              sendCollaborationDiagnostics(currentSession, batch),
+          })
+        : undefined,
+    [currentSession]
+  );
+  useEffect(
+    () => () => {
+      void diagnostics?.destroy();
+    },
+    [diagnostics]
+  );
   const validating =
     currentSessionValidationKey !== undefined && sessionValid === undefined;
   const waitingRoomRef = useRef(waitingRoom);
@@ -158,7 +176,19 @@ export default function App() {
     const socket = connectEvents(
       currentSession,
       (event) => {
-        setEvents((current) => mergeEvent(current, event));
+        setEvents((current) => {
+          const merged = mergeEvent(current, event);
+          if (merged === current) {
+            diagnostics?.record({
+              area: event.type.startsWith("orbit.") ? "orbit" : "room_state",
+              action: "event_duplicate",
+              event_type: event.type,
+              event_id: event.event_id,
+              was_duplicate: true,
+            });
+          }
+          return merged;
+        });
         // Session-selection events trigger a server-side purge of prior content events.
         // Re-fetch the authoritative event log so the client mirrors the new server state.
         if (
@@ -166,7 +196,20 @@ export default function App() {
           event.type === "agent.session_selected"
         ) {
           void fetchRoomEvents(currentSession)
-            .then((fresh) => setEvents(fresh))
+            .then((fresh) =>
+              setEvents((current) => {
+                const reconciled = reconcileAuthoritativeEvents(current, fresh);
+                diagnostics?.record({
+                  area: "room_state",
+                  action: "state_reconciled",
+                  event_count: reconciled.length,
+                  orbit_note_count: reconciled.filter(
+                    (item) => item.type === "orbit.note.created"
+                  ).length,
+                });
+                return reconciled;
+              })
+            )
             .catch(() => {});
         }
         if (event.type === "participant.role_updated") {
@@ -194,10 +237,12 @@ export default function App() {
           reason === "owner_left_room" ||
           reason === "room_ended"
         ) {
-          const next = { ...allSessions };
-          delete next[currentSession.room_id];
-          setAllSessions(next);
-          saveAllSessions(window.localStorage, next);
+          setAllSessions((current) => {
+            const next = { ...current };
+            delete next[currentSession.room_id];
+            saveAllSessions(window.localStorage, next);
+            return next;
+          });
           setEvents([]);
           setCreatedInvite(undefined);
           setLocalLaunch(undefined);
@@ -211,9 +256,15 @@ export default function App() {
           );
           navigate("/", { replace: true });
         }
-      }
+      },
+      diagnostics
     );
     const bootstrapReplay = (attempt: number) => {
+      diagnostics?.record({
+        area: "room_state",
+        action: "replay_started",
+        reconnect_attempt: attempt,
+      });
       void fetchRoomEvents(currentSession)
         .then((replayedEvents) => {
           if (cancelled) return;
@@ -227,10 +278,22 @@ export default function App() {
             )
           );
           setEventReplayReadySessionKey(currentSessionValidationKey);
+          diagnostics?.record({
+            area: "room_state",
+            action: "replay_succeeded",
+            reconnect_attempt: attempt,
+            event_count: replayedEvents.length,
+          });
         })
         .catch(() => {
           if (cancelled) return;
           const retryDelay = eventReplayRetryDelaysMs[attempt];
+          diagnostics?.record({
+            area: "room_state",
+            action: "replay_failed",
+            reconnect_attempt: attempt,
+            ...(retryDelay !== undefined ? { retry_delay_ms: retryDelay } : {}),
+          });
           if (retryDelay !== undefined) {
             replayRetryTimer = setTimeout(
               () => bootstrapReplay(attempt + 1),
@@ -250,7 +313,13 @@ export default function App() {
       if (replayRetryTimer) clearTimeout(replayRetryTimer);
       clearEventSocket(socket);
     };
-  }, [currentSession, currentSessionValidationKey, sessionValid]);
+  }, [
+    currentSession,
+    currentSessionValidationKey,
+    diagnostics,
+    navigate,
+    sessionValid,
+  ]);
 
   // Poll join-request status when in waiting room
   useEffect(() => {
@@ -581,6 +650,7 @@ export default function App() {
         <>
           <Workspace
             session={currentSession}
+            diagnostics={diagnostics}
             events={events}
             eventReplayReady={
               eventReplayReadySessionKey === currentSessionValidationKey

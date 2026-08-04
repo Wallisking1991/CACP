@@ -10,7 +10,7 @@ import { dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import type { Readable } from "node:stream";
 import { isDeepStrictEqual } from "node:util";
 
@@ -24,6 +24,7 @@ import {
   AgentAdapterCompatibilitySchema,
   AttachmentRefSchema,
   ConnectorCompatibilitySchema,
+  CollaborationDiagnosticBatchSchema,
   RequiredAgentAdapterCompatibility,
   ProtocolVersion,
   evaluatePolicy,
@@ -329,6 +330,7 @@ export interface BuildServerOptions {
   approvalTimeoutMs?: number;
   elicitationTimeoutMs?: number;
   voiceService?: VoiceService;
+  diagnosticSink?: (record: Record<string, unknown>) => void;
 }
 type ProposalTerminalStatus = "approved" | "rejected" | "expired";
 type ProposalState = {
@@ -805,6 +807,19 @@ interface QueuedMainInput {
 
 export async function buildServer(options: BuildServerOptions = {}) {
   const config = options.config ?? loadServerConfig();
+  const diagnosticSalt = randomBytes(32);
+  const diagnosticSink =
+    options.diagnosticSink ??
+    (process.env.NODE_ENV === "test"
+      ? () => {}
+      : (record: Record<string, unknown>) => {
+          console.log(JSON.stringify(record));
+        });
+  const diagnosticRef = (value: string): string =>
+    createHmac("sha256", diagnosticSalt)
+      .update(value)
+      .digest("hex")
+      .slice(0, 16);
   const app = Fastify({
     bodyLimit: config.bodyLimitBytes,
     trustProxy: config.deploymentMode === "cloud",
@@ -937,6 +952,10 @@ export async function buildServer(options: BuildServerOptions = {}) {
     windowMs: config.rateLimitWindowMs,
     limit: config.orbitEventLimit,
   });
+  const diagnosticLimiter = new FixedWindowRateLimiter({
+    windowMs: config.rateLimitWindowMs,
+    limit: 120,
+  });
   /**
    * In-memory registry of rooms that are alive in *this* server process.
    * A room is alive iff `POST /rooms` minted it during the current process
@@ -964,6 +983,48 @@ export async function buildServer(options: BuildServerOptions = {}) {
   });
   const socketCounts = new Map<string, number>();
   const whiteboards = createWhiteboardSessionHub({
+    onDiagnostic: (diagnostic) => {
+      const {
+        roomId,
+        participantId,
+        updateId,
+        baseRevision,
+        currentRevision,
+        elementCount,
+        editorPeerCount,
+        observerPeerCount,
+        deliveredPeerCount,
+        failedPeerCount,
+        ...metadata
+      } = diagnostic;
+      diagnosticSink({
+        event: "collaboration_diagnostic",
+        source: "server",
+        logged_at: new Date().toISOString(),
+        area: "whiteboard",
+        room_ref: diagnosticRef(roomId),
+        participant_ref: diagnosticRef(participantId),
+        update_ref: diagnosticRef(updateId),
+        base_revision: baseRevision,
+        ...(currentRevision !== undefined
+          ? { current_revision: currentRevision }
+          : {}),
+        element_count: elementCount,
+        ...(editorPeerCount !== undefined
+          ? { editor_peer_count: editorPeerCount }
+          : {}),
+        ...(observerPeerCount !== undefined
+          ? { observer_peer_count: observerPeerCount }
+          : {}),
+        ...(deliveredPeerCount !== undefined
+          ? { delivered_peer_count: deliveredPeerCount }
+          : {}),
+        ...(failedPeerCount !== undefined
+          ? { failed_peer_count: failedPeerCount }
+          : {}),
+        ...metadata,
+      });
+    },
     maxMessageBytes: config.bodyLimitBytes,
     presenceHeartbeatMs: config.whiteboardPresenceHeartbeatMs,
     presenceTtlMs: config.whiteboardPresenceTtlMs,
@@ -3971,6 +4032,48 @@ export async function buildServer(options: BuildServerOptions = {}) {
         .listEvents(request.params.roomId)
         .filter((ev) => canViewEvent(ev, participant));
       return { events, participant: publicParticipant(participant) };
+    }
+  );
+
+  app.post<{ Params: { roomId: string }; Body: unknown }>(
+    "/rooms/:roomId/diagnostics",
+    async (request, reply) => {
+      const participant = requireParticipant(
+        store,
+        request.params.roomId,
+        request
+      );
+      if (!participant) return deny(reply, "invalid_token");
+      if (!diagnosticLimiter.allow(participant.id)) return tooMany(reply);
+      const body = CollaborationDiagnosticBatchSchema.parse(request.body);
+      for (const diagnostic of body.events) {
+        const {
+          client_session_id: clientSessionId,
+          event_id: eventId,
+          update_id: updateId,
+          participant_id: sourceParticipantId,
+          latest_sender_id: latestSenderId,
+          ...metadata
+        } = diagnostic;
+        diagnosticSink({
+          event: "collaboration_diagnostic",
+          source: "client",
+          logged_at: new Date().toISOString(),
+          room_ref: diagnosticRef(request.params.roomId),
+          participant_ref: diagnosticRef(participant.id),
+          client_ref: diagnosticRef(clientSessionId),
+          ...metadata,
+          ...(eventId ? { event_ref: diagnosticRef(eventId) } : {}),
+          ...(updateId ? { update_ref: diagnosticRef(updateId) } : {}),
+          ...(sourceParticipantId
+            ? { source_participant_ref: diagnosticRef(sourceParticipantId) }
+            : {}),
+          ...(latestSenderId
+            ? { latest_sender_ref: diagnosticRef(latestSenderId) }
+            : {}),
+        });
+      }
+      return reply.code(202).send({ accepted: body.events.length });
     }
   );
 

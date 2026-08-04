@@ -114,6 +114,7 @@ interface WhiteboardHubOptions {
   snapshotCadenceMs: number;
   snapshotMaxCount: number;
   snapshotMaxBytes: number;
+  onDiagnostic?: (event: WhiteboardHubDiagnostic) => void;
   commitScene?: (input: {
     roomId: string;
     participantId: string;
@@ -124,6 +125,25 @@ interface WhiteboardHubOptions {
     participantId: string;
     attachmentIds: string[];
   }) => string | undefined;
+}
+
+export interface WhiteboardHubDiagnostic {
+  action:
+    | "server_update_accepted"
+    | "server_update_rejected"
+    | "server_broadcast_completed";
+  roomId: string;
+  participantId: string;
+  updateId: string;
+  baseRevision: number;
+  revision?: number;
+  currentRevision?: number;
+  elementCount: number;
+  editorPeerCount?: number;
+  observerPeerCount?: number;
+  deliveredPeerCount?: number;
+  failedPeerCount?: number;
+  reason?: string;
 }
 
 const collaboratorColors: readonly WhiteboardCollaborator["color"][] = [
@@ -204,6 +224,22 @@ export function createWhiteboardSessionHub(
 ): WhiteboardSessionHub {
   const rooms = new Map<string, WhiteboardRoomState>();
 
+  function sendSafely(
+    state: WhiteboardRoomState,
+    connection: WhiteboardConnection,
+    data: string
+  ): boolean {
+    try {
+      connection.socket.send(data);
+      return true;
+    } catch {
+      connection.active = false;
+      connection.presence = undefined;
+      state.connections.delete(connection);
+      return false;
+    }
+  }
+
   function collaboratorFor(
     connection: WhiteboardConnection
   ): WhiteboardCollaborator {
@@ -263,7 +299,7 @@ export function createWhiteboardSessionHub(
       collaborator: collaboratorFor(connection),
     });
     for (const peer of state.connections) {
-      peer.socket.send(message);
+      sendSafely(state, peer, message);
     }
   }
 
@@ -284,7 +320,7 @@ export function createWhiteboardSessionHub(
       type: "whiteboard.presence.left",
       participant_id: participantId,
     });
-    for (const peer of state.connections) peer.socket.send(message);
+    for (const peer of state.connections) sendSafely(state, peer, message);
   }
 
   function deactivatePresence(
@@ -360,7 +396,9 @@ export function createWhiteboardSessionHub(
       revision: result.revision,
     });
     for (const connection of state.connections) {
-      connection.socket.send(
+      sendSafely(
+        state,
+        connection,
         connection.observeOnly ? activityMessage : sceneMessage
       );
     }
@@ -658,6 +696,16 @@ export function createWhiteboardSessionHub(
       }
       const applied = state.sceneState.apply(input.participantId, update);
       if (applied.kind === "rejected") {
+        options.onDiagnostic?.({
+          action: "server_update_rejected",
+          roomId: input.roomId,
+          participantId: input.participantId,
+          updateId: update.update_id,
+          baseRevision: update.base_revision,
+          currentRevision: applied.currentRevision,
+          elementCount: update.elements.length,
+          reason: applied.code,
+        });
         input.socket.send(
           JSON.stringify(
             whiteboardErrorMessage(
@@ -700,6 +748,16 @@ export function createWhiteboardSessionHub(
         return;
       }
 
+      options.onDiagnostic?.({
+        action: "server_update_accepted",
+        roomId: input.roomId,
+        participantId: input.participantId,
+        updateId: update.update_id,
+        baseRevision: update.base_revision,
+        revision: applied.revision,
+        elementCount: applied.scene.elements.length,
+      });
+
       const broadcast = JSON.stringify({
         ...base,
         type: "whiteboard.elements.updated",
@@ -715,10 +773,35 @@ export function createWhiteboardSessionHub(
         participant_id: input.participantId,
         revision: applied.revision,
       });
+      let editorPeerCount = 0;
+      let observerPeerCount = 0;
+      let deliveredPeerCount = 0;
+      let failedPeerCount = 0;
       for (const peer of state.connections) {
-        peer.socket.send(peer.observeOnly ? activity : broadcast);
+        if (peer.observeOnly) observerPeerCount += 1;
+        else editorPeerCount += 1;
+        if (sendSafely(state, peer, peer.observeOnly ? activity : broadcast)) {
+          deliveredPeerCount += 1;
+        } else {
+          failedPeerCount += 1;
+        }
       }
-      input.socket.send(
+      options.onDiagnostic?.({
+        action: "server_broadcast_completed",
+        roomId: input.roomId,
+        participantId: input.participantId,
+        updateId: update.update_id,
+        baseRevision: update.base_revision,
+        revision: applied.revision,
+        elementCount: applied.scene.elements.length,
+        editorPeerCount,
+        observerPeerCount,
+        deliveredPeerCount,
+        failedPeerCount,
+      });
+      sendSafely(
+        state,
+        connection,
         JSON.stringify({
           ...base,
           type: "whiteboard.ack",
@@ -801,7 +884,7 @@ export function createWhiteboardSessionHub(
         )
       );
       for (const connection of state.connections) {
-        connection.socket.send(message);
+        sendSafely(state, connection, message);
       }
       rooms.delete(roomId);
     },

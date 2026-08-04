@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeEvent } from "../src/event-log.js";
+import { mergeEvent, reconcileAuthoritativeEvents } from "../src/event-log.js";
 
 function messageEvent(event_id: string, created_at: string) {
   return {
@@ -26,5 +26,44 @@ describe("event log", () => {
     expect(
       mergeEvent(mergeEvent([], later), earlier).map((event) => event.event_id)
     ).toEqual(["evt_1", "evt_2"]);
+  });
+
+  it("deduplicates a live orbit note against its synthetic reconnect replay", () => {
+    const live = {
+      ...messageEvent("evt_live", "2026-04-25T00:00:01.000Z"),
+      type: "orbit.note.created" as const,
+      payload: {
+        note_id: "note_1",
+        text: "live-only",
+        created_at: "2026-04-25T00:00:01.000Z",
+      },
+    };
+    const replay = { ...live, event_id: "synth_note_1" };
+
+    expect(mergeEvent([live], replay)).toEqual([live]);
+  });
+
+  it("preserves live-only orbit state while replacing purged durable content", () => {
+    const oldMessage = messageEvent("evt_old", "2026-04-25T00:00:00.000Z");
+    const currentMessage = messageEvent(
+      "evt_current",
+      "2026-04-25T00:00:02.000Z"
+    );
+    const orbitNote = {
+      ...messageEvent("evt_orbit", "2026-04-25T00:00:01.000Z"),
+      type: "orbit.note.created" as const,
+      payload: {
+        note_id: "note_1",
+        text: "still live",
+        created_at: "2026-04-25T00:00:01.000Z",
+      },
+    };
+
+    expect(
+      reconcileAuthoritativeEvents(
+        [oldMessage, orbitNote],
+        [currentMessage]
+      ).map((event) => event.event_id)
+    ).toEqual(["evt_orbit", "evt_current"]);
   });
 });

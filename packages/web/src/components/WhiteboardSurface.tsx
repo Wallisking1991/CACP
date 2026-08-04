@@ -35,6 +35,7 @@ export interface WhiteboardSurfaceProps {
   identity: WhiteboardSessionIdentity;
   loadEditorAdapter: WhiteboardEditorAdapterLoader;
   loadSession: WhiteboardSessionFactoryLoader;
+  diagnostics?: import("../collaboration-diagnostics.js").CollaborationDiagnostics;
   langCode: "en" | "zh";
   name: string;
   activeAgent?: AgentView;
@@ -50,6 +51,7 @@ export function WhiteboardSurface({
   identity,
   loadEditorAdapter,
   loadSession,
+  diagnostics,
   langCode,
   name,
   activeAgent,
@@ -232,6 +234,7 @@ export function WhiteboardSurface({
             session: { room_id: roomId, token },
           }),
           presenceEnabled: latestActiveRef.current,
+          onDiagnostic: (record) => diagnostics?.record(record),
         });
         sessionRef.current = whiteboardSession;
         unsubscribeStatusRef.current = whiteboardSession.subscribeStatus(
@@ -298,7 +301,15 @@ export function WhiteboardSurface({
       controllerRef.current?.destroy();
       controllerRef.current = undefined;
     };
-  }, [attempt, loadEditorAdapter, loadSession, participantId, roomId, token]);
+  }, [
+    attempt,
+    diagnostics,
+    loadEditorAdapter,
+    loadSession,
+    participantId,
+    roomId,
+    token,
+  ]);
 
   useEffect(() => {
     controllerRef.current?.setDisplayOptions({

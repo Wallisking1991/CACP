@@ -11,6 +11,7 @@ import type {
 interface WhiteboardActivityObserverProps {
   identity: WhiteboardSessionIdentity;
   loadSession: WhiteboardSessionFactoryLoader;
+  diagnostics?: import("../collaboration-diagnostics.js").CollaborationDiagnostics;
   onActivity: (activity: WhiteboardSessionActivity) => void;
   onCollaboratorsChange: (collaborators: WhiteboardCollaborator[]) => void;
 }
@@ -21,6 +22,7 @@ const SESSION_LOAD_RETRY_MAX_MS = 30_000;
 export function WhiteboardActivityObserver({
   identity,
   loadSession,
+  diagnostics,
   onActivity,
   onCollaboratorsChange,
 }: WhiteboardActivityObserverProps) {
@@ -68,6 +70,7 @@ export function WhiteboardActivityObserver({
           editor,
           observeOnly: true,
           presenceEnabled: false,
+          onDiagnostic: (record) => diagnostics?.record(record),
         });
         if (disposed) {
           session.destroy();
@@ -117,7 +120,7 @@ export function WhiteboardActivityObserver({
       sessionRef.current = undefined;
       editor.destroy();
     };
-  }, [loadSession, participantId, roomId, token]);
+  }, [diagnostics, loadSession, participantId, roomId, token]);
 
   return null;
 }

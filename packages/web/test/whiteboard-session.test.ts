@@ -132,6 +132,105 @@ function sentFrames(socket: FakeSocket, type: string) {
 }
 
 describe("WhiteboardSession", () => {
+  it("reports the revision chain without scene content", () => {
+    const diagnostics: Array<Record<string, unknown>> = [];
+    const socket = new FakeSocket();
+    const editor = createEditor();
+    const session = createWhiteboardSession({
+      identity: {
+        roomId: "room_diagnostics",
+        participantId: "owner_1",
+        token: "owner-token",
+        role: "owner",
+      },
+      editor: editor.editor,
+      socketFactory: () => socket,
+      createUpdateId: () => "update_1",
+      origin: "http://localhost:5173",
+      onDiagnostic: (record) => diagnostics.push(record),
+    });
+
+    socket.open();
+    socket.receive(
+      serverMessage("room_diagnostics", {
+        type: "whiteboard.connected",
+        participant_id: "owner_1",
+        role: "owner",
+        can_edit: true,
+      })
+    );
+    socket.receive(
+      serverMessage("room_diagnostics", {
+        type: "whiteboard.scene",
+        revision: 0,
+        scene: { elements: [], app_state: {} },
+      })
+    );
+    const rectangle = {
+      id: "shape_1",
+      type: "rectangle",
+      version: 1,
+      versionNonce: 10,
+    };
+    editor.change({ elements: [rectangle], appState: {}, files: {} });
+    socket.receive(
+      serverMessage("room_diagnostics", {
+        type: "whiteboard.elements.updated",
+        update_id: "update_1",
+        participant_id: "owner_1",
+        revision: 1,
+        elements: [rectangle],
+        app_state: {},
+      })
+    );
+    socket.receive(
+      serverMessage("room_diagnostics", {
+        type: "whiteboard.ack",
+        update_id: "update_1",
+        revision: 1,
+      })
+    );
+    socket.receive(
+      serverMessage("room_diagnostics", {
+        type: "whiteboard.elements.updated",
+        update_id: "update_2",
+        participant_id: "member_1",
+        revision: 2,
+        elements: [{ ...rectangle, version: 2, versionNonce: 11 }],
+        app_state: {},
+      })
+    );
+
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "update_sent",
+          update_id: "update_1",
+          base_revision: 0,
+          element_count: 1,
+        }),
+        expect.objectContaining({
+          action: "ack_received",
+          update_id: "update_1",
+          revision: 1,
+        }),
+        expect.objectContaining({
+          action: "update_broadcast_received",
+          update_id: "update_2",
+          participant_id: "member_1",
+          revision: 2,
+        }),
+        expect.objectContaining({
+          action: "remote_apply_completed",
+          revision: 2,
+          element_count: 1,
+        }),
+      ])
+    );
+    expect(JSON.stringify(diagnostics)).not.toContain("owner-token");
+    session.destroy();
+  });
+
   it("keeps observation passive and publishes presence only while enabled", () => {
     vi.useFakeTimers();
     try {

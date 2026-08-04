@@ -124,6 +124,7 @@ export interface WorkspaceProps {
   loadWhiteboardEditorAdapter?: WhiteboardEditorAdapterLoader;
   loadWhiteboardSession?: WhiteboardSessionFactoryLoader;
   eventReplayReady?: boolean;
+  diagnostics?: import("../collaboration-diagnostics.js").CollaborationDiagnostics;
   loadVoiceSession?: VoiceSessionLoader;
 }
 
@@ -146,6 +147,7 @@ export default function Workspace({
   loadWhiteboardEditorAdapter = loadExcalidrawEditorAdapter,
   loadWhiteboardSession: loadWhiteboardSessionFactory = loadWhiteboardSession,
   eventReplayReady = true,
+  diagnostics,
   loadVoiceSession,
 }: WorkspaceProps) {
   const t = useT();
@@ -164,6 +166,25 @@ export default function Workspace({
     () => humanParticipants(room.participants),
     [room.participants]
   );
+
+  useEffect(() => {
+    diagnostics?.record({
+      area: "room_state",
+      action: "state_summary",
+      event_count: events.length,
+      message_count: room.messages.length,
+      orbit_note_count: room.orbitNotes.length,
+      participant_count: room.participants.length,
+      ...(room.latestSenderId ? { latest_sender_id: room.latestSenderId } : {}),
+    });
+  }, [
+    diagnostics,
+    events.length,
+    room.latestSenderId,
+    room.messages.length,
+    room.orbitNotes.length,
+    room.participants.length,
+  ]);
 
   const activeAgent = room.agents.find(
     (a) => a.agent_id === room.activeAgentId
@@ -1226,6 +1247,7 @@ export default function Workspace({
                   role: session.role === "agent" ? "observer" : session.role,
                 }}
                 loadSession={loadWhiteboardSessionFactory}
+                diagnostics={diagnostics}
                 onCollaboratorsChange={handleObservedWhiteboardCollaborators}
                 onActivity={handleWhiteboardActivity}
               />
@@ -1251,6 +1273,7 @@ export default function Workspace({
                   }}
                   loadEditorAdapter={loadWhiteboardEditorAdapter}
                   loadSession={loadWhiteboardSessionFactory}
+                  diagnostics={diagnostics}
                   langCode={lang}
                   activeAgent={activeAgent}
                   name={`${room.roomName ?? session.room_id} — ${String(

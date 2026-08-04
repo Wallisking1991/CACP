@@ -16,6 +16,7 @@ import type {
   WhiteboardPresence,
   WhiteboardScene,
 } from "./whiteboard-editor-adapter.js";
+import type { CollaborationDiagnosticRecord } from "../collaboration-diagnostics.js";
 import {
   WhiteboardImageAssetError,
   type WhiteboardImageAssetManager,
@@ -107,6 +108,7 @@ export interface CreateWhiteboardSessionOptions {
   presenceEnabled?: boolean;
   observeOnly?: boolean;
   imageAssets?: WhiteboardImageAssetManager;
+  onDiagnostic?: (record: CollaborationDiagnosticRecord) => void;
 }
 
 export type WhiteboardSessionFactory = (
@@ -231,6 +233,7 @@ export function createWhiteboardSession({
   presenceEnabled: initialPresenceEnabled = true,
   observeOnly = false,
   imageAssets,
+  onDiagnostic,
 }: CreateWhiteboardSessionOptions): WhiteboardSessionController {
   let role = identity.role;
   let status: WhiteboardSessionStatus = "connecting";
@@ -266,6 +269,7 @@ export function createWhiteboardSession({
   let remoteApplicationChain = Promise.resolve();
   let remoteApplicationSequence = 0;
   let remoteApplicationPending = false;
+  let connectionGeneration = 0;
   const collaborators = new Map<string, WhiteboardCollaborator>();
   const statusListeners = new Set<
     (nextStatus: WhiteboardSessionStatus) => void
@@ -280,9 +284,27 @@ export function createWhiteboardSession({
     (error: WhiteboardSessionError | undefined) => void
   >();
 
+  function report(
+    action: CollaborationDiagnosticRecord["action"],
+    details: Omit<CollaborationDiagnosticRecord, "area" | "action"> = {}
+  ): void {
+    onDiagnostic?.({
+      area: "whiteboard",
+      action,
+      connection_generation: connectionGeneration,
+      observe_only: observeOnly,
+      ...details,
+    });
+  }
+
   function setStatus(nextStatus: WhiteboardSessionStatus) {
     if (status === nextStatus) return;
     status = nextStatus;
+    report("status_changed", {
+      status,
+      ...(revision !== undefined ? { revision } : {}),
+      synchronized,
+    });
     for (const listener of statusListeners) listener(status);
   }
 
@@ -435,6 +457,10 @@ export function createWhiteboardSession({
   function finishRemoteApplication(sequence: number) {
     if (destroyed || sequence !== remoteApplicationSequence) return;
     remoteApplicationPending = false;
+    report("remote_apply_completed", {
+      ...(revision !== undefined ? { revision } : {}),
+      element_count: editor.getScene().elements.length,
+    });
     synchronized = connectedHandshake && socket?.readyState === SOCKET_OPEN;
     setStatus(synchronized ? "connected" : "disconnected");
     setEditorAccess();
@@ -445,6 +471,10 @@ export function createWhiteboardSession({
     scene: SharedWhiteboardScene,
     resetHistory = false
   ): boolean {
+    report("remote_apply_started", {
+      ...(revision !== undefined ? { revision } : {}),
+      element_count: scene.elements.length,
+    });
     const localScene = remoteScene(editor, scene);
     const hydrated = imageAssets
       ? imageAssets.hydrateRemoteScene(localScene)
@@ -452,6 +482,10 @@ export function createWhiteboardSession({
     if (!(hydrated instanceof Promise) && !remoteApplicationPending) {
       setSessionError(undefined);
       applyEditorScene(scene, hydrated.files, resetHistory);
+      report("remote_apply_completed", {
+        ...(revision !== undefined ? { revision } : {}),
+        element_count: scene.elements.length,
+      });
       return false;
     }
 
@@ -541,6 +575,12 @@ export function createWhiteboardSession({
     inFlightScene = scene;
     lastSceneSentAt = Date.now();
     socket.send(JSON.stringify(parsed.data));
+    report("update_sent", {
+      update_id: updateId,
+      base_revision: parsed.data.base_revision,
+      element_count: parsed.data.elements.length,
+      synchronized,
+    });
   }
 
   async function drainAssetScenes() {
@@ -596,6 +636,7 @@ export function createWhiteboardSession({
 
   function connect() {
     if (destroyed || terminalStatus) return;
+    connectionGeneration += 1;
     synchronized = false;
     connectedHandshake = false;
     clearPresenceTimers();
@@ -613,6 +654,7 @@ export function createWhiteboardSession({
     remoteApplicationChain = Promise.resolve();
     setStatus("connecting");
     setEditorAccess();
+    report("socket_connecting", { status: "connecting", synchronized });
 
     const nextSocket = socketFactory(
       whiteboardUrl(origin, identity, observeOnly)
@@ -620,6 +662,7 @@ export function createWhiteboardSession({
     socket = nextSocket;
     const onOpen = () => {
       if (socket !== nextSocket || destroyed) return;
+      report("socket_opened", { status: "synchronizing" });
       setStatus("synchronizing");
       setEditorAccess();
     };
@@ -651,6 +694,10 @@ export function createWhiteboardSession({
         }
         connectedHandshake = true;
         role = message.role;
+        report("handshake_received", {
+          participant_id: message.participant_id,
+          status: "synchronizing",
+        });
         presenceHeartbeatMs = message.presence_heartbeat_ms ?? 3_000;
         if (presenceEnabled) {
           startPresenceHeartbeat(presenceHeartbeatMs);
@@ -662,6 +709,13 @@ export function createWhiteboardSession({
       }
       if (message.type === "whiteboard.scene") {
         if (!connectedHandshake) return;
+        report("scene_received", {
+          revision: message.revision,
+          element_count: message.scene.elements.length,
+          ...(message.replacement_reason
+            ? { reason: message.replacement_reason }
+            : {}),
+        });
         if (message.replacement_reason) {
           revision = message.revision;
           inFlightUpdateId = undefined;
@@ -713,7 +767,20 @@ export function createWhiteboardSession({
         return;
       }
       if (message.type === "whiteboard.ack") {
-        if (message.update_id !== inFlightUpdateId) return;
+        if (message.update_id !== inFlightUpdateId) {
+          report("ack_ignored", {
+            update_id: message.update_id,
+            revision: message.revision,
+            ...(revision !== undefined ? { current_revision: revision } : {}),
+            reason: "unknown_update",
+          });
+          return;
+        }
+        report("ack_received", {
+          update_id: message.update_id,
+          revision: message.revision,
+          ...(revision !== undefined ? { current_revision: revision } : {}),
+        });
         revision = message.revision;
         inFlightUpdateId = undefined;
         inFlightScene = undefined;
@@ -759,6 +826,13 @@ export function createWhiteboardSession({
         return;
       }
       if (message.type === "whiteboard.elements.updated") {
+        report("update_broadcast_received", {
+          update_id: message.update_id,
+          participant_id: message.participant_id,
+          revision: message.revision,
+          ...(revision !== undefined ? { current_revision: revision } : {}),
+          element_count: message.elements.length,
+        });
         if (
           message.participant_id === identity.participantId &&
           message.update_id === inFlightUpdateId
@@ -766,6 +840,11 @@ export function createWhiteboardSession({
           if (revision === undefined || message.revision > revision) {
             revision = message.revision;
           }
+          report("update_ignored", {
+            update_id: message.update_id,
+            revision: message.revision,
+            reason: "own_echo",
+          });
           return;
         }
         if (rejectedUpdate) {
@@ -790,9 +869,23 @@ export function createWhiteboardSession({
         if (
           (!synchronized && !remoteApplicationPending) ||
           revision === undefined
-        )
+        ) {
+          report("update_ignored", {
+            update_id: message.update_id,
+            revision: message.revision,
+            reason: "unsynchronized",
+          });
           return;
-        if (message.revision <= revision) return;
+        }
+        if (message.revision <= revision) {
+          report("update_ignored", {
+            update_id: message.update_id,
+            revision: message.revision,
+            current_revision: revision,
+            reason: "revision_not_new",
+          });
+          return;
+        }
         revision = message.revision;
         const applyingImages = applyRemoteScene({
           elements: message.elements,
@@ -817,6 +910,14 @@ export function createWhiteboardSession({
         return;
       }
       if (message.type === "whiteboard.error") {
+        report("error_received", {
+          status: message.code,
+          ...(message.update_id ? { update_id: message.update_id } : {}),
+          ...(message.current_revision !== undefined
+            ? { current_revision: message.current_revision }
+            : {}),
+          ...(revision !== undefined ? { revision } : {}),
+        });
         if (message.code === "room_ended") {
           terminalStatus = "ended";
           synchronized = false;
@@ -892,8 +993,17 @@ export function createWhiteboardSession({
         }
       }
     };
-    const onClose = () => {
+    const onClose = (event: WhiteboardSocketEvent) => {
       if (socket !== nextSocket || destroyed) return;
+      report("socket_closed", {
+        ...(event.code !== undefined ? { close_code: event.code } : {}),
+        ...(typeof event.reason === "string" &&
+        /^[A-Za-z0-9._:-]{1,80}$/u.test(event.reason)
+          ? { reason: event.reason }
+          : {}),
+        ...(revision !== undefined ? { revision } : {}),
+        synchronized,
+      });
       nextSocket.removeEventListener("open", onOpen);
       nextSocket.removeEventListener("message", onMessage);
       nextSocket.removeEventListener("close", onClose);

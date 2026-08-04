@@ -1093,6 +1093,96 @@ export const AgentUpdatedPayloadSchema = z.object({
   updated_at: z.string().datetime(),
 });
 
+export const CollaborationDiagnosticAreaSchema = z.enum([
+  "room_stream",
+  "room_state",
+  "orbit",
+  "whiteboard",
+]);
+
+export const CollaborationDiagnosticActionSchema = z.enum([
+  "stream_connecting",
+  "stream_opened",
+  "stream_closed",
+  "stream_reconnect_scheduled",
+  "event_received",
+  "event_duplicate",
+  "replay_started",
+  "replay_succeeded",
+  "replay_failed",
+  "state_reconciled",
+  "state_summary",
+  "socket_connecting",
+  "socket_opened",
+  "socket_closed",
+  "handshake_received",
+  "scene_received",
+  "update_sent",
+  "update_broadcast_received",
+  "update_ignored",
+  "ack_received",
+  "ack_ignored",
+  "remote_apply_started",
+  "remote_apply_completed",
+  "status_changed",
+  "error_received",
+  "server_update_accepted",
+  "server_update_rejected",
+  "server_broadcast_completed",
+]);
+
+const CollaborationDiagnosticLabelSchema = z
+  .string()
+  .min(1)
+  .max(80)
+  .regex(/^[A-Za-z0-9._:-]+$/u);
+
+const CollaborationDiagnosticIdentifierSchema = z.string().min(1).max(200);
+
+export const CollaborationDiagnosticEventSchema = z
+  .object({
+    client_session_id: CollaborationDiagnosticIdentifierSchema,
+    sequence: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    occurred_at: z.string().datetime(),
+    area: CollaborationDiagnosticAreaSchema,
+    action: CollaborationDiagnosticActionSchema,
+    connection_generation: z.number().int().nonnegative().optional(),
+    reconnect_attempt: z.number().int().nonnegative().optional(),
+    retry_delay_ms: z.number().int().nonnegative().optional(),
+    close_code: z.number().int().nonnegative().max(65_535).optional(),
+    source_age_ms: z.number().int().nonnegative().optional(),
+    event_count: z.number().int().nonnegative().optional(),
+    message_count: z.number().int().nonnegative().optional(),
+    orbit_note_count: z.number().int().nonnegative().optional(),
+    participant_count: z.number().int().nonnegative().optional(),
+    dropped_count: z.number().int().nonnegative().optional(),
+    revision: z.number().int().nonnegative().optional(),
+    base_revision: z.number().int().nonnegative().optional(),
+    current_revision: z.number().int().nonnegative().optional(),
+    element_count: z.number().int().nonnegative().optional(),
+    editor_peer_count: z.number().int().nonnegative().optional(),
+    observer_peer_count: z.number().int().nonnegative().optional(),
+    delivered_peer_count: z.number().int().nonnegative().optional(),
+    failed_peer_count: z.number().int().nonnegative().optional(),
+    event_type: CollaborationDiagnosticLabelSchema.optional(),
+    event_id: CollaborationDiagnosticIdentifierSchema.optional(),
+    update_id: CollaborationDiagnosticIdentifierSchema.optional(),
+    participant_id: CollaborationDiagnosticIdentifierSchema.optional(),
+    latest_sender_id: CollaborationDiagnosticIdentifierSchema.optional(),
+    status: CollaborationDiagnosticLabelSchema.optional(),
+    reason: CollaborationDiagnosticLabelSchema.optional(),
+    was_duplicate: z.boolean().optional(),
+    observe_only: z.boolean().optional(),
+    synchronized: z.boolean().optional(),
+  })
+  .strict();
+
+export const CollaborationDiagnosticBatchSchema = z
+  .object({
+    events: z.array(CollaborationDiagnosticEventSchema).min(1).max(25),
+  })
+  .strict();
+
 export const WhiteboardProtocolName = "cacp-whiteboard" as const;
 export const WhiteboardProtocolVersion = "1.0.0" as const;
 export const WhiteboardMaxElements = 10_000;
@@ -1406,6 +1496,18 @@ export type ParticipantRoleUpdatedPayload = z.infer<
   typeof ParticipantRoleUpdatedPayloadSchema
 >;
 export type AgentUpdatedPayload = z.infer<typeof AgentUpdatedPayloadSchema>;
+export type CollaborationDiagnosticArea = z.infer<
+  typeof CollaborationDiagnosticAreaSchema
+>;
+export type CollaborationDiagnosticAction = z.infer<
+  typeof CollaborationDiagnosticActionSchema
+>;
+export type CollaborationDiagnosticEvent = z.infer<
+  typeof CollaborationDiagnosticEventSchema
+>;
+export type CollaborationDiagnosticBatch = z.infer<
+  typeof CollaborationDiagnosticBatchSchema
+>;
 export type WhiteboardHumanRole = z.infer<typeof WhiteboardHumanRoleSchema>;
 export type WhiteboardElement = z.infer<typeof WhiteboardElementSchema>;
 export type WhiteboardSharedAppState = z.infer<
