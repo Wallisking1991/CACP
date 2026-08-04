@@ -28,6 +28,10 @@ _Avoid_: Main Input, message
 An owner- or admin-initiated, atomic, note-terminal conversion of selected, unpromoted Orbit Notes and explicitly selected Room Attachments into one Main Input, making those attachments available to the selected Local Tool Agent. Attachments default to selected; an added Agent instruction is optional when selected Notes contain text and required when they do not; the promotion succeeds only when the complete resulting Agent input is valid.
 _Avoid_: Partial promotion, silent attachment fallback
 
+**Collaborative Whiteboard**:
+A single real-time spatial workspace within a Live Room where authorized human participants create and arrange shared visual content. It shares the Live Room's lifetime and reaches a Local Tool Agent only through an explicit Main Input.
+_Avoid_: Canvas, persistent board, Agent workspace
+
 **Main Input**:
 A participant submission from the main composer that appears in the shared timeline and is queued for or dispatched to the selected Local Tool Agent. It contains an explicit text instruction and may include Room Attachment references.
 _Avoid_: Orbit note, upload
