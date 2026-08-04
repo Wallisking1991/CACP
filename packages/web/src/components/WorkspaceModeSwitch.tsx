@@ -1,5 +1,6 @@
 import { useEffect, useRef, type KeyboardEvent } from "react";
 import { useT } from "../i18n/useT.js";
+import { BubbleIcon, WhiteboardIcon } from "./RoomIcons.js";
 
 export type WorkspaceMode = "conversation" | "whiteboard";
 
@@ -69,14 +70,16 @@ export function WorkspaceModeSwitch({
         id="conversation-workspace-tab"
         type="button"
         role="tab"
+        aria-label={t("workspace.conversation")}
         aria-controls="conversation-workspace-panel"
         aria-selected={mode === "conversation"}
+        data-tooltip={t("workspace.conversation")}
         tabIndex={mode === "conversation" ? 0 : -1}
         className={mode === "conversation" ? "is-active" : undefined}
         onClick={() => activate("conversation")}
         onKeyDown={(event) => handleKeyDown(event, "conversation")}
       >
-        {t("workspace.conversation")}
+        <BubbleIcon className="workspace-mode-switch__icon" />
         {hasConversationActivity && (
           <span
             className="workspace-mode-switch__activity"
@@ -90,14 +93,16 @@ export function WorkspaceModeSwitch({
         id="whiteboard-workspace-tab"
         type="button"
         role="tab"
+        aria-label={t("workspace.whiteboard")}
         aria-controls="whiteboard-workspace-panel"
         aria-selected={mode === "whiteboard"}
+        data-tooltip={t("workspace.whiteboard")}
         tabIndex={mode === "whiteboard" ? 0 : -1}
         className={mode === "whiteboard" ? "is-active" : undefined}
         onClick={() => activate("whiteboard")}
         onKeyDown={(event) => handleKeyDown(event, "whiteboard")}
       >
-        {t("workspace.whiteboard")}
+        <WhiteboardIcon className="workspace-mode-switch__icon" />
         {activeEditorCount > 0 && (
           <span
             className="workspace-mode-switch__count"

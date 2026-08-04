@@ -922,11 +922,16 @@ textarea.input {
 .workspace-mode-switch {
   display: inline-flex;
   flex-shrink: 0;
-  gap: 2px;
-  padding: 3px;
-  border: 1px solid var(--border);
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgba(232, 223, 208, 0.92);
   border-radius: var(--radius-pill);
-  background: rgba(255, 252, 245, 0.72);
+  background: rgba(255, 252, 245, 0.84);
+  box-shadow:
+    0 4px 14px rgba(28, 24, 19, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .workspace-mode-switch button {
@@ -934,41 +939,79 @@ textarea.input {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  min-height: 36px;
-  padding: 7px 13px;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
   border: 0;
   border-radius: var(--radius-pill);
   background: transparent;
   color: var(--ink-3);
   cursor: pointer;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 650;
   transition:
     background var(--motion-fast) ease,
     color var(--motion-fast) ease,
-    box-shadow var(--motion-fast) ease;
+    box-shadow var(--motion-fast) ease,
+    transform var(--motion-fast) ease;
+}
+
+.workspace-mode-switch__icon {
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.8;
+}
+
+.workspace-mode-switch button::after {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 9px);
+  left: 50%;
+  padding: 6px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(28, 24, 19, 0.94);
+  box-shadow: 0 8px 22px rgba(28, 24, 19, 0.2);
+  color: var(--invert);
+  content: attr(data-tooltip);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.2;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -4px);
+  transition:
+    opacity var(--motion-fast) ease,
+    transform var(--motion-fast) ease;
+  white-space: nowrap;
 }
 
 .workspace-mode-switch__count {
-  min-width: 18px;
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 19px;
   height: 18px;
   display: inline-grid;
   place-items: center;
   padding: 0 5px;
   border-radius: 999px;
-  background: rgba(28, 24, 19, 0.1);
-  color: currentColor;
+  border: 2px solid rgba(255, 252, 245, 0.96);
+  background: var(--ink);
+  color: var(--invert);
   font-size: 10px;
   line-height: 1;
 }
 
 .workspace-mode-switch button.is-active .workspace-mode-switch__count {
-  background: rgba(255, 255, 255, 0.18);
+  background: var(--accent);
+  color: var(--invert);
 }
 
 .workspace-mode-switch__activity {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
   width: 7px;
   height: 7px;
   flex: 0 0 auto;
@@ -982,6 +1025,12 @@ textarea.input {
   background: var(--surface-warm);
 }
 
+.workspace-mode-switch button:hover::after,
+.workspace-mode-switch button:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
 .workspace-mode-switch button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -990,7 +1039,14 @@ textarea.input {
 .workspace-mode-switch button.is-active {
   background: var(--ink);
   color: var(--invert);
-  box-shadow: 0 2px 8px rgba(28, 24, 19, 0.16);
+  box-shadow:
+    0 3px 10px rgba(28, 24, 19, 0.2),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.workspace-mode-switch button.is-active:hover {
+  background: var(--ink-2);
+  color: var(--invert);
 }
 
 .header-brand {
@@ -6334,11 +6390,12 @@ button.whiteboard-collaborators__person:focus-visible {
 
   .workspace-header--studio .workspace-mode-switch {
     grid-area: switch;
-    width: 100%;
+    width: auto;
+    justify-self: start;
   }
 
   .workspace-header--studio .workspace-mode-switch button {
-    flex: 1;
+    flex: 0 0 44px;
   }
 
   .workspace-header--studio .role-avatar-rail {

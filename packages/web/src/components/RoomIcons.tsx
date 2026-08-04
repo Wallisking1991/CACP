@@ -211,6 +211,18 @@ export function BubbleIcon(props: IconProps) {
   );
 }
 
+export function WhiteboardIcon(props: IconProps) {
+  return (
+    <IconFrame {...props}>
+      <rect x="3" y="4" width="18" height="15" rx="2" />
+      <path d="M8 22h8" />
+      <path d="M12 19v3" />
+      <path d="m7 14 3-3 2 2 5-5" />
+      <path d="m15 8h2v2" />
+    </IconFrame>
+  );
+}
+
 export function ClockIcon(props: IconProps) {
   return (
     <IconFrame {...props}>
