@@ -191,6 +191,7 @@ describe("Excalidraw public API bridge", () => {
       await import("../src/whiteboard/excalidraw-runtime.js");
     const updateScene = vi.fn();
     const addFiles = vi.fn();
+    const scrollToContent = vi.fn();
     const api = {
       getSceneElements: vi.fn(() => []),
       getAppState: vi.fn(() => ({
@@ -204,6 +205,7 @@ describe("Excalidraw public API bridge", () => {
       getFiles: vi.fn(() => ({})),
       updateScene,
       addFiles,
+      scrollToContent,
       history: { clear: vi.fn() },
     };
     const port = createExcalidrawApiPort(
@@ -242,7 +244,7 @@ describe("Excalidraw public API bridge", () => {
           expect.objectContaining({
             type: "rectangle",
             customData: {
-              cacpTemplate: { id: "brainstorm", version: 1 },
+              cacpTemplate: { id: "brainstorm", version: 2 },
             },
           }),
         ]),
@@ -251,6 +253,22 @@ describe("Excalidraw public API bridge", () => {
         },
         captureUpdate: "immediately",
       })
+    );
+    expect(scrollToContent).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          customData: {
+            cacpTemplate: { id: "brainstorm", version: 2 },
+          },
+        }),
+      ]),
+      {
+        fitToViewport: true,
+        viewportZoomFactor: 0.82,
+        minZoom: 0.2,
+        animate: true,
+        duration: 250,
+      }
     );
   });
 });

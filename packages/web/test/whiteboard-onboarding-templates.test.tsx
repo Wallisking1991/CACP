@@ -146,17 +146,32 @@ describe("whiteboard onboarding and built-in templates", () => {
     fireEvent.click(templatesButton);
     fireEvent.keyDown(document, { key: "Escape" });
     expect(
-      screen.queryByRole("dialog", { name: "Built-in templates" })
+      screen.queryByRole("dialog", { name: "Enterprise templates" })
     ).not.toBeInTheDocument();
     await waitFor(() => expect(templatesButton).toHaveFocus());
 
     fireEvent.click(templatesButton);
-    const menu = screen.getByRole("dialog", { name: "Built-in templates" });
-    fireEvent.click(within(menu).getByRole("button", { name: /Brainstorm/u }));
-    await waitFor(() => expect(insertTemplate).toHaveBeenCalledTimes(1));
-    expect(insertTemplate).toHaveBeenCalledWith("brainstorm");
+    const menu = screen.getByRole("dialog", { name: "Enterprise templates" });
     expect(
-      screen.queryByRole("dialog", { name: "Built-in templates" })
+      within(menu).getByRole("heading", { name: "Strategy & planning" })
+    ).toBeVisible();
+    expect(
+      within(menu).getByRole("heading", { name: "Operating management" })
+    ).toBeVisible();
+    expect(
+      within(menu).getByRole("heading", { name: "Delivery & governance" })
+    ).toBeVisible();
+    expect(
+      within(menu).getByRole("heading", { name: "Customer & improvement" })
+    ).toBeVisible();
+    expect(within(menu).getAllByRole("button")).toHaveLength(16);
+    fireEvent.click(
+      within(menu).getByRole("button", { name: /Project kickoff/u })
+    );
+    await waitFor(() => expect(insertTemplate).toHaveBeenCalledTimes(1));
+    expect(insertTemplate).toHaveBeenCalledWith("project-kickoff");
+    expect(
+      screen.queryByRole("dialog", { name: "Enterprise templates" })
     ).not.toBeInTheDocument();
     expect(
       screen.queryByText("Start shaping the idea")

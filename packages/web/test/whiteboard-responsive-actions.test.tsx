@@ -196,7 +196,7 @@ describe("responsive whiteboard actions", () => {
       screen.queryByRole("dialog", { name: "More" })
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("dialog", { name: "Built-in templates" })
+      screen.getByRole("dialog", { name: "Enterprise templates" })
     ).toBeVisible();
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(more).toHaveFocus());

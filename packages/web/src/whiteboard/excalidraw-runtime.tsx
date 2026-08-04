@@ -37,7 +37,10 @@ import type {
   WhiteboardTemplateId,
   WhiteboardViewport,
 } from "./whiteboard-editor-adapter.js";
-import { createBuiltInTemplateSkeleton } from "./whiteboard-templates.js";
+import {
+  createBuiltInTemplateSkeleton,
+  getBuiltInWhiteboardTemplate,
+} from "./whiteboard-templates.js";
 
 function toExcalidrawElements(scene: WhiteboardScene) {
   return scene.elements as readonly ExcalidrawElement[];
@@ -325,8 +328,8 @@ export function createExcalidrawApiPort(
     async insertTemplate(templateId: WhiteboardTemplateId) {
       const appState = api.getAppState();
       const zoom = appState.zoom.value || 1;
-      const width = 700;
-      const height = templateId === "retrospective" ? 278 : 208;
+      const { size } = getBuiltInWhiteboardTemplate(templateId);
+      const { width, height } = size;
       const x = -appState.scrollX + appState.width / (2 * zoom) - width / 2;
       const y = -appState.scrollY + appState.height / (2 * zoom) - height / 2;
       const inserted = convertToExcalidrawElements(
@@ -343,6 +346,13 @@ export function createExcalidrawApiPort(
           ),
         },
         captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+      });
+      api.scrollToContent(inserted, {
+        fitToViewport: true,
+        viewportZoomFactor: 0.82,
+        minZoom: 0.2,
+        animate: true,
+        duration: 250,
       });
     },
     exportScene(format, scope = "scene") {

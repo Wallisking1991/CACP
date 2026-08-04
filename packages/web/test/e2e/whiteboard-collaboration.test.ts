@@ -418,7 +418,7 @@ test("shares real Excalidraw content and collaborator presence between two brows
 
   await ownerPage.getByRole("button", { name: "Templates" }).click();
   const templateMenu = ownerPage.getByRole("dialog", {
-    name: "Built-in templates",
+    name: "Enterprise templates",
   });
   await templateMenu.getByRole("button", { name: /Brainstorm/u }).click();
   await expect
@@ -878,7 +878,7 @@ test("supports a complete narrow touch whiteboard flow", async ({
 
   await actions.getByRole("button", { name: "Templates" }).click();
   const templates = ownerPage.getByRole("dialog", {
-    name: "Built-in templates",
+    name: "Enterprise templates",
   });
   await templates.getByRole("button", { name: /Simple flow/u }).click();
   await expect
