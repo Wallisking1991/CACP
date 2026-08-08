@@ -673,6 +673,7 @@ export default function App() {
             }
           >
             <Workspace
+              key={currentSession.room_id}
               session={currentSession}
               diagnostics={diagnostics}
               events={events}

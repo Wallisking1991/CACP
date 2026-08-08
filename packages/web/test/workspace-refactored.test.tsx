@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import React from "react";
 import type { CacpEvent } from "@cacp/protocol";
 import Workspace from "../src/components/Workspace.js";
@@ -384,7 +390,7 @@ describe("Workspace refactored shell", () => {
     expect(grid?.querySelector(":scope > .orbit-panel")).not.toBeNull();
   });
 
-  it("does not count initial replay as unread but counts later foreign notes", () => {
+  it("does not count initial replay as unread but counts later foreign notes", async () => {
     const initial = [
       ...baseProps.events,
       event(
@@ -428,7 +434,7 @@ describe("Workspace refactored shell", () => {
         />
       </LangProvider>
     );
-    expect(screen.getByText("1")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("1")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: /Toggle discussion/i }));
     expect(screen.queryByText("1")).not.toBeInTheDocument();
   });
@@ -531,7 +537,7 @@ describe("Workspace refactored shell", () => {
     expect(screen.queryByText("2")).not.toBeInTheDocument();
   });
 
-  it("counts a foreign orbit note that arrives after the current participant joined", () => {
+  it("counts a foreign orbit note that arrives after the current participant joined", async () => {
     const bobBaseProps = {
       ...baseProps,
       session: {
@@ -601,7 +607,7 @@ describe("Workspace refactored shell", () => {
         <Workspace {...bobBaseProps} events={[...initial, liveAliceNote]} />
       </LangProvider>
     );
-    expect(screen.getByText("1")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("1")).toBeInTheDocument());
   });
 
   it("opens the promote modal listing flat-pool Orbit notes when the header button is clicked", () => {

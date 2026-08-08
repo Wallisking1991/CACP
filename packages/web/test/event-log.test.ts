@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { mergeEvent, reconcileAuthoritativeEvents } from "../src/event-log.js";
+import {
+  createEventCursor,
+  mergeEvent,
+  reconcileAuthoritativeEvents,
+} from "../src/event-log.js";
 
 function messageEvent(event_id: string, created_at: string) {
   return {
@@ -87,5 +91,28 @@ describe("event log", () => {
 
     expect(reconciled).toHaveLength(40);
     expect(eventIdReads).toBeLessThanOrEqual(80);
+  });
+
+  it("reads only appended events after the initial event history", () => {
+    let historyLocked = false;
+    const historicalEvents = [
+      messageEvent("evt_1", "2026-04-25T00:00:00.000Z"),
+      messageEvent("evt_2", "2026-04-25T00:00:01.000Z"),
+    ].map((historicalEvent) =>
+      Object.defineProperty({ ...historicalEvent }, "event_id", {
+        enumerable: true,
+        get() {
+          if (historyLocked) throw new Error("historical event was scanned");
+          return historicalEvent.event_id;
+        },
+      })
+    );
+    const appended = messageEvent("evt_3", "2026-04-25T00:00:02.000Z");
+    const cursor = createEventCursor();
+
+    expect(cursor.takeNew(historicalEvents)).toEqual(historicalEvents);
+    historyLocked = true;
+
+    expect(cursor.takeNew([...historicalEvents, appended])).toEqual([appended]);
   });
 });

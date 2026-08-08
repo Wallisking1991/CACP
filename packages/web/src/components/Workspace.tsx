@@ -17,6 +17,7 @@ import {
   createAgentPairing,
 } from "../api.js";
 import { roomPermissionsForRole } from "../role-permissions.js";
+import { createEventCursor } from "../event-log.js";
 import {
   humanParticipants,
   isTurnInFlight,
@@ -160,6 +161,14 @@ export default function Workspace({
     }),
     [session.participant_id, session.room_id]
   );
+  const eventCursors = useMemo(
+    () => ({
+      roomId: session.room_id,
+      orbit: createEventCursor(),
+      growth: createEventCursor(),
+    }),
+    [session.room_id]
+  );
   const room = useMemo(
     () =>
       roomStateProjection.projector.project(events, {
@@ -275,7 +284,6 @@ export default function Workspace({
     const timer = window.setInterval(refreshAttachmentUsage, 30_000);
     return () => window.clearInterval(timer);
   }, [refreshAttachmentUsage]);
-  const seenGrowthEventIdsRef = useRef(new Set<string>());
   const initialLoadCompleteRef = useRef(false);
   const growthTimerRef = useRef<number>(0);
   const lastRoomIdRef = useRef(session.room_id);
@@ -349,6 +357,10 @@ export default function Workspace({
     replayReady: eventReplayReady,
   });
   const panelOpenRef = useRef(panelOpen);
+  const orbitUnreadBaselineRef = useRef({
+    roomId: session.room_id,
+    ready: false,
+  });
   useEffect(() => {
     panelOpenRef.current = panelOpen;
   }, [panelOpen]);
@@ -465,9 +477,6 @@ export default function Workspace({
   const [focusedOrbitNoteId, setFocusedOrbitNoteId] = useState<
     string | undefined
   >();
-  const seenOrbitEventIdsRef = useRef<Set<string>>(new Set());
-  const orbitUnreadBaselineReadyRef = useRef(false);
-
   const [orbitBubbles, setOrbitBubbles] = useState<
     Map<string, { text: string; id: string; noteId: string }>
   >(new Map());
@@ -485,18 +494,19 @@ export default function Workspace({
 
   useEffect(() => {
     if (events.length === 0) return;
-    const known = seenOrbitEventIdsRef.current;
-    const orbitNoteEvents = events.filter(
-      (event) => event.type === "orbit.note.created"
-    );
-    const newOrbitEvents = orbitNoteEvents.filter(
-      (event) => !known.has(event.event_id)
-    );
-    for (const event of orbitNoteEvents) known.add(event.event_id);
-    if (!orbitUnreadBaselineReadyRef.current) {
-      orbitUnreadBaselineReadyRef.current = true;
+    const newOrbitEvents = eventCursors.orbit
+      .takeNew(events)
+      .filter((event) => event.type === "orbit.note.created");
+    const baseline = orbitUnreadBaselineRef.current;
+    if (baseline.roomId !== session.room_id) {
+      baseline.roomId = session.room_id;
+      baseline.ready = false;
+    }
+    if (!baseline.ready) {
+      baseline.ready = true;
       return;
     }
+    if (newOrbitEvents.length === 0) return;
     if (!panelOpen) {
       const myJoinEvent = events.find((event) => {
         if (event.type !== "participant.joined") return false;
@@ -512,8 +522,6 @@ export default function Workspace({
           : Date.parse(event.created_at);
         return noteCreatedAt >= myJoinTime;
       }).length;
-      if (foreignCount > 0) setUnreadOrbit((current) => current + foreignCount);
-
       const myName = peopleParticipants.find(
         (p) => p.id === session.participant_id
       )?.display_name;
@@ -540,12 +548,23 @@ export default function Workspace({
         );
         return isMentioned || isReplyToMe;
       }).length;
-      if (mentionCount > 0)
-        setUnreadMentions((current) => current + mentionCount);
+      if (foreignCount > 0 || mentionCount > 0) {
+        queueMicrotask(() => {
+          if (panelOpenRef.current) return;
+          if (foreignCount > 0) {
+            setUnreadOrbit((current) => current + foreignCount);
+          }
+          if (mentionCount > 0) {
+            setUnreadMentions((current) => current + mentionCount);
+          }
+        });
+      }
     }
   }, [
     events,
+    eventCursors,
     panelOpen,
+    session.room_id,
     session.participant_id,
     peopleParticipants,
     room.orbitNotes,
@@ -574,18 +593,11 @@ export default function Workspace({
   useEffect(() => {
     if (lastRoomIdRef.current !== session.room_id) {
       lastRoomIdRef.current = session.room_id;
-      seenGrowthEventIdsRef.current.clear();
       initialLoadCompleteRef.current = false;
       window.clearTimeout(growthTimerRef.current);
     }
 
-    const seenEventIds = seenGrowthEventIdsRef.current;
-    const newEvents: CacpEvent[] = [];
-    for (const event of events) {
-      if (seenEventIds.has(event.event_id)) continue;
-      seenEventIds.add(event.event_id);
-      newEvents.push(event);
-    }
+    const newEvents = eventCursors.growth.takeNew(events);
     const grew = newEvents.length > 0;
 
     if (grew) {
@@ -769,6 +781,7 @@ export default function Workspace({
     }
   }, [
     events,
+    eventCursors,
     session.room_id,
     session.participant_id,
     peopleParticipants,

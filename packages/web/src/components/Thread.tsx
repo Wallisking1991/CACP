@@ -59,12 +59,37 @@ export function MessageAttachments({
   loadAttachment?: (attachment: AttachmentRef) => Promise<Blob>;
 }) {
   const t = useT();
+  const attachmentsRef = useRef<HTMLDivElement | null>(null);
+  const [nearViewport, setNearViewport] = useState(
+    () => typeof IntersectionObserver === "undefined"
+  );
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
   const [downloading, setDownloading] = useState<string>();
 
+  const hasInlineImage = attachments.some(
+    (attachment) =>
+      attachment.kind === "image" && attachment.disposition === "inline"
+  );
+
   useEffect(() => {
-    if (!loadAttachment) return;
+    if (nearViewport || !hasInlineImage) return;
+    const element = attachmentsRef.current;
+    if (!element) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        setNearViewport(true);
+        observer.disconnect();
+      },
+      { rootMargin: "400px" }
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [hasInlineImage, nearViewport]);
+
+  useEffect(() => {
+    if (!loadAttachment || !nearViewport) return;
     let cancelled = false;
     const urls: string[] = [];
     for (const attachment of attachments) {
@@ -91,7 +116,7 @@ export function MessageAttachments({
       cancelled = true;
       for (const url of urls) URL.revokeObjectURL(url);
     };
-  }, [attachments, loadAttachment]);
+  }, [attachments, loadAttachment, nearViewport]);
 
   async function download(attachment: AttachmentRef) {
     if (!loadAttachment || downloading) return;
@@ -110,21 +135,32 @@ export function MessageAttachments({
   }
 
   return (
-    <div className="message-attachments">
+    <div className="message-attachments" ref={attachmentsRef}>
       {attachments.map((attachment) => {
         const imageUrl = imageUrls[attachment.attachment_id];
+        const isInlineImage =
+          attachment.kind === "image" && attachment.disposition === "inline";
         return (
           <div
-            className={`message-attachment${imageUrl ? " message-attachment--image" : ""}`}
+            className={`message-attachment${isInlineImage ? " message-attachment--image" : ""}`}
             key={attachment.attachment_id}
           >
-            {imageUrl && (
-              <img
-                className="message-attachment__preview"
-                src={imageUrl}
-                alt={attachment.name}
-                loading="lazy"
-              />
+            {isInlineImage && (
+              <div className="message-attachment__preview-frame">
+                {imageUrl ? (
+                  <img
+                    className="message-attachment__preview"
+                    src={imageUrl}
+                    alt={attachment.name}
+                    loading="lazy"
+                  />
+                ) : (
+                  <div
+                    className="message-attachment__preview-placeholder"
+                    aria-hidden="true"
+                  />
+                )}
+              </div>
             )}
             <div className="message-attachment__details">
               <span className="message-attachment__name">

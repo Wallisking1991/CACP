@@ -1,5 +1,34 @@
 import type { CacpEvent } from "@cacp/protocol";
 
+export interface EventCursor {
+  takeNew(events: readonly CacpEvent[]): CacpEvent[];
+}
+
+export function createEventCursor(): EventCursor {
+  let previousEvents: readonly CacpEvent[] = [];
+  const knownEventIds = new Set<string>();
+
+  return {
+    takeNew(events) {
+      if (events === previousEvents) return [];
+
+      const previousTail = previousEvents.at(-1);
+      const isStrictAppend =
+        events.length > previousEvents.length &&
+        (!previousTail || events[previousEvents.length - 1] === previousTail);
+      const candidates = isStrictAppend
+        ? events.slice(previousEvents.length)
+        : events;
+      const appended = candidates.filter(
+        (event) => !knownEventIds.has(event.event_id)
+      );
+      for (const event of appended) knownEventIds.add(event.event_id);
+      previousEvents = events;
+      return appended;
+    },
+  };
+}
+
 function orbitNoteId(event: CacpEvent): string | undefined {
   if (event.type !== "orbit.note.created") return undefined;
   return typeof event.payload.note_id === "string"
