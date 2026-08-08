@@ -1,14 +1,3 @@
-import { useLayoutEffect, useRef } from "react";
-import gsap from "gsap";
-
-function prefersReducedMotion(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
-}
-
 interface CacpRoomLogoProps {
   ariaLabel?: string;
   className?: string;
@@ -18,82 +7,8 @@ export default function CacpRoomLogo({
   ariaLabel = "CACP",
   className = "",
 }: CacpRoomLogoProps) {
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  useLayoutEffect(() => {
-    const root = rootRef.current;
-    if (!root) return;
-
-    if (prefersReducedMotion()) {
-      root.dataset.motion = "reduced";
-      return;
-    }
-
-    const ctx = gsap.context(() => {
-      gsap.set(".room-logo-draw", {
-        strokeDasharray: 120,
-        strokeDashoffset: 120,
-      });
-      gsap.set(".room-logo-core, .room-logo-node, .room-logo-orbit-dot", {
-        opacity: 0,
-        scale: 0.86,
-        transformOrigin: "50% 50%",
-      });
-
-      const intro = gsap.timeline({ defaults: { ease: "power3.out" } });
-      intro
-        .to(".room-logo-draw", {
-          strokeDashoffset: 0,
-          duration: 0.8,
-          stagger: 0.06,
-        })
-        .to(
-          ".room-logo-core",
-          { opacity: 1, scale: 1, duration: 0.35 },
-          "-=0.35"
-        )
-        .to(
-          ".room-logo-node",
-          { opacity: 1, scale: 1, duration: 0.28, stagger: 0.08 },
-          "-=0.18"
-        )
-        .to(
-          ".room-logo-orbit-dot",
-          { opacity: 1, scale: 1, duration: 0.22 },
-          "-=0.12"
-        );
-
-      gsap.to(".room-logo-core", {
-        opacity: 0.9,
-        scale: 1.08,
-        duration: 2.8,
-        repeat: -1,
-        yoyo: true,
-        ease: "sine.inOut",
-      });
-      gsap.to(".room-logo-node", {
-        y: (index) => (index % 2 === 0 ? -2 : 2),
-        duration: 3.6,
-        repeat: -1,
-        yoyo: true,
-        ease: "sine.inOut",
-        stagger: 0.35,
-      });
-      gsap.to(".room-logo-orbit-dot", {
-        rotate: 360,
-        transformOrigin: "48px 48px",
-        duration: 12,
-        repeat: -1,
-        ease: "none",
-      });
-    }, root);
-
-    return () => ctx.revert();
-  }, []);
-
   return (
     <div
-      ref={rootRef}
       className={`cacp-room-logo ${className}`.trim()}
       aria-label={ariaLabel}
       role="img"

@@ -45,10 +45,14 @@ describe("landing redesign source", () => {
 
   it("keeps SVG animation classes isolated in the hero logo component", () => {
     const source = logoSource();
+    const css = cssSource();
     expect(source).toContain("logo-draw");
     expect(source).toContain("logo-core");
-    expect(source).toContain("gsap.context");
-    expect(source).toContain("prefers-reduced-motion: reduce");
+    expect(source).not.toContain("gsap");
+    expect(css).toContain("@keyframes hero-logo-draw");
+    expect(css).toMatch(
+      /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*\.logo-draw/s
+    );
   });
 
   it("adds small-screen workspace header and composer polish", () => {

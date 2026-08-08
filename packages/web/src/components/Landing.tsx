@@ -1,25 +1,9 @@
-import {
-  useContext,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import gsap from "gsap";
+import { useContext, useEffect, useMemo, useState } from "react";
 import { parseInviteUrl, verifyInvite } from "../api.js";
 import { LangContext } from "../i18n/LangProvider.js";
 import { useT } from "../i18n/useT.js";
 import { isCloudMode } from "../runtime-config.js";
 import CacpHeroLogo from "./CacpHeroLogo.js";
-
-function prefersReducedMotion(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
-}
 
 function snakeToPascal(value: string): string {
   return value.replace(/(^|_)([a-z])/g, (_, _sep, letter) =>
@@ -121,7 +105,6 @@ const valueTags = [
 export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
   const t = useT();
   const langCtx = useContext(LangContext);
-  const heroRef = useRef<HTMLElement>(null);
 
   const inviteTarget = useMemo(
     () =>
@@ -148,36 +131,6 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
   const joinValid = Boolean(
     inviteTarget && joinDisplayName.trim() && inviteCheckStatus === "valid"
   );
-
-  useLayoutEffect(() => {
-    const hero = heroRef.current;
-    if (!hero || prefersReducedMotion()) return;
-
-    const ctx = gsap.context(() => {
-      gsap.set(
-        ".landing-headline, .landing-subcopy, .landing-value-tag, .landing-console",
-        {
-          opacity: 0,
-          y: 16,
-        }
-      );
-
-      const tl = gsap.timeline({
-        defaults: { ease: "power2.out" },
-        delay: 0.4,
-      });
-      tl.to(".landing-headline", { opacity: 1, y: 0, duration: 0.55 })
-        .to(".landing-subcopy", { opacity: 1, y: 0, duration: 0.5 }, "-=0.3")
-        .to(
-          ".landing-value-tag",
-          { opacity: 1, y: 0, duration: 0.4, stagger: 0.08 },
-          "-=0.25"
-        )
-        .to(".landing-console", { opacity: 1, y: 0, duration: 0.6 }, "-=0.5");
-    }, hero);
-
-    return () => ctx.revert();
-  }, []);
 
   useEffect(() => {
     if (hasInviteInUrl) setAdvancedOpen(false);
@@ -267,7 +220,7 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
         </button>
       </div>
 
-      <section ref={heroRef} className="landing-hero-grid">
+      <section className="landing-hero-grid">
         <div className="landing-showcase">
           <p className="landing-eyebrow">{t("landing.eyebrow")}</p>
           <CacpHeroLogo ariaLabel={t("landing.logoLabel")} />
@@ -415,6 +368,7 @@ export default function Landing({ onCreate, onJoin, loading }: LandingProps) {
                 className={`landing-advanced ${advancedOpen ? "is-open" : ""}`}
                 aria-hidden={advancedOpen ? undefined : true}
                 inert={advancedOpen ? undefined : true}
+                hidden={!advancedOpen}
               >
                 <p className="section-label">
                   {t("landing.create.advancedTitle")}

@@ -4,10 +4,8 @@ import {
   useEffect,
   useMemo,
   useRef,
-  useLayoutEffect,
   useCallback,
 } from "react";
-import gsap from "gsap";
 import type { CacpEvent } from "@cacp/protocol";
 import type { RoomSession } from "../api.js";
 import {
@@ -804,53 +802,6 @@ export default function Workspace({
     t,
   ]);
 
-  const shellRef = useRef<HTMLDivElement>(null);
-
-  useLayoutEffect(() => {
-    const shell = shellRef.current;
-    if (!shell) return;
-
-    const prefersReduced =
-      typeof window !== "undefined" &&
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    if (prefersReduced) return;
-
-    const ctx = gsap.context(() => {
-      const header = shell.querySelector<HTMLElement>(".workspace-header");
-      const thread = shell.querySelector<HTMLElement>(".thread");
-      const composer = shell.querySelector<HTMLElement>(".main-composer");
-      const orbitPanel = shell.querySelector<HTMLElement>(".orbit-panel");
-      const targets = [header, thread, composer, orbitPanel].filter(
-        (target): target is HTMLElement => target !== null
-      );
-
-      gsap.set(targets, { opacity: 0, y: 14 });
-
-      const tl = gsap.timeline({
-        defaults: { ease: "power2.out" },
-        delay: 0.15,
-      });
-
-      if (header) {
-        tl.to(header, { opacity: 1, y: 0, duration: 0.5 });
-      }
-      if (thread) {
-        tl.to(thread, { opacity: 1, y: 0, duration: 0.45 }, "-=0.28");
-      }
-      if (composer) {
-        tl.to(composer, { opacity: 1, y: 0, duration: 0.4 }, "-=0.24");
-      }
-
-      if (orbitPanel) {
-        tl.to(orbitPanel, { opacity: 1, y: 0, duration: 0.4 }, "-=0.28");
-      }
-    }, shell);
-
-    return () => ctx.revert();
-  }, []);
-
   const myDisplayName = peopleParticipants.find(
     (p) => p.id === session.participant_id
   )?.display_name;
@@ -992,7 +943,6 @@ export default function Workspace({
       className={`workspace-shell${
         workspaceMode === "whiteboard" ? " workspace-shell--whiteboard" : ""
       }`}
-      ref={shellRef}
     >
       {workspaceMode === "conversation" && (
         <>

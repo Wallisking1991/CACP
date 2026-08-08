@@ -1,14 +1,3 @@
-import { useLayoutEffect, useRef } from "react";
-import gsap from "gsap";
-
-function prefersReducedMotion(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
-}
-
 interface CacpHeroLogoProps {
   ariaLabel?: string;
 }
@@ -16,84 +5,8 @@ interface CacpHeroLogoProps {
 export default function CacpHeroLogo({
   ariaLabel = "CACP protocol room logo",
 }: CacpHeroLogoProps) {
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  useLayoutEffect(() => {
-    const root = rootRef.current;
-    if (!root) return;
-
-    if (prefersReducedMotion()) {
-      root.dataset.motion = "reduced";
-      return;
-    }
-
-    const ctx = gsap.context(() => {
-      gsap.set(".logo-draw", { strokeDasharray: 260, strokeDashoffset: 260 });
-      gsap.set(".logo-core, .logo-node, .logo-orbit-dot, .logo-wordmark", {
-        opacity: 0,
-        scale: 0.86,
-        transformOrigin: "50% 50%",
-      });
-
-      const intro = gsap.timeline({ defaults: { ease: "power3.out" } });
-      intro
-        .to(".logo-draw", {
-          strokeDashoffset: 0,
-          duration: 1.05,
-          stagger: 0.08,
-        })
-        .to(".logo-core", { opacity: 1, scale: 1, duration: 0.45 }, "-=0.45")
-        .to(
-          ".logo-node",
-          { opacity: 1, scale: 1, duration: 0.36, stagger: 0.1 },
-          "-=0.2"
-        )
-        .to(
-          ".logo-orbit-dot",
-          { opacity: 1, scale: 1, duration: 0.28 },
-          "-=0.16"
-        )
-        .to(
-          ".logo-wordmark",
-          { opacity: 1, scale: 1, y: 0, duration: 0.42 },
-          "-=0.22"
-        );
-
-      gsap.to(".logo-core", {
-        opacity: 0.9,
-        scale: 1.08,
-        duration: 2.8,
-        repeat: -1,
-        yoyo: true,
-        ease: "sine.inOut",
-      });
-      gsap.to(".logo-node", {
-        y: (index) => (index % 2 === 0 ? -3 : 3),
-        duration: 3.6,
-        repeat: -1,
-        yoyo: true,
-        ease: "sine.inOut",
-        stagger: 0.35,
-      });
-      gsap.to(".logo-orbit-dot", {
-        rotate: 360,
-        transformOrigin: "100px 100px",
-        duration: 12,
-        repeat: -1,
-        ease: "none",
-      });
-    }, root);
-
-    return () => ctx.revert();
-  }, []);
-
   return (
-    <div
-      ref={rootRef}
-      className="cacp-hero-logo"
-      aria-label={ariaLabel}
-      role="img"
-    >
+    <div className="cacp-hero-logo" aria-label={ariaLabel} role="img">
       <svg
         className="cacp-hero-logo__mark"
         viewBox="0 0 200 200"

@@ -390,6 +390,44 @@ textarea.input {
   margin-top: 18px;
 }
 
+.landing-headline,
+.landing-subcopy,
+.landing-value-tag,
+.landing-console {
+  animation: landing-content-enter 240ms ease-out both;
+}
+
+.landing-subcopy {
+  animation-delay: 40ms;
+}
+
+.landing-value-tag {
+  animation-delay: 70ms;
+}
+
+.landing-value-tag:nth-child(2) {
+  animation-delay: 100ms;
+}
+
+.landing-value-tag:nth-child(3) {
+  animation-delay: 130ms;
+}
+
+.landing-console {
+  animation-delay: 90ms;
+}
+
+@keyframes landing-content-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .landing-value-tags {
   display: flex;
   flex-wrap: wrap;
@@ -434,6 +472,107 @@ textarea.input {
   stroke-width: 2.4;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.logo-draw {
+  stroke-dasharray: 260;
+  stroke-dashoffset: 260;
+  animation: hero-logo-draw 720ms ease-out forwards;
+}
+
+.logo-core,
+.logo-node {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation:
+    logo-pop 260ms 280ms ease-out forwards,
+    logo-core-breathe 2.8s 620ms ease-in-out infinite alternate;
+}
+
+.logo-node {
+  animation:
+    logo-pop 240ms 380ms ease-out forwards,
+    logo-node-float 3.6s 720ms ease-in-out infinite alternate;
+}
+
+.logo-node:nth-of-type(even) {
+  animation-name: logo-pop, logo-node-float-reverse;
+}
+
+.logo-orbit-dot {
+  opacity: 0;
+  transform-box: view-box;
+  transform-origin: center;
+  animation:
+    logo-pop 220ms 460ms ease-out forwards,
+    logo-orbit-spin 12s 680ms linear infinite;
+}
+
+.logo-wordmark {
+  opacity: 0;
+  animation: logo-wordmark-in 260ms 420ms ease-out forwards;
+}
+
+@keyframes hero-logo-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes logo-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.86);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes logo-wordmark-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(8px) scale(1);
+  }
+}
+
+@keyframes logo-core-breathe {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.08);
+  }
+}
+
+@keyframes logo-node-float {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes logo-node-float-reverse {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(3px);
+  }
+}
+
+@keyframes logo-orbit-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .logo-link {
@@ -896,6 +1035,21 @@ textarea.input {
   }
 }
 
+.workspace-grid {
+  animation: workspace-enter 240ms ease-out both;
+}
+
+@keyframes workspace-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .workspace-header {
   position: relative;
   z-index: 2;
@@ -1103,6 +1257,47 @@ textarea.input {
   stroke-width: 3;
   stroke-linecap: round;
   stroke-linejoin: round;
+  stroke-dasharray: 120;
+  stroke-dashoffset: 120;
+  animation: room-logo-draw 520ms ease-out forwards;
+}
+
+.room-logo-core,
+.room-logo-node,
+.room-logo-orbit-dot {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: logo-pop 220ms 220ms ease-out forwards;
+}
+
+.room-logo-core {
+  animation:
+    logo-pop 220ms 180ms ease-out forwards,
+    logo-core-breathe 2.8s 520ms ease-in-out infinite alternate;
+}
+
+.room-logo-node {
+  animation:
+    logo-pop 200ms 260ms ease-out forwards,
+    logo-node-float 3.6s 580ms ease-in-out infinite alternate;
+}
+
+.room-logo-node:nth-of-type(even) {
+  animation-name: logo-pop, logo-node-float-reverse;
+}
+
+.room-logo-orbit-dot {
+  transform-box: view-box;
+  animation:
+    logo-pop 180ms 340ms ease-out forwards,
+    logo-orbit-spin 12s 540ms linear infinite;
+}
+
+@keyframes room-logo-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
 }
 
 .room-logo-core-glow {
@@ -1229,8 +1424,8 @@ textarea.input {
 /* Language toggle — same base as icon buttons, slightly wider */
 .lang-toggle {
   width: auto;
-  min-width: 36px;
-  height: 36px;
+  min-width: 44px;
+  height: 44px;
   padding: 0 8px;
   gap: 4px;
   font-size: 12px;
@@ -3328,6 +3523,31 @@ button.whiteboard-collaborators__person:focus-visible {
   .landing-orb,
   .workspace-orb {
     opacity: 0.18;
+  }
+
+  .workspace-grid {
+    animation: none;
+  }
+
+  .landing-headline,
+  .landing-subcopy,
+  .landing-value-tag,
+  .landing-console,
+  .logo-core,
+  .logo-node,
+  .logo-orbit-dot,
+  .logo-wordmark,
+  .room-logo-core,
+  .room-logo-node,
+  .room-logo-orbit-dot {
+    animation: none;
+    opacity: 1;
+  }
+
+  .logo-draw,
+  .room-logo-draw {
+    animation: none;
+    stroke-dashoffset: 0;
   }
 }
 

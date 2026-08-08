@@ -17,7 +17,6 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (!id.includes("node_modules")) return undefined;
-          if (id.includes("/gsap/")) return "animation";
           if (
             id.includes("/react/") ||
             id.includes("/react-dom/") ||
