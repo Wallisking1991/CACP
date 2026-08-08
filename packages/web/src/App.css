@@ -25,6 +25,16 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+.workspace-loading {
+  display: grid;
+  min-height: 100dvh;
+  place-items: center;
+  padding: 24px;
+  color: var(--ink-3);
+  font-size: 14px;
+  font-weight: 600;
+}
+
 h1,
 h2,
 h3,
@@ -1477,6 +1487,7 @@ textarea.input {
 .conversation-workspace {
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .conversation-workspace[hidden],
@@ -3483,6 +3494,21 @@ button.whiteboard-collaborators__person:focus-visible {
   background: rgba(28, 24, 19, 0.45);
 }
 
+.agent-session-inline {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: start center;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: clamp(16px, 4vh, 36px) 16px;
+  background: color-mix(in srgb, var(--surface-warm) 58%, transparent);
+}
+
+.agent-session-inline .agent-session-required-modal {
+  max-height: none;
+}
+
 .agent-session-required-modal {
   width: min(640px, 100%);
   max-height: min(80dvh, 700px);
@@ -3514,6 +3540,48 @@ button.whiteboard-collaborators__person:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.agent-status-banner {
+  flex: 0 0 auto;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-warm);
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.agent-status-banner__spinner {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.agent-status-banner__text {
+  min-width: 0;
+  font-weight: 650;
+}
+
+.agent-status-banner__provider {
+  min-width: 0;
+  margin-left: auto;
+  padding: 3px 8px;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--ink-3);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Claude status card */
@@ -6548,26 +6616,17 @@ button.whiteboard-collaborators__person:focus-visible {
   /* Studio layout mobile — identity / room controls / workspace switch */
   .workspace-header--studio {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     grid-template-areas:
-      "title title brand"
-      "chip avatars actions"
-      "switch switch switch";
-    gap: 8px 10px;
-    padding: 10px 12px;
+      "title actions actions"
+      "chip avatars switch";
+    gap: 6px 8px;
+    margin-bottom: 8px;
+    padding: 6px 8px;
     align-items: center;
   }
 
   .workspace-header--studio .header-brand {
-    grid-area: brand;
-  }
-
-  .workspace-header--studio .header-brand__logo {
-    width: 52px;
-    height: 52px;
-  }
-
-  .workspace-header--studio .header-brand__divider {
     display: none;
   }
 
@@ -6579,6 +6638,11 @@ button.whiteboard-collaborators__person:focus-visible {
     grid-area: title;
     min-width: 0;
     overflow: hidden;
+  }
+
+  .room-identity__user-line {
+    margin-top: 1px;
+    font-size: 10px;
   }
 
   .room-identity h2 {
@@ -6601,8 +6665,9 @@ button.whiteboard-collaborators__person:focus-visible {
 
   .workspace-header--studio .workspace-mode-switch {
     grid-area: switch;
-    width: auto;
-    justify-self: start;
+    justify-self: end;
+    gap: 2px;
+    padding: 2px;
   }
 
   .workspace-header--studio .workspace-mode-switch button {
@@ -6616,11 +6681,17 @@ button.whiteboard-collaborators__person:focus-visible {
     margin-left: 0;
     justify-content: flex-start;
     overflow-x: auto;
-    padding-bottom: 2px;
+    gap: 8px;
+    padding: 2px 0;
+  }
+
+  .workspace-header--studio .role-avatar__name {
+    display: none;
   }
 
   .workspace-header--studio .header-actions {
     grid-area: actions;
+    justify-self: end;
   }
 
   .workspace-header--studio .header-actions > button {
@@ -6631,6 +6702,62 @@ button.whiteboard-collaborators__person:focus-visible {
   .workspace-header--studio .voice-control__trigger {
     width: 44px;
     height: 44px;
+  }
+
+  .workspace-mode-switch button::after {
+    display: none;
+  }
+
+  .agent-session-inline {
+    place-items: stretch;
+    padding: 10px;
+  }
+
+  .agent-session-inline .agent-session-required-modal {
+    width: 100%;
+    padding: 16px;
+    border-radius: 14px;
+    box-shadow: none;
+  }
+
+  .agent-status-banner {
+    min-height: 48px;
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  .agent-status-banner__provider {
+    max-width: 34%;
+  }
+
+  .workspace-shell::after,
+  .workspace-orb {
+    animation: none;
+  }
+
+  .workspace-shell::after {
+    display: none;
+  }
+
+  .workspace-orb {
+    opacity: 0.2;
+  }
+
+  .workspace-shell--whiteboard .workspace-header--studio {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas: "switch actions";
+    grid-template-rows: 48px;
+    margin-bottom: 0;
+  }
+
+  .workspace-shell--whiteboard .share-menu-button,
+  .workspace-shell--whiteboard .role-avatar-rail,
+  .workspace-shell--whiteboard .room-identity__main {
+    display: none;
+  }
+
+  .workspace-shell--whiteboard .workspace-mode-switch {
+    justify-self: start;
   }
 
   .room-control-overlay {

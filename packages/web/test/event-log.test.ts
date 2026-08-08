@@ -66,4 +66,26 @@ describe("event log", () => {
       ).map((event) => event.event_id)
     ).toEqual(["evt_orbit", "evt_current"]);
   });
+
+  it("deduplicates an authoritative replay in one pass", () => {
+    let eventIdReads = 0;
+    const replay = Array.from({ length: 40 }, (_, index) => {
+      const source = messageEvent(
+        `evt_${index}`,
+        `2026-04-25T00:00:${String(39 - index).padStart(2, "0")}.000Z`
+      );
+      return Object.defineProperty({ ...source }, "event_id", {
+        enumerable: true,
+        get() {
+          eventIdReads += 1;
+          return source.event_id;
+        },
+      });
+    });
+
+    const reconciled = reconcileAuthoritativeEvents([], replay);
+
+    expect(reconciled).toHaveLength(40);
+    expect(eventIdReads).toBeLessThanOrEqual(80);
+  });
 });

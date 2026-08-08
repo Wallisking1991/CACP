@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AttachmentRef } from "@cacp/protocol";
 import { useT } from "../i18n/useT.js";
 import type {
@@ -269,61 +269,105 @@ export default function Thread({
   onResolveElicitation,
 }: ThreadProps) {
   const t = useT();
+  const threadRef = useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
-  const runTraceTurnIds = new Set(agentRuns.map((run) => run.turn_id));
-  const runTraceMessageIds = new Set(
-    agentRuns
-      .map((run) => run.message_id)
-      .filter((messageId): messageId is string => !!messageId)
-  );
-  const visibleMessages = messages.filter((msg) => {
-    if (msg.kind !== "agent") return true;
-    if (msg.turn_id && runTraceTurnIds.has(msg.turn_id)) return false;
-    if (msg.message_id && runTraceMessageIds.has(msg.message_id)) return false;
-    return true;
-  });
-  const visibleStreamingTurns = streamingTurns.filter(
-    (turn) => !runTraceTurnIds.has(turn.turn_id)
-  );
-  const completedRuns = agentRuns.filter(
-    (run) => run.status === "completed" || run.status === "failed"
-  );
-  const runningRuns = agentRuns.filter((run) => run.status === "running");
+  const followsLatestRef = useRef(true);
+  const { threadItems, visibleStreamingTurns, runningRuns } = useMemo(() => {
+    const runTraceTurnIds = new Set(agentRuns.map((run) => run.turn_id));
+    const runTraceMessageIds = new Set(
+      agentRuns
+        .map((run) => run.message_id)
+        .filter((messageId): messageId is string => !!messageId)
+    );
+    const visibleMessages = messages.filter((msg) => {
+      if (msg.kind !== "agent") return true;
+      if (msg.turn_id && runTraceTurnIds.has(msg.turn_id)) return false;
+      if (msg.message_id && runTraceMessageIds.has(msg.message_id))
+        return false;
+      return true;
+    });
+    const nextVisibleStreamingTurns = streamingTurns.filter(
+      (turn) => !runTraceTurnIds.has(turn.turn_id)
+    );
+    const completedRuns = agentRuns.filter(
+      (run) => run.status === "completed" || run.status === "failed"
+    );
+    const nextRunningRuns = agentRuns.filter((run) => run.status === "running");
+    const nextThreadItems = [
+      ...visibleMessages.map((msg) => ({
+        type: "message" as const,
+        data: msg,
+        time: msg.created_at,
+      })),
+      ...completedRuns.map((run) => ({
+        type: "run" as const,
+        data: run,
+        time: run.started_at,
+      })),
+    ].sort((a, b) => a.time.localeCompare(b.time));
 
-  const threadItems = [
-    ...visibleMessages.map((msg) => ({
-      type: "message" as const,
-      data: msg,
-      time: msg.created_at,
-    })),
-    ...completedRuns.map((run) => ({
-      type: "run" as const,
-      data: run,
-      time: run.started_at,
-    })),
-  ].sort((a, b) => a.time.localeCompare(b.time));
+    return {
+      threadItems: nextThreadItems,
+      visibleStreamingTurns: nextVisibleStreamingTurns,
+      runningRuns: nextRunningRuns,
+    };
+  }, [agentRuns, messages, streamingTurns]);
+
+  const settledScrollSignal = useMemo(
+    () =>
+      threadItems
+        .map((item) =>
+          item.type === "message"
+            ? `${item.data.message_id}:${item.data.kind}`
+            : `${item.data.run_id}:${item.data.status}`
+        )
+        .join("|"),
+    [threadItems]
+  );
+  const liveScrollSignal = useMemo(
+    () =>
+      [
+        ...visibleStreamingTurns.map(
+          (turn) =>
+            `${turn.turn_id}:${turn.phase ?? ""}:${turn.text.length}:${turn.thinkingText?.length ?? 0}`
+        ),
+        ...runningRuns.map(
+          (run) =>
+            `${run.run_id}:${run.status}:${run.answer_text?.length ?? 0}:${run.final_text?.length ?? 0}:${run.nodes
+              .map((node) => {
+                const lastChunk = node.text_chunks.at(-1);
+                return `${node.node_id}:${node.status}:${node.text_chunks.length}:${lastChunk?.length ?? 0}`;
+              })
+              .join(",")}`
+        ),
+      ].join("|"),
+    [runningRuns, visibleStreamingTurns]
+  );
 
   useEffect(() => {
-    if (typeof bottomRef.current?.scrollIntoView === "function") {
-      bottomRef.current.scrollIntoView({ behavior: "smooth" });
+    if (!followsLatestRef.current) return;
+    const bottom = bottomRef.current;
+    if (typeof bottom?.scrollIntoView !== "function") return;
+    const behavior =
+      visibleStreamingTurns.length > 0 ||
+      runningRuns.length > 0 ||
+      pendingAgentName
+        ? "auto"
+        : "smooth";
+    if (typeof window.requestAnimationFrame !== "function") {
+      bottom.scrollIntoView({ behavior });
+      return;
     }
+    const frame = window.requestAnimationFrame(() => {
+      if (followsLatestRef.current) {
+        bottom.scrollIntoView({ behavior });
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [
     threadItems.length,
-    threadItems
-      .map((item) =>
-        item.type === "message"
-          ? `${item.data.message_id}:${item.data.kind}`
-          : `${item.data.run_id}:${item.data.status}`
-      )
-      .join("|"),
-    visibleStreamingTurns.length,
-    visibleStreamingTurns.map((t) => t.text).join("|"),
-    runningRuns
-      .map(
-        (run) =>
-          `${run.run_id}:${run.status}:${run.answer_text ?? ""}:${run.final_text ?? ""}:${run.nodes.map((node) => `${node.node_id}:${node.status}:${node.text_chunks.join("")}`).join(",")}`
-      )
-      .join("|"),
+    settledScrollSignal,
+    liveScrollSignal,
     pendingAgentName,
   ]);
 
@@ -334,7 +378,17 @@ export default function Thread({
     !pendingAgentName;
 
   return (
-    <div className="thread">
+    <div
+      className="thread"
+      ref={threadRef}
+      onScroll={() => {
+        const thread = threadRef.current;
+        if (!thread) return;
+        const distanceFromBottom =
+          thread.scrollHeight - thread.scrollTop - thread.clientHeight;
+        followsLatestRef.current = distanceFromBottom <= 48;
+      }}
+    >
       {isEmpty && (
         <div className="empty-thread">
           <h2>{t("thread.emptyHeadline")}</h2>

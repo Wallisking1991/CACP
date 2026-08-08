@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
 import { useLocation, useMatch, useNavigate } from "react-router-dom";
 import type { CacpEvent } from "@cacp/protocol";
 import {
@@ -27,7 +35,11 @@ import {
   type LocalAgentLaunch,
   type RoomSession,
 } from "./api.js";
-import { mergeEvent, reconcileAuthoritativeEvents } from "./event-log.js";
+import {
+  mergeEvent,
+  mergeEvents,
+  reconcileAuthoritativeEvents,
+} from "./event-log.js";
 import { createCollaborationDiagnostics } from "./collaboration-diagnostics.js";
 import {
   clearStoredSession,
@@ -41,9 +53,10 @@ import ConnectionCodeModal, {
   type ConnectionCodeModalPairing,
 } from "./components/ConnectionCodeModal.js";
 import Landing from "./components/Landing.js";
-import Workspace from "./components/Workspace.js";
 import WaitingRoom from "./components/WaitingRoom.js";
 import "./App.css";
+
+const Workspace = lazy(() => import("./components/Workspace.js"));
 
 const roomRoles: ReadonlySet<RoomSession["role"]> = new Set([
   "owner",
@@ -269,12 +282,12 @@ export default function App() {
         .then((replayedEvents) => {
           if (cancelled) return;
           setEvents((current) =>
-            replayedEvents.reduce(
-              (merged, replayedEvent) => mergeEvent(merged, replayedEvent),
+            mergeEvents(
               current.filter(
                 (currentEvent) =>
                   currentEvent.room_id === currentSession.room_id
-              )
+              ),
+              replayedEvents
             )
           );
           setEventReplayReadySessionKey(currentSessionValidationKey);
@@ -648,27 +661,39 @@ export default function App() {
     if (urlRoomId && currentSession && sessionValid && !validating) {
       return (
         <>
-          <Workspace
-            session={currentSession}
-            diagnostics={diagnostics}
-            events={events}
-            eventReplayReady={
-              eventReplayReadySessionKey === currentSessionValidationKey
+          <Suspense
+            fallback={
+              <div
+                className="workspace-loading"
+                role="status"
+                aria-live="polite"
+              >
+                Loading room…
+              </div>
             }
-            onLeaveRoom={handleLeaveRoom}
-            onSendMessage={handleSendMessage}
-            onSelectAgent={handleSelectAgent}
-            onCreateInvite={handleCreateInvite}
-            onApproveJoinRequest={handleApproveJoinRequest}
-            onRejectJoinRequest={handleRejectJoinRequest}
-            onRemoveParticipant={handleRemoveParticipant}
-            onUpdateParticipantRole={handleUpdateParticipantRole}
-            onUpdateAgentThinking={handleUpdateAgentThinking}
-            createdInvite={createdInvite}
-            error={error}
-            cloudMode={isCloudMode()}
-            createdPairing={createdPairing}
-          />
+          >
+            <Workspace
+              session={currentSession}
+              diagnostics={diagnostics}
+              events={events}
+              eventReplayReady={
+                eventReplayReadySessionKey === currentSessionValidationKey
+              }
+              onLeaveRoom={handleLeaveRoom}
+              onSendMessage={handleSendMessage}
+              onSelectAgent={handleSelectAgent}
+              onCreateInvite={handleCreateInvite}
+              onApproveJoinRequest={handleApproveJoinRequest}
+              onRejectJoinRequest={handleRejectJoinRequest}
+              onRemoveParticipant={handleRemoveParticipant}
+              onUpdateParticipantRole={handleUpdateParticipantRole}
+              onUpdateAgentThinking={handleUpdateAgentThinking}
+              createdInvite={createdInvite}
+              error={error}
+              cloudMode={isCloudMode()}
+              createdPairing={createdPairing}
+            />
+          </Suspense>
           <ConnectionCodeModal
             pairing={connectorModalPairing}
             onClose={() => setConnectorModalPairing(undefined)}

@@ -77,7 +77,7 @@ describe("Workspace agent readiness UI", () => {
     ).toBeDisabled();
   });
 
-  it("shows selecting session banner for owner when agent needs session selection", () => {
+  it("makes required Agent session selection the owner's primary workspace", () => {
     const events = [
       ...baseEvents,
       event(
@@ -102,8 +102,9 @@ describe("Workspace agent readiness UI", () => {
       "selecting_session"
     );
     expect(
-      screen.getByPlaceholderText(/Type a message for the Agent/i)
-    ).toBeDisabled();
+      screen.getByRole("region", { name: /Select Agent Session/i })
+    ).toBeVisible();
+    expect(screen.queryByTestId("main-composer")).not.toBeInTheDocument();
   });
 
   it("shows waiting for owner banner for non-owner when agent needs session selection", () => {

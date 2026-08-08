@@ -18,13 +18,13 @@ import {
 } from "../api.js";
 import { roomPermissionsForRole } from "../role-permissions.js";
 import {
-  deriveRoomState,
   humanParticipants,
   isTurnInFlight,
   computeAgentReadiness,
   claudeSelectionIsReady,
   agentSelectionIsReady,
 } from "../room-state.js";
+import { createRoomStateProjector } from "../room-state-projector.js";
 import type {
   AgentSessionReadyView,
   AgentSessionSelectionView,
@@ -152,13 +152,21 @@ export default function Workspace({
 }: WorkspaceProps) {
   const t = useT();
   const lang = useContext(LangContext)?.lang ?? "en";
+  const roomStateProjection = useMemo(
+    () => ({
+      roomId: session.room_id,
+      participantId: session.participant_id,
+      projector: createRoomStateProjector(),
+    }),
+    [session.participant_id, session.room_id]
+  );
   const room = useMemo(
     () =>
-      deriveRoomState(events, {
+      roomStateProjection.projector.project(events, {
         now: new Date().toISOString(),
         currentParticipantId: session.participant_id,
       }),
-    [events, session.participant_id]
+    [events, roomStateProjection, session.participant_id]
   );
   const permissions = roomPermissionsForRole(session.role);
   const isOwner = session.role === "owner";
@@ -267,7 +275,7 @@ export default function Workspace({
     const timer = window.setInterval(refreshAttachmentUsage, 30_000);
     return () => window.clearInterval(timer);
   }, [refreshAttachmentUsage]);
-  const prevEventsRef = useRef<CacpEvent[]>([]);
+  const seenGrowthEventIdsRef = useRef(new Set<string>());
   const initialLoadCompleteRef = useRef(false);
   const growthTimerRef = useRef<number>(0);
   const lastRoomIdRef = useRef(session.room_id);
@@ -437,6 +445,18 @@ export default function Workspace({
   }, [eventReplayReady, mainConversationActivityIds, session.room_id]);
   const [unreadOrbit, setUnreadOrbit] = useState(0);
   const [unreadMentions, setUnreadMentions] = useState(0);
+  const openOrbitPanel = useCallback(() => {
+    setUnreadOrbit(0);
+    setUnreadMentions(0);
+    setPanelOpen(true);
+  }, []);
+  const toggleOrbitPanel = useCallback(() => {
+    if (!panelOpen) {
+      setUnreadOrbit(0);
+      setUnreadMentions(0);
+    }
+    setPanelOpen(!panelOpen);
+  }, [panelOpen]);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [pendingAgentName, setPendingAgentName] = useState<
     string | undefined
@@ -532,13 +552,6 @@ export default function Workspace({
   ]);
 
   useEffect(() => {
-    if (panelOpen) {
-      setUnreadOrbit(0);
-      setUnreadMentions(0);
-    }
-  }, [panelOpen]);
-
-  useEffect(() => {
     typingControllerRef.current?.dispose();
     typingControllerRef.current = createTypingActivityController({
       startTyping: () => {
@@ -561,17 +574,19 @@ export default function Workspace({
   useEffect(() => {
     if (lastRoomIdRef.current !== session.room_id) {
       lastRoomIdRef.current = session.room_id;
-      prevEventsRef.current = [];
+      seenGrowthEventIdsRef.current.clear();
       initialLoadCompleteRef.current = false;
       window.clearTimeout(growthTimerRef.current);
     }
 
-    const prevEvents = prevEventsRef.current;
-    const newEvents = events.filter(
-      (e) => !prevEvents.some((pe) => pe.event_id === e.event_id)
-    );
+    const seenEventIds = seenGrowthEventIdsRef.current;
+    const newEvents: CacpEvent[] = [];
+    for (const event of events) {
+      if (seenEventIds.has(event.event_id)) continue;
+      seenEventIds.add(event.event_id);
+      newEvents.push(event);
+    }
     const grew = newEvents.length > 0;
-    prevEventsRef.current = events;
 
     if (grew) {
       window.clearTimeout(growthTimerRef.current);
@@ -675,7 +690,7 @@ export default function Workspace({
               );
               notification.onclick = () => {
                 window.focus();
-                setPanelOpen(true);
+                openOrbitPanel();
                 notification.close();
               };
             } else if (
@@ -690,7 +705,7 @@ export default function Workspace({
                   );
                   notification.onclick = () => {
                     window.focus();
-                    setPanelOpen(true);
+                    openOrbitPanel();
                     notification.close();
                   };
                 }
@@ -736,7 +751,7 @@ export default function Workspace({
           break;
         }
         case "agent.turn.started": {
-          setPendingAgentName(undefined);
+          queueMicrotask(() => setPendingAgentName(undefined));
           soundControllerRef.current.play("ai-start");
           break;
         }
@@ -759,6 +774,7 @@ export default function Workspace({
     peopleParticipants,
     room.orbitNotes,
     actorNames,
+    openOrbitPanel,
     t,
   ]);
 
@@ -776,11 +792,13 @@ export default function Workspace({
     if (prefersReduced) return;
 
     const ctx = gsap.context(() => {
-      const targets = gsap.utils.toArray<HTMLElement>(
-        ".workspace-header, .thread, .main-composer"
-      );
+      const header = shell.querySelector<HTMLElement>(".workspace-header");
+      const thread = shell.querySelector<HTMLElement>(".thread");
+      const composer = shell.querySelector<HTMLElement>(".main-composer");
       const orbitPanel = shell.querySelector<HTMLElement>(".orbit-panel");
-      if (orbitPanel) targets.push(orbitPanel);
+      const targets = [header, thread, composer, orbitPanel].filter(
+        (target): target is HTMLElement => target !== null
+      );
 
       gsap.set(targets, { opacity: 0, y: 14 });
 
@@ -789,9 +807,15 @@ export default function Workspace({
         delay: 0.15,
       });
 
-      tl.to(".workspace-header", { opacity: 1, y: 0, duration: 0.5 })
-        .to(".thread", { opacity: 1, y: 0, duration: 0.45 }, "-=0.28")
-        .to(".main-composer", { opacity: 1, y: 0, duration: 0.4 }, "-=0.24");
+      if (header) {
+        tl.to(header, { opacity: 1, y: 0, duration: 0.5 });
+      }
+      if (thread) {
+        tl.to(thread, { opacity: 1, y: 0, duration: 0.45 }, "-=0.28");
+      }
+      if (composer) {
+        tl.to(composer, { opacity: 1, y: 0, duration: 0.4 }, "-=0.24");
+      }
 
       if (orbitPanel) {
         tl.to(orbitPanel, { opacity: 1, y: 0, duration: 0.4 }, "-=0.28");
@@ -837,6 +861,9 @@ export default function Workspace({
       room.agentSessionSelection,
       room.agentSessionReady
     );
+  const needsSessionSelection = Boolean(
+    needsClaudeSessionSelection || needsGenericSessionSelection
+  );
 
   const canPromoteOrbit = permissions.canManageControls;
   const canClearOrbit = permissions.canManageControls;
@@ -1023,7 +1050,7 @@ export default function Workspace({
                     const bubble = orbitBubbles.get(avatarId);
                     if (!bubble) return;
                     setFocusedOrbitNoteId(bubble.noteId);
-                    setPanelOpen(true);
+                    openOrbitPanel();
                     const timer = orbitBubbleTimersRef.current.get(avatarId);
                     if (timer) window.clearTimeout(timer);
                     orbitBubbleTimersRef.current.delete(avatarId);
@@ -1078,92 +1105,103 @@ export default function Workspace({
               providerLabel={activeAgent ? activeAgent.name : undefined}
             />
 
-            <Thread
-              currentParticipantId={session.participant_id}
-              messages={room.messages}
-              streamingTurns={room.streamingTurns}
-              agentRuns={room.agentRuns}
-              agents={room.agents}
-              actorNames={actorNames}
-              claudeImports={room.claudeImports}
-              agentImports={room.agentImports}
-              pendingAgentName={pendingAgentName}
-              loadAttachment={loadAttachment}
-              onResolveApproval={(runId, nodeId, decision, reason) => {
-                void resolveAgentRunApproval({
-                  serverUrl,
-                  roomId: session.room_id,
-                  token: session.token,
-                  runId,
-                  nodeId,
-                  decision,
-                  reason,
-                }).catch(() => {});
-              }}
-              onResolveElicitation={(runId, nodeId, action, content) => {
-                void resolveAgentRunElicitation({
-                  serverUrl,
-                  roomId: session.room_id,
-                  token: session.token,
-                  runId,
-                  nodeId,
-                  action,
-                  content,
-                }).catch(() => {});
-              }}
-            />
+            {!needsSessionSelection && (
+              <>
+                <Thread
+                  currentParticipantId={session.participant_id}
+                  messages={room.messages}
+                  streamingTurns={room.streamingTurns}
+                  agentRuns={room.agentRuns}
+                  agents={room.agents}
+                  actorNames={actorNames}
+                  claudeImports={room.claudeImports}
+                  agentImports={room.agentImports}
+                  pendingAgentName={pendingAgentName}
+                  loadAttachment={loadAttachment}
+                  onResolveApproval={(runId, nodeId, decision, reason) => {
+                    void resolveAgentRunApproval({
+                      serverUrl,
+                      roomId: session.room_id,
+                      token: session.token,
+                      runId,
+                      nodeId,
+                      decision,
+                      reason,
+                    }).catch(() => {});
+                  }}
+                  onResolveElicitation={(runId, nodeId, action, content) => {
+                    void resolveAgentRunElicitation({
+                      serverUrl,
+                      roomId: session.room_id,
+                      token: session.token,
+                      runId,
+                      nodeId,
+                      action,
+                      content,
+                    }).catch(() => {});
+                  }}
+                />
 
-            <MainInputQueueBar
-              queue={room.mainInputQueue}
-              onCancel={(inputId) => {
-                void cancelMainInput(session, inputId).catch(() => {});
-              }}
-            />
+                <MainInputQueueBar
+                  queue={room.mainInputQueue}
+                  onCancel={(inputId) => {
+                    void cancelMainInput(session, inputId).catch(() => {});
+                  }}
+                />
 
-            <MainComposer
-              role={session.role}
-              turnInFlight={turnInFlight}
-              agents={room.agents}
-              agentReady={agentReady}
-              attachmentCapabilities={activeAgent?.input_capabilities}
-              attachmentUsage={attachmentUsage}
-              onUploadAttachment={
-                session.role === "owner" || session.role === "admin"
-                  ? (file, options) => uploadAttachment(session, file, options)
-                  : undefined
-              }
-              onDeleteAttachment={(attachment) =>
-                deleteAttachment(session, attachment.attachment_id)
-              }
-              onAttachmentUsageChanged={refreshAttachmentUsage}
-              onSendMainInput={async (text, attachments) => {
-                const agent = room.agents.find(
-                  (a) => a.agent_id === room.activeAgentId
-                );
-                if (!turnInFlight) {
-                  setPendingAgentName(agent?.name ?? t("message.ai"));
-                }
-                try {
-                  await sendMainInput(
-                    session,
-                    text,
-                    attachments.map((attachment) => attachment.attachment_id)
-                  );
-                } catch (cause) {
-                  if (!turnInFlight) setPendingAgentName(undefined);
-                  throw cause;
-                }
-              }}
-              onTypingInput={(value) =>
-                typingControllerRef.current?.inputChanged(value)
-              }
-              onStopTyping={() => typingControllerRef.current?.stopNow()}
-            />
+                <MainComposer
+                  role={session.role}
+                  turnInFlight={turnInFlight}
+                  agents={room.agents}
+                  agentReady={agentReady}
+                  attachmentCapabilities={activeAgent?.input_capabilities}
+                  attachmentUsage={attachmentUsage}
+                  onUploadAttachment={
+                    session.role === "owner" || session.role === "admin"
+                      ? (file, options) =>
+                          uploadAttachment(session, file, options)
+                      : undefined
+                  }
+                  onDeleteAttachment={(attachment) =>
+                    deleteAttachment(session, attachment.attachment_id)
+                  }
+                  onAttachmentUsageChanged={refreshAttachmentUsage}
+                  onSendMainInput={async (text, attachments) => {
+                    const agent = room.agents.find(
+                      (a) => a.agent_id === room.activeAgentId
+                    );
+                    if (!turnInFlight) {
+                      setPendingAgentName(agent?.name ?? t("message.ai"));
+                    }
+                    try {
+                      await sendMainInput(
+                        session,
+                        text,
+                        attachments.map(
+                          (attachment) => attachment.attachment_id
+                        )
+                      );
+                    } catch (cause) {
+                      if (!turnInFlight) setPendingAgentName(undefined);
+                      throw cause;
+                    }
+                  }}
+                  onTypingInput={(value) =>
+                    typingControllerRef.current?.inputChanged(value)
+                  }
+                  onStopTyping={() => typingControllerRef.current?.stopNow()}
+                />
+              </>
+            )}
 
             {needsClaudeSessionSelection &&
               room.activeAgentId &&
               room.claudeSessionCatalog && (
-                <div className="agent-session-inline">
+                <section
+                  className="agent-session-inline"
+                  role="region"
+                  aria-label={String(t("claude.session.requiredTitle"))}
+                >
                   <AgentSessionRequiredModal
                     agentId={room.activeAgentId}
                     provider="claude-code"
@@ -1189,14 +1227,18 @@ export default function Workspace({
                       })
                     }
                   />
-                </div>
+                </section>
               )}
 
             {needsGenericSessionSelection &&
               room.activeAgentId &&
               room.agentSessionCatalog &&
               activeAgentProvider && (
-                <div className="agent-session-inline">
+                <section
+                  className="agent-session-inline"
+                  role="region"
+                  aria-label={String(t("claude.session.requiredTitle"))}
+                >
                   <AgentSessionRequiredModal
                     agentId={room.activeAgentId}
                     provider={activeAgentProvider}
@@ -1224,7 +1266,7 @@ export default function Workspace({
                       })
                     }
                   />
-                </div>
+                </section>
               )}
 
             {error && (
@@ -1387,7 +1429,7 @@ export default function Workspace({
           open={panelOpen}
           unreadCount={unreadOrbit}
           hasMentions={unreadMentions > 0}
-          onClick={() => setPanelOpen((open) => !open)}
+          onClick={toggleOrbitPanel}
         />
       )}
       <OrbitClearConfirmDialog

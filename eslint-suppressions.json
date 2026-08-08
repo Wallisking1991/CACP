@@ -182,7 +182,7 @@
   },
   "packages/web/src/components/Thread.tsx": {
     "react-hooks/exhaustive-deps": {
-      "count": 3
+      "count": 1
     }
   },
   "packages/web/src/components/Workspace.tsx": {
@@ -191,9 +191,6 @@
     },
     "react-hooks/refs": {
       "count": 4
-    },
-    "react-hooks/set-state-in-effect": {
-      "count": 1
     }
   },
   "packages/web/src/components/agent-run-format.ts": {
