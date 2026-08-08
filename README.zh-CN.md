@@ -1,328 +1,263 @@
 # CACP
 
-**状态：** 实验性项目  
-**在线体验：** https://cacp.zuchongai.com/  
-**English:** [README.md](README.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-CACP 的全称是 Collaborative Agent Communication Protocol，我把它称为协同式智能体通信协议。
+[![CI](https://github.com/Wallisking1991/CACP/actions/workflows/ci.yml/badge.svg)](https://github.com/Wallisking1991/CACP/actions/workflows/ci.yml)
+![Version](https://img.shields.io/badge/version-0.5.0-6b5b4b)
+![Node.js](https://img.shields.io/badge/Node.js-%3E%3D22.12-43853d)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-这个项目来自一个很简单的理念：下一阶段的 AI 工具，不应该只让一个人变得更强，也应该帮助多个人、AI Agent、工具和共享上下文在同一个协作空间里共同工作。
+**一个让多人和本地运行的 AI Agent 实时协作的本地优先共享空间。**
 
-现在大多数 AI 和 AI Agent 产品，默认仍然是一个人和一个 AI 对话。这个模式已经非常有价值，但现实世界里很多高价值问题并不是一个人独立解决的。产品设计、软件需求、开源项目规划、安全评审、业务决策和创意讨论，往往都需要不同专业背景的人先形成共同上下文，然后 AI 才能基于更完整的信息给出高质量结果。
+CACP 全称为 **Collaborative Agent Communication Protocol（协作式 Agent
+通信协议）**。它由共享 Web 房间、协议优先的房间服务端和 Local Connector
+组成；AI Agent 始终在房主自己的机器上执行。
 
-CACP 是对这层多人 AI 协作协议的开源探索。它提供一个共享 AI 房间，让多个人可以一起讨论，邀请成员或观察者，接入本地工具型 Agent，并通过 Orbit 侧信道笔记和"发送给 Agent"主输入队列把自由讨论与结构化 AI 回合结合起来。
+[体验在线演示](https://cacp.zuchongai.com/) ·
+[本地运行](#本地运行) · [了解架构](#工作原理) ·
+[参与贡献](CONTRIBUTING.md)
 
-这是一个早期开源原型和协议实验。核心体验已经可以运行，适合试用、研究和贡献，但它还不是生产级协作平台。
+> **实验性开发者预览。** CACP 的核心体验已经可以运行，适合试用、研究和参与
+> 开发，但尚未达到生产可用标准。请只用非敏感测试内容和测试项目体验公开演示。
 
-![CACP 概念图](docs/cacp-concept.svg)
+![一个包含两位参与者、Orbit 讨论区和一次已完成本地 Agent 回合的 CACP 房间](docs/images/cacp-room.png)
 
-## CACP 是什么？
+## 目录
 
-CACP 是一个本地优先的多人协作 AI 房间。公共服务器只承载房间状态和 Web UI；智能体执行仍然通过本地连接器在用户机器上完成。
+- [为什么需要 CACP](#为什么需要-cacp)
+- [当前已经实现](#当前已经实现)
+- [工作原理](#工作原理)
+- [在线体验](#在线体验)
+- [本地运行](#本地运行)
+- [语音基础设施](#语音基础设施)
+- [安全模型](#安全模型)
+- [项目状态](#项目状态)
+- [仓库结构](#仓库结构)
+- [参与贡献](#参与贡献)
 
-它包含：
+## 为什么需要 CACP
 
-- 一个 Web 房间，支持多个人进入同一个 AI 对话上下文。
-- 一个房间服务，用事件日志保存状态，并通过 WebSocket 实时广播。
-- 一个本地连接器，用来把 Web 房间连接到 Claude Code、Codex CLI、GitHub Copilot CLI 或 Kimi Code。
-- 一个协议包，定义共享事件类型、参与者角色、连接码和房间契约。
-- Orbit 侧信道笔记加上 FIFO 的"发送给 Agent"主输入队列：人类可以自由聊天，AI 回合按顺序触发，互不干扰。
-- 临时图片和文档附件；房间删除时会立即清理。
+大多数 AI 工具默认一个人与一个 Agent 对话，但真实工作往往需要多人协作。产品
+决策、需求讨论、代码审查、项目规划和创意工作，都需要不同角色先建立共同上下文，
+再让 AI 采取行动。
 
-本地执行支持四种工具型 Agent 适配器：
+CACP 补上了这一层协作能力。参与者可以在共享房间里沟通，在 Orbit Discussion
+或 Collaborative Whiteboard 中形成想法，再明确选择哪些上下文要成为本地 AI
+Agent 的有序输入。房间负责协调协作过程，Local Connector 则在房主指定的项目
+目录和权限范围内执行 Agent。
 
-- Claude Code
-- Codex CLI
-- GitHub Copilot CLI
-- Kimi Code
+## 当前已经实现
 
-Agent 通过本地连接器运行在房主选择的项目目录中。如果底层工具支持，连接器可以新建或恢复会话。导入的历史对房间成员可见，应视为共享房间内容。当前产品不再支持基于 HTTP 的 LLM API Agent。
+| 能力                     | 当前实现                                                                                            |
+| ------------------------ | --------------------------------------------------------------------------------------------------- |
+| 共享 Live Room           | 支持房主、管理员、成员、观察者和 Agent 角色的实时房间，并提供受控邀请和加入审批。                   |
+| 本地工具 Agent           | 通过同一个跨平台 Local Connector 连接 Claude Code、Codex CLI、GitHub Copilot CLI 和 Kimi Code。     |
+| 明确的 AI 回合           | Main Input 按 FIFO 顺序处理，每个输入只触发所选 Agent 的一个回合。                                  |
+| Orbit Discussion         | 人类专用的侧边讨论区，支持笔记、回复、反应、附件，以及显式提升为 Main Input。                       |
+| Collaborative Whiteboard | 每个 Live Room 一块实时 Excalidraw 白板，支持在线状态、临时快照、图片素材、导出和显式发送给 Agent。 |
+| 语音                     | 可选的 LiveKit 语音房间，包含麦克风控制、设备检测、发言状态和观察者只听模式。                       |
+| 附件                     | 对图片、PDF、文本/源码文件和 Office 文档进行校验，并协商 Agent 输入能力和单 Agent 下载授权。        |
+| Agent 过程可见性         | 展示流式输出、运行状态、工具/工作节点和输入队列；在底层 Agent 支持时可新建或恢复原生会话。          |
 
-## 面向谁？
+Local Connector 提供 `read_only`、`limited_write` 和 `full_access` 三种
+权限等级。附件投递也会感知适配器能力：房间会在派发前校验所选 Agent 声明的
+原生输入或本地文件路径能力。
 
-CACP 面向两类人。
+## 工作原理
 
-### 普通用户
+```mermaid
+flowchart LR
+  People["浏览器中的参与者"]
 
-如果你想体验一个多人 AI 讨论房间，让几个人在同一个上下文里和 AI 一起讨论问题，可以尝试 CACP。
+  subgraph Public["房间与语音基础设施"]
+    Room["Web UI + Fastify 房间服务<br/>WebSocket 事件 · SQLite · 临时附件"]
+    LiveKit["LiveKit 语音服务"]
+    Redis["Redis"]
+    Turn["TURN / TLS"]
+  end
 
-可能的使用场景包括：
+  subgraph Owner["房主的机器"]
+    Connector["CACP Local Connector"]
+    Agent["当前选择的本地工具 Agent"]
+    Project["房主指定的项目目录"]
+  end
 
-- 多人一起进行产品创意头脑风暴。
-- 业务人员和技术人员一起讨论软件需求。
-- 从不同专业视角设计一个游戏、应用或创意项目。
-- 让观察者学习一个 AI 辅助项目讨论是如何展开的。
-- 测试本地工具型 Agent 会话在共享房间里的表现。
+  People <-->|"HTTPS + WebSocket"| Room
+  Room <-->|"有序输入 + 流式运行事件"| Connector
+  Connector <-->|"SDK 会话"| Agent
+  Agent <-->|"受权限约束的工具"| Project
+  Room -->|"短期语音授权"| People
+  People <-->|"WebRTC 音频"| LiveKit
+  LiveKit --- Redis
+  LiveKit --- Turn
+```
 
-### 开发者
+服务端负责房间身份、授权、追加式事件模型、输入队列、Orbit 状态、白板协调和
+临时 Room Attachment。Local Connector 负责连接 Agent SDK 以及房主选择的
+本地工作目录。
 
-如果你想研究或贡献一个 protocol-first、local-first 的 AI 协作实验项目，可以从 CACP 的代码和协议开始。
-
-可以参与的方向包括：
-
-- 房间协议和事件模型。
-- Fastify 和 WebSocket 房间服务。
-- SQLite 事件存储。
-- React + Vite 房间界面。
-- 本地连接器中的 Claude Code、Codex CLI、GitHub Copilot CLI 和 Kimi Code 运行时。
-- 附件能力协商和适配器兼容性。
-- 邀请、配对、参与者和房间治理流程。
+这里的“本地优先”特指 **Agent 的执行边界**。共享房间内容、事件和附件仍然会
+经过房间服务端，语音媒体也会经过所配置的 LiveKit 基础设施。CACP 并不声称
+所有协作数据都只停留在一台机器上。
 
 ## 在线体验
 
-打开：
+1. 打开[在线演示](https://cacp.zuchongai.com/)，输入姓名并创建房间。
+2. 选择一个受支持的本地工具 Agent 和权限等级。首次体验建议使用
+   **Read only（只读）**。
+3. 下载并解压 Local Connector，把它放入允许 Agent 访问的项目目录，然后启动：
+   - Windows：`Start.bat`
+   - macOS：`Start.command`
+   - Linux：`start.sh`
+4. 在 Connector 窗口粘贴房间连接码，再选择新会话或检测到的 Agent 会话。
+5. 邀请可信的协作者。使用 Orbit 进行人类讨论，成熟后提升选中的笔记，或者直接
+   向 Agent 发送 Main Input。
 
-https://cacp.zuchongai.com/
+Connector 会在启动前运行诊断。如果没有检测到 Agent，也可以手动运行
+`Doctor.bat`、`Doctor.command` 或 `doctor.sh`。
 
-在线体验环境是公开的，也是实验性的。请只用于非敏感话题和测试项目。
+> **安全第一：** 本地工具 Agent 可能根据所选权限读取或修改工作目录中的文件。
+> 公开演示仍属实验性质，请勿使用生产仓库、密钥、私钥、机密文档或敏感房间内容。
 
-## 普通用户使用说明
+## 本地运行
 
-### 1. 创建房间
+### 前置条件
 
-打开在线体验地址，选择创建房间。
+- Node.js 22.12 或更高版本，推荐 Node.js 24
+- Corepack 和仓库固定版本的 pnpm
+- 如果要连接真实 Agent，需要安装受支持的 Agent，并完成其正常的服务商认证
 
-你需要填写：
+安装工作区依赖：
 
-- 房间名称。
-- 你的显示名称。
-- 希望接入的 Agent 类型。
-- 本地 Agent 的权限级别。
-
-### 2. 选择 Agent 类型
-
-CACP 可以接入不同类型的 Agent。
-
-支持的本地工具型 Agent：
-
-- Claude Code
-- Codex CLI
-- GitHub Copilot CLI
-- Kimi Code
-
-### 3. 下载并启动 Local Connector
-
-在云端体验模式下，浏览器房间不能直接运行你的本地 Agent，因此需要 Local Connector，也就是本地连接器。
-
-创建房间后，页面会提示下载连接器。
-
-建议：
-
-- 把连接器放在你希望 Agent 工作的目录里。
-- 第一次体验时，优先使用测试目录或非敏感项目。
-- 不要把生产仓库、密钥文件、私钥或机密文档作为测试目录。
-
-启动连接器后，把 Web 房间里显示的 CACP 连接码复制并粘贴到连接器窗口里。
-
-使用房间时请保持连接器窗口打开。关闭它会断开本地 Agent。
-
-如果没有检测到 Agent，可运行连接器包中的 `Doctor.bat`、
-`Doctor.command` 或 `doctor.sh`。诊断报告会展示连接器与协议版本、
-解析到的 Agent 运行时、固定的 SDK 版本和附件输入模式，但不会打印
-token 或文件内容。
-
-### 4. 添加图片或文档
-
-房主和管理员可以在“发送给 Agent”的消息中附加受支持的图片、PDF、文本/源码和 Office 文档。服务端会验证类型、大小、扩展名和校验和；本地连接器在把文件交给 Agent 前还会再次校验。
-
-每个文件都会显示字节级上传进度，并且可以取消或单独重试而不丢失草稿。
-输入框还会显示当前房间用量和默认 50 MiB 配额。附件只是临时房间数据，
-不作为永久文件库保存；房间删除时会立即清理。
-
-### 5. 邀请成员或观察者
-
-房主可以创建邀请链接。
-
-角色说明：
-
-- Owner：房主，管理房间，审批加入请求，清空对话历史，管理参与者。
-- Member：成员，可以参与讨论和发送消息。
-- Observer：观察者，只能查看房间内容，不参与对话。
-- Agent：接入房间的 AI 参与者。
-
-邀请链接应当被视为访问凭证。只分享给你信任的人。
-
-### 6. 使用普通聊天
-
-在普通聊天模式下，消息会发送到房间，并可以触发当前 Active Agent 回复。
-
-这个模式适合需要 AI 立即反馈的场景。
-
-### 7. 把讨论和 AI 回合分开
-
-每条消息默认实时发送。Composer 提供两种发送动作，让大家可以一边讨论一边精确地控制 AI 回合：
-
-- **发送给成员**：发布到 Orbit 侧信道笔记，只在侧栏对人类可见，不会触发 AI；只有当有人将其"提升"到主线程时，AI 才会感知。
-- **发送给 Agent**：进入 FIFO 主输入队列。每条入队消息都会触发一次 AI 回合；如果 Agent 正在回复，下一条会在当前回合结束时自动触发。
-
-适合用 Orbit 笔记做头脑风暴、补充上下文、相互讨论；适合用"发送给 Agent"获取一次结构化的 AI 回答。两种方式都保持实时通讯——没有需要"启动"或"提交"的独立模式。
-
-## 普通用户安全边界
-
-CACP 采用 local-first 的 Agent 边界设计，但用户仍然需要谨慎使用。
-
-重要提醒：
-
-- 在线体验环境是实验性的，不要用于机密工作。
-- 所选工具型 Agent 通过本地连接器运行在你的电脑上，可能访问你选择的工作目录。
-- 公开演示时建议优先使用只读权限，除非你明确希望 Agent 修改文件。
-- 不要在聊天、截图或日志里暴露 token、API Key、SSH Key、生产配置、私有房间链接或敏感文件。
-- 只在你信任的目录中连接 Agent。
-- 只邀请你信任的人进入包含有意义上下文的房间。
-- 如果不确定安全边界，建议使用测试目录和只读权限，而不是给本地工具型 Agent 写入权限。
-
-## CACP 不是什么
-
-CACP 不是一个托管式代码 Agent 平台。
-
-CACP 不是 Claude Code 或其他 Agent 的替代品。
-
-CACP 还不是生产级协作基础设施。
-
-CACP 是一个早期开源实验，用来探索多个人类和 AI Agent 如何通过共享协议和共享房间进行沟通。
-
-## 项目结构
-
-```text
-packages/
-  protocol      共享 TypeScript 类型、Zod schema、协议契约、连接码
-  server        Fastify/WebSocket 房间服务、SQLite 事件存储、认证、配对、治理
-  cli-adapter   本地连接器，以及受支持本地工具型 Agent 的运行逻辑
-  web           React + Vite 房间界面
-
-docs/
-  protocol      协议说明
-  examples      连接器配置示例
-  superpowers   设计和实现记录
-
-deploy/
-  示例生产部署文件
-
-scripts/
-  仓库工具，例如 Windows Local Connector 构建脚本
-```
-
-## 本地开发
-
-前置要求：
-
-- Node.js 22.12 或更高版本（推荐 Node.js 24）
-- Corepack
-- 使用 `packageManager` 中固定的 pnpm 版本
-
-安装依赖：
-
-```powershell
+```shell
 corepack enable
 corepack pnpm install
 ```
 
-运行完整验证：
+在两个终端中分别启动服务端和 Web 应用：
 
-```powershell
-corepack pnpm check
-```
-
-运行测试：
-
-```powershell
-corepack pnpm test
-```
-
-构建所有包：
-
-```powershell
-corepack pnpm build
-```
-
-启动本地开发服务：
-
-```powershell
+```shell
 corepack pnpm dev:server
+```
+
+```shell
 corepack pnpm dev:web
+```
+
+打开 <http://127.0.0.1:5173/>。本地部署模式可以从房间流程启动 Connector；
+开发 Connector 时，也可以配置一个仅保存在本地的适配器示例，然后运行：
+
+```shell
 corepack pnpm dev:adapter
 ```
 
-运行单个包的测试：
+常用验证命令：
 
-```powershell
+```shell
+corepack pnpm test
+corepack pnpm build
+corepack pnpm validate
+```
+
+开发单个包时可运行聚焦测试：
+
+```shell
 corepack pnpm --filter @cacp/server test
 corepack pnpm --filter @cacp/web test
 corepack pnpm --filter @cacp/cli-adapter test
 ```
 
-构建跨平台 Local Connector 压缩包：
+构建跨平台 Connector 压缩包：
 
-```powershell
+```shell
 corepack pnpm package:connector
 ```
 
-GitHub Actions 中提供手动触发的 `live agent compatibility` 工作流，
-用于在带登录态、隔离的 Windows runner 上验证四种 Agent 的真实回合。
-普通 CI 不会使用 Agent 凭证或消耗模型额度。
+## 语音基础设施
 
-## 开发者说明
+语音功能是可选的。只有同时配置 `LIVEKIT_URL`、`LIVEKIT_API_KEY` 和
+`LIVEKIT_API_SECRET` 时，房间服务端才会启用语音。服务端签发短期房间授权，
+允许房主、管理员和成员发布麦克风音频，将观察者限制为只听，并在相应 CACP
+状态结束时移除参与者或删除语音房间。
 
-重要文件：
+生产语音部署还需要可公开访问的 LiveKit 服务、有效 TLS 和 WebRTC 网络穿透。
+当前参考拓扑使用独立 LiveKit 服务、Redis 以及 TURN/TLS 配置；这些都属于部署
+基础设施，不是 Local Connector 的一部分。LiveKit 密钥和生产拓扑不得提交到
+仓库。
 
-- 协议 schema：`packages/protocol/src/schemas.ts`
-- 连接码工具：`packages/protocol/src/connection-code.ts`
-- 服务端应用和路由：`packages/server/src/server.ts`
-- 事件存储：`packages/server/src/event-store.ts`
-- 服务端对话辅助逻辑：`packages/server/src/conversation.ts`
-- Agent profile 映射：`packages/server/src/pairing.ts`
-- Web API 客户端：`packages/web/src/api.ts`
-- Web 房间状态派生：`packages/web/src/room-state.ts`
-- CLI Adapter 入口：`packages/cli-adapter/src/index.ts`
-- 适配器兼容清单：`packages/cli-adapter/src/agent-compatibility.ts`
-- 附件落盘逻辑：`packages/cli-adapter/src/connector/attachment-materializer.ts`
+## 安全模型
 
-如果修改协议事件契约，通常需要同步更新：
+CACP 有意收窄了本地执行边界，但它不是端到端加密或已经完成生产加固的平台。
 
-- 协议 schema。
-- 服务端创建或派生该事件的逻辑。
-- Web 房间状态派生。
-- 相关包测试。
-- 如果行为对用户可见，还需要更新文档。
+- 本地工具 Agent 在 Connector 房主的机器上运行，并受指定工作目录和权限等级
+  限制。
+- 房间事件和共享内容对已授权参与者可见。邀请链接、连接码和参与者令牌都应视为
+  凭据。
+- 房主预览并确认后，导入的原生 Agent 历史会成为房间成员可见的共享内容。
+- Room Attachment 是临时数据：单文件不超过 10 MiB，单次输入最多五个文件，
+  房间默认总配额为 50 MiB。
+- Orbit 附件可以在人类之间共享而不向 Agent 披露。提升操作只会为该 Main Input
+  指向的 Agent 创建显式访问授权。
+- 附件失去全部房间内容引用、房主结束 Live Room 或房间服务端重启时，附件字节
+  都会被删除；它不是永久文件库。
+- 只有 Web UI 和房间服务端适合公开暴露；Agent 执行必须保留在 Local Connector
+  之后。
 
-## 开发者安全边界
+私下报告安全问题的方法请参阅 [SECURITY.md](SECURITY.md)。
 
-只有房间服务和 Web UI 应该公开部署。
+## 项目状态
 
-Agent 执行应当通过连接器留在用户本地。
+| 项目               | 状态                                                    |
+| ------------------ | ------------------------------------------------------- |
+| 产品成熟度         | 实验性开发者预览                                        |
+| 工作区版本         | 0.5.0                                                   |
+| 线协议版本         | CACP 0.3.0                                              |
+| 房间生命周期       | 临时；房主离开或房间服务端重启时结束                    |
+| 支持的 Agent       | Claude Code、Codex CLI、GitHub Copilot CLI 和 Kimi Code |
+| HTTP LLM API Agent | 当前主线不支持                                          |
 
-不要提交：
+### CACP 不是什么
 
-- `.env`
-- `.deploy/*`
-- `docs/Server info.md`
-- `docs/deploy-cloud.md`
-- `docs/examples/*.local.json`
-- SQLite 数据库文件
-- SSH Key
-- API Key
-- 生产配置
-- connector token
-- 包含房间、邀请、配对、参与者或连接器秘密的截图和日志
+- 它不是托管式 Coding Agent 平台；Agent 在 Connector 房主的机器上执行。
+- 它不是 Claude Code、Codex、Copilot 或 Kimi 的替代品；它提供包围这些工具的
+  协作层。
+- 它还不是生产级协作基础设施。
+
+## 仓库结构
+
+| 路径                                           | 职责                                                                                          |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| [`packages/protocol`](packages/protocol)       | 共享 TypeScript 类型、Zod Schema、策略逻辑、兼容性清单和线协议契约。                          |
+| [`packages/server`](packages/server)           | Fastify/WebSocket API、SQLite 事件存储、认证、配对、房间治理、附件、白板协调和 LiveKit 授权。 |
+| [`packages/cli-adapter`](packages/cli-adapter) | 跨平台 Local Connector，以及四种受支持本地工具 Agent 的 SDK Runtime。                         |
+| [`packages/web`](packages/web)                 | React/Vite 房间 UI、状态投影、Orbit、附件、语音和 Collaborative Whiteboard。                  |
+| [`docs`](docs)                                 | 协议说明、ADR、诊断文档、研究资料和设计历史。                                                 |
+
+推荐从以下文档开始深入了解：
+
+- [Protocol v0.3](docs/protocol/cacp-v0.3.md)
+- [领域词汇](CONTEXT.md)
+- [架构决策](docs/adr)
+- [协作诊断](docs/collaboration-diagnostics.md)
+- [贡献指南](CONTRIBUTING.md)
 
 ## 参与贡献
 
-欢迎贡献，尤其是这些方向：
+欢迎参与协议设计、房间体验、Local Connector 可靠性、Agent 兼容性、白板与语音
+行为、无障碍、安全加固、测试和文档工作。
 
-- 协议设计和事件语义。
-- 房间体验、Orbit 侧信道、发送给 Agent 队列等改进。
-- Local Connector 易用性。
-- Agent 适配兼容性。
-- 本地工具型 Agent 适配器。
-- 安全审查和加固。
-- 文档和示例。
-
-提交 Pull Request 前，请运行相关测试，并在 PR 中说明验证命令。涉及可见 UI 的改动，建议附上截图或录屏。
+提交 Pull Request 前请运行 `corepack pnpm validate`。对用户可见的改动应附带验证
+说明和截图，并明确协议、安全、部署或 Connector 风险。完整流程请参阅
+[CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 联系方式
-
-项目联系邮箱：
 
 - 453043662@qq.com
 - wangzuchong@gmail.com
 - 1023289914@qq.com
+
+安全问题请按照 [SECURITY.md](SECURITY.md) 私下报告。
+
+## 许可证
+
+本项目采用 [Apache License 2.0](LICENSE)。
