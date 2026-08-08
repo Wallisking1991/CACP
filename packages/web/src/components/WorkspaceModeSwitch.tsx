@@ -7,6 +7,7 @@ export type WorkspaceMode = "conversation" | "whiteboard";
 export interface WorkspaceModeSwitchProps {
   mode: WorkspaceMode;
   onChange: (mode: WorkspaceMode) => void;
+  onWhiteboardIntent?: () => void;
   activeEditorCount?: number;
   hasWhiteboardActivity?: boolean;
   hasConversationActivity?: boolean;
@@ -15,6 +16,7 @@ export interface WorkspaceModeSwitchProps {
 export function WorkspaceModeSwitch({
   mode,
   onChange,
+  onWhiteboardIntent,
   activeEditorCount = 0,
   hasWhiteboardActivity = false,
   hasConversationActivity = false,
@@ -99,6 +101,8 @@ export function WorkspaceModeSwitch({
         data-tooltip={t("workspace.whiteboard")}
         tabIndex={mode === "whiteboard" ? 0 : -1}
         className={mode === "whiteboard" ? "is-active" : undefined}
+        onFocus={onWhiteboardIntent}
+        onPointerEnter={onWhiteboardIntent}
         onClick={() => activate("whiteboard")}
         onKeyDown={(event) => handleKeyDown(event, "whiteboard")}
       >

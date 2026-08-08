@@ -313,6 +313,16 @@ export default function Workspace({
     workspaceState.roomId === session.room_id &&
     workspaceState.whiteboardOpened;
   const workspaceModeRef = useRef(workspaceMode);
+  const preparedWhiteboardEditorLoader = useMemo(() => {
+    let pending: ReturnType<WhiteboardEditorAdapterLoader> | undefined;
+    return () => {
+      pending ??= loadWhiteboardEditorAdapter().catch((loadError: unknown) => {
+        pending = undefined;
+        throw loadError;
+      });
+      return pending;
+    };
+  }, [loadWhiteboardEditorAdapter]);
   useEffect(() => {
     workspaceModeRef.current = workspaceMode;
   }, [workspaceMode]);
@@ -382,6 +392,9 @@ export default function Workspace({
     },
     [session.room_id]
   );
+  const handleWhiteboardIntent = useCallback(() => {
+    void preparedWhiteboardEditorLoader().catch(() => undefined);
+  }, [preparedWhiteboardEditorLoader]);
 
   const handleObservedWhiteboardCollaborators = useCallback(
     (collaborators: WhiteboardCollaborator[]) => {
@@ -1079,6 +1092,9 @@ export default function Workspace({
             onWorkspaceModeChange={
               canUseWhiteboard ? handleWorkspaceModeChange : undefined
             }
+            onWhiteboardIntent={
+              canUseWhiteboard ? handleWhiteboardIntent : undefined
+            }
             whiteboardActiveEditorCount={whiteboardActiveEditorCount}
             hasWhiteboardActivity={hasWhiteboardActivity}
             hasConversationActivity={hasConversationActivity}
@@ -1326,7 +1342,7 @@ export default function Workspace({
                     token: session.token,
                     role: session.role === "agent" ? "observer" : session.role,
                   }}
-                  loadEditorAdapter={loadWhiteboardEditorAdapter}
+                  loadEditorAdapter={preparedWhiteboardEditorLoader}
                   loadSession={loadWhiteboardSessionFactory}
                   diagnostics={diagnostics}
                   langCode={lang}

@@ -68,6 +68,7 @@ export interface HeaderProps {
   onOrbitBubbleClick?: (avatarId: string) => void;
   workspaceMode?: WorkspaceMode;
   onWorkspaceModeChange?: (mode: WorkspaceMode) => void;
+  onWhiteboardIntent?: () => void;
   whiteboardActiveEditorCount?: number;
   hasWhiteboardActivity?: boolean;
   hasConversationActivity?: boolean;
@@ -106,6 +107,7 @@ export default function Header({
   onOrbitBubbleClick,
   workspaceMode = "conversation",
   onWorkspaceModeChange,
+  onWhiteboardIntent,
   whiteboardActiveEditorCount = 0,
   hasWhiteboardActivity = false,
   hasConversationActivity = false,
@@ -147,6 +149,7 @@ export default function Header({
         <WorkspaceModeSwitch
           mode={workspaceMode}
           onChange={onWorkspaceModeChange}
+          onWhiteboardIntent={onWhiteboardIntent}
           activeEditorCount={whiteboardActiveEditorCount}
           hasWhiteboardActivity={hasWhiteboardActivity}
           hasConversationActivity={hasConversationActivity}
