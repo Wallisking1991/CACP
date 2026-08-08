@@ -358,6 +358,7 @@
   "thread.emptyHeadline": "No messages yet · say hi or wait for the agent.",
   "network.reconnecting": "Reconnecting…",
   "thread.emptySubcopy": "The room is ready. Messages will appear here once the conversation starts.",
+  "thread.showEarlier": "Show {count} earlier messages",
   "message.human": "Human",
   "message.ai": "AI",
   "message.system": "System",

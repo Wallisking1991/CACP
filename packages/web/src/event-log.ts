@@ -36,22 +36,65 @@ function orbitNoteId(event: CacpEvent): string | undefined {
     : undefined;
 }
 
-function isDuplicateEvent(events: CacpEvent[], next: CacpEvent): boolean {
-  if (events.some((event) => event.event_id === next.event_id)) return true;
-  const noteId = orbitNoteId(next);
+interface EventIdentityIndex {
+  owner: readonly CacpEvent[];
+  eventIds: Set<string>;
+  orbitNoteKeys: Set<string>;
+}
+
+const eventIdentityIndexes = new WeakMap<
+  readonly CacpEvent[],
+  EventIdentityIndex
+>();
+
+function orbitNoteKey(event: CacpEvent): string | undefined {
+  const noteId = orbitNoteId(event);
+  return noteId === undefined ? undefined : `${event.room_id}\u0000${noteId}`;
+}
+
+function indexEvents(events: readonly CacpEvent[]): EventIdentityIndex {
+  const cached = eventIdentityIndexes.get(events);
+  if (cached?.owner === events) return cached;
+
+  const index: EventIdentityIndex = {
+    owner: events,
+    eventIds: new Set(events.map((event) => event.event_id)),
+    orbitNoteKeys: new Set(
+      events.map(orbitNoteKey).filter((key): key is string => key !== undefined)
+    ),
+  };
+  eventIdentityIndexes.set(events, index);
+  return index;
+}
+
+function isDuplicateEvent(index: EventIdentityIndex, next: CacpEvent): boolean {
+  const noteKey = orbitNoteKey(next);
   return (
-    noteId !== undefined &&
-    events.some(
-      (event) => event.room_id === next.room_id && orbitNoteId(event) === noteId
-    )
+    index.eventIds.has(next.event_id) ||
+    (noteKey !== undefined && index.orbitNoteKeys.has(noteKey))
   );
 }
 
+function transferIndex(
+  index: EventIdentityIndex,
+  events: CacpEvent[],
+  next: CacpEvent
+): void {
+  index.owner = events;
+  index.eventIds.add(next.event_id);
+  const noteKey = orbitNoteKey(next);
+  if (noteKey !== undefined) index.orbitNoteKeys.add(noteKey);
+  eventIdentityIndexes.set(events, index);
+}
+
 export function mergeEvent(events: CacpEvent[], next: CacpEvent): CacpEvent[] {
-  if (isDuplicateEvent(events, next)) return events;
+  const index = indexEvents(events);
+  if (isDuplicateEvent(index, next)) return events;
   const last = events.at(-1);
   if (!last || last.created_at.localeCompare(next.created_at) <= 0) {
-    return [...events, next];
+    const merged = [...events, next];
+    transferIndex(index, merged, next);
+    return merged;
   }
 
   let low = 0;
@@ -64,7 +107,9 @@ export function mergeEvent(events: CacpEvent[], next: CacpEvent): CacpEvent[] {
       high = middle;
     }
   }
-  return [...events.slice(0, low), next, ...events.slice(low)];
+  const merged = [...events.slice(0, low), next, ...events.slice(low)];
+  transferIndex(index, merged, next);
+  return merged;
 }
 
 export function mergeEvents(

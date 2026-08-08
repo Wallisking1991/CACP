@@ -358,6 +358,7 @@
   "thread.emptyHeadline": "还没有消息 · 打个招呼或等待 Agent 加入。",
   "network.reconnecting": "重新连接中…",
   "thread.emptySubcopy": "房间已就绪。对话开始后消息将显示在这里。",
+  "thread.showEarlier": "显示更早的 {count} 条消息",
   "message.human": "人类",
   "message.ai": "AI",
   "message.system": "系统",

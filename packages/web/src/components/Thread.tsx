@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AttachmentRef } from "@cacp/protocol";
 import { useT } from "../i18n/useT.js";
 import type {
@@ -290,6 +290,8 @@ function isToolPhase(phase: string | undefined): boolean {
   );
 }
 
+const SETTLED_HISTORY_PAGE_SIZE = 120;
+
 export default function Thread({
   currentParticipantId,
   messages,
@@ -308,6 +310,16 @@ export default function Thread({
   const threadRef = useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const followsLatestRef = useRef(true);
+  const historyRestoreRef = useRef<
+    | {
+        scrollHeight: number;
+        scrollTop: number;
+      }
+    | undefined
+  >(undefined);
+  const [historyStartIndex, setHistoryStartIndex] = useState<number | null>(
+    null
+  );
   const { threadItems, visibleStreamingTurns, runningRuns } = useMemo(() => {
     const runTraceTurnIds = new Set(agentRuns.map((run) => run.turn_id));
     const runTraceMessageIds = new Set(
@@ -349,17 +361,26 @@ export default function Thread({
     };
   }, [agentRuns, messages, streamingTurns]);
 
-  const settledScrollSignal = useMemo(
-    () =>
-      threadItems
-        .map((item) =>
-          item.type === "message"
-            ? `${item.data.message_id}:${item.data.kind}`
-            : `${item.data.run_id}:${item.data.status}`
-        )
-        .join("|"),
-    [threadItems]
+  const latestHistoryStartIndex = Math.max(
+    0,
+    threadItems.length - SETTLED_HISTORY_PAGE_SIZE
   );
+  const visibleHistoryStartIndex = Math.min(
+    historyStartIndex ?? latestHistoryStartIndex,
+    latestHistoryStartIndex
+  );
+  const hiddenSettledItemCount = visibleHistoryStartIndex;
+  const visibleThreadItems = useMemo(
+    () => threadItems.slice(visibleHistoryStartIndex),
+    [threadItems, visibleHistoryStartIndex]
+  );
+  const settledScrollSignal = useMemo(() => {
+    const item = threadItems.at(-1);
+    if (!item) return "";
+    return item.type === "message"
+      ? `${item.data.message_id}:${item.data.kind}`
+      : `${item.data.run_id}:${item.data.status}`;
+  }, [threadItems]);
   const liveScrollSignal = useMemo(
     () =>
       [
@@ -407,6 +428,15 @@ export default function Thread({
     pendingAgentName,
   ]);
 
+  useLayoutEffect(() => {
+    const restore = historyRestoreRef.current;
+    const thread = threadRef.current;
+    if (!restore || !thread) return;
+    thread.scrollTop =
+      restore.scrollTop + (thread.scrollHeight - restore.scrollHeight);
+    historyRestoreRef.current = undefined;
+  }, [hiddenSettledItemCount]);
+
   const isEmpty =
     threadItems.length === 0 &&
     visibleStreamingTurns.length === 0 &&
@@ -422,7 +452,11 @@ export default function Thread({
         if (!thread) return;
         const distanceFromBottom =
           thread.scrollHeight - thread.scrollTop - thread.clientHeight;
-        followsLatestRef.current = distanceFromBottom <= 48;
+        const followsLatest = distanceFromBottom <= 48;
+        followsLatestRef.current = followsLatest;
+        setHistoryStartIndex((current) =>
+          followsLatest ? null : (current ?? latestHistoryStartIndex)
+        );
       }}
     >
       {isEmpty && (
@@ -432,7 +466,32 @@ export default function Thread({
         </div>
       )}
 
-      {threadItems.map((item) => {
+      {hiddenSettledItemCount > 0 && (
+        <button
+          type="button"
+          className="thread-history-more"
+          onClick={() => {
+            const thread = threadRef.current;
+            if (thread) {
+              historyRestoreRef.current = {
+                scrollHeight: thread.scrollHeight,
+                scrollTop: thread.scrollTop,
+              };
+            }
+            setHistoryStartIndex(
+              Math.max(0, visibleHistoryStartIndex - SETTLED_HISTORY_PAGE_SIZE)
+            );
+          }}
+        >
+          {t("thread.showEarlier", {
+            count: String(
+              Math.min(hiddenSettledItemCount, SETTLED_HISTORY_PAGE_SIZE)
+            ),
+          })}
+        </button>
+      )}
+
+      {visibleThreadItems.map((item) => {
         if (item.type === "run") {
           const run = item.data;
           const agent = agents.find((a) => a.agent_id === run.agent_id);

@@ -32,6 +32,23 @@ describe("event log", () => {
     ).toEqual(["evt_1", "evt_2"]);
   });
 
+  it("appends a new event without rescanning an indexed history", () => {
+    let historyLocked = false;
+    const source = messageEvent("evt_1", "2026-04-25T00:00:00.000Z");
+    const historicalEvent = Object.defineProperty({ ...source }, "event_id", {
+      enumerable: true,
+      get() {
+        if (historyLocked) throw new Error("historical event was scanned");
+        return source.event_id;
+      },
+    });
+    const history = mergeEvent([], historicalEvent);
+    historyLocked = true;
+
+    const appended = messageEvent("evt_2", "2026-04-25T00:00:01.000Z");
+    expect(mergeEvent(history, appended)).toEqual([historicalEvent, appended]);
+  });
+
   it("deduplicates a live orbit note against its synthetic reconnect replay", () => {
     const live = {
       ...messageEvent("evt_live", "2026-04-25T00:00:01.000Z"),
