@@ -5,6 +5,7 @@ import {
   WhiteboardProtocolName,
   WhiteboardProtocolVersion,
   WhiteboardServerMessageSchema,
+  reconcileWhiteboardElements,
   type WhiteboardHumanRole,
   type WhiteboardCollaborator as WireWhiteboardCollaborator,
   type WhiteboardScene as SharedWhiteboardScene,
@@ -152,6 +153,58 @@ function sharedAppState(scene: WhiteboardScene) {
     : {};
 }
 
+function sharedSceneFromEditor(
+  roomId: string,
+  scene: WhiteboardScene
+): SharedWhiteboardScene | undefined {
+  const parsed = WhiteboardClientUpdateMessageSchema.safeParse({
+    protocol: WhiteboardProtocolName,
+    version: WhiteboardProtocolVersion,
+    room_id: roomId,
+    type: "whiteboard.elements.update",
+    update_id: "whiteboard_scene_validation",
+    base_revision: 0,
+    elements: scene.elements,
+    app_state: sharedAppState(scene),
+  });
+  if (!parsed.success) return undefined;
+  return {
+    elements: parsed.data.elements,
+    app_state: parsed.data.app_state,
+  };
+}
+
+function reconcileSharedScene(
+  roomId: string,
+  authoritative: SharedWhiteboardScene,
+  local: WhiteboardScene | undefined,
+  preferLocalAppState = false
+): SharedWhiteboardScene {
+  if (!local) return authoritative;
+  const sharedLocal = sharedSceneFromEditor(roomId, local);
+  if (!sharedLocal) return authoritative;
+  return {
+    elements: reconcileWhiteboardElements(
+      authoritative.elements,
+      sharedLocal.elements
+    ),
+    app_state: preferLocalAppState
+      ? { ...authoritative.app_state, ...sharedLocal.app_state }
+      : authoritative.app_state,
+  };
+}
+
+function sharedSceneMatchesEditor(
+  roomId: string,
+  shared: SharedWhiteboardScene,
+  editorScene: WhiteboardScene
+): boolean {
+  const current = sharedSceneFromEditor(roomId, editorScene);
+  return (
+    current !== undefined && JSON.stringify(current) === JSON.stringify(shared)
+  );
+}
+
 function remoteScene(
   editor: WhiteboardEditorController,
   scene: SharedWhiteboardScene
@@ -252,6 +305,9 @@ export function createWhiteboardSession({
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let inFlightUpdateId: string | undefined;
   let inFlightScene: WhiteboardScene | undefined;
+  let inFlightFrame: string | undefined;
+  let inFlightBaseRevision: number | undefined;
+  let inFlightSentGeneration: number | undefined;
   let queuedScene: WhiteboardScene | undefined;
   let sceneThrottleTimer: ReturnType<typeof setTimeout> | undefined;
   let rateLimitRetryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -465,6 +521,7 @@ export function createWhiteboardSession({
     setStatus(synchronized ? "connected" : "disconnected");
     setEditorAccess();
     if (!synchronized) scheduleReconnect();
+    else resumePendingScene();
   }
 
   function applyRemoteScene(
@@ -530,7 +587,7 @@ export function createWhiteboardSession({
     if (nextScene) sendScene(nextScene);
   }
 
-  function sendScene(scene: WhiteboardScene) {
+  function resumePendingScene() {
     if (
       destroyed ||
       !synchronized ||
@@ -538,6 +595,34 @@ export function createWhiteboardSession({
       revision === undefined ||
       socket?.readyState !== SOCKET_OPEN
     ) {
+      return;
+    }
+    if (inFlightUpdateId && inFlightFrame) {
+      if (inFlightSentGeneration === connectionGeneration) return;
+      socket.send(inFlightFrame);
+      inFlightSentGeneration = connectionGeneration;
+      report("update_sent", {
+        update_id: inFlightUpdateId,
+        ...(inFlightBaseRevision !== undefined
+          ? { base_revision: inFlightBaseRevision }
+          : {}),
+        element_count: inFlightScene?.elements.length ?? 0,
+        synchronized,
+        reason: "reconnect_replay",
+      });
+      return;
+    }
+    flushQueuedScene();
+  }
+
+  function sendScene(scene: WhiteboardScene) {
+    if (destroyed || role === "observer") return;
+    if (
+      !synchronized ||
+      revision === undefined ||
+      socket?.readyState !== SOCKET_OPEN
+    ) {
+      if (hasInstalledAuthoritativeScene) queuedScene = scene;
       return;
     }
     if (inFlightUpdateId) {
@@ -571,10 +656,14 @@ export function createWhiteboardSession({
       app_state: sharedAppState(scene),
     });
     if (!parsed.success) return;
+    const frame = JSON.stringify(parsed.data);
     inFlightUpdateId = updateId;
     inFlightScene = scene;
+    inFlightFrame = frame;
+    inFlightBaseRevision = parsed.data.base_revision;
+    inFlightSentGeneration = connectionGeneration;
     lastSceneSentAt = Date.now();
-    socket.send(JSON.stringify(parsed.data));
+    socket.send(frame);
     report("update_sent", {
       update_id: updateId,
       base_revision: parsed.data.base_revision,
@@ -645,9 +734,6 @@ export function createWhiteboardSession({
     sceneThrottleTimer = undefined;
     rateLimitRetryTimer = undefined;
     revision = undefined;
-    inFlightUpdateId = undefined;
-    inFlightScene = undefined;
-    queuedScene = undefined;
     lastSceneSentAt = Number.NEGATIVE_INFINITY;
     remoteApplicationSequence += 1;
     remoteApplicationPending = false;
@@ -720,6 +806,9 @@ export function createWhiteboardSession({
           revision = message.revision;
           inFlightUpdateId = undefined;
           inFlightScene = undefined;
+          inFlightFrame = undefined;
+          inFlightBaseRevision = undefined;
+          inFlightSentGeneration = undefined;
           queuedScene = undefined;
           if (sceneThrottleTimer) clearTimeout(sceneThrottleTimer);
           if (rateLimitRetryTimer) clearTimeout(rateLimitRetryTimer);
@@ -754,8 +843,16 @@ export function createWhiteboardSession({
           return;
         }
         revision = message.revision;
-        const applyingImages = applyRemoteScene(
+        const recoveredScene = reconcileSharedScene(
+          identity.roomId,
           message.scene,
+          queuedScene ?? inFlightScene,
+          queuedScene !== undefined ||
+            (inFlightScene !== undefined &&
+              inFlightBaseRevision === message.revision)
+        );
+        const applyingImages = applyRemoteScene(
+          recoveredScene,
           hasInstalledAuthoritativeScene
         );
         hasInstalledAuthoritativeScene = true;
@@ -763,6 +860,7 @@ export function createWhiteboardSession({
           synchronized = true;
           setStatus("connected");
           setEditorAccess();
+          resumePendingScene();
         }
         return;
       }
@@ -784,6 +882,9 @@ export function createWhiteboardSession({
         revision = message.revision;
         inFlightUpdateId = undefined;
         inFlightScene = undefined;
+        inFlightFrame = undefined;
+        inFlightBaseRevision = undefined;
+        inFlightSentGeneration = undefined;
         rejectedUpdate = false;
         rejectedBaseRevision = undefined;
         pendingRemote = undefined;
@@ -791,9 +892,7 @@ export function createWhiteboardSession({
           setStatus("connected");
           setEditorAccess();
         }
-        const nextScene = queuedScene;
-        queuedScene = undefined;
-        if (nextScene) sendScene(nextScene);
+        flushQueuedScene();
         return;
       }
       if (message.type === "whiteboard.presence.snapshot") {
@@ -840,10 +939,33 @@ export function createWhiteboardSession({
           if (revision === undefined || message.revision > revision) {
             revision = message.revision;
           }
-          report("update_ignored", {
+          const reconciled = reconcileSharedScene(
+            identity.roomId,
+            {
+              elements: message.elements,
+              app_state: message.app_state,
+            },
+            queuedScene ?? inFlightScene ?? editor.getScene(),
+            queuedScene !== undefined
+          );
+          if (
+            !sharedSceneMatchesEditor(
+              identity.roomId,
+              reconciled,
+              editor.getScene()
+            )
+          ) {
+            const applyingImages = applyRemoteScene(reconciled);
+            if (!applyingImages) {
+              synchronized = true;
+              setStatus("connected");
+              setEditorAccess();
+            }
+          }
+          report("state_reconciled", {
             update_id: message.update_id,
             revision: message.revision,
-            reason: "own_echo",
+            reason: "authoritative_self_echo",
           });
           return;
         }
@@ -948,6 +1070,9 @@ export function createWhiteboardSession({
           const retryScene = queuedScene ?? inFlightScene ?? editor.getScene();
           inFlightUpdateId = undefined;
           inFlightScene = undefined;
+          inFlightFrame = undefined;
+          inFlightBaseRevision = undefined;
+          inFlightSentGeneration = undefined;
           queuedScene = retryScene;
           rejectedUpdate = true;
           rejectedBaseRevision = revision;
@@ -970,6 +1095,9 @@ export function createWhiteboardSession({
         ) {
           inFlightUpdateId = undefined;
           inFlightScene = undefined;
+          inFlightFrame = undefined;
+          inFlightBaseRevision = undefined;
+          inFlightSentGeneration = undefined;
           queuedScene = undefined;
           rejectedUpdate = true;
           rejectedBaseRevision = revision;
@@ -986,6 +1114,9 @@ export function createWhiteboardSession({
           synchronized = false;
           inFlightUpdateId = undefined;
           inFlightScene = undefined;
+          inFlightFrame = undefined;
+          inFlightBaseRevision = undefined;
+          inFlightSentGeneration = undefined;
           queuedScene = undefined;
           setStatus("disconnected");
           setEditorAccess();
@@ -1072,6 +1203,9 @@ export function createWhiteboardSession({
       rateLimitRetryTimer = undefined;
       inFlightUpdateId = undefined;
       inFlightScene = undefined;
+      inFlightFrame = undefined;
+      inFlightBaseRevision = undefined;
+      inFlightSentGeneration = undefined;
       queuedScene = undefined;
       revision = remote.revision;
       const applyingImages = applyRemoteScene(remote.scene, true);

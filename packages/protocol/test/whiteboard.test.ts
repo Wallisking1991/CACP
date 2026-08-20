@@ -7,6 +7,7 @@ import {
   WhiteboardSnapshotMutationRequestSchema,
   WhiteboardPromotionRequestSchema,
   WhiteboardServerMessageSchema,
+  reconcileWhiteboardElements,
 } from "../src/index.js";
 
 const element = {
@@ -112,6 +113,25 @@ describe("Collaborative Whiteboard wire protocol", () => {
     expect(WhiteboardClientMessageSchema.safeParse(invalid).success).toBe(
       false
     );
+  });
+
+  it("reconciles concurrent elements with Excalidraw version ordering", () => {
+    const peerElement = {
+      id: "shape_2",
+      type: "ellipse",
+      version: 1,
+      versionNonce: 201,
+    };
+    const newerElement = {
+      ...element,
+      version: 2,
+      versionNonce: 102,
+      width: 240,
+    };
+
+    expect(
+      reconcileWhiteboardElements([element, peerElement], [newerElement])
+    ).toEqual([newerElement, peerElement]);
   });
 
   it("keeps transient collaborator presence outside scene revisions and durable events", () => {

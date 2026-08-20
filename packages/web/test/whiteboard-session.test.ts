@@ -948,6 +948,114 @@ describe("WhiteboardSession", () => {
     session.destroy();
   });
 
+  it("reconciles the final self echo after a concurrent peer update", () => {
+    const socket = new FakeSocket();
+    const editor = createEditor();
+    const updateIds = ["local-start", "local-final"];
+    const session = createWhiteboardSession({
+      identity: {
+        roomId: "room_concurrent_echo",
+        participantId: "member_1",
+        token: "member-token",
+        role: "member",
+      },
+      editor: editor.editor,
+      socketFactory: () => socket,
+      createUpdateId: () => updateIds.shift()!,
+      origin: "http://localhost:5173",
+      sceneThrottleMs: 0,
+    });
+    socket.open();
+    socket.receive(
+      serverMessage("room_concurrent_echo", {
+        type: "whiteboard.connected",
+        participant_id: "member_1",
+        role: "member",
+        can_edit: true,
+      })
+    );
+    socket.receive(
+      serverMessage("room_concurrent_echo", {
+        type: "whiteboard.scene",
+        revision: 0,
+        scene: { elements: [], app_state: {} },
+      })
+    );
+
+    const localStart = {
+      id: "local-shape",
+      type: "rectangle",
+      version: 1,
+      versionNonce: 31,
+      width: 20,
+    };
+    const localFinal = {
+      ...localStart,
+      version: 2,
+      versionNonce: 32,
+      width: 180,
+    };
+    const peerShape = {
+      id: "peer-shape",
+      type: "ellipse",
+      version: 1,
+      versionNonce: 41,
+    };
+    editor.change({ elements: [localStart], appState: {}, files: {} });
+    editor.change({ elements: [localFinal], appState: {}, files: {} });
+    socket.receive(
+      serverMessage("room_concurrent_echo", {
+        type: "whiteboard.elements.updated",
+        update_id: "local-start",
+        participant_id: "member_1",
+        revision: 1,
+        elements: [localStart],
+        app_state: {},
+      })
+    );
+    socket.receive(
+      serverMessage("room_concurrent_echo", {
+        type: "whiteboard.ack",
+        update_id: "local-start",
+        revision: 1,
+      })
+    );
+    socket.receive(
+      serverMessage("room_concurrent_echo", {
+        type: "whiteboard.elements.updated",
+        update_id: "peer-update",
+        participant_id: "member_2",
+        revision: 2,
+        elements: [localStart, peerShape],
+        app_state: {},
+      })
+    );
+    socket.receive(
+      serverMessage("room_concurrent_echo", {
+        type: "whiteboard.elements.updated",
+        update_id: "local-final",
+        participant_id: "member_1",
+        revision: 3,
+        elements: [localFinal, peerShape],
+        app_state: {},
+      })
+    );
+    socket.receive(
+      serverMessage("room_concurrent_echo", {
+        type: "whiteboard.ack",
+        update_id: "local-final",
+        revision: 3,
+      })
+    );
+
+    expect(editor.updateScene).toHaveBeenLastCalledWith({
+      elements: [localFinal, peerShape],
+      appState: {},
+      files: {},
+    });
+    session.destroy();
+  });
+
   it("locks the editor on disconnect and resynchronizes a replacement socket", async () => {
     const sockets: FakeSocket[] = [];
     const editor = createEditor();
@@ -1033,6 +1141,111 @@ describe("WhiteboardSession", () => {
     });
     expect(editor.setReadOnly).toHaveBeenLastCalledWith(false);
     expect(editor.resetHistory).toHaveBeenCalledTimes(1);
+    session.destroy();
+  });
+
+  it("replays an unacknowledged scene after reconnecting", async () => {
+    const sockets: FakeSocket[] = [];
+    const editor = createEditor();
+    const localShape = {
+      id: "local-shape",
+      type: "rectangle",
+      version: 1,
+      versionNonce: 51,
+    };
+    const peerShape = {
+      id: "peer-shape",
+      type: "ellipse",
+      version: 1,
+      versionNonce: 61,
+    };
+    const session = createWhiteboardSession({
+      identity: {
+        roomId: "room_reconnect_replay",
+        participantId: "owner_1",
+        token: "owner-token",
+        role: "owner",
+      },
+      editor: editor.editor,
+      socketFactory: () => {
+        const socket = new FakeSocket();
+        sockets.push(socket);
+        return socket;
+      },
+      createUpdateId: () => "unacknowledged-update",
+      origin: "http://localhost:5173",
+      reconnectDelayMs: 0,
+      sceneThrottleMs: 0,
+    });
+    sockets[0]!.open();
+    sockets[0]!.receive(
+      serverMessage("room_reconnect_replay", {
+        type: "whiteboard.connected",
+        participant_id: "owner_1",
+        role: "owner",
+        can_edit: true,
+      })
+    );
+    sockets[0]!.receive(
+      serverMessage("room_reconnect_replay", {
+        type: "whiteboard.scene",
+        revision: 0,
+        scene: { elements: [], app_state: {} },
+      })
+    );
+    editor.change({ elements: [localShape], appState: {}, files: {} });
+    expect(sentFrames(sockets[0]!, "whiteboard.elements.update")).toHaveLength(
+      1
+    );
+
+    sockets[0]!.serverClose();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    sockets[1]!.open();
+    sockets[1]!.receive(
+      serverMessage("room_reconnect_replay", {
+        type: "whiteboard.connected",
+        participant_id: "owner_1",
+        role: "owner",
+        can_edit: true,
+      })
+    );
+    sockets[1]!.receive(
+      serverMessage("room_reconnect_replay", {
+        type: "whiteboard.scene",
+        revision: 1,
+        scene: { elements: [peerShape], app_state: {} },
+      })
+    );
+
+    expect(sentFrames(sockets[1]!, "whiteboard.elements.update")).toEqual([
+      expect.objectContaining({
+        update_id: "unacknowledged-update",
+        base_revision: 0,
+        elements: [localShape],
+      }),
+    ]);
+    sockets[1]!.receive(
+      serverMessage("room_reconnect_replay", {
+        type: "whiteboard.elements.updated",
+        update_id: "unacknowledged-update",
+        participant_id: "owner_1",
+        revision: 2,
+        elements: [peerShape, localShape],
+        app_state: {},
+      })
+    );
+    sockets[1]!.receive(
+      serverMessage("room_reconnect_replay", {
+        type: "whiteboard.ack",
+        update_id: "unacknowledged-update",
+        revision: 2,
+      })
+    );
+    expect(editor.updateScene).toHaveBeenLastCalledWith({
+      elements: [peerShape, localShape],
+      appState: {},
+      files: {},
+    });
     session.destroy();
   });
 
